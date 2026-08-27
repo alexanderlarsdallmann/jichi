@@ -1066,7 +1066,7 @@ Use `--model <selector>` to override the role-default model for `embed`/`rerank`
 
 ## Roadmap
 
-**Where we stand: latest milestone M623.** The engineering loop is healthy; the
+**Where we stand: latest milestone M624.** The engineering loop is healthy; the
 **first public release shipped 2026-08-27**: **v0.9.0**, one curated commit,
 published to the HRZ GitLab (`jichi-public/jichi`) and to GitHub, tag `v0.9.0`
 on both ([`docs/plans/2026-08-public-snapshot.md`](docs/plans/2026-08-public-snapshot.md),

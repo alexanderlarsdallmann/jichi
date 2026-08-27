@@ -4950,3 +4950,43 @@ a deadline is only as strong as the signal it can escalate to: TERM is a
 request that a busy shell files for later; a timeout that cannot KILL is
 advisory. Watch WCHAN before killing a hang -- the evidence names the fd, and
 the fd names the bug.
+
+## 79. The tool that said yes and meant no (2026-08-27)
+
+**Symptom.** Hosted run three cleared identity, the mtime tie, all of smoke,
+mutant -- and failed in e2e: `63-rust-make-it-pass.md solution accepted:
+wanted exit 0, got 1`. The same gate, five times green locally that day.
+
+**Why local said nothing.** This machine has no rustc. HAVE_RUST was
+`shutil.which("rustc")`, so locally the Rust course printed its skip and the
+gate was green about a course it never ran. A skip is a hole in the
+universe, and a hole is invisible in green.
+
+**Why the runner said FAIL instead of skipping.** ubuntu-24.04 ships Rust
+via rustup shims: which() finds ~/.cargo/bin/rustc on PATH and says yes. But
+the e2e tier runs graders under a private $HOME (M198), a rustup shim
+resolves its toolchain through $HOME/.rustup, and under the scratch HOME
+nothing is there: `rustc --version` answers "no default configured", exit
+nonzero. test.sh's first guard fired -- its message even names the mechanism
+-- and every Rust task "failed" its reference solution.
+
+**The two-line irony.** The driver already knew. usable() exists, with a
+comment explaining that asdf shims under the private HOME once made five
+language courses lie, and that each probe "was checked on this machine
+rather than assumed". rustc and zig were the gates from before that lesson,
+never migrated. The fix is those two lines joining the pattern that sits
+directly beside them.
+
+**Proof without root.** A rustup toolchain contained in the session
+scratchpad: shim-on-PATH + scratch HOME reproduces the runner's exact
+failure; RUSTUP_HOME set makes the pristine fixture fail and the reference
+solution pass, so the content was sound all along. The full driver, run
+locally in runner shape, went red on 63 before the fix and skips loudly
+after it.
+
+**Lesson.** Existence is not usability: which() answers "is there a file",
+never "will it run here" -- the M449 malloc_trim probe in a new coat. A
+skipped course is a shrunken universe: five green gates proved nothing about
+Rust because Rust was never in them. And the machine that can run what yours
+cannot is not a nuisance to appease -- it is a rig this project never had,
+telling the truth at a rate of one lesson per run.

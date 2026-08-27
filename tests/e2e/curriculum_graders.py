@@ -2104,7 +2104,7 @@ if shutil.which("zig"):
         ("26-refactor-to-zig.md", solve_26),
     ]
 else:
-    print("ok - skipped extras 25/26 (no zig on PATH)")
+    print("ok - skipped extras 25/26 (zig not usable here -- absent, or a shim with no version under this $HOME)")
 
 if shutil.which("c++"):
     SOLUTIONS += [
@@ -2370,7 +2370,7 @@ else:
 
 # The graded Zig systems course (M249): Zig's own systems model, two-sided
 # through `jichi grade`, gated on `zig` with a loud skip.
-HAVE_ZIG = shutil.which("zig") is not None
+HAVE_ZIG = usable("zig", "version")
 if HAVE_ZIG:
     SOLUTIONS += [
         ("55-zig-make-it-pass.md",
@@ -2388,7 +2388,7 @@ if HAVE_ZIG:
                   write("58-zig-capstone/DESIGN.md", ZIG_DESIGN))),
     ]
 else:
-    print("ok - skipped the Zig systems course 55-58 (no zig on PATH)")
+    print("ok - skipped the Zig systems course 55-58 (zig not usable here -- absent, or a shim with no version under this $HOME)")
 
 
 def has_cxx_asan():
@@ -2433,8 +2433,14 @@ else:
 
 # The graded Rust systems course (M251): the borrow checker as compile-time
 # memory safety, Result/Option, sum types -- two-sided through `jichi grade`,
-# gated on `rustc` (no cargo needed).
-HAVE_RUST = shutil.which("rustc") is not None
+# gated on `rustc` (no cargo needed). usable(), not which() (M624): the third
+# hosted CI run failed HERE -- ubuntu-24.04 ships Rust via rustup SHIMS, this
+# tier runs under a private $HOME (M198), and a shim resolves its toolchain
+# through $HOME/.rustup, so which() said yes while `rustc --version` said "no
+# default configured" and every task "failed". Locally five gates had been
+# green about a course this box (no rustc at all) never executed. Same trap
+# usable() was built for; rustc and zig were the two gates that predated it.
+HAVE_RUST = usable("rustc", "--version")
 if HAVE_RUST:
     SOLUTIONS += [
         ("63-rust-make-it-pass.md",
@@ -2451,7 +2457,7 @@ if HAVE_RUST:
                   write("66-rust-capstone/DESIGN.md", RUST_DESIGN))),
     ]
 else:
-    print("ok - skipped the Rust systems course 63-66 (no rustc on PATH)")
+    print("ok - skipped the Rust systems course 63-66 (rustc not usable here -- absent, or a rustup shim with no toolchain under this $HOME)")
 
 
 # The graded PROCESS curriculum (M253): structural floors on the software-

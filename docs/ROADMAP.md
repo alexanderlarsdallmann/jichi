@@ -9,7 +9,7 @@ both (M620, the plan executed as written; M621 mended what the first hosted CI r
 found). The loop keeps running -- **design, test, develop, dogfood, harden**. The
 checklist, with what remains:
 
-> **Where we stand** — updated **2026-08-27**, latest milestone **M623**:
+> **Where we stand** — updated **2026-08-27**, latest milestone **M624**:
 > **The first public release is out, and the hosted gate is teaching.** Apache-2.0
 > decided and stamped (M619); the snapshot cut, verified standalone, and published
 > to the HRZ GitLab and GitHub as **v0.9.0** (M620). Its first hosted CI runs then
@@ -23,8 +23,12 @@ checklist, with what remains:
 > deadline: a headless run reading a never-ending harness stdin (ANECDOTES #64's
 > lesson, now smoke_lint 18/19) behind a driver shell that deferred timeout(1)'s
 > TERM until that child exited -- both deadline wrappers now escalate with
-> `timeout -k` (M623). Three full local gates had missed all of it for the same
-> reason: the environment was part of the test. ANECDOTES #76/#77/#78.
+> `timeout -k` (M623). The third hosted run then cleared every prior lesson and
+> found the course that was green because it never ran: ubuntu ships Rust as
+> rustup shims, this tier runs under a private $HOME, and the two toolchain
+> gates still keyed on existence rather than usability said yes to a shim with
+> no toolchain (M624). Every local gate had missed all of it for the same
+> reason: the environment was part of the test. ANECDOTES #76-#79.
 >
 > **Previously — M595:**
 > **Which budget binds is arithmetic, and the shape hypothesis was wrong.** `DEFERRED.md`
@@ -34715,3 +34719,41 @@ child transitively. Demonstrated in both directions before patching: `timeout
 timeout would truncate slow legitimate pipes. Also of record: this milestone's
 own first probe -- `pkill -f 'read_truncated_total'` -- matched and killed the
 shell issuing it; pattern width is a blast radius, ANECDOTES #66's cousin.
+
+### M624 -- the course that was green because it never ran -- done
+
+The third hosted run (Actions 33112373337) cleared everything the first two
+taught -- identity, the tie, smoke end to end, mutant -- and failed in the
+LAST tier: `curriculum_graders`, task 63 (rust-make-it-pass), "solution
+accepted: wanted exit 0, got 1". Five local gates that day had been green
+about this course because the dev box has no rustc: the course was SKIPPED
+everywhere the gate had recently run. The runner was the first machine in a
+long time to actually execute it.
+
+What failed was not the content. ubuntu-24.04 ships Rust 1.98 via rustup
+SHIMS; the e2e tier runs graders under a suite-wide private $HOME (M198); a
+rustup shim resolves its toolchain through $HOME/.rustup -- so under the
+scratch HOME the shim answers `--version` with "no default configured",
+test.sh's own first guard fires ("rustc is not usable ... or a
+version-manager shim with no version selected" -- the fixture names the
+mechanism it would die of), and the reference solution "fails". The driver
+documents this exact trap: usable() exists because asdf shims did the same to
+five language courses (raco, guile, elixir, runghc, clojure), each probe
+"checked on this machine rather than assumed". HAVE_RUST and HAVE_ZIG were
+the two gates that predated that lesson, still keyed on bare shutil.which.
+Both now probe usability (`rustc --version`, `zig version`), and both skip
+messages say "not usable here", joining the five.
+
+Proven with a rustup toolchain contained in the session scratchpad -- no
+root, no PATH pollution: under runner shape (shim on PATH, scratch HOME)
+test.sh prints the runner's exact failure; with RUSTUP_HOME set, the pristine
+fixture fails its test and the reference solution passes, so the task content
+is sound. Born red at driver level: the full grader run in runner shape
+reproduces the FAIL on 63 locally before the fix and prints the loud skip
+after it. DEFERRED gained a row rather than a bigger fix: a
+toolchain-missing test.sh exits 1, which a learner's grade records as FAIL
+where M615's doctrine says cannot-run is a refusal, never a grade --
+reclassifying verify exit codes across nine courses is its own seam, found
+here and deliberately not smuggled in. Rejected (DECISIONS): exporting
+RUSTUP_HOME in the workflow -- the M621 rejection again; the gate must tell
+the truth on machines nobody prepared.
