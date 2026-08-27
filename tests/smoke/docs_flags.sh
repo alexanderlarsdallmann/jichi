@@ -118,6 +118,11 @@ cat > "$tmp/foreign" <<'EOF'
 --prefix
 --pdf
 --pptx
+# scripts/make-snapshot.sh, quoted in ANECDOTES.md #76 -- the first hosted CI
+# run failed in its --commit path, and the entry quotes the failing lint line
+# verbatim (the zig rule above: the quoted command line cannot be reworded
+# away). The flag belongs to the release script, not to the jichi binary.
+--commit
 --allow-remote
 --root
 --token

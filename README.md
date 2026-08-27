@@ -1066,9 +1066,11 @@ Use `--model <selector>` to override the role-default model for `embed`/`rerank`
 
 ## Roadmap
 
-**Where we stand: latest milestone M620.** The engineering loop is healthy across
-595 milestones; the current focus is the **first public release**. Release
-checklist:
+**Where we stand: latest milestone M621.** The engineering loop is healthy; the
+**first public release shipped 2026-08-27**: **v0.9.0**, one curated commit,
+published to the HRZ GitLab (`jichi-public/jichi`) and to GitHub, tag `v0.9.0`
+on both ([`docs/plans/2026-08-public-snapshot.md`](docs/plans/2026-08-public-snapshot.md),
+executed as written). The release checklist, as it landed:
 
 - **done** — the rename to jichi (name, binaries, paths, remote, dependent
   projects); the **curriculum**, complete and still growing (all four shu-ha-ri
@@ -1079,15 +1081,19 @@ checklist:
   **versioning + a user-facing CHANGELOG** (0.9.0, with 1.0.0 reserved for the
   release); and the **platform verdict**, stated honestly
   ([`docs/PLATFORMS.md`](docs/PLATFORMS.md)).
-- **blocked on one answer** — the **open-source licence**. It leans Apache-2.0 and
-  waits on a university rights question. This is the release's critical path, and
-  [License](#license) states the position and what it means for a reader today.
-  Everything *around* the decision is done (M497): the copyright is stamped in all
-  476 sources, `scripts/set-license.sh <spdx-id>` writes the licence in one command,
-  and a two-state lint fails the build if that sweep is ever left half-finished.
-- **open** — the public snapshot (planned:
-  [`docs/plans/2026-08-public-snapshot.md`](docs/plans/2026-08-public-snapshot.md))
-  and the logo.
+- **done — the licence** (M619, 2026-08-27): **Apache-2.0**, copyright
+  **Justus-Liebig-Universität Gießen**, author **Alexander-Lars Dallmann** —
+  § 69b UrhG separates the two. The three-line header is stamped in every tracked
+  source, `jichi --version` prints all three lines, and the licence lint pins
+  them; [License](#license) has the full position.
+- **done — the public snapshot** (M620, 2026-08-27): produced by
+  `scripts/make-snapshot.sh --commit` exactly as the plan prescribed, verified
+  standalone, and **published** as above. The first hosted CI run of the
+  published tree then failed in the snapshot lint itself — the gate had assumed
+  a configured git identity — mended at M621
+  ([`docs/ANECDOTES.md`](docs/ANECDOTES.md) #76).
+- **open** — presentation slides for the release, and identity & delight: a
+  **logo**, a jingle.
 
 Full status and themed design history: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 

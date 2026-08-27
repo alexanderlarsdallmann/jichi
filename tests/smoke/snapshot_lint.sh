@@ -50,7 +50,7 @@ if ! git -C "$SMOKE_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
     t_skip "not a git repository -- the snapshot's manifest is the index"
 fi
 
-t_plan 13
+t_plan 15
 
 if [ ! -f "$SNAP_SH" ]; then
     t_fail "scripts/make-snapshot.sh is missing -- the snapshot has no producer"
@@ -80,8 +80,15 @@ fi
 # contents are what people acquire rights to." Mechanical, so it cannot be
 # forgotten in the excitement of the licence answer arriving. When a LICENSE does
 # land this check flips to asserting that the commit was made.
+# The rehearsal supplies GIT_AUTHOR_NAME/EMAIL: the first hosted CI run
+# (2026-08-27, GitHub Actions run 33093305185) failed exactly here, because the
+# M619 identity refusal had been validated only on machines that already had a
+# configured git identity -- a hosted runner's checkout has none. The env pair
+# is the producer's documented fallback; repository config still wins when set,
+# and check 2c below proves the refusal still fires when BOTH sources are dark.
 TREE="$TMP/tree"
-if sh "$SNAP_SH" --dest "$TREE" --dirty --commit >"$TMP/commit.out" 2>&1; then
+if GIT_AUTHOR_NAME='snapshot rehearsal' GIT_AUTHOR_EMAIL='rehearsal@example.org' \
+   sh "$SNAP_SH" --dest "$TREE" --dirty --commit >"$TMP/commit.out" 2>&1; then
     if [ -f "$SMOKE_ROOT/LICENSE" ]; then
         t_ok "make-snapshot --commit ran, and a LICENSE exists to justify it"
     else
@@ -91,6 +98,51 @@ elif grep -q 'refusing --commit with no LICENSE' "$TMP/commit.out"; then
     t_ok "make-snapshot refuses --commit while no LICENSE exists"
 else
     t_fail "make-snapshot --commit failed for the wrong reason: $(head_bytes 200 "$TMP/commit.out")"
+fi
+
+# --- 2b: the rehearsal commit's author is the identity the producer RESOLVED --
+# (repository config first, the env pair from check 2 as fallback) -- never the
+# machine's ambient auto-detected one. Expected is computed here the same way
+# the producer computes it, because a check must read every input exactly as
+# the executor will (CLAUDE.md, M530). Two-state like check 2: while no LICENSE
+# exists there is no commit to attribute and the refusal is the assertion.
+if [ -f "$SMOKE_ROOT/LICENSE" ]; then
+    _en=$(git -C "$SMOKE_ROOT" config user.name 2>/dev/null)
+    _ee=$(git -C "$SMOKE_ROOT" config user.email 2>/dev/null)
+    [ -n "$_en" ] || _en='snapshot rehearsal'
+    [ -n "$_ee" ] || _ee='rehearsal@example.org'
+    _got=$(git -C "$TREE" log -1 --format='%an <%ae>' 2>/dev/null)
+    if [ "$_got" = "$_en <$_ee>" ]; then
+        t_ok "the public commit's author is the deliberate identity ($_got)"
+    else
+        t_fail "public commit author is '$_got', expected '$_en <$_ee>'"
+    fi
+else
+    t_ok "no public commit exists to attribute (licence still undecided)"
+fi
+
+# --- 2c: with NO identity anywhere, --commit still refuses --------------------
+# The env fallback must not have widened into auto-detection. A local clone has
+# no repo-local user.name/email, HOME/XDG point at an empty dir and
+# GIT_CONFIG_NOSYSTEM hides /etc/gitconfig, so every config source is dark; the
+# env pair is passed EMPTY. The WORKING TREE's producer is copied over the
+# clone's, so this checks the code being committed, not the previous commit.
+git clone -q "$SMOKE_ROOT" "$TMP/clone" 2>/dev/null
+if [ -d "$TMP/clone/.git" ]; then
+    mkdir -p "$TMP/nohome"
+    cp "$SNAP_SH" "$TMP/clone/scripts/make-snapshot.sh"
+    if HOME="$TMP/nohome" XDG_CONFIG_HOME="$TMP/nohome" GIT_CONFIG_NOSYSTEM=1 \
+       GIT_AUTHOR_NAME= GIT_AUTHOR_EMAIL= \
+       sh "$TMP/clone/scripts/make-snapshot.sh" --dest "$TMP/clone-tree" --dirty \
+       --commit >"$TMP/noident.out" 2>&1; then
+        t_fail "--commit succeeded with no identity anywhere -- auto-detection is back"
+    elif grep -q 'refusing --commit with no author identity' "$TMP/noident.out"; then
+        t_ok "--commit refuses when no config and no env identity exists"
+    else
+        t_fail "no-identity --commit failed for the wrong reason: $(head_bytes 200 "$TMP/noident.out")"
+    fi
+else
+    t_fail "could not clone the repository for the no-identity probe"
 fi
 
 # The LICENCE refusal happens after extraction, so $TREE is populated either way.

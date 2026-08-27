@@ -4843,3 +4843,45 @@ three runs.**
 5. *Say it plainly, and leave the wrong version in place.* The analysis page keeps its original
    text under a correction banner. A retraction that edits the mistake out of existence teaches
    nothing about how it happened — and this one took three pushes to reach the truth.
+
+## 76. The rehearsal must run where the audience sits (2026-08-27)
+
+**Symptom.** The public snapshot's first-ever hosted CI run -- ubuntu-latest, a
+machine this project had never touched -- failed after 3.5 minutes, in
+`snapshot_lint`: `not ok 2 - make-snapshot --commit failed for the wrong
+reason: ... refusing --commit with no author identity`. Locally the same gate
+had been green all day.
+
+**Dead end, avoided narrowly.** The tempting fix was one line in the workflow:
+`git config user.name ci` on the runner. It would have made the badge green and
+taught nothing -- worse, it would have redefined `make ci` to mean "passes on
+machines somebody remembered to configure", which is the exact property the
+failure had just disproven.
+
+**Root cause.** M619 made the first public commit's author a deliberate input:
+make-snapshot reads the development repository's user.name/user.email and
+refuses --commit without them. Correct -- and validated only on machines that
+already had an identity configured, one of which had produced the fix. A hosted
+runner's checkout has no repo-local config, no global, no system: the refusal
+designed for "someone forgot to decide" fired on "this machine has nothing to
+remember". The prerequisite was invisible at the desk where it was always
+satisfied.
+
+**The second bite, same jaw.** The mend (fall back to GIT_AUTHOR_NAME/EMAIL,
+explicit env only, never auto-detection) shipped with a new check asserting the
+commit's author equals what the producer RESOLVED -- and that check went red
+immediately on the dev machine: git gives GIT_AUTHOR_NAME in the environment
+precedence over `-c user.name`, so the lint's rehearsal identity outranked the
+repository config the resolver had just chosen. The resolver read config-first;
+the executor read env-first. The fix commits with the resolved pair exported
+explicitly, so resolution is authoritative; the check that caught it computes
+its expectation exactly as the producer does.
+
+**Lesson.** A gate validated only where its prerequisites are already met has
+not been validated; the first run in a bare environment is part of the test
+plan, not an afterthought (the workflow header even said so: "treat the first
+hosted run as a measurement rather than a verdict"). And when a fix routes a
+value through someone else's precedence rules -- git's ident resolution here --
+the test must read the RESULT (the commit's author), never the intent (the
+variable you set). Reproduced locally before fixing: a clone with HOME pointed
+at an empty directory is a hosted runner for this purpose, and cheaper.

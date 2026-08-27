@@ -144,8 +144,20 @@ if [ "$DO_COMMIT" -eq 1 ]; then
     # state and the embedded `git commit` failed under the smoke tier's scratch
     # HOME with "unable to auto-detect email address" -- an ambient dependency
     # that had been unreachable while the refusal path always fired first.
+    # M621: fall back to GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL before refusing. The
+    # gate runs this script on machines that have no git identity at all -- the
+    # FIRST HOSTED CI RUN failed exactly here (2026-08-27, GitHub Actions run
+    # 33093305185: snapshot_lint check 2 "failed for the wrong reason"), because
+    # the M619 refusal had been validated only on machines that already had a
+    # configured identity. The lint's rehearsal commit is throwaway, so it may
+    # supply a labelled rehearsal identity via the environment; a real release
+    # still reads the repository config first, and the refusal below still
+    # fires when neither source names an author -- the fallback is two explicit
+    # variables, never git's ambient user@host auto-detection.
     SNAME=$(git -C "$ROOT" config user.name 2>/dev/null)
     SMAIL=$(git -C "$ROOT" config user.email 2>/dev/null)
+    [ -n "$SNAME" ] || SNAME=${GIT_AUTHOR_NAME:-}
+    [ -n "$SMAIL" ] || SMAIL=${GIT_AUTHOR_EMAIL:-}
     if [ -z "$SNAME" ] || [ -z "$SMAIL" ]; then
         echo "make-snapshot: refusing --commit with no author identity" >&2
         echo "  the first public commit is attributed on purpose: set user.name and" >&2
@@ -153,7 +165,9 @@ if [ "$DO_COMMIT" -eq 1 ]; then
         exit 2
     fi
     ( cd "$DEST" && git init -q && git add -A && \
-      git -c user.name="$SNAME" -c user.email="$SMAIL" commit -q -F - <<EOF
+      GIT_AUTHOR_NAME="$SNAME" GIT_AUTHOR_EMAIL="$SMAIL" \
+      GIT_COMMITTER_NAME="$SNAME" GIT_COMMITTER_EMAIL="$SMAIL" \
+      git commit -q -F - <<EOF
 jichi $(sed -n 's/.*JC_VERSION "\([^"]*\)".*/\1/p' "$DEST/include/jc_version.h" 2>/dev/null)
 
 A complete AI coding agent in C89 for Linux/POSIX.

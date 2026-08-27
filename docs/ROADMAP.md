@@ -2,10 +2,14 @@
 
 ## ★ TODO — first public release, August 2026 (north star)
 
-We are preparing a **first release for August 2026**. Until then we keep the loop
-running: **design, test, develop, dogfood, harden**. The release checklist:
+The first release **shipped 2026-08-27, inside the August-2026 window this heading
+has carried from the start**: **v0.9.0**, one curated commit, on the HRZ GitLab
+(`jichi-public/jichi`) and GitHub (`alexanderlarsdallmann/jichi`), tag `v0.9.0` on
+both (M620, the plan executed as written; M621 mended what the first hosted CI run
+found). The loop keeps running -- **design, test, develop, dogfood, harden**. The
+checklist, with what remains:
 
-> **Where we stand** — updated **2026-08-27**, latest milestone **M620**:
+> **Where we stand** — updated **2026-08-27**, latest milestone **M621**:
 > **Which budget binds is arithmetic, and the shape hypothesis was wrong.** `DEFERRED.md`
 > has carried a row since M504 asking for `--max-tool-calls` advice *"shaped by the WORK"*,
 > deferred because *"three runs on one model is a thin basis"* and to be revisited *"when a
@@ -2240,10 +2244,15 @@ running: **design, test, develop, dogfood, harden**. The release checklist:
 > coupled — the snapshot's first commit needs the license file — so they move
 > together once the JLU answer is in. **Everything not blocked on the JLU answer
 > is now slides and logo.**
-- **License** — choose an open license (**Apache-2.0** is the current leaning, a
-  note rather than a decision), and in it/the README **credit the open-source
-  projects this is based on** (Continue, opencode) and **name the lead
-  developers**: Claude (Anthropic) and Alexander-Lars Dallmann.
+- ~~**License**~~ — **DONE (M619, 2026-08-27): Apache-2.0**, copyright
+  **Justus-Liebig-Universität Gießen**, author **Alexander-Lars Dallmann** — the
+  institutional answer arrived, and § 69b UrhG separates holder from author exactly
+  as [`LICENSING.md`](LICENSING.md) anticipated. Applied by
+  `scripts/set-license.sh Apache-2.0`; the three-line header is stamped in every
+  tracked source and `license_lint` pins holder and author per file and in
+  `--version`. The credit half ships in [`CREDITS.md`](../CREDITS.md) + `NOTICE`
+  (Continue, opencode; the lead developers named). A deliberate later switch
+  remains one command (`scripts/set-license.sh MIT`), decided against for now.
   *(2026-08-20, M497: **everything except the choice is now done.** The copyright
   half is settled and stamped in all 476 sources; the credit half is
   [`CREDITS.md`](../CREDITS.md) plus the `NOTICE` template; the mechanics are
@@ -2268,12 +2277,17 @@ running: **design, test, develop, dogfood, harden**. The release checklist:
   - **Credit is not a copyright line.** Copyright generally requires human
     authorship, so the notice should read `Copyright (c) 2026 Alexander-Lars
     Dallmann` with Claude credited in CREDITS/NOTICE — not named as a holder.
+    *(Superseded by the institutional answer, M619: the employer exercises the
+    economic rights under § 69b UrhG, so the holder line names the university and
+    the author line names Alexander-Lars Dallmann.)*
   - **Open question, asked — awaiting an answer (email sent 2026-07-27):** whether
     JLU Gießen has any claim or release policy for software built with university
     resources. That could pick the licence for us. Until the reply lands this item
     is blocked *externally*, so it should not be re-planned each session; the
     public snapshot stays coupled to it (the snapshot's first commit needs the
-    LICENSE file).
+    LICENSE file). **Answered 2026-08-27 (M619):** the university's terms landed —
+    holder Justus-Liebig-Universität Gießen, author named, Apache-2.0 — and the
+    coupling resolved the same day: the snapshot shipped (M620).
 - ~~**Rename**~~ — **DONE (M170): `jichi`**, tagline *just code*. 自治（じち） =
   autonomy/self-government (自 self + 治 govern), plus the literary homophone 自知（じち）
   = self-knowledge; `jc_` now abbreviates both *jichi* and *just code*, which is
@@ -2284,8 +2298,14 @@ running: **design, test, develop, dogfood, harden**. The release checklist:
   npm, crates.io, Homebrew and Debian; `jc` as an executable is NOT (JSON
   Convert), so the binary is the full name. See `docs/MIGRATION.md` and README
   "The name".
-- **Public git snapshot** — prepare a clean public repository **with its own
-  git history** (a curated, fresh first commit — plus the license). **Planned in
+- ~~**Public git snapshot**~~ — **DONE (M620, 2026-08-27):** one curated first
+  commit, cut from gate-green HEAD, verified standalone, **published** to the HRZ
+  GitLab (`jichi-public/jichi`) and GitHub (`alexanderlarsdallmann/jichi`), tag
+  `v0.9.0` on both. The first hosted CI run of the published tree then failed in
+  `snapshot_lint` itself — the gate had assumed a configured git identity — mended
+  at **M621** (ANECDOTES #76). The original item, kept as written: prepare a clean
+  public repository **with its own git history** (a curated, fresh first commit —
+  plus the license). **Planned in
   writing at M391: [`plans/2026-08-public-snapshot.md`](plans/2026-08-public-snapshot.md)**
   — what ships, what does not and why, the six gates before the first commit, the
   execution order, and the open questions that need the operator. **Scope
@@ -2341,8 +2361,9 @@ running: **design, test, develop, dogfood, harden**. The release checklist:
   precede.
 - **Identity & delight** — a **logo**, a **music jingle**, and other cool stuff.
 
-Ordering is loose; the engineering (dogfood + harden) continues throughout. This is
-the standing top-of-roadmap goal — revisit it each session.
+Ordering is loose; the engineering (dogfood + harden) continues throughout. The
+north star landed 2026-08-27; the rows still open above (slides, the expansion
+horizon, identity & delight) are post-release items — revisit them each session.
 
 The milestones in the README status table (M0–M6 plus the post-M6 features:
 routing, fallback, snapshots, autonomy envelope, structured tests, repository
@@ -34570,3 +34591,40 @@ published tree must build and test with no help from the development checkout.
 Publication -- the push to a public remote and the `v0.9.0` tag -- is the
 operator's next, separate act; `CONTRIBUTING.md` already tells a stranger where
 development happens and how to send things.
+
+### M621 -- the gate must not assume the publisher's machine -- done
+
+The first hosted CI run of the public snapshot (GitHub Actions, 2026-08-27, run
+33093305185) was a measurement by its own header's instruction, and it measured
+this: everything through the fault tier passed on a runner jichi had never
+touched -- both compilers at -Werror, the sanitizers, valgrind, the fuzz smoke,
+the curl-free link -- and then `snapshot_lint` check 2 failed "for the wrong
+reason": `make-snapshot: refusing --commit with no author identity`
+(smoke-mutant and e2e never ran; they follow smoke). The M619 refusal reads the
+repository's user.name/user.email so the first public commit is attributed on
+purpose; a hosted runner's checkout has neither, so the lint's --commit
+rehearsal died. The fix had been validated only on machines that already had
+the prerequisite -- both of them mine.
+
+The mend keeps the refusal and gives the rehearsal a lawful way in:
+`make-snapshot` now falls back to GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL -- two
+explicit variables, never git's user@host auto-detection -- and commits with
+the RESOLVED pair exported, because the first draft of this fix lost an
+argument with git's own precedence: GIT_AUTHOR_NAME in the environment
+overrides `-c user.name`, so the rehearsal identity silently outranked the
+repository config the resolver had just chosen. The new check 2b caught that
+on its first run, by computing the expected author exactly as the producer
+does (the M530 rule: a preview reads every argument as the executor will).
+Check 2c proves the refusal is still alive: a local clone (no repo-local
+identity), HOME/XDG pointed at an empty dir, GIT_CONFIG_NOSYSTEM=1, the env
+pair passed empty -- the only correct behaviour left is the refusal, and the
+working tree's producer is copied over the clone's so the check tests the code
+being committed, not the previous commit. Teeth: 2b red under a wrong stamped
+identity, 2c red with the refusal deleted, both green after byte-identical
+restore; the runner's own red is check 2's born-red, reproduced locally in the
+same clone harness before the fix and green after it. Also swept for siblings:
+the runtime shadow repo sets its own identity (jc_snapshot.c, user.name jichi),
+no fixture commits with ambient identity, set-license.sh never commits -- this
+was the only one. ANECDOTES #76; the workflow-level alternative (configure an
+identity on the runner) is rejected in DECISIONS, because `make ci` green must
+mean the same thing on every clean checkout.
