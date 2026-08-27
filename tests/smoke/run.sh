@@ -46,7 +46,19 @@ export JC_SMOKE_BIN="$BIN" JC_SMOKE_EXTRA="${JC_SMOKE_EXTRA:-}"
 wd() {
     _secs="$1"; shift
     if command -v timeout >/dev/null 2>&1; then
-        timeout "$_secs" "$@"
+        # M623: -k, when supported. Plain timeout(1) TERMs its direct child --
+        # the driver SHELL -- and a shell defers traps until its foreground
+        # child exits, so a driver blocked on a hung jichi ABSORBS the TERM and
+        # the "deadline" waits forever (one gate spent an hour inside a 60s
+        # limit exactly this way). KILL cannot be deferred; killing the shell
+        # and timeout also closes their end of the harness stdin socket, which
+        # un-wedges a child blocked reading it.
+        if [ -z "$WD_KILL_PROBED" ]; then
+            WD_KILL_PROBED=1
+            if timeout -k 1 1 true >/dev/null 2>&1; then WD_KILL="-k 5"; else WD_KILL=""; fi
+        fi
+        # shellcheck disable=SC2086 -- WD_KILL is deliberately word-split
+        timeout $WD_KILL "$_secs" "$@"
         return $?
     fi
     "$@" &

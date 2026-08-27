@@ -279,8 +279,34 @@ int jc_app_path_denied(const struct jc_app *app, const char *path)
     return jc_app_path_denied_ex(app, path, 1);
 }
 
+/* M622: does candidate (name, mt) beat the current best (best, best_mt)?
+ * Strictly newer wins; an EQUAL mtime falls to the lexicographically GREATER
+ * name, so the pick is a function of the directory's content rather than of
+ * readdir()'s hash order. jc_file_mtime is st_mtime -- WHOLE SECONDS -- so two
+ * files written in the same second tie routinely on a fast machine; until this
+ * existed the tie kept whichever name the filesystem listed first, and the
+ * second hosted CI run (GitHub Actions run 33101494315) failed on exactly
+ * that: ext4 on the runner listed a stale fixture before the fresh one, while
+ * the dev box's hash order had always hidden the ambiguity. Pure, so the unit
+ * test controls the feed order deterministically. */
+int jc_app_newest_beats(const char *name, double mt,
+                        const char *best, double best_mt)
+{
+    if (best == NULL || best[0] == '\0') {
+        return 1;
+    }
+    if (mt > best_mt) {
+        return 1;
+    }
+    if (mt < best_mt) {
+        return 0;
+    }
+    return strcmp(name, best) > 0;
+}
+
 /* Newest ".jsonl" under ~/.jichi.d/<subdir>/ into `out`. 0 on success, -1 when
- * the directory is missing/empty or holds no .jsonl. */
+ * the directory is missing/empty or holds no .jsonl. Ties on the whole-second
+ * mtime are broken by name, descending (jc_app_newest_beats above). */
 static int app_newest_jsonl(struct jc_arena *arena, const char *subdir,
                             char *out, jc_size cap)
 {
@@ -307,7 +333,10 @@ static int app_newest_jsonl(struct jc_arena *arena, const char *subdir,
         }
         jc_snprintf(full, sizeof(full), "%s/%s", dir, n);
         mt = jc_file_mtime(full);
-        if (mt > best_mt) {
+        if (mt < 0) {
+            continue; /* stat failed (raced away); never a candidate */
+        }
+        if (jc_app_newest_beats(n, mt, best, best_mt)) {
             best_mt = mt;
             jc_snprintf(best, sizeof(best), "%s", n);
         }

@@ -53,7 +53,7 @@
 # EXEMPT: _smoke.sh (the lib itself), run.sh (the runner), this file.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 17
+t_plan 19
 
 drivers=""
 for f in "$SMOKE_DIR"/*.sh; do
@@ -457,6 +457,43 @@ else
     t_fail "no '.DEFAULT_GOAL := all' in the Makefile -- the default goal is then \
 whichever target happens to come first, and adding a rule above \`all\` makes bare \
 \`make\` build something else while exiting 0 (M495)"
+fi
+
+# --- 18: every headless -p run pins stdin ------------------------------------
+# UNIVERSE: every "$BIN" invocation carrying the -p flag in tests/smoke/*.sh
+# (continuation lines joined; _smoke.sh and run.sh are harness, not drivers,
+# and invoke no "$BIN"). A headless `-p "text"` run with a non-TTY stdin READS
+# STDIN TO EOF as piped context (src/main.c, --no-stdin's own help text) -- so
+# under a harness whose stdin is a held-open socket, a bare run blocks FOREVER
+# in unix_stream_data_wait. ANECDOTES #64 recorded exactly this in prose; the
+# M623 gate hang (an hour at `--- smoke: read_truncated_total`, timeout(1)'s
+# TERM absorbed by the driver shell's deferred trap) is what it costs when the
+# prose is not a lint. A run satisfies this check with `< /dev/null`, a
+# heredoc, a `< file` redirect, a pipe into the run, or --no-stdin.
+_pl="$(smoke_tmp)/pruns"
+awk '
+FNR==1{f=FILENAME}
+/\\$/ {buf = buf substr($0, 1, length($0)-1); next}
+{
+    line = buf $0; buf = ""
+    if (line ~ /^[ \t]*#/) next  # comments document runs; only code runs them
+    if (line !~ /"\$BIN"/) next
+    if (line !~ / -p[ "]/) next
+    pinned = (line ~ /< ?\/dev\/null/ || line ~ /<</ || line ~ /< ?"/ ||
+              line ~ /\| *"\$BIN"/ || line ~ /--no-stdin/)
+    printf "%s %s:%d: %.110s\n", (pinned ? "ok" : "BARE"), f, FNR, line
+}' "$SMOKE_ROOT"/tests/smoke/*.sh > "$_pl"
+_np=$(grep -c . "$_pl")
+if [ "$_np" -ge 183 ]; then
+    t_ok "extracted $_np headless -p runs (floor 183; extraction is alive)"
+else
+    t_fail "only $_np -p runs extracted (floor 183) -- the joiner or pattern broke"
+fi
+if grep -q '^BARE' "$_pl"; then
+    t_fail "headless -p run(s) with unpinned stdin -- these BLOCK FOREVER under a held-open stdin:"
+    grep '^BARE' "$_pl" | sed 's/^/# /' | head -6
+else
+    t_ok "every headless -p run pins stdin (< /dev/null, heredoc, file, pipe, or --no-stdin)"
 fi
 
 t_done

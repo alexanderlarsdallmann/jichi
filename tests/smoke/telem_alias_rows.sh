@@ -84,6 +84,14 @@ fi
 # 6. CONTROL: a log where every call names its tool prints no alias section at
 #    all. Without this, check 5 could be satisfied by a section that is always
 #    printed, and the report would grow a line that means nothing.
+#    The aliased fixture is REMOVED first: the reader opens the single newest
+#    .jsonl, st_mtime is whole seconds, and two fixtures written in the same
+#    second tie -- the second hosted CI run (M622, Actions run 33101494315)
+#    failed HERE because ext4's readdir hash order broke that tie toward the
+#    stale fixture, where the dev box's order had always hidden it. The pick is
+#    deterministic since M622 (name-descending on a tie, which favours
+#    clean.jsonl anyway), but a control's universe should not depend on that.
+rm -f "$log"
 log2="$HOME/.jichi.d/telemetry/clean.jsonl"
 cat > "$log2" <<'EOF'
 {"event":"tool_call","ts":2000,"sid":"s2","turn":1,"name":"read_file","ok":true,"duration_ms":1,"output_bytes":10}

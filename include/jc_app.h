@@ -432,6 +432,14 @@ int  jc_app_reread_check(struct jc_app *app, const char *path,
 int jc_app_pick_telemetry_log(const char *ws, struct jc_arena *a,
                               char *out, jc_size cap);
 
+/* M622: the newest-file comparator behind that pick -- strictly newer wins, an
+ * equal (whole-second) mtime falls to the lexicographically greater name, so
+ * the choice never depends on readdir() order. Public because it is pure and
+ * the unit test must control the feed order; the second hosted CI run failed
+ * on the tie this decides. */
+int jc_app_newest_beats(const char *name, double mt,
+                        const char *best, double best_mt);
+
 int jc_app_load_telemetry(struct jc_app *app, struct jc_telemetry_summary *out,
                           char *label, jc_size label_cap);
 

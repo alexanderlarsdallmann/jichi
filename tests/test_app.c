@@ -308,8 +308,33 @@ static void test_reread_check(void)
     jc_arena_free(arena);
 }
 
+/* M622: the newest-.jsonl pick must be a function of directory CONTENT, not of
+ * readdir() order. st_mtime is whole seconds (jc_platform_posix.c), so two
+ * fixture files written in the same second tie routinely; until M622 a tie
+ * kept whichever name the filesystem's hash order listed first, and the second
+ * hosted CI run (GitHub Actions run 33101494315) failed on exactly that --
+ * ext4 on the runner listed the stale fixture first, while the same tie on the
+ * dev box had always listed the fresh one, so three full local gates saw
+ * nothing. The comparator is pure so the feed order is controlled HERE,
+ * deterministically; a smoke driver cannot force a same-second tie portably. */
+static void test_newest_beats(void)
+{
+    /* the first candidate always beats an empty best */
+    JC_CHECK(jc_app_newest_beats("a.jsonl", 100.0, "", -1.0) == 1);
+    /* strictly newer wins, whichever way the names sort */
+    JC_CHECK(jc_app_newest_beats("a.jsonl", 200.0, "z.jsonl", 100.0) == 1);
+    JC_CHECK(jc_app_newest_beats("z.jsonl", 100.0, "a.jsonl", 200.0) == 0);
+    /* the tie: the lexicographically greater name wins, fed in EITHER order --
+     * both directions asserted, so order-independence is the proven property */
+    JC_CHECK(jc_app_newest_beats("clean.jsonl", 100.0,
+                                 "aliased.jsonl", 100.0) == 1);
+    JC_CHECK(jc_app_newest_beats("aliased.jsonl", 100.0,
+                                 "clean.jsonl", 100.0) == 0);
+}
+
 void test_app(void)
 {
+    test_newest_beats();
     test_scratch_accessor();
     test_scratch_reset_cycle();
     test_reference_roots_fence();

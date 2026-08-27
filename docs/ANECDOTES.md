@@ -4885,3 +4885,68 @@ value through someone else's precedence rules -- git's ident resolution here --
 the test must read the RESULT (the commit's author), never the intent (the
 variable you set). Reproduced locally before fixing: a clone with HOME pointed
 at an empty directory is a hosted runner for this purpose, and cheaper.
+
+## 77. The coin the dev box always flipped the same way (2026-08-27)
+
+**Symptom.** The M621 overlay's hosted CI run -- the one that existed to prove
+the identity fix -- got past that fix and failed one driver later:
+`telem_alias_rows` check 6, "an alias section was printed for a log with no
+aliased call". Deterministic on the runner (the suite's standalone retry failed
+identically); green in three full local gates the same day.
+
+**Root cause.** `jichi telemetry` opens the newest `.jsonl` under
+`~/.jichi.d/telemetry/`, and "newest" was `jc_file_mtime` -- `st_mtime`, whole
+seconds -- compared with strict `>`. The driver writes an aliased fixture, runs
+the reader, writes a clean control log, runs the reader again: both writes
+usually land in the same second, the mtimes tie, and the tie kept whichever
+name readdir() listed first. That is ext4 hash order -- stable per directory,
+different per machine. The dev box's order buried the ambiguity; the runner's
+listed the stale fixture first, so the second report described the wrong file.
+
+**Lesson, joining #76's.** #76 was a prerequisite the dev machine always
+satisfied; this is a coin the dev machine always flipped the same way. Both
+passed every local gate for the same reason: the environment was part of the
+test, and nobody had varied it. The fix is the same shape twice: make the
+behaviour a function of declared inputs (the resolved identity there; the
+directory's content here, ties broken by name), and give the property a test
+whose inputs are controlled -- the comparator is pure precisely so the unit
+test can feed both orders. And when a check's fixture shares a directory with
+its predecessor's, that sharing is part of the check's universe: the control
+now removes the earlier fixture instead of trusting a race to bury it.
+
+## 78. Sixty-two minutes inside a sixty-second deadline (2026-08-27)
+
+**Symptom.** The M622 gate sat at `--- smoke: read_truncated_total` for an
+hour. The log's last line never changed; the suite was alive; nothing failed.
+
+**The capture.** `pstree` before the kill: `timeout 60` in `sigsuspend` at
+1:02:54 elapsed, its child sh in `do_wait`, THE child jichi in
+`unix_stream_data_wait` -- and /proc showed jichi's only socket was fd 0.
+Stdin. No TCP connection existed; the mock server it was supposedly talking to
+had exited long before. jichi was reading piped context from a stdin that was
+a held-open harness socket: a headless `-p "text"` run reads a non-TTY stdin
+to EOF, and EOF was never coming.
+
+**Two defects, both already documented as prose.** ANECDOTES #64: "run every
+command you publish -- including `< /dev/null` on a headless run, whose
+absence blocks forever." The driver's two runs were bare. And the deadline
+that should have bounded the damage could not: timeout(1) TERMs its direct
+child, the driver SHELL -- and a POSIX shell defers trap handling until its
+foreground command completes. The shell was waiting on jichi; jichi was
+waiting on stdin; the TERM waited on both. `sigsuspend`, sixty-two minutes.
+
+**Fixes, in the order a reader should steal them.** (1) The prose became a
+lint: every headless `-p` run in the smoke tier must pin stdin; 183 runs
+extracted and floored, born red on exactly the two bare lines. (2) Both
+deadline wrappers now pass `timeout -k 5` where supported: KILL cannot be
+deferred by a trap, and killing the wrapper pair closes the socket the child
+was reading, un-wedging it transitively. (3) The lint's first draft flagged
+its own UNIVERSE comment -- the joiner now skips comment lines, because
+documentation names runs without running them.
+
+**Lesson.** A lesson that lives only in an anecdote decays into folklore; the
+third time it bites, make it a lint (#64 -> this entry, the M544 pattern). And
+a deadline is only as strong as the signal it can escalate to: TERM is a
+request that a busy shell files for later; a timeout that cannot KILL is
+advisory. Watch WCHAN before killing a hang -- the evidence names the fd, and
+the fd names the bug.

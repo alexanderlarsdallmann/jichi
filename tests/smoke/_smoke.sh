@@ -429,7 +429,15 @@ with_deadline() {
         *) _wd_secs=$((_wd_secs * _wd_mult)) ;;
     esac
     if command -v timeout >/dev/null 2>&1; then
-        timeout "$_wd_secs" "$@"
+        # M623: -k when supported -- a TERM-deferring child (any shell waiting
+        # on a hung foreground command) absorbs the plain deadline; KILL after
+        # a grace window cannot be absorbed. Probed once per process.
+        if [ -z "$_WD_KILL_PROBED" ]; then
+            _WD_KILL_PROBED=1
+            if timeout -k 1 1 true >/dev/null 2>&1; then _WD_KILL="-k 5"; else _WD_KILL=""; fi
+        fi
+        # shellcheck disable=SC2086 -- _WD_KILL is deliberately word-split
+        timeout $_WD_KILL "$_wd_secs" "$@"
         return $?
     fi
     "$@" &

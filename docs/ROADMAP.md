@@ -9,7 +9,24 @@ both (M620, the plan executed as written; M621 mended what the first hosted CI r
 found). The loop keeps running -- **design, test, develop, dogfood, harden**. The
 checklist, with what remains:
 
-> **Where we stand** — updated **2026-08-27**, latest milestone **M621**:
+> **Where we stand** — updated **2026-08-27**, latest milestone **M623**:
+> **The first public release is out, and the hosted gate is teaching.** Apache-2.0
+> decided and stamped (M619); the snapshot cut, verified standalone, and published
+> to the HRZ GitLab and GitHub as **v0.9.0** (M620). Its first hosted CI runs then
+> paid for themselves twice: the snapshot lint's `--commit` rehearsal assumed a
+> configured git identity, which no hosted runner has (M621 — explicit env
+> fallback, the resolution committed authoritatively, the refusal proven in an
+> identity-dark clone); and the telemetry reader's newest-log pick broke
+> whole-second mtime ties by readdir hash order, a per-machine coin (M622 —
+> `jc_app_newest_beats`: ties fall to the greater name; pure, unit-tested in both
+> feed orders). Then the M622 gate itself hung for an hour inside a 60-second
+> deadline: a headless run reading a never-ending harness stdin (ANECDOTES #64's
+> lesson, now smoke_lint 18/19) behind a driver shell that deferred timeout(1)'s
+> TERM until that child exited -- both deadline wrappers now escalate with
+> `timeout -k` (M623). Three full local gates had missed all of it for the same
+> reason: the environment was part of the test. ANECDOTES #76/#77/#78.
+>
+> **Previously — M595:**
 > **Which budget binds is arithmetic, and the shape hypothesis was wrong.** `DEFERRED.md`
 > has carried a row since M504 asking for `--max-tool-calls` advice *"shaped by the WORK"*,
 > deferred because *"three runs on one model is a thin basis"* and to be revisited *"when a
@@ -34628,3 +34645,73 @@ no fixture commits with ambient identity, set-license.sh never commits -- this
 was the only one. ANECDOTES #76; the workflow-level alternative (configure an
 identity on the runner) is rejected in DECISIONS, because `make ci` green must
 mean the same thing on every clean checkout.
+
+### M622 -- the second machine assumption: a tie, broken by the filesystem -- done
+
+The second hosted CI run (the M621 overlay, Actions run 33101494315) got past
+the identity refusal and failed one driver later, in `telem_alias_rows` check 6
+-- deterministically on the runner (the suite's standalone retry failed
+identically), after three full local gates had passed the same tree that day.
+The reader's newest-log pick (`app_newest_jsonl`) compared `jc_file_mtime`,
+which is `st_mtime` in WHOLE SECONDS, with strict `>`: two fixture logs written
+in the same second tie, and the tie kept whichever name readdir() listed first
+-- ext4 hash order, a per-directory coin the dev box had always flipped one way
+and the runner flips the other. The driver's check 6 wrote its clean control
+log beside the aliased fixture from checks 1-5 and trusted the newer write to
+win the pick.
+
+Mended at both ends. The product: `jc_app_newest_beats` -- strictly newer wins,
+an equal mtime falls to the lexicographically greater name -- so the pick is a
+function of the directory's content, never of readdir order; pure, declared in
+jc_app.h, unit-tested with the feed order controlled both ways (a smoke driver
+cannot force a same-second tie portably), and stat-failed candidates now skip
+explicitly. The driver: check 6 removes the aliased fixture before writing its
+control -- a control's universe should not depend on a tie-break, even a
+deterministic one. Teeth -- and both
+first attempts were worthless and redone: reverting the tie branch to
+first-seen does not COMPILE (-Werror: `name` falls unused; the parameter's use
+IS the property), and a build that fails is not a red -- the proven tooth flips
+the comparison to prefer the SMALLER name, which turns both directional unit
+checks red (2 failures, restored green). The driver tooth's first cut `touch`ed
+the stale fixture BEFORE the control was written, so the control stayed newest
+and check 6 stayed green, proving nothing; the proven tooth plants one aliased
+call in the control fixture itself, and check 6 goes red on the section it then
+rightly prints. Swept the
+siblings: of the five drivers with telemetry fixtures, the other four write one
+log each or use separate HOMEs -- this was the only two-logs-one-dir case.
+ANECDOTES #77: the same jaw as #76, one tooth over.
+
+### M623 -- the deadline that could not kill, and the stdin that never ends -- done
+
+The M622 gate hung for an hour at `--- smoke: read_truncated_total`, inside a
+60-second per-driver limit. The frame, captured live before the kill: jichi in
+`unix_stream_data_wait` with its ONLY socket at fd 0 -- stdin -- and `timeout
+60` in `sigsuspend` sixty-two minutes in. Two defects, neither of them new.
+
+**The stdin.** A headless `-p "text"` run with a non-TTY stdin reads piped
+context to EOF (the feature `--no-stdin` opts out of), and this harness hands
+every driver a held-open socket as stdin: EOF never comes. ANECDOTES #64 wrote
+this down -- "including `< /dev/null` on a headless run, whose absence blocks
+forever" -- and lines 57 and 125 of `read_truncated_total.sh` were bare anyway,
+because prose is not a control (the M544 lesson, again). Now it is a lint:
+`smoke_lint` checks 18/19 join continuation lines across every driver, extract
+every `"$BIN"` run carrying `-p` -- 183 today, floored exactly there -- and
+refuse any whose stdin is not pinned (`< /dev/null`, heredoc, file, pipe, or
+`--no-stdin`). Born red naming exactly the two bare lines -- after its first
+draft flagged its own UNIVERSE comment, so the joiner now skips comments,
+documentation naming runs without running them -- then green with both pinned,
+and the driver that hung an hour ran 6/6 standalone.
+
+**The deadline.** `timeout 60` had fired 61 minutes earlier and killed
+nothing: TERM goes to the driver SHELL, and a shell defers traps until its
+foreground child exits -- so a driver waiting on a hung jichi ABSORBS its own
+deadline. Both wrappers (`run.sh` `wd`, `_smoke.sh` `with_deadline`) now probe
+for and pass `timeout -k 5`: KILL cannot be deferred, and killing the shell
+and timeout closes their end of the stdin socket, which un-wedges the blocked
+child transitively. Demonstrated in both directions before patching: `timeout
+3 sh -c 'trap "" TERM; sleep 1000'` alive five seconds past its deadline; exit
+137 on schedule with `-k`. Changing jichi's stdin semantics was REJECTED
+(DECISIONS): piped context is a feature, `--no-stdin` exists, and a read
+timeout would truncate slow legitimate pipes. Also of record: this milestone's
+own first probe -- `pkill -f 'read_truncated_total'` -- matched and killed the
+shell issuing it; pattern width is a blast radius, ANECDOTES #66's cousin.

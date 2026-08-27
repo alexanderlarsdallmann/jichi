@@ -54,7 +54,7 @@ cat > "$tmp/config.json" <<EOF
 "snapshots":false,"repoMap":false,"references":false,"lowResource":false,
 "logging":{"level":"metrics","path":"$tmp/telem.jsonl"}}
 EOF
-out=$(cd "$ws" && "$BIN" --config "$tmp/config.json" --no-session -p "read it" 2>&1)
+out=$(cd "$ws" && "$BIN" --config "$tmp/config.json" --no-session -p "read it" < /dev/null 2>&1)
 mm_stop
 
 # The tool's text reaches the model, not the terminal, so read it off the wire
@@ -122,7 +122,7 @@ cat > "$tmp/config2.json" <<EOF
 "apiBase":"http://127.0.0.1:$MM_PORT/v1","apiKey":"x","roles":["chat"]}],
 "snapshots":false,"repoMap":false,"references":false,"lowResource":false}
 EOF
-(cd "$ws" && "$BIN" --config "$tmp/config2.json" --no-session -p "read it" >/dev/null 2>&1)
+(cd "$ws" && "$BIN" --config "$tmp/config2.json" --no-session -p "read it" < /dev/null >/dev/null 2>&1)
 mm_stop
 body2=$(cat "$tmp/cap2"/* 2>/dev/null)
 if printf '%s' "$body2" | grep -q '(no lines in range; file has 3 lines)'; then
