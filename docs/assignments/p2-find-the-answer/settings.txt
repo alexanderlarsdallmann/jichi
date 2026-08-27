@@ -1,0 +1,7 @@
+# These are settings for a small program.
+# A line that starts with # is a note. The program ignores it.
+
+colour = blue
+size = 14
+timeout = 30
+retries = 4

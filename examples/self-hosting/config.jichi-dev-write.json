@@ -1,0 +1,88 @@
+{
+  "_comment": [
+    "Self-hosting dev pack -- WRITE-ENABLED slice. Lets jichi WRITE, but fenced",
+    "hard and under the autonomy envelope. Run with --auto (unattended) + budgets,",
+    "on a BRANCH, never master. See docs/proposals/2026-08-self-hosting-dev-pack.md.",
+    "",
+    "SAFETY, by layer:",
+    "  editScope = tests/**, docs/**, CHANGELOG.md  -- a POSITIVE allow-list: the",
+    "    edit tools CANNOT touch src/ or include/, so the loop cannot modify core",
+    "    code OR its own guardrails (the envelope, the path fence). This slice",
+    "    writes tests and docs only; src/ edits are a later, more careful slice.",
+    "  verify = make test  -- a red verify rolls back to the last green checkpoint",
+    "    (fix-forward verifyRetries times first). Override --verify 'make smoke' for",
+    "    smoke drivers, or 'make check-target'/'make ci' for the full gate.",
+    "  revertOutOfScope = true  -- a stray src/ change made via the SHELL (which",
+    "    editScope does not fence) is detected and reverted to the run-start tree.",
+    "  selfReview, snapshots, pathFence, privilegedCommands=deny  -- the usual wall.",
+    "  learnOnStop = true  -- a clean run drafts lessons (docs/LEARNING.md).",
+    "",
+    "Budgets are CLI: add --budget-tokens/--deadline/--max-tool-calls.",
+    "Secret-free: keys via JICHI_API_KEY (apiKeyEnv)."
+  ],
+
+  "models": [
+    { "name": "review", "provider": "openai", "model": "jlu/gemma-4-26b-it",
+      "apiBase": "https://api.example.edu/v1", "apiKeyEnv": "JICHI_API_KEY",
+      "roles": ["chat"], "contextLength": 32000 },
+
+    { "name": "coder", "provider": "openai", "model": "jlu/qwen3-coder-next",
+      "apiBase": "https://api.example.edu/v1", "apiKeyEnv": "JICHI_API_KEY",
+      "roles": ["edit", "apply", "summarize"], "fallback": "review" },
+
+    { "name": "embed", "provider": "openai", "model": "jlu/qwen3-embedding",
+      "apiBase": "https://api.example.edu/v1", "apiKeyEnv": "JICHI_API_KEY",
+      "roles": ["embed"] }
+  ],
+
+  "_editscope_comment": [
+    "M517 -- TIGHTENED, and the rule is stated so the next widening is a",
+    "decision rather than a slip: THE FENCE MAY ADMIT ONLY FILES THAT THE",
+    "VERIFY RUNS, OR THAT CANNOT AFFECT A GATE.",
+    "",
+    "It used to be tests/** + docs/** + CHANGELOG.md against verify 'make",
+    "test', and that was inconsistent in two ways that a review run found:",
+    "  - tests/** admits all 231 smoke drivers, and `make test` runs the UNIT",
+    "    suite only -- so a weakened lint passed its own verify trivially, and",
+    "    revertOutOfScope could not help because tests/ was IN scope.",
+    "  - docs/** admits the 74 graded assignment test.sh graders (plus the",
+    "    trace capturers), which no verify command here runs either. Weakening",
+    "    a grader is how a learner gets failed for a correct answer -- see",
+    "    M511, which fixed 24 real defects in exactly those files.",
+    "",
+    "So the list below names the files the pack's two write commands actually",
+    "need: /add-test writes a unit test (covered by `make test`), /update-docs",
+    "writes the ROADMAP, an analysis page and the CHANGELOG (prose, which",
+    "cannot weaken a gate).",
+    "",
+    "TO AUTHOR A GATE (a smoke driver, an e2e rig, an assignment grader) the",
+    "operator passes BOTH flags, deliberately, per run:",
+    "    --edit-scope 'tests/smoke/*.sh' --verify 'make smoke'",
+    "Two explicit flags for a deliberate act; the unsafe combination is not",
+    "reachable by default. Widening one without the other is the defect this",
+    "comment exists to prevent."
+  ],
+  "editScope": ["tests/test_*.c", "docs/ROADMAP.md", "docs/analysis/*.md",
+                "CHANGELOG.md"],
+  "verify": "make test",
+  "verifyRetries": 2,
+  "revertOutOfScope": true,
+  "strictGreen": true,
+  "selfReview": 1,
+  "_instructions_comment": [
+    "M516: task rules, loaded on top of the root CLAUDE.md. A review",
+    "session needs a rubric that a general session does not, and the",
+    "rules block is capped at 32 KB -- so per-task files, not one",
+    "monolith. See docs/RULES.md and docs/rules/reviewing.md."
+  ],
+  "instructions": ["docs/rules/reviewing.md"],
+
+  "snapshots": true,
+  "pathFence": 1,
+  "privilegedCommands": "deny",
+  "learnOnStop": true,
+  "repoMap": true,
+  "references": true,
+
+  "timeouts": { "connect": 20, "stall": 90, "request": 600 }
+}

@@ -1,0 +1,33 @@
+diff --git a/src/animation/keyframes.zig b/src/animation/keyframes.zig
+index ec272ce..13eafe0 100644
+--- a/src/animation/keyframes.zig
++++ b/src/animation/keyframes.zig
+@@ -102,6 +102,28 @@ pub fn interpolateWithTime(
+     @panic("TODO: keyframes.interpolateWithTime is not implemented");
+ }
+ 
++/// Dispatch interpolation based on the mode.
++///
++/// - `.nearest`: returns `from` when `t < 0.5`, else `to` (no blending)
++/// - `.linear`: delegates to `interpolate(from, to, t)`
++/// - `.cubic` and other modes: falls back to linear because this function receives
++///   no pre/post neighbor points, so true cubic interpolation is impossible at this
++///   signature. An honest linear beats a silent wrong cubic.
++pub fn interpolateWithMode(
++    from: variant.Variant,
++    to: variant.Variant,
++    t: f32,
++    mode: Interpolation,
++) variant.Variant {
++    return switch (mode) {
++        .nearest => if (t < 0.5) from else to,
++        .linear => interpolate(from, to, t),
++        // True cubic interpolation requires pre_from and post_to neighbor points
++        // which are not available at this signature. Fall back to linear.
++        .cubic, .linear_angle, .cubic_angle => interpolate(from, to, t),
++    };
++}
++
+ /// Find key index at time
+ pub fn findKeyIndex(keys: []const Keyframe, time: f32) usize {
+     for (keys, 0..) |key, i| {

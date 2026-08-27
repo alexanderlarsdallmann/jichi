@@ -1,0 +1,70 @@
+{
+  "comment": "Hardened config for an UNATTENDED, looped jichi run. See docs/AUTONOMOUS_LOOPS.md. Sets the security POSTURE and the three reporting tools; per-run bounds (budgets, --verify, --edit-scope) belong on the loop.sh command line, not here. Replace the model block and put report.sh/db-report.sh/http-report.sh on PATH (or use absolute paths in each tool's command) before use.",
+
+  "models": [
+    {
+      "name": "worker",
+      "provider": "openai",
+      "model": "your-model-id",
+      "apiBase": "https://api.example/v1",
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "roles": ["chat"]
+    }
+  ],
+
+  "pathFence": true,
+  "privilegedCommands": "deny",
+  "privilegedAudit": true,
+  "revertOutOfScope": true,
+  "snapshots": true,
+
+  "permissions": {
+    "deny": ["git_push"]
+  },
+
+  "tools": [
+    {
+      "name": "report_status",
+      "description": "Report a short human-readable status line to the operator's report file. Use this to record progress and the final outcome of a task.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string", "description": "The status line to record." }
+        },
+        "required": ["message"]
+      },
+      "command": "report.sh",
+      "timeout": 10,
+      "readonly": false
+    },
+    {
+      "name": "db_report",
+      "description": "Record a structured result row (status + count) in the operator's database. The connection is fixed by the operator; you only choose the status and count.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "description": "Short status label, e.g. 'passed' or 'failed'." },
+          "count":  { "type": "integer", "description": "A non-negative count relevant to the task." }
+        },
+        "required": ["status", "count"]
+      },
+      "command": "db-report.sh",
+      "timeout": 20,
+      "readonly": false
+    },
+    {
+      "name": "http_report",
+      "description": "POST a short summary to the operator's fixed reporting endpoint. The URL is fixed by the operator; you only supply the summary text.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "summary": { "type": "string", "description": "A short summary of what was accomplished." }
+        },
+        "required": ["summary"]
+      },
+      "command": "http-report.sh",
+      "timeout": 25,
+      "readonly": false
+    }
+  ]
+}

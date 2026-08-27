@@ -1,0 +1,67 @@
+{
+  "_comment": [
+    "Self-hosting dev pack -- FIRST SLICE (review-only). Configures a compiled",
+    "jichi to REVIEW jichi's own source with read-only agents, driven by the",
+    "JLU HRZ models. Secret-free: keys come from JICHI_API_KEY via apiKeyEnv.",
+    "Point --config here from a jichi checkout, or copy to local/config.json.",
+    "",
+    "This slice writes NOTHING -- the agents are readonly: true, so it is safe",
+    "against any model. Design and novel work stay on the frontier model; this",
+    "is the review/mechanical tail. See docs/proposals/2026-08-self-hosting-dev-pack.md",
+    "for the full design and the later write-enabled slices (which add the",
+    "autonomy envelope: editScope, verify=make check-target, budgets, rollback).",
+    "",
+    "contextLength 32000 is the conservative-safe value for the HRZ gemma model",
+    "(measured honest window is larger); a diff review needs far less."
+  ],
+
+  "models": [
+    { "name": "review", "provider": "openai", "model": "jlu/gemma-4-26b-it",
+      "apiBase": "https://api.example.edu/v1", "apiKeyEnv": "JICHI_API_KEY",
+      "roles": ["chat"], "contextLength": 32000 },
+
+    { "name": "coder", "provider": "openai", "model": "jlu/qwen3-coder-next",
+      "apiBase": "https://api.example.edu/v1", "apiKeyEnv": "JICHI_API_KEY",
+      "roles": ["summarize"], "fallback": "review" },
+
+    { "name": "embed", "provider": "openai", "model": "jlu/qwen3-embedding",
+      "apiBase": "https://api.example.edu/v1", "apiKeyEnv": "JICHI_API_KEY",
+      "roles": ["embed"] }
+  ],
+
+  "_instructions_comment": [
+    "M516: task rules, loaded on top of the root CLAUDE.md. A review",
+    "session needs a rubric that a general session does not, and the",
+    "rules block is capped at 32 KB -- so per-task files, not one",
+    "monolith. See docs/RULES.md and docs/rules/reviewing.md."
+  ],
+  "instructions": ["docs/rules/reviewing.md"],
+
+  "snapshots": true,
+  "pathFence": 1,
+  "privilegedCommands": "deny",
+  "references": true,
+  "repoMap": true,
+
+  "_timeouts_comment": [
+    "Measured 2026-08-02 from the reference box: HRZ gemma-4-31b latency is the",
+    "binding constraint, and it is INTERMITTENT -- doctor --live and short",
+    "probes returned fast, but full streamed turns sometimes did not complete",
+    "in 200-300s (shared university endpoint under load). These timeouts make a",
+    "wedged call FAIL CLEANLY (stall) instead of hanging the loop; raise them",
+    "for batch/background review, lower them to fail faster interactively. A",
+    "faster or LOCAL reviewer model is the real fix -- see the README."
+  ],
+  "timeouts": { "connect": 20, "stall": 90, "request": 600 },
+
+  "_permissions_comment": [
+    "spawn_subagent/spawn_parallel are MUTATING tools, so in chat mode they are",
+    "ASK -- and headless (-p) has no approval front-end, so they are refused",
+    "with 'needs approval'. Measured 2026-08-03: that silently turned the",
+    "headless /review-diff into a manual single-agent review (the model said so",
+    "in its own answer). Pre-approving just these two keeps the slice's headless",
+    "path working WITHOUT a blanket --auto grant; every agent this pack spawns",
+    "is readonly: true, and pathFence stays on, so nothing here can write."
+  ],
+  "permissions": { "allow": ["spawn_subagent", "spawn_parallel"] }
+}

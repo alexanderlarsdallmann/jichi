@@ -1,0 +1,10 @@
+# one username per line; '#' comments
+ada
+brendan
+carol
+dennis
+edsger
+fran
+grace
+hoare
+mallory

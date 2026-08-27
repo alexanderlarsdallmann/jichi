@@ -1,0 +1,96 @@
+commit ee3ca7cce7554378879172d980dc8a037e4ea73c
+Author: Alexander-Lars Dallmann
+Date:   Thu Aug 13 01:52:59 2026 +0200
+
+    test+docs: second assignment -- ping-pong loop mode, authored by gemma 4, repaired by hand
+    
+    The assignment (docs/assignments/ping-pong-loop-mode-...) was authored by
+    jlu/gemma-4-31b-it driven headless -- jichi M411's --model pin verified live:
+    zero route events, all 41 calls on the strong tier. The prose is genuinely
+    good: correct deep-bounce semantics (2.1 -> 0.1 forward again), a mermaid
+    diagram that carries the algorithm, correct pseudo-code, and a 3-rung hint
+    ladder that parses (jichi M409 live: colons inside backticks survive).
+    
+    The stub + gate tests took gemma two bounded runs (~3.1M tokens) and both left
+    the tree broken the same way: an insertion spliced INTO a neighboring function,
+    replacing its signature (evaluator.zig) or stealing its closing brace
+    (test.zig). Repaired by hand: evaluate_track restored, the panicking stub moved
+    to file scope with the house UNIMPLEMENTED rationale, the clamp test's stolen
+    tail returned, and the gate's exact f32 == compares -- which would have failed a
+    CORRECT implementation (1.1 is not representable) -- replaced with
+    expectApproxEqAbs, so the gate is satisfiable.
+    
+    Gate state, proven: zig build test = 499 tests, 494 pass, 5 crash (2 keyframes
+    gates + 3 ping-pong gates), zero compile errors. jichi grade --expect-fail
+    reports RED as expected on both specs.
+    
+    Also measured, for jichi's register (recorded there): a test-first authoring
+    run inherits testCommand as its envelope verifier with no way to disarm it, so
+    the first gemma run got fix-forward pressure AGAINST its own brief; the retry
+    used the task-honest inverted gate (tests exist AND suite red).
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+diff --git a/src/animation/evaluator.zig b/src/animation/evaluator.zig
+index c0a93b9..f840484 100644
+--- a/src/animation/evaluator.zig
++++ b/src/animation/evaluator.zig
+@@ -29,6 +29,21 @@ pub const AnimationState = struct {
+ };
+ 
+ /// Animation evaluator
++/// Ping-pong time wrap for `.loop_pingpong` (docs/assignments/
++/// ping-pong-loop-mode-in-the-animation-evaluator.md).
++///
++/// UNIMPLEMENTED on purpose, per this project's rule (.jichi/memory.md;
++/// ANECDOTES.md #6): a placeholder that returned a plausible value would be a
++/// silent wrong answer, so the gate tests crash here until the assignment is
++/// worked. Contract: treat the loop as a period of 2*length; the first half
++/// plays forward (reversed=false), the second half is reflected
++/// (wrapped_time = 2*length - t, reversed=true).
++pub fn pingpongWrap(time: f32, length: f32) struct { wrapped_time: f32, reversed: bool } {
++    _ = time;
++    _ = length;
++    @panic("TODO: pingpongWrap is not implemented");
++}
++
+ pub const AnimationEvaluator = struct {
+     /// Animation being evaluated
+     animation: *animation.Animation,
+diff --git a/src/animation/test.zig b/src/animation/test.zig
+index 7dd88c3..05a463e 100644
+--- a/src/animation/test.zig
++++ b/src/animation/test.zig
+@@ -182,6 +182,32 @@ test "Clamp time with loop modes" {
+     try testing.expect(keyframes.clampTime(-3.0, length, .loop_clamp) == 0.0);
+ }
+ 
++test "evaluator.pingpongWrap: simple bounce (assignment gate)" {
++    const evaluator = @import("evaluator.zig");
++    const res = evaluator.pingpongWrap(1.1, 1.0);
++    try testing.expectApproxEqAbs(@as(f32, 0.9), res.wrapped_time, 0.0001);
++    try testing.expect(res.reversed == true);
++}
++
++test "evaluator.pingpongWrap: deep bounce (assignment gate)" {
++    const evaluator = @import("evaluator.zig");
++    const res = evaluator.pingpongWrap(2.1, 1.0);
++    try testing.expectApproxEqAbs(@as(f32, 0.1), res.wrapped_time, 0.0001);
++    try testing.expect(res.reversed == false);
++}
++
++test "evaluator.pingpongWrap: boundaries (assignment gate)" {
++    const evaluator = @import("evaluator.zig");
++    const res0 = evaluator.pingpongWrap(0.0, 1.0);
++    try testing.expectApproxEqAbs(@as(f32, 0.0), res0.wrapped_time, 0.0001);
++    try testing.expect(res0.reversed == false);
++
++    const res1 = evaluator.pingpongWrap(1.0, 1.0);
++    try testing.expectApproxEqAbs(@as(f32, 1.0), res1.wrapped_time, 0.0001);
++    // reversed at exactly t == length is unspecified by the assignment; only
++    // the wrapped value is gated here.
++}
++
+ // --- the gate for docs/assignments/implementation-keyframes-interpolate.md ---
+ //
+ // Added 2026-08-12 to make that assignment's `verify` TWO-SIDED. As authored, its

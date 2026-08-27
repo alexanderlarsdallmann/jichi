@@ -1,0 +1,19 @@
+# M577: what is version-controlled here but NOT published.
+#
+# scripts/make-snapshot.sh builds the public tree with `git archive HEAD` and
+# nothing else -- "the git INDEX is the manifest" -- and `git archive` honours
+# `export-ignore`. That makes this file the single place where "tracked, pushed,
+# and ours" is separated from "published to strangers".
+#
+# docs/internal/ holds measurements of the INSTITUTION'S infrastructure: backend
+# hostnames, deployment paths, gateway versions, per-model routing. None of that
+# is secret in the credential sense, and none of it is ours to publish -- it maps
+# somebody else's estate, which is the same objection snapshot_lint already
+# raises about naming a reachable machine (its header: "nothing in the
+# publishable tree identifies a person or a machine").
+#
+# THE PUBLIC VERSION IS A SEPARATE, GENERIC DOCUMENT, not a redaction of this
+# one. Redaction leaves the shape of what was removed; a rewrite states the
+# finding -- that prompt caching is per-deployment and must be measured with at
+# least three calls -- without naming anyone's hosts.
+docs/internal/ export-ignore

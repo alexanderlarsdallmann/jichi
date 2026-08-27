@@ -1,0 +1,7 @@
+## Repository map
+A high-level index of the project's source files and their top-level symbols, to help you navigate. It is heuristic and may be incomplete; use read_file / find_definition / search_code for detail.
+
+main.c: helper, main
+src/b.c: b_one, b_two
+tool.py: hello
+util.h: point

@@ -1,0 +1,24 @@
+# Scheduled jichi runs via cron (for periodic, not always-on, autonomy).
+# Install for a DEDICATED non-root user:  crontab -u jichi crontab.example
+#
+# Prefer a systemd timer (jichi-loop.service) when you can -- cron has a bare
+# environment and no sandboxing. If you must use cron, harden in the command:
+# set the config, keep the run BOUNDED, and never rely on the loop being
+# supervised.
+
+# Environment (cron starts with almost none). Keep the API key in a 0600 file
+# that this user owns, sourced by the wrapper -- not inline here.
+SHELL=/bin/sh
+PATH=/usr/local/bin:/usr/bin:/bin
+JICHI_CONFIG=/srv/jichi/config.autonomous.json
+QUEUE=/srv/jichi/queue
+WORKSPACE=/srv/jichi/project
+JICHI_REPORT_FILE=/srv/jichi/reports/status.log
+
+# Every 15 minutes: drain the queue once (RUN_ONCE=1) so runs never overlap.
+# `flock -n` on a lockfile guarantees a slow run isn't double-started by the
+# next tick. Each jichi turn is independently bounded by loop.sh's budget/deadline.
+*/15 * * * * . /etc/jichi/loop.env; RUN_ONCE=1 VERIFY='make test' EDIT_SCOPE='src/**' flock -n /srv/jichi/loop.lock /srv/jichi/loop.sh >>/srv/jichi/reports/cron.log 2>&1
+
+# Nightly at 02:30: a heavier, longer-budget pass over a separate queue.
+30 2 * * * . /etc/jichi/loop.env; RUN_ONCE=1 QUEUE=/srv/jichi/nightly BUDGET_TOKENS=1m DEADLINE=2h flock -n /srv/jichi/nightly.lock /srv/jichi/loop.sh >>/srv/jichi/reports/nightly.log 2>&1

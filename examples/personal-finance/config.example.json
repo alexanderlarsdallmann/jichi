@@ -1,0 +1,26 @@
+{
+  "_comment": [
+    "personal-finance scaffold -- EXAMPLE config (a template to adapt, not a",
+    "live config). Copy the models block into your own config (~/.jichi or",
+    "local/config.json) and fill in your provider/model/apiBase. Secret-free:",
+    "the key comes from an env var named by apiKeyEnv, never a literal key here.",
+    "",
+    "PRIVACY: this bench handles your money. A LOCAL model (LM Studio /",
+    "llama.cpp / Ollama) keeps everything on your own machine -- strongly",
+    "recommended here. The localhost apiBase below assumes a local server; see",
+    "docs/LOCAL_MODELS.md. A single chat model is all you need.",
+    "",
+    "Educational, not financial advice. snapshots let you /undo an edit;",
+    "pathFence keeps writes inside this workspace."
+  ],
+
+  "models": [
+    { "name": "chat", "provider": "openai", "model": "YOUR_LOCAL_MODEL_ID",
+      "apiBase": "http://localhost:1234/v1", "apiKeyEnv": "JICHI_API_KEY",
+      "roles": ["chat"] }
+  ],
+
+  "snapshots": true,
+  "pathFence": 1,
+  "references": true
+}

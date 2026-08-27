@@ -1,0 +1,2 @@
+# installed 2025-03-11 -- a daily note of what the machine did overnight
+0 6 * * *  /home/me/notes/append.sh "$(uptime); $(df -h / | tail -1)"

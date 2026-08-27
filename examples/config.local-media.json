@@ -1,0 +1,37 @@
+{
+  "_comment": [
+    "Local media generation via LocalAI (a single prebuilt binary, no Docker):",
+    "run scripts/setup-localai.sh, which serves the OpenAI-compatible endpoints",
+    "jichi's media tools call -- /v1/images/generations (generate_image),",
+    "/v1/audio/speech (generate_audio, TTS), /v1/audio/transcriptions",
+    "(transcribe_audio, STT). One local server on :8080 serves every role; local",
+    "servers need no API key.",
+    "",
+    "Point the chat model at your own local or remote chat backend. The image /",
+    "audio / transcribe model ids must match what LocalAI has installed (see",
+    "`local-ai models list`). Copy to local/config.json (git-ignored) or pass",
+    "--config. See docs/MEDIA_GEN.md and docs/TRANSCRIBE.md."
+  ],
+
+  "models": [
+    { "name": "chat", "provider": "openai", "model": "your-chat-model",
+      "apiBase": "http://127.0.0.1:1234/v1",
+      "roles": ["chat", "edit", "apply"] },
+
+    { "name": "image", "provider": "openai", "model": "sd-1.5-ggml",
+      "apiBase": "http://127.0.0.1:8080/v1", "roles": ["image"],
+      "description": "local Stable Diffusion image generation (stablediffusion.cpp)" },
+
+    { "name": "tts", "provider": "openai", "model": "vits-piper-en_US-amy-sherpa",
+      "apiBase": "http://127.0.0.1:8080/v1", "roles": ["audio"],
+      "description": "local text-to-speech (piper voice via sherpa-onnx)" },
+
+    { "name": "stt", "provider": "openai", "model": "whisper-base",
+      "apiBase": "http://127.0.0.1:8080/v1", "roles": ["transcribe"],
+      "description": "local speech-to-text (whisper)" }
+  ],
+
+  "imageGenMaxBytes": 0,
+  "audioGenMaxBytes": 0,
+  "transcribeMaxBytes": 0
+}

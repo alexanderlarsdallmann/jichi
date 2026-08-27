@@ -1,0 +1,30 @@
+Seeds for the `json` fuzz target, replayed on every run (see the Makefile's fuzz
+section: "every run first replays tests/fuzz/corpus/<target>/*").
+
+The crash-int-cast-overflow-* files are the M469 finding, kept as the exact bytes
+that reached it. `src/json/cJSON.c` did `node->valueint = (int)val`, which C leaves
+undefined when the double is outside int's range -- and jichi parses JSON it did not
+write. `{"x":1e300}` is valid JSON and enough.
+
+The bug was found on big-endian ARM (zig cc traps UB by default) rather than here,
+even though `make ci` runs ASan+UBSan over this very target. THAT is why these files
+exist: the sanitizer was present and the input was absent -- nothing in the tree had
+ever fed the parser a number outside int range, and a short fuzz pass starting from
+the built-in seed `{"a":[1,2,{"b":true}],"c":null}` was not going to invent 1e300.
+A sanitizer only sees the inputs you give it.
+
+The deep-nesting-* files are the M472 finding: `parse_value` <-> `parse_object`/
+`parse_array` recursed with no depth counter, so the INPUT controlled the stack.
+Measured SIGSEGV at ~75,000 levels (150 KB) on an 8 MB stack, ~6,000 (12 KB) at
+512 KB, and ~2,000 (4 KB) at 128 KB -- the small-stack rows LOW_MEMORY.md ships
+to, where 4 KB of '[' killed the agent. Reachable from model tool-call arguments,
+MCP and LSP replies, and the ACP channel.
+
+These two seeds (400 arrays; 300 objects) sit just above JC_JSON_MAX_DEPTH so the
+guard is what they exercise, not the crash -- keeping them small enough to read.
+
+They exist for the same reason as the crash-int-cast-overflow-* files above, and
+for a sharper version of it: coverage-guided fuzzing CANNOT find this class at
+all. libFuzzer mutates toward new coverage, and `[[[[` reaches no new code after
+the second bracket, so there is no gradient to climb toward depth 75,000. A green
+fuzzer bounds the inputs it can reach; depth is not one of them.

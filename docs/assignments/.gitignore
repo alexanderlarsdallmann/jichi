@@ -1,0 +1,23 @@
+# Compiled grader artifacts (created by each task's test.sh; never committed).
+# Learner work products (answer.txt, found.txt, NOTES.md, test_clamp.c, ...)
+# are deliberately NOT ignored: seeing them in git status is part of the
+# curriculum.
+*/test_stats
+*/run_learner
+*/run_accept
+*/_accept.c
+*/csvsum
+*/test_dur
+*/_probe
+*/_probe.c
+*/_under_test.c
+*/run_learner_check
+*/t
+*/build.log
+*/result.txt
+*/_direct
+*/_mine.c
+*/test_wc
+*/_meta/
+*/notekeeper
+*/wordtool

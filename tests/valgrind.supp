@@ -1,0 +1,13 @@
+# Valgrind suppressions for jichi's unit suite.
+#
+# Run via `make ci`'s valgrind stage. Keep every entry NARROW: name the call
+# chain, so the same class of error elsewhere still fails the gate.
+
+{
+   test_sb_reserve_bounds: deliberate oversize realloc (M472)
+   Memcheck:FishyValue
+   realloc(size)
+   fun:realloc
+   fun:jc_sb_reserve
+   fun:test_sb_reserve_bounds
+}

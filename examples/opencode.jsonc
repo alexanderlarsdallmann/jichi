@@ -1,0 +1,46 @@
+{
+  // opencode configuration (JSONC: comments + trailing commas allowed)
+  "$schema": "https://opencode.ai/config.json",
+  "model": "anthropic/claude-sonnet-4",
+  "small_model": "openai/gpt-4o-mini",
+  "provider": {
+    "anthropic": {
+      "options": { "apiKey": "{env:ANTHROPIC_API_KEY}" },
+    },
+  },
+  "instructions": ["AGENTS.md", "docs/conventions.md"],
+  "mcp": {
+    "filesystem": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "."],
+      "environment": { "LOG": "info" },
+    },
+    "docs": {
+      "type": "remote",
+      "url": "https://mcp.example.com/docs",
+      "headers": { "Authorization": "Bearer TOKEN" },
+    },
+  },
+  "lsp": {
+    "typescript": { "command": ["typescript-language-server", "--stdio"], "extensions": [".ts", ".tsx"] },
+  },
+  "permission": {
+    "bash": "deny",
+    "edit": "ask",
+    "webfetch": "allow",
+  },
+  "agent": {
+    "auditor": {
+      "description": "Read-only security auditor",
+      "model": "anthropic/claude-sonnet-4",
+      "prompt": "You audit code for vulnerabilities. Do not modify files.",
+      "tools": { "*": false, "read": true, "grep": true, "glob": true },
+    },
+  },
+  "command": {
+    "explain": {
+      "description": "Explain a file in plain language",
+      "template": "Explain what @$1 does, step by step.",
+    },
+  },
+}

@@ -1,0 +1,55 @@
+commit 736b74a4f47e170fa8cae10d09895f52c525b0eb
+Author: Alexander-Lars Dallmann
+Date:   Wed Aug 12 19:17:18 2026 +0200
+
+    test+docs: an assignment for keyframes.interpolate, with a gate that can fail
+    
+    Authored by jichi (/assign) driven headless, then repaired by hand:
+    
+    - the authored verify was `zig build test`, which was ALREADY GREEN -- interpolate
+      panics and nothing called it, so `jichi grade` reported PASS at 100% before any
+      work existed. Two gate tests added to src/animation/test.zig; the suite now reads
+      494 pass / 2 crash, so the gate is two-sided by construction.
+    - the hint ladder did not parse. Root cause is in jichi, not here: jc_yaml drops the
+      whole `hints:` list when any value contains a colon.
+    - points 100 -> 3, matching this repo's scale.
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+diff --git a/src/animation/test.zig b/src/animation/test.zig
+index 5323ab6..7dd88c3 100644
+--- a/src/animation/test.zig
++++ b/src/animation/test.zig
+@@ -181,3 +181,32 @@ test "Clamp time with loop modes" {
+     try testing.expect(keyframes.clampTime(15.0, length, .loop_clamp) == 10.0);
+     try testing.expect(keyframes.clampTime(-3.0, length, .loop_clamp) == 0.0);
+ }
++
++// --- the gate for docs/assignments/implementation-keyframes-interpolate.md ---
++//
++// Added 2026-08-12 to make that assignment's `verify` TWO-SIDED. As authored, its
++// gate was `zig build test`, which was already green -- keyframes.interpolate
++// panics and nothing called it, so `jichi grade` reported PASS at 100% before any
++// work was done. A gate that cannot be red is not a gate (docs/ANECDOTES.md, and
++// jichi's own docs/TEST_INTEGRITY.md).
++//
++// These two tests fail today with the TODO panic and pass on a correct
++// implementation. They assert only what the assignment states: linear
++// interpolation of a float, and nearest picking an endpoint.
++test "keyframes.interpolate: linear on floats (assignment gate)" {
++    const a = keyframes.Keyframe{ .time = 0.0, .value = .{ .float = 0.0 } };
++    const b = keyframes.Keyframe{ .time = 1.0, .value = .{ .float = 100.0 } };
++    const mid = keyframes.interpolate(a.value, b.value, 0.5);
++    try testing.expect(mid == .float);
++    try testing.expectApproxEqAbs(@as(f64, 50.0), mid.float, 0.0001);
++}
++
++test "keyframes.interpolate: endpoints are exact (assignment gate)" {
++    const variant = @import("../core/variant/index.zig");
++    const from = variant.Variant{ .float = 7.0 };
++    const to = variant.Variant{ .float = 9.0 };
++    const at0 = keyframes.interpolate(from, to, 0.0);
++    const at1 = keyframes.interpolate(from, to, 1.0);
++    try testing.expectApproxEqAbs(@as(f64, 7.0), at0.float, 0.0001);
++    try testing.expectApproxEqAbs(@as(f64, 9.0), at1.float, 0.0001);
++}

@@ -1,0 +1,26 @@
+== README.md ==
+# a fixture project
+
+Nothing to see here.
+== main.c ==
+#include "util.h"
+
+int helper(int x)
+{
+    return x + 1;
+}
+
+int main(void)
+{
+    return helper(1);
+}
+== tool.py ==
+def hello():
+    pass
+== util.h ==
+struct point {
+    int x;
+    int y;
+};
+
+int helper(int x);

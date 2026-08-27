@@ -1,0 +1,776 @@
+.TH JICHI 1 "2026\-08\-22" "jichi 0.9.0" "User Commands"
+.SH NAME
+jichi \- terminal AI coding agent (C89 reimplementation of the Continue CLI)
+.SH SYNOPSIS
+.B jichi
+[\fIoptions\fR] [\fIprompt\fR]
+.br
+.B jichi
+.I command
+[\fIargs\fR]
+.SH DESCRIPTION
+.B jichi
+is an interactive (TUI) and headless AI coding agent. With no prompt on a
+terminal it starts a REPL; with
+.B \-p
+or piped stdin it runs one turn and prints the reply. It streams from
+OpenAI\- or Anthropic\-style model servers, calls tools (read/write/edit files,
+run commands, search, git, MCP, \&...), and gates mutating tools behind a
+permission prompt.
+.SH OPTIONS
+.SS Options
+.TP
+.B \-p, \-\-print <prompt>
+Headless mode: print the reply and exit
+.TP
+.B \-\-config <path>
+Use the given JSON config file
+.TP
+.B \-\-config\-json <s>
+Use inline JSON as the whole config (self\-contained runs;
+visible in `ps` \-\- use apiKeyEnv, not a literal key)
+.TP
+.B \-\-config\-json\-b64 <b64>
+Base64 of the inline config (quoting\-safe transport)
+.TP
+.B \-\-config\-json \-
+Read the config JSON from stdin (alias \-\-config\-stdin;
+keeps it out of `ps`; prompt must then use \-p/\-\-prompt\-b64)
+.TP
+.B \-\-prompt\-b64 <b64>
+Base64 of the prompt text (multiline/quote\-safe)
+.TP
+.B \-\-design <file>
+Inject a design/spec doc as the authoritative plan for the task (alias \-\-spec)
+.TP
+.B \-\-model <sel>
+Select a configured model (name/index/id substring), or a raw id
+on the active model if nothing matches
+.TP
+.B \-\-plan
+Start in plan mode (investigate, propose a plan, change nothing)
+.TP
+.B \-\-auto
+Start in auto mode (run approved tools without asking)
+.TP
+.B \-\-readonly
+Disable mutating tools
+.TP
+.B \-\-path\-fence/\-\-no\-path\-fence
+Force the workspace path containment fence on/off (default: auto = on in \-\-auto)
+.TP
+.B \-\-prompt\-cache/\-\-no\-prompt\-cache
+Force prompt caching on/off (default: auto = on)
+.TP
+.B \-\-cost\-model/\-\-no\-cost\-model
+Tell the model its output caps and what follows (default: auto = on when caching is off)
+.TP
+.B \-\-auto\-context/\-\-no\-auto\-context
+Auto\-retrieve relevant code/docs into each turn (default: off)
+.TP
+.B \-\-learn\-on\-stop/\-\-no\-learn\-on\-stop
+Draft lessons via the mentor after a completed \-\-auto run (default: off)
+.TP
+.B \-\-no\-hooks
+Disable configured lifecycle hooks for this run
+.TP
+.B \-\-output\-style <name>
+Activate a custom output style (.jichi/output\-styles/<name>.md)
+.TP
+.B \-\-language <lang>
+Answer in this natural language (e.g. Japanese, Deutsch; config "language")
+.TP
+.B \-\-image <path>
+Attach an image to the prompt (repeatable; needs a vision model). In a message, @photo.png / @img:<path> also attach.
+.TP
+.B \-c, \-\-continue
+Resume the most recent session for this directory (alias: \-\-resume)
+.TP
+.B \-\-session <id>
+Resume a specific session (id or unambiguous prefix; see `ls`)
+.TP
+.B \-\-all
+With ls / \-\-continue: every project, not just this directory
+.TP
+.B \-v, \-\-verbose
+Enable debug logging
+.TP
+.B \-\-voice / \-\-no\-voice
+Speak replies, approval prompts and errors aloud (needs an
+audio\-role model + sound.play; off by default)
+.TP
+.B \-q, \-\-quiet, \-\-silent
+Minimal output: only essential info (errors still shown)
+.TP
+.B \-\-output <fmt>
+Output format: text (default), json (one object), or jsonl (streaming events)
+.TP
+.B \-\-heartbeat <secs>
+With \-\-output jsonl: emit a periodic "heartbeat" event
+while a model call is in flight (0 = off; for supervisors)
+.TP
+.B \-\-color/\-\-no\-color
+Force ANSI color on/off (default: auto; honors NO_COLOR)
+.TP
+.B \-\-no\-stdin
+Do not read piped stdin as/with the prompt
+.TP
+.B \-\-no\-session
+Do not save this run as a session
+.TP
+.B \-\-lite
+Low\-resource profile (lean defaults for RAM/CPU/disk;
+alias \-\-low\-memory; config: "lowResource")
+.TP
+.B \-\-no\-lite
+Force the normal profile (wins over the config key
+and the low\-RAM auto\-detection)
+.TP
+.B \-\-reindex
+Rebuild the index cache from scratch
+.TP
+.B \-\-
+Treat all following args as the prompt
+.SS Autonomous envelope (bounds an unsupervised run; implies \-\-auto in headless mode)
+.TP
+.B \-\-verify <cmd>
+Run <cmd> when the agent finishes; it must pass (exit 0)
+.TP
+.B \-\-with\-rules
+attempt: load the project's AGENTS.md/CLAUDE.md into the graded run
+(off by default \-\- a big rules file dominated every call: M309)
+.TP
+.B \-\-verify\-retries <n>
+Fix\-forward attempts before rollback (default 3)
+.TP
+.B \-\-verify\-every <n>
+Run the verifier every <n> tool calls mid\-turn (bank green / feed failures back)
+.TP
+.B \-\-verify\-timeout <dur>
+Kill the verifier if it runs longer (e.g. 5m)
+.TP
+.B \-\-verify\-baseline
+Run the verifier once at start (records if the tree is already broken)
+.TP
+.B \-\-verify\-kind <invariant|goal>
+Declare what the verifier asserts: an invariant (green before the work) or a goal (red until the work lands).
+Declaring arms the start probe, which CHECKS the declaration: a goal gate that already passes forces nothing (config "verifyKind")
+.TP
+.B \-\-no\-rollback
+On failure, leave the workspace as\-is instead of reverting
+.TP
+.B \-\-strict\-scope
+With \-\-edit\-scope, also forbid run_terminal_command (no shell escape)
+.TP
+.B \-\-privileged\-commands <ask|deny|allow>
+Policy for model\-issued sudo/doas/pkexec (default ask; config "privilegedCommands")
+.TP
+.B \-\-kinetic\-commands <ask|deny|allow>
+Policy for model\-issued physical actuation (default ask; config "kineticCommands")
+.TP
+.B \-\-revert\-out\-of\-scope
+Restore files changed outside the edit scope at turn end (config "revertOutOfScope")
+.TP
+.B \-\-strict\-green
+Refuse a passing verify if the run changed a file outside the edit scope (config "strictGreen")
+.TP
+.B \-\-lease
+MODE Concurrent runs on one workspace: warn (default) | fail | off (M431e)
+.TP
+.B \-\-budget\-panel
+Give the agent a periodic budget reading with its spend RATE (off by default; config "budgetPanel")
+.TP
+.B \-\-preserve\-discarded
+Commit the tree a rollback would throw away, under refs/jichi/discarded/ (config "preserveDiscarded")
+.TP
+.B \-\-parallel\-verify
+Verify each parallel write\-child's worktree before merging it (config "parallelVerify")
+.TP
+.B \-\-budget\-tokens <n>
+Token cap for the run (e.g. 200k, 1m)
+.TP
+.B \-\-deadline <dur>
+Wall\-clock cap (e.g. 30s, 20m, 2h)
+.TP
+.B \-\-max\-tool\-calls <n>
+Cap on tool calls ATTEMPTED (a
+gate\-refused call still counts)
+.TP
+.B \-\-max\-reads <n>
+Cap on read\-category tool calls (prevents over\-reading)
+.TP
+.B \-\-context\-limit <n>
+Context budget in tokens (sizes the system\-prompt fit + compaction; use when the model's real context is smaller than its declared contextLength)
+.TP
+.B \-\-tool\-profile <p>
+auto | core | full \-\- advertise the lean core tool set on a small\-context model (auto: core when context is small or \-\-lite)
+.TP
+.B \-\-edit\-scope <glob>
+Restrict file edits to a path glob (repeatable)
+.TP
+.B \-\-reference\-root <path>
+Allow READS under this external root with the fence on (repeatable; writes stay in\-workspace)
+.TP
+.B \-\-journal <path|\->
+Audit log path (default ~/.jichi.d/runs/<id>.jsonl; \- disables)
+.TP
+.B \-\-control [path]
+Open a mid\-run control socket (default ~/.jichi.d/control/<pid>.sock;
+steer with `jichi control <sock> status|inject|pause|resume|abort|mode`)
+.SS Event logging / telemetry (opt\-in; for analyzing jichi itself)
+.TP
+.B \-\-log\-level <tier>
+off | metrics | full (default off; full adds prompt/response content)
+.TP
+.B \-\-log <path|\->
+Telemetry JSONL path (default ~/.jichi.d/telemetry/<id>.jsonl; \- disables;
+implies metrics if no \-\-log\-level)
+.SS Model routing (fast\-first, escalate to strong on a hard step)
+.TP
+.B \-\-route\-fast <model>
+Routine turns run on this model
+.TP
+.B \-\-route\-strong <model>
+Escalate to this model on a verify failure
+.TP
+.B \-\-no\-route
+Disable routing (use the single active model)
+.TP
+.B \-\-route\-on\-stall
+Escalate to the strong model when the fast one stalls (default)
+.TP
+.B \-\-no\-route\-on\-stall
+Don't escalate on a model stall
+.TP
+.B \-\-route\-on\-context <pct>
+Escalate when the history reaches pct% of the
+fast tier's window (default 75; needs a roomier
+strong tier to have any effect)
+.TP
+.B \-\-no\-route\-on\-context
+Don't escalate on context pressure
+.TP
+.B \-\-timeout\-connect <s>
+Model\-call connect timeout, seconds (0/off disables)
+.TP
+.B \-\-timeout\-stall <s>
+Abort a model stream stalled for this many seconds
+.TP
+.B \-\-timeout\-request <s>
+Hard cap on a whole model call, seconds (0/off = none)
+.TP
+.B \-\-run\-timeout <s>
+Wall\-clock cap on a model\-run shell command, seconds (0 = none)
+.TP
+.B \-\-no\-markdown
+Don't render markdown/syntax in the TUI (raw text)
+.TP
+.B \-\-type\-ahead
+Collect keys typed while the agent works, apply at its next step
+.TP
+.B \-\-no\-type\-ahead
+Don't (the default; see docs/TYPE_AHEAD.md)
+.TP
+.B \-\-accessible
+Reduce motion, keep output screen\-reader\-friendly (docs/ACCESSIBILITY.md)
+.TP
+.B \-\-no\-fuzzy\-edit
+Require exact\-string edits (disable whitespace/anchor fallback)
+.TP
+.B \-\-bell
+Ring the terminal bell when a turn / \-\-auto run finishes
+.TP
+.B \-\-notify <cmd>
+Run <cmd> on completion ($JICHI_NOTIFY, $JICHI_CWD)
+.SS Commands
+.TP
+.B \-\-list packs, \-\-global, \-\-force, \-\-dry\-run
+.TP
+.B \-\-live
+makes ONE real request that advertises a trivial
+tool, to confirm tool calling works end to end
+.TP
+.B \-\-unattended
+judges the config as an unattended\-loop
+posture and exits 1 on an unsafe one)
+.TP
+.B \-\-budget\-tokens/\-\-deadline/\-\-max\-tool\-calls
+bound it;
+a green verify with test\-assertion edits reports TAINTED,
+exit 1 \-\- \-\-keep\-worktree keeps the sandbox for review)
+.TP
+.B \-\-workspace <path>
+filters to one project's events;
+.TP
+.B \-\-since
+7d windows a log that spans older builds;
+.TP
+.B \-\-cache\-audit
+diagnoses prompt\-cache reuse vs re\-billing)
+.TP
+.B \-\-output
+json for a machine\-readable summary)
+.TP
+.B \-\-since
+1d windows by activity; \-\-output json for machine\-readable rows)
+.TP
+.B \-V, \-\-version
+Print version and exit
+.TP
+.B \-h, \-\-help
+Print this help and exit
+.SS Safety off-switches
+These turn OFF a guard that is otherwise on. Every one of them was accepted by the
+parser and documented nowhere at all until M539 -- not in this page, not in
+.BR "jichi \-\-help" .
+A fence an operator cannot discover is a fence they cannot reason about, so this
+subsection admits no exemption: a flag that disables a guard belongs here.
+.TP
+.B \-\-no\-preserve\-discarded
+Do not keep the state an
+.B undo
+throws away. Normally the discarded work tree is preserved and
+.B undo
+prints a
+.B "jichi recover <hash>"
+handle for it; with this, the revert is final.
+.TP
+.B \-\-no\-rollback
+On failure, leave the workspace as it stands instead of reverting it. The
+autonomous envelope's automatic rollback is what makes an unsupervised run
+recoverable; this removes it.
+.TP
+.B \-\-no\-revert\-out\-of\-scope
+Do not revert edits that fall outside
+.BR \-\-edit\-scope .
+The scope is still reported, but no longer enforced by reverting.
+.TP
+.B \-\-no\-self\-review
+Skip the self-review pass at the end of an autonomous run.
+.TP
+.B \-\-no\-strict\-green
+Accept a verify command's success without the strict-green checks that catch a
+gate passing for the wrong reason (a moved assertion, a skipped suite).
+.TP
+.B \-\-config\-editable
+Allow the model to write the configuration file through the
+.B config set
+path. Off by default: a model that can edit its own config can edit its own
+fences.
+.TP
+.B \-\-yes
+Skip the confirmation on
+.BR "checkpoints gc" ,
+which deletes checkpoint stores. There is no undo for a pruned store.
+.SS Setup, export and diagnostics
+Flags that belong to one subcommand, or exist for diagnosing jichi itself.
+.TP
+.B \-\-provider \fI<name>\fR, \-\-profile \fI<name>\fR, \-\-key\-env \fI<VAR>\fR, \-\-lang \fI<lang>\fR, \-\-config\-target \fI<path>\fR, \-\-from \fI<path>\fR
+Non-interactive answers for
+.BR "jichi setup" :
+the provider, the profile, the environment variable holding the API key, the
+answer language, where to write the config, and a config to import.
+.B \-\-from
+is the same as
+.BR \-\-import ,
+and
+.B \-\-lang
+the same as
+.BR \-\-language .
+.TP
+.B \-\-out \fI<path>\fR
+Write
+.BR "jichi export" 's
+output to a file rather than stdout.
+.TP
+.B \-\-record
+For
+.BR "jichi attempt" :
+append the graded result to
+.IR .jichi/progress.jsonl .
+.TP
+.B \-\-review
+Ask for a review pass over the result.
+.TP
+.B \-\-fuzzy\-edit
+Force the whitespace/anchor fallback for
+.B edit_file
+on (the opposite of
+.BR \-\-no\-fuzzy\-edit ).
+.TP
+.B \-\-parallel\-verify, \-\-no\-parallel\-verify
+Run the envelope's verify commands concurrently, or serially.
+.TP
+.B \-\-non\-interactive
+Never prompt; fail instead of asking. For cron and CI.
+.TP
+.B \-\-mem\-budget \fI<MB>\fR
+Advisory memory ceiling for the low-resource profile.
+.TP
+.B \-\-no\-budget\-panel
+Suppress the TUI's budget panel.
+.TP
+.B \-\-dump\-requests \fI<dir>\fR
+Write every outgoing request body to
+.IR <dir> .
+A debugging aid: request bodies contain your prompt, your files and, if a config
+inlines one, your key.
+.SH COMMANDS
+.SS Commands
+.TP
+.B ls [\-\-all]
+List saved sessions (this project; \-\-all for every project)
+.TP
+.B prune [\-\-keep N] [\-\-older\-than DUR] [\-\-dry\-run]
+Delete old sessions (both criteria must agree; \-\-dry\-run lists)
+.TP
+.B export [id] [\-\-html]
+Export a session transcript (Markdown, \-\-html, or \-\-output
+json for a structured projection); \-o <file>
+.TP
+.B index [\-\-reindex]
+Build/update the codebase search index
+.TP
+.B docs [index|search]
+List/index/search external documentation sources
+.TP
+.B setup
+Guided project setup: role preset \-> assets + config +
+start\-script + validation (interactive; \-\-list, \-\-preset)
+`\-\-api\-base <URL>` sets the endpoint a locally hosted or
+gateway model needs (the flag form of the wizard's
+apiBase question);
+`\-\-context\-length <tokens|auto>` records the model's
+window (a number stays offline; `auto` asks the server,
+which only a LiteLLM gateway answers);
+`setup \-\-import <continue|opencode config>` converts an
+existing config into a jichi config + .jichi/ tree;
+`\-\-journey`/`\-\-machine`/`\-\-stance` <name> layer onto it
+(setup asks for both; \-\-preset <journey> alone still works);
+`setup \-\-advisor` asks the configured model for tailored
+recommendations (writes .jichi/setup.advice.md);
+`setup \-\-from\-global` seeds the project config from
+~/.jichi (\-\-inherit <keys> copies only some);
+`setup \-\-onboard` scaffolds + drafts a propose\-only
+project analysis + tutorial (W6)
+.TP
+.B init [pack ...]
+Scaffold .jichi/ assets (agents, skills, commands, AGENTS.md);
+.TP
+.B \-\-list packs, \-\-global, \-\-force, \-\-dry\-run
+.TP
+.B embed "text"
+Print an embedding (uses the embed model)
+.TP
+.B rerank "q" "doc"...
+Score documents against a query
+.TP
+.B doctor
+Check config, keys, server reachability, MCP/LSP, git
+(\-\-output json for a machine\-readable report;
+.TP
+.B \-\-live
+makes ONE real request that advertises a trivial
+tool, to confirm tool calling works end to end
+.TP
+.B \-\-unattended
+judges the config as an unattended\-loop
+posture and exits 1 on an unsafe one)
+.TP
+.B config [path|show|validate]
+Name the config file(s) in effect, summarise the
+resolved settings, or confirm it parsed; `config set <key>
+<value>` and `config telemetry <level>` edit it when
+configEditable is on
+.TP
+.B assign <spec.md>
+Render a machine\-checkable assignment for its audience
+.TP
+.B hint <spec.md> [N]
+Print rung N of the spec's hint ladder (default 1)
+.TP
+.B grade <spec.md>
+Run the spec's verify command and score pass/fail
+(\-\-expect\-fail: authoring check \-\- exit 0 iff the gate
+is RED on the untouched tree; a green one is HOLLOW)
+.TP
+.B attempt <spec.md>
+Let a learner solve one assignment in an isolated worktree,
+graded by its verify (\-\-agent <profile> picks a tier;
+.TP
+.B \-\-budget\-tokens/\-\-deadline/\-\-max\-tool\-calls
+bound it;
+a green verify with test\-assertion edits reports TAINTED,
+exit 1 \-\- \-\-keep\-worktree keeps the sandbox for review)
+.TP
+.B dream [path]
+Propose\-only reflection over telemetry \-> a dated draft
+.TP
+.B workflow <spec.json>
+Run a deterministic multi\-agent pipeline (map \-> synthesize)
+.TP
+.B improve [specs\-dir]
+Reflect + grade a spec suite; track the pass\-rate over time
+(\-\-attempt: let the agent try each failure in an isolated
+worktree and re\-grade \-\- your tree is never touched)
+.TP
+.B models
+List configured models, roles, fallback, and live reachability
+.TP
+.B benchmark [path]
+Score a config against the built\-in checks (offline)
+.TP
+.B board [add|move|done|phase] ...
+Show or edit the persistent kanban board (.jichi/board.json)
+.TP
+.B packages [recommend]
+List the setup presets (role recipes) `setup \-\-preset` accepts;
+`recommend` suggests one from what is in the project
+.TP
+.B timeouts
+Show the model\-call timeouts in effect for the active model
+.TP
+.B mcp [resources|read <uri>|prompts|prompt <name>|call <tool> [json]]
+Connect to configured MCP servers; list tools, or use one
+.TP
+.B skills
+List available agent skills
+.TP
+.B agents
+List discovered agent profiles (.jichi/agents)
+.TP
+.B commands
+List custom slash commands (.jichi/commands)
+.TP
+.B output\-styles
+List output styles (.jichi/output\-styles)
+.TP
+.B rules
+Print the resolved project rules (AGENTS.md chain)
+.TP
+.B assignments
+List assignments under docs/assignments/ (see `init assignments`)
+.TP
+.B sysmsg
+Print the resolved system prompt (debugging)
+.TP
+.B status
+Print the resolved session config (model, mode, routing, cwd)
+.TP
+.B describe
+Print jichi's interface contract for driving agents (\-\-output json)
+.TP
+.B map
+Print the repository map (files + top\-level symbols)
+.TP
+.B context
+Print the context\-budget breakdown (prompt/tools vs limit)
+.TP
+.B context tools
+Per\-tool definition sizes, largest first, joined to telemetry (paid\-for vs called)
+.TP
+.B context history [<id>] Where a saved session's history went: by role, by tool, largest messages
+.TP
+.B memory
+Print persisted agent memory (.jichi/memory.md)
+.TP
+.B glossary
+Print the domain\-term glossary (.jichi/glossary.md)
+.TP
+.B brief\-check <file|\->
+Pre\-flight a brief with NO model call: which constraints it would
+infer and from which line, the envelope, and the gate's
+baseline colour (exit 1 if a declared goal gate forces nothing)
+.TP
+.B constraints [scan <f>] List the enforced constraints, or predict what a
+brief/prompt would get ADOPTED (offline; exit 1 if any)
+.TP
+.B telemetry [path]
+Summarize a telemetry log (default: newest under ~/.jichi.d/telemetry;
+.TP
+.B \-\-workspace <path>
+filters to one project's events;
+.TP
+.B \-\-since
+7d windows a log that spans older builds;
+.TP
+.B \-\-cache\-audit
+diagnoses prompt\-cache reuse vs re\-billing)
+.TP
+.B audit [path]
+Summarize the privileged\-command audit log (\-\-since 7d limits the window;
+.TP
+.B \-\-output
+json for a machine\-readable summary)
+.TP
+.B runs [dir]
+One triage row per bounded run's journal (newest first; \-\-all shows every run;
+.TP
+.B \-\-since
+1d windows by activity; \-\-output json for machine\-readable rows)
+.TP
+.B control <sock> <verb>
+Steer a running \-\-control run: status | inject <text> | pause [\-\-extend] |
+resume | abort | mode <chat|plan>  (\-\-extend credits the paused
+time back to the deadline; mode only ever NARROWS the posture)
+.TP
+.B learn analyze [path]
+Mine telemetry + recent sessions for recurring problems (offline)
+.TP
+.B learn apply
+Commit a reviewed .jichi/lessons.draft.md to memory + skills
+.TP
+.B learn corrections
+Commit ONLY the draft's corrections (retract stale notes)
+.TP
+.B learn review
+How to run the mentor (it needs a model, so it is a command)
+(the mentor draft comes from the `/learn` command)
+.TP
+.B complete [text]
+Autocomplete the text (or stdin) with the autocomplete\-role model
+.TP
+.B fim <file> <offset>
+Fill\-in\-the\-middle at a byte offset (or JSON {prefix,suffix} on stdin)
+.TP
+.B test [command]
+Run the tests (default: configured testCommand/verify) and print a parsed summary
+.TP
+.B lsp <file> | symbols <file> | def|refs <file> <symbol> | actions <file> <line>
+Diagnostics, or LSP code navigation
+.TP
+.B serve [\-\-acp]
+Run as an ACP agent server over stdin/stdout (for editors)
+.TP
+.B daemon [\-\-socket P]
+Warm process: keep config/MCP/LSP/index hot and serve
+requests over a Unix socket. Talk to it with:
+jichi \-\-connect <socket> \-p "..."
+(\-\-idle\-dream <sec>: reflect over telemetry when idle)
+.TP
+.B checkpoints
+List this workspace's snapshots
+.TP
+.B checkpoints gc
+Report the shadow\-checkpoint store and what is orphaned
+.TP
+.B attempts
+List work a rollback discarded and preserved (see \-\-preserve\-discarded)
+.TP
+.B recover <commit>
+Materialise a preserved attempt into a worktree (\-\-into <dir>)
+.TP
+.B undo [N] [\-\-dry\-run]
+Revert the workspace to the N\-th most recent checkpoint
+(\-\-dry\-run previews the change without applying it)
+.TP
+.B rewind [N] [\-\-dry\-run] Revert files AND the conversation to the N\-th checkpoint's turn
+.TP
+.B \-V, \-\-version
+Print version and exit
+.TP
+.B \-h, \-\-help
+Print this help and exit
+.SH INTERACTIVE KEYS
+Keys available while composing a prompt in the TUI. Two of them make a model
+call and are easy to confuse; they differ in what they do to your line.
+.TP
+.B Tab
+Complete the token under the cursor: a slash-command, a model name, a session
+id, a mode, or an
+.I @path
+reference. Offline and deterministic.
+.TP
+.B Ctrl\-G
+Suggest how to finish the current line ("ghost text", shown dim after the
+cursor).
+.B Tab
+accepts it and appends it to your line; any other key dismisses it. Uses the
+.B autocomplete
+role model. Whether you get a continuation rather than an answer depends on that
+model \(em see
+.IR docs/AUTOCOMPLETE.md .
+.TP
+.B Ctrl\-Q
+Ask whether the request you are composing is clear enough to act on. One short
+line is
+.B printed
+below your prompt, labelled
+.IR advice: ,
+and your input is never modified. Replies
+.I looks clear
+when nothing needs deciding. Uses the active chat model.
+.TP
+.B Ctrl\-R
+Reverse\-search your input history.
+.TP
+.B Ctrl\-A, Ctrl\-E
+Start / end of line.
+.B Ctrl\-U, Ctrl\-K
+kill to start / end;
+.B Ctrl\-W
+kill the previous word.
+.TP
+.B Ctrl\-L
+Clear the screen.
+.B Ctrl\-C
+cancels the current turn or clears the line;
+.B Ctrl\-D
+exits on an empty line.
+.TP
+.B \\ (trailing backslash)
+Continue the prompt on the next line. Pasted multi\-line blocks are also kept as
+one logical line.
+.SH ENVIRONMENT
+.TP
+.B JC_CONFIG
+Path to the config file (overridden by \fB\-\-config\fR).
+.TP
+.B NO_COLOR
+Disable ANSI color (overridden by \fB\-\-color\fR).
+.TP
+.BR ANTHROPIC_API_KEY ", " OPENAI_API_KEY
+Fallback API keys when not set in the config.
+.SH EXIT STATUS
+The exit codes are a
+.B stable
+interface: see
+.IR docs/EMBEDDING.md .
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Runtime error. See stderr, or the
+.B done.error
+field under
+.BR "\-\-output json" .
+.TP
+.B 2
+Usage or configuration error.
+.TP
+.B 130
+Interrupted (SIGINT).
+.TP
+.B 143
+Terminated (SIGTERM), shut down gracefully -- the session is saved and teardown
+runs. Absent from this page until M539, while
+.BR "jichi describe" ,
+.BR "jichi \-\-help" ,
+.I docs/EMBEDDING.md
+and
+.I docs/SCRIPTING.md
+all listed it: a supervisor reading only the man page would treat a clean
+SIGTERM shutdown as an unknown failure.
+.SH FILES
+.TP
+.B ~/.jichi
+Default config file.
+.TP
+.B .jichi/
+Project-local commands, agents, skills, and memory.
+.TP
+.B ~/.jichi.d/sessions/
+Saved sessions.
+.SH SEE ALSO
+The bundled README.md, TUTORIAL.md, and docs/ directory.

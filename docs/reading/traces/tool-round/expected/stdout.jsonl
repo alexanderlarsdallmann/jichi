@@ -1,0 +1,12 @@
+{"v":1,"type":"message_start","model":"mock","mode":"auto"}
+{"v":1,"type":"usage","input":20,"output":5,"cost":0}
+{"v":1,"type":"tool_call","name":"read_file","args":"{\"path\":\"notes.txt\"}","id":"c1"}
+{"v":1,"type":"tool_result","name":"read_file","is_error":false,"id":"c1","preview":"     1\tbuy milk\n     2\tfeed the cat\n"}
+{"v":1,"type":"message_start","model":"mock","mode":"auto"}
+{"v":1,"type":"usage","input":20,"output":5,"cost":0}
+{"v":1,"type":"tool_call","name":"edit_file","args":"{\"path\":\"notes.txt\",\"old_string\":\"buy milk\",\"new_string\":\"buy oat milk\"}","id":"c1"}
+{"v":1,"type":"tool_result","name":"edit_file","is_error":false,"id":"c1","preview":"Edited notes.txt (1 replacement)\n@@ -1,2 +1,2 @@\n-buy milk\n+buy oat milk\n feed the cat\n"}
+{"v":1,"type":"message_start","model":"mock","mode":"auto"}
+{"v":1,"type":"text","delta":"Changed 'buy milk' to 'buy oat milk' in notes.txt."}
+{"v":1,"type":"usage","input":20,"output":5,"cost":0}
+{"v":1,"type":"done","text":"Changed 'buy milk' to 'buy oat milk' in notes.txt.","model":"mock","tokens":{"input":60,"output":15},"cost":0,"tool_calls":2,"aborted":false,"stop_reason":"done","work_kept":true,"starved":false,"peak_input":20,"cache":{"read":0,"write":0},"tools":{"read":1,"write":1,"shell":0,"other":0}}

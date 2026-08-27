@@ -1,0 +1,32 @@
+{
+  "_comment": [
+    "The smallest config that works for anyone with an OpenAI API key.",
+    "Copy to local/config.json (git-ignored) or point --config at it, then:",
+    "    export OPENAI_API_KEY=sk-...",
+    "    jichi doctor        # confirms the key, the endpoint and the roles",
+    "    jichi -p 'summarise this repository'",
+    "",
+    "No key in this file, ever: apiKeyEnv names the VARIABLE jichi reads.",
+    "contextLength is set deliberately BELOW the real window -- jichi's",
+    "byte/4 estimate runs optimistic until per-model calibration settles",
+    "(docs/COMPACTION.md), and an undeclared window is the single most",
+    "expensive omission a config can have (docs/analysis/2026-08-09-hrz-",
+    "gateway-findings.md section 1).",
+    "",
+    "The embed model powers codebase_search and @docs:; drop that entry if",
+    "you do not want retrieval, and jichi simply will not register the tool."
+  ],
+
+  "models": [
+    { "name": "strong", "provider": "openai", "model": "gpt-4o",
+      "apiBase": "https://api.openai.com/v1", "apiKeyEnv": "OPENAI_API_KEY",
+      "contextLength": 100000,
+      "roles": ["chat", "edit", "apply", "summarize"] },
+
+    { "name": "embed", "provider": "openai", "model": "text-embedding-3-small",
+      "apiBase": "https://api.openai.com/v1", "apiKeyEnv": "OPENAI_API_KEY",
+      "roles": ["embed"] }
+  ],
+
+  "snapshots": true
+}

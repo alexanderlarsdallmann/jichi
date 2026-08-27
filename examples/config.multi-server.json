@@ -1,0 +1,55 @@
+{
+  "_comment": [
+    "Multi-server example: a remote OpenAI-compatible endpoint plus a local",
+    "LM Studio server, with reachability-checked fallback. Secret-free (keys",
+    "come from environment variables via apiKeyEnv). Copy to local/config.json",
+    "(git-ignored) or point JC_CONFIG/--config at it. See docs/MODELS.md.",
+    "",
+    "api.example.edu and the model ids below are PLACEHOLDERS -- replace both",
+    "with whatever your provider advertises (`jichi models` lists what a",
+    "configured endpoint actually answers for). The shape is what this example",
+    "teaches, not the names.",
+    "",
+    "Note: apiBase ends in /v1 so chat AND embeddings resolve correctly; local",
+    "servers (LM Studio) need no key. Switching the embed model requires a",
+    "one-time `jichi index --reindex` (the index is embedding-specific)."
+  ],
+
+  "models": [
+    { "name": "remote-chat",  "provider": "openai",
+      "model": "your-provider/chat-model",
+      "apiBase": "https://api.example.edu/v1", "apiKeyEnv": "JICHI_API_KEY",
+      "contextLength": 128000,
+      "roles": ["chat", "edit", "apply"] },
+
+    { "name": "remote-coder", "provider": "openai",
+      "model": "your-provider/coder-model",
+      "apiBase": "https://api.example.edu/v1", "apiKeyEnv": "JICHI_API_KEY",
+      "contextLength": 128000,
+      "roles": ["chat"] },
+
+    { "name": "remote-embed", "provider": "openai",
+      "model": "your-provider/embedding-model",
+      "apiBase": "https://api.example.edu/v1", "apiKeyEnv": "JICHI_API_KEY" },
+
+    { "name": "local-chat", "provider": "openai", "model": "google/gemma-4-e4b",
+      "apiBase": "http://127.0.0.1:1234/v1",
+      "contextLength": 32000,
+      "roles": ["summarize"], "fallback": "remote-chat" },
+
+    { "name": "local-embed", "provider": "openai",
+      "model": "text-embedding-nomic-embed-text-v1.5",
+      "apiBase": "http://127.0.0.1:1234/v1",
+      "roles": ["embed"], "fallback": "remote-embed" }
+  ],
+
+  "routing": {
+    "enabled": true,
+    "fast": "local-chat",
+    "strong": "remote-coder",
+    "escalateOnVerify": true,
+    "escalateOnError": false
+  },
+
+  "snapshots": true
+}

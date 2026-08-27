@@ -1,0 +1,32 @@
+{
+  "_comment": [
+    "game-dev scaffold -- EXAMPLE config (a template to adapt, not a live config).",
+    "Copy the models block into your own config (~/.jichi or local/config.json)",
+    "and fill in your provider/model/apiBase. Secret-free: the key comes from an",
+    "env var named by apiKeyEnv, never a literal key here.",
+    "",
+    "A CODING-capable chat model is what you want. Point at a local model (LM",
+    "Studio / llama.cpp / Ollama) or any OpenAI-compatible endpoint; see",
+    "docs/LOCAL_MODELS.md.",
+    "",
+    "Engine-agnostic; Godot is the default. Set testCommand to how YOUR engine",
+    "runs the game/tests. Examples:",
+    "  Godot:  godot --headless --quit  (or a GUT/GdUnit test runner)",
+    "  LOVE:   love .",
+    "  Pygame: python main.py",
+    "jichi's compiled-in `godot` pack is the Godot-specific companion.",
+    "",
+    "snapshots let you /undo an edit; pathFence keeps writes in this workspace."
+  ],
+
+  "models": [
+    { "name": "chat", "provider": "openai", "model": "YOUR_MODEL_ID",
+      "apiBase": "http://localhost:1234/v1", "apiKeyEnv": "JICHI_API_KEY",
+      "roles": ["chat"] }
+  ],
+
+  "snapshots": true,
+  "pathFence": 1,
+  "references": true,
+  "testCommand": "love ."
+}

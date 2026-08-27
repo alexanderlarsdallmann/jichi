@@ -1,0 +1,25 @@
+{
+  "_comment": [
+    "scheduling scaffold -- EXAMPLE config (a template to adapt, not a live",
+    "config). Copy the models block into your own config (~/.jichi or",
+    "local/config.json) and fill in your provider/model/apiBase. Secret-free:",
+    "the key comes from an env var named by apiKeyEnv, never a literal key here.",
+    "",
+    "This bench is plain planning and writing, so a single chat model is all you",
+    "need. Point at a local model (LM Studio / llama.cpp / Ollama) or any",
+    "OpenAI-compatible endpoint; see docs/LOCAL_MODELS.md.",
+    "",
+    "snapshots let you /undo an edit to the plan; pathFence keeps writes inside",
+    "this workspace."
+  ],
+
+  "models": [
+    { "name": "chat", "provider": "openai", "model": "YOUR_MODEL_ID",
+      "apiBase": "http://localhost:1234/v1", "apiKeyEnv": "JICHI_API_KEY",
+      "roles": ["chat"] }
+  ],
+
+  "snapshots": true,
+  "pathFence": 1,
+  "references": true
+}

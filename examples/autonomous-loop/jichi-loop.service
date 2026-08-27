@@ -1,0 +1,56 @@
+# systemd unit for an unattended jichi task-loop.
+# Install to /etc/systemd/system/jichi-loop.service, then:
+#   systemctl daemon-reload && systemctl enable --now jichi-loop
+#
+# The [Service] block is where the OS-level hardening lives -- see
+# docs/AUTONOMOUS_LOOPS.md §Hardening. jichi's own fences bound what the MODEL can
+# do; these directives bound what the PROCESS can do if something goes wrong.
+
+[Unit]
+Description=jichi autonomous task loop
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# A dedicated, unprivileged account -- NOT your login user, never root.
+User=jichi
+Group=jichi
+WorkingDirectory=/srv/jichi/project
+
+# The model API key comes from a root-owned 0600 env file, not the unit text
+# (so it never shows in `systemctl show` / `ps`).
+EnvironmentFile=/etc/jichi/loop.env
+Environment=JICHI_CONFIG=/srv/jichi/config.autonomous.json
+Environment=QUEUE=/srv/jichi/queue
+Environment=WORKSPACE=/srv/jichi/project
+Environment=VERIFY=make test
+Environment=EDIT_SCOPE=src/**
+Environment=BUDGET_TOKENS=400k
+Environment=DEADLINE=30m
+Environment=JICHI_REPORT_FILE=/srv/jichi/reports/status.log
+
+ExecStart=/srv/jichi/loop.sh
+
+# --- OS sandbox: defense in depth around the agent's shell ---
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+# The only paths the loop may write; everything else is read-only or hidden.
+ReadWritePaths=/srv/jichi/project /srv/jichi/queue /srv/jichi/reports
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+# Egress allowlist: only the model endpoint + your reporting host. Deny the
+# link-local metadata address explicitly. Adjust to your infrastructure.
+IPAddressDeny=any
+IPAddressAllow=10.0.0.0/8
+IPAddressDeny=169.254.169.254
+
+# Restart, but back off so a crash-looping run can't burn tokens in a tight loop.
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

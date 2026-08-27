@@ -1,0 +1,107 @@
+# Build artifacts
+*.o
+*.o.tmp
+*.d
+*.elc
+
+# Binaries (and the deprecated pre-rename aliases the build symlinks, M170)
+/jichi
+/jichi-convert
+/jlu_continue
+/jlu-convert
+/run_tests
+/run_fuzz
+/run_fuzz_lf
+# libFuzzer writes its findings into the CWD as crash-<sha1>/leak-<sha1>;
+# a keeper belongs in tests/fuzz/corpus/<target>/ under a descriptive name.
+/crash-*
+/leak-*
+/timeout-*
+/tests/tools/mockmodel
+/tests/tools/ptydrive
+/tests/tools/jsonq
+/tests/tools/sockq
+/tests/tools/xdrive
+
+# Local, untracked working files (e.g. a copy of the real Continue config)
+/local/
+
+# Agent configuration files — may hold API keys, never commit.
+# (The real configs live in $HOME, outside the repo; these guard against a
+#  stray copy or a jichi-convert output landing inside the tree.)
+#
+# NOTE, because the rule and the tree disagreed silently for months (M485):
+# .jichi/agents/ holds two agent profiles that ARE tracked, deliberately --
+# they are jichi's own dogfood assets and are useful to a reader as worked
+# examples. A tracked file is never ignored, so this pattern does not and
+# cannot protect them; what protects them is that they are prose and are read
+# before release (tests/smoke/snapshot_lint.sh scans the publishable tree).
+# The rule below still earns its place for everything ELSE under .jichi/ --
+# board.json, lessons drafts, a converted config, a stray session copy.
+.jichi
+.jichi.*
+*.jichi
+jichi_config*.json
+jichi.json
+
+# Python bytecode from the E2E drivers
+__pycache__/
+*.pyc
+
+# Bench outputs (tests/bench): per-run results, captured request bodies, run
+# logs. The durable record of a bench session is a dated docs/analysis/ note,
+# not these files. See docs/BENCH_LOCAL_GPU.md.
+/tests/bench/results/
+# Craft A/B outputs: per-run workspaces, the blinded grading pack, and the
+# sealed A/B mapping. A graded session's durable record is a dated
+# docs/analysis/ note, not the raw pack -- and the mapping must never be
+# committed while a grading is still open.
+/tests/bench/craft_ab/results/
+/tests/bench/mentor_ab/results/
+/tests/bench/body.json
+/tests/bench/*.log
+
+# LocalAI drops these in cwd if run from the repo (see scripts/setup-localai.sh)
+/backends/
+/data/
+/generated-images/
+/docs/presentations/out/
+
+# Racket bytecode from `raco test` in the graded functional course (docs/assignments/3*-racket-*)
+compiled/
+*.zo
+*.dep
+
+# SRFI-64 logs from `guile` in the graded functional course (docs/assignments/3*-guile-*)
+docs/assignments/*-guile-*/*.log
+
+# GHC build artifacts if a student compiles the graded Haskell course with `ghc`
+# (docs/assignments/4*-haskell-*); the grader uses `runghc` and leaves none.
+docs/assignments/*-haskell-*/*.hi
+docs/assignments/*-haskell-*/*.o
+
+# Tier V row V6 (scripts/tier-v-terminals.sh): per-run captures + screenshots.
+/.v6-results/
+
+# Tier V row V6 console cell (M274): the driver binary and its results
+tests/tools/vtdrive
+.v6-console-results/
+local/
+
+# Transient device-row output from scripts/tier-b-device.sh (--out). Run
+# artifacts, not source: a single row leaves a ~1700-line gate.txt. Committed
+# by accident at M453 and removed at M454; this rule is why it cannot recur.
+.tier-b-*/
+
+# Fleet run artifacts: device addresses and local paths, never committed (M459).
+.fleet-results/
+.tier-b-results/
+
+# tier-v row results belong in the cache dir, never the tree (M459).
+results-*.txt
+
+# Cygwin/MSYS2 append .exe to every binary (M477).
+*.exe
+
+# Generated build stamp (M495): the commit this binary came from.
+include/jc_buildrev_stamp.h

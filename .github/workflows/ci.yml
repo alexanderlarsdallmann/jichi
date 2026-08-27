@@ -1,0 +1,39 @@
+# Continuous integration for jichi.
+#
+# This runs the same gate as `make ci`, the load-bearing local target -- keep the
+# two in sync. Whether it ever fires depends on where the public repository ends
+# up: the forge is deliberately undecided (2026-08-19), so this file is the one
+# host-specific artifact in the tree and a non-GitHub forge needs its own.
+#
+# NEVER RUN ON A HOSTED RUNNER YET, so the cost is unmeasured. Locally it is 685 s
+# on a 3-core box, which fits inside any runner's limit -- but that number is from a machine
+# whose page cache is warm and whose `make clean` cycles are cheap, and this gate
+# does eight of them plus valgrind, ASan and the e2e tier. Expect longer, and
+# treat the first hosted run as a measurement rather than a verdict.
+#
+# `timeout-minutes` is here so a hang costs an hour rather than six, and
+# `concurrency` so a push during a run cancels the older one instead of queueing
+# two clean rebuilds against each other.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang valgrind libcurl4-openssl-dev pkg-config
+      - name: Full gate (gcc + clang + asan/ubsan + valgrind + e2e)
+        run: make ci

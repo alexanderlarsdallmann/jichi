@@ -1,0 +1,7 @@
+# Runtime artifacts (created by `make reset` / a mission run).
+state/
+actuation.log
+sound.log
+report.md
+field-notes.jsonl
+config.json

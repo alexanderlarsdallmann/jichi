@@ -1,0 +1,31 @@
+{
+  "_comment": [
+    "data-analysis scaffold -- EXAMPLE config (a template to adapt, not a live",
+    "config). Copy the models block into your own config (~/.jichi or",
+    "local/config.json) and fill in your provider/model/apiBase. Secret-free:",
+    "the key comes from an env var named by apiKeyEnv, never a literal key here.",
+    "",
+    "A chat model is all you need. The embed model is OPTIONAL -- it powers",
+    "search_docs over a dataset's documentation (a data dictionary, a codebook);",
+    "delete it if you have none. Point at a local model (LM Studio / llama.cpp /",
+    "Ollama) or any OpenAI-compatible endpoint; see docs/LOCAL_MODELS.md.",
+    "",
+    "snapshots let you /undo a bad edit to a script; pathFence keeps file writes",
+    "inside your workspace so your raw data elsewhere is never touched."
+  ],
+
+  "models": [
+    { "name": "chat", "provider": "openai", "model": "YOUR_MODEL_ID",
+      "apiBase": "http://localhost:1234/v1", "apiKeyEnv": "JICHI_API_KEY",
+      "roles": ["chat"] },
+
+    { "name": "embed", "provider": "openai", "model": "YOUR_EMBED_MODEL_ID",
+      "apiBase": "http://localhost:1234/v1", "apiKeyEnv": "JICHI_API_KEY",
+      "roles": ["embed"] }
+  ],
+
+  "snapshots": true,
+  "pathFence": 1,
+  "references": true,
+  "testCommand": "python3 clean.py && python3 analyze.py"
+}

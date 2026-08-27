@@ -1,0 +1,14 @@
+jichi
+Copyright (c) 2026 Justus-Liebig-Universität Gießen
+Author: Alexander-Lars Dallmann
+
+Claude (Anthropic) was the implementing agent throughout and is credited as a
+tool and collaborator, not as a copyright holder -- copyright generally
+requires human authorship.
+
+This product includes no third-party source code. The file src/json/cJSON.c
+implements a subset of the cJSON *API* from scratch and is not derived from
+upstream cJSON; see the PROVENANCE note at the top of that file.
+
+Fuller acknowledgements, including the projects jichi was specified against,
+are in CREDITS.md. They are courtesies, not licence conditions.

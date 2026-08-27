@@ -1,0 +1,28 @@
+diff --git a/src/animation/keyframes.zig b/src/animation/keyframes.zig
+index 6a58f80..ab809bc 100644
+--- a/src/animation/keyframes.zig
++++ b/src/animation/keyframes.zig
+@@ -69,6 +69,23 @@ pub fn interpolate(
+         return .{ .float = result };
+     }
+ 
++    // Vector2/Vector3: component-wise, reusing this file's own lerp. NB the
++    // Variant's vector types are variant.zig's (bare x/y/z fields, no methods)
++    // -- NOT core/math's Vector2, which has .lerp; the two are easy to conflate.
++    if (from == .vector2 and to == .vector2) {
++        return .{ .vector2 = .{
++            .x = lerp(from.vector2.x, to.vector2.x, t),
++            .y = lerp(from.vector2.y, to.vector2.y, t),
++        } };
++    }
++    if (from == .vector3 and to == .vector3) {
++        return .{ .vector3 = .{
++            .x = lerp(from.vector3.x, to.vector3.x, t),
++            .y = lerp(from.vector3.y, to.vector3.y, t),
++            .z = lerp(from.vector3.z, to.vector3.z, t),
++        } };
++    }
++
+     // For other types, return from (this matches the original behavior for unhandled types)
+     // The caller should handle type-specific interpolation if needed
+     return from;

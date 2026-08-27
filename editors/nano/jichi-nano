@@ -1,0 +1,51 @@
+#!/bin/sh
+# jichi-nano - a tiny bridge between nano and the jichi agent.
+#
+# nano has no scripting API, so integration is a wrapper you call from a shell
+# (or from nano's "execute command" prompt, ^T on modern nano) rather than a
+# plugin. Given a file and an instruction it runs jichi headless over the file and
+# either prints the answer or writes it back.
+#
+# Usage:
+#   jichi-nano ask   <file> <question...>     # print an answer (read-only)
+#   jichi-nano edit  <file> <instruction...>  # rewrite <file> in place (--auto)
+#   jichi-nano explain <file>                 # explain the file (read-only)
+#
+# 'edit' backs the file up to <file>.bak first. Needs `jichi` on PATH
+# (override with $JICHI). See editors/nano/README.md.
+set -eu
+
+JICHI="${JICHI:-jichi}"
+mode="${1:-}"; shift || true
+file="${1:-}"; shift || true
+
+if [ -z "$mode" ] || [ -z "$file" ] || [ ! -f "$file" ]; then
+    echo "usage: jichi-nano ask|edit|explain <file> [instruction...]" >&2
+    exit 2
+fi
+instr="$*"
+
+case "$mode" in
+    ask)
+        printf 'File: %s\n\n%s\n\n---\nQuestion: %s\n' \
+            "$(basename "$file")" "$(cat "$file")" "$instr" \
+            | "$JICHI" -q --readonly -p -
+        ;;
+    explain)
+        printf 'File: %s\n\n%s\n\n---\nExplain what this file does.\n' \
+            "$(basename "$file")" "$(cat "$file")" \
+            | "$JICHI" -q --readonly -p -
+        ;;
+    edit)
+        [ -n "$instr" ] || { echo "edit needs an instruction" >&2; exit 2; }
+        cp "$file" "$file.bak"
+        # Rewrite the file in place via the agent (path-fenced to the cwd).
+        printf 'Apply this change to %s, editing the file in place: %s\n' \
+            "$file" "$instr" | "$JICHI" -q --auto -p -
+        echo "jichi-nano: edited $file (backup at $file.bak)"
+        ;;
+    *)
+        echo "unknown mode: $mode (ask|edit|explain)" >&2
+        exit 2
+        ;;
+esac

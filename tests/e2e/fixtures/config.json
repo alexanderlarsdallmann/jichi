@@ -1,0 +1,12 @@
+{
+  "models": [
+    {
+      "name": "e2e",
+      "provider": "openai",
+      "model": "e2e-model",
+      "apiBase": "http://127.0.0.1:9/v1"
+    }
+  ],
+  "snapshots": false,
+  "repoMap": false
+}

@@ -1,0 +1,72 @@
+commit c19c90de2a0f35a8b5c46f912de74f2a0e68d09b
+Author: Alexander-Lars Dallmann
+Date:   Thu Aug 13 02:23:52 2026 +0200
+
+    test+docs+build: third assignment -- vector interpolation, authored by qwen3, gated spec-specifically
+    
+    The assignment was authored by jlu/qwen3-coder-next (pinned; a deliberate
+    contrast to gemma authoring case 2). Its content is good -- the hints reference
+    real code -- and its file discipline was not: it OVERWROTE the existing
+    keyframes assignment instead of creating a new file (restored from git), and it
+    dropped the frontmatter's closing --- so nothing parsed. Both repaired by hand.
+    One hint confidently described a .lerp method on the Variant's Vector2/Vector3
+    -- which exists only on core/math's OTHER Vector2 -- and would have compile-
+    errored the learner; repaired against the real API, with the two-types trap now
+    stated in the hint.
+    
+    The gate is spec-specific, applying this campaign's coupling lesson:
+      verify: zig build test -Dtest-filter='gate: animation' -Dtest-filter='interpolate vectors'
+    which took its own measurement to get right: -Dtest-filter is now REPEATABLE
+    (list option), because zig's lazy analysis means a leaf-only filter EXCLUDES the
+    "gate: animation" block that imports the test file -- 0 tests, green, the
+    hollow shape. Both sharp edges are documented in build.zig where the option
+    lives. Proven: jichi grade --expect-fail reports RED as expected (2 of 4
+    filtered tests fail); the reference solution (prepared, proven 4/4 green +
+    whole suite green, then reverted) is stored with the case study in the jichi
+    repository.
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+diff --git a/src/animation/test.zig b/src/animation/test.zig
+index 05a463e..5a97d4b 100644
+--- a/src/animation/test.zig
++++ b/src/animation/test.zig
+@@ -236,3 +236,38 @@ test "keyframes.interpolate: endpoints are exact (assignment gate)" {
+     try testing.expectApproxEqAbs(@as(f64, 7.0), at0.float, 0.0001);
+     try testing.expectApproxEqAbs(@as(f64, 9.0), at1.float, 0.0001);
+ }
++
++// --- the gate for docs/assignments/vector-interpolation-for-keyframes-interpolate.md
++//
++// Spec-specific on purpose (2026-08-13): the verify is
++// `zig build test -Dtest-filter='interpolate vectors'`, so this assignment is
++// decoupled from its siblings' gates -- the coupling lesson from the ping-pong
++// campaign, applied. Red today because interpolate() returns `from` unchanged
++// for vector tags; green on a correct component-wise implementation.
++test "keyframes.interpolate vectors (assignment gate): vector2 midpoint" {
++    const variant = @import("../core/variant/index.zig");
++    const from = variant.Variant{ .vector2 = .{ .x = 1.0, .y = 2.0 } };
++    const to = variant.Variant{ .vector2 = .{ .x = 3.0, .y = 6.0 } };
++    const mid = keyframes.interpolate(from, to, 0.5);
++    try testing.expect(mid == .vector2);
++    try testing.expectApproxEqAbs(@as(f32, 2.0), mid.vector2.x, 0.0001);
++    try testing.expectApproxEqAbs(@as(f32, 4.0), mid.vector2.y, 0.0001);
++}
++
++test "keyframes.interpolate vectors (assignment gate): vector3 at t=0.3" {
++    const variant = @import("../core/variant/index.zig");
++    const from = variant.Variant{ .vector3 = .{ .x = 0.0, .y = 0.0, .z = 0.0 } };
++    const to = variant.Variant{ .vector3 = .{ .x = 10.0, .y = 20.0, .z = 30.0 } };
++    const at = keyframes.interpolate(from, to, 0.3);
++    try testing.expect(at == .vector3);
++    try testing.expectApproxEqAbs(@as(f32, 3.0), at.vector3.x, 0.0001);
++    try testing.expectApproxEqAbs(@as(f32, 6.0), at.vector3.y, 0.0001);
++    try testing.expectApproxEqAbs(@as(f32, 9.0), at.vector3.z, 0.0001);
++}
++
++test "keyframes.interpolate vectors (assignment gate): unknown tags still pass through" {
++    const variant = @import("../core/variant/index.zig");
++    const from = variant.Variant{ .nil = {} };
++    const out = keyframes.interpolate(from, from, 0.5);
++    try testing.expect(out == .nil);
++}

@@ -1,0 +1,35 @@
+{
+  "_comment": [
+    "Local image generation via LocalAI (https://localai.io), which serves the",
+    "OpenAI-compatible POST /v1/images/generations endpoint jichi's generate_image",
+    "tool calls. NOTE: LM Studio cannot generate images (no diffusion backend);",
+    "use LocalAI / ComfyUI+shim / SD WebUI+proxy for the `image` role.",
+    "",
+    "Several `image`-role models are configured so the agent can pick one per",
+    "workflow via generate_image's `model` arg; each carries a `description` the",
+    "tool schema and /status surface. The Kontext model is for editing (the",
+    "generate_image `source` argument). apiBase ends in /v1; local servers need",
+    "no key. Copy to local/config.json (git-ignored) or point --config at it.",
+    "See docs/MEDIA_GEN.md for LocalAI setup + the ~16 GB VRAM model table."
+  ],
+
+  "models": [
+    { "name": "chat", "provider": "openai", "model": "your-chat-model",
+      "apiBase": "http://127.0.0.1:1234/v1",
+      "roles": ["chat", "edit", "apply"] },
+
+    { "name": "flux-schnell", "provider": "openai", "model": "flux.1-schnell",
+      "apiBase": "http://127.0.0.1:8080/v1", "roles": ["image"],
+      "description": "fast generalist — icons, illustrations, watercolors" },
+
+    { "name": "anime", "provider": "openai", "model": "illustrious-xl",
+      "apiBase": "http://127.0.0.1:8080/v1", "roles": ["image"],
+      "description": "manga/anime; Danbooru-style tag prompts" },
+
+    { "name": "edit", "provider": "openai", "model": "flux.1-kontext-dev",
+      "apiBase": "http://127.0.0.1:8080/v1", "roles": ["image"],
+      "description": "image editing (Kontext); pass a `source` image" }
+  ],
+
+  "imageGenMaxBytes": 0
+}

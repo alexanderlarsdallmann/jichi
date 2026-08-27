@@ -1,0 +1,14 @@
+{
+  "models": [
+    {
+      "name": "default",
+      "provider": "openai",
+      "model": "your-model-id",
+      "apiBase": "https://api.your-provider.example/v1",
+      "apiKeyEnv": "JICHI_API_KEY",
+      "roles": ["chat"]
+    }
+  ],
+  "snapshots": true,
+  "verify": "make test"
+}

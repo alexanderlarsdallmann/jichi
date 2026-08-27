@@ -1,0 +1,36 @@
+{
+  "_comment": [
+    "The smallest config that works for anyone with an Anthropic API key.",
+    "Copy to local/config.json (git-ignored) or point --config at it, then:",
+    "    export ANTHROPIC_API_KEY=sk-ant-...",
+    "    jichi doctor        # confirms the key, the endpoint and the roles",
+    "    jichi -p 'summarise this repository'",
+    "",
+    "No key in this file, ever: apiKeyEnv names the VARIABLE jichi reads.",
+    "",
+    "promptCache is ON by default for this provider and is the reason to",
+    "prefer it for long sessions: jichi places cache_control breakpoints on",
+    "the system+tools prefix and on the conversation tail, and the TUI token",
+    "line shows cached=N so you can see it working (docs/PROMPT_CACHING.md).",
+    "Verify rather than assume -- `jichi telemetry` reports the per-model hit",
+    "rate, because a backend that ACCEPTS a caching request and returns no",
+    "cached tokens looks identical to one that caches (measured; see",
+    "docs/analysis/2026-08-09-hrz-gateway-findings.md section 5).",
+    "",
+    "Anthropic serves no embeddings endpoint, so there is no embed role here",
+    "and retrieval tools stay unregistered. Add a second model pointing at",
+    "any OpenAI-compatible embedding server to turn them on -- see",
+    "config.multi-server.json for that shape."
+  ],
+
+  "models": [
+    { "name": "strong", "provider": "anthropic", "model": "claude-sonnet-4-5",
+      "apiBase": "https://api.anthropic.com", "apiKeyEnv": "ANTHROPIC_API_KEY",
+      "contextLength": 100000,
+      "promptCache": true,
+      "roles": ["chat", "edit", "apply", "summarize"] }
+  ],
+
+  "promptCacheTtl": "5m",
+  "snapshots": true
+}

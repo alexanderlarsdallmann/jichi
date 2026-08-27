@@ -1,0 +1,73 @@
+commit 83a84fd9c7b519d906ea0c66f637c16b28a12aab
+Author: Alexander-Lars Dallmann
+Date:   Thu Aug 13 02:52:16 2026 +0200
+
+    test+docs: fourth assignment -- interpolation-mode dispatch, tutor-authored, and the evaluator that never compiled
+    
+    Case 4 of the campaign, completing the author spectrum: gemma authored case 2,
+    qwen3 case 3, and this one is TUTOR-AUTHORED -- gemma's third authoring run hung
+    for 22 minutes producing a 0-byte journal (recorded as a jichi finding: a hang
+    BEFORE the first tool boundary is outside every envelope budget) and was ended
+    with a graceful SIGINT.
+    
+    THE DISCOVERY THAT RE-SCOPED IT: the assignment was meant to be
+    AnimationEvaluator.interpolate_value's dispatch, and writing its gate found the
+    evaluator struct has NEVER COMPILED when actually used -- its std.HashMap field
+    predates the current 4-argument API, and no test had ever constructed the type.
+    gate-lint counts test blocks, not analyzable types; the first constructing test
+    is what found the dark region. The assignment is therefore the pure
+    keyframes.interpolateWithMode (panic stub, three gate tests, spec-specific
+    verify), with the evaluator's own repair stated as a separate task; the spec's
+    context section tells the story so the learner knows why the shape is what it
+    is.
+    
+    Gate proven RED via jichi grade --expect-fail (3 of 4 filtered tests crash on
+    the stub); the reference solution (switch on mode: nearest snaps, linear
+    delegates, cubic honestly falls back) was proven 4/4 + whole-suite green and
+    reverted -- it lives with the case study in the jichi repository.
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+diff --git a/src/animation/test.zig b/src/animation/test.zig
+index 5a97d4b..3070a9b 100644
+--- a/src/animation/test.zig
++++ b/src/animation/test.zig
+@@ -271,3 +271,38 @@ test "keyframes.interpolate vectors (assignment gate): unknown tags still pass t
+     const out = keyframes.interpolate(from, from, 0.5);
+     try testing.expect(out == .nil);
+ }
++
++// --- the gate for docs/assignments/interpolate-value-dispatch.md ------------
++//
++// Red today: interpolateWithMode @panic's. Green on a correct dispatch.
++// (An earlier draft of this gate constructed an AnimationEvaluator and thereby
++// discovered the evaluator struct has NEVER compiled when used -- its
++// std.HashMap field predates the current 4-argument API, and no test had ever
++// instantiated the type. gate-lint counts test blocks, not analyzable types;
++// the first constructing test is what found it. The dispatch is therefore
++// gated as the pure function the evaluator will later delegate to.)
++test "keyframes.interpolateWithMode (assignment gate): nearest snaps" {
++    const variant = @import("../core/variant/index.zig");
++    const a = variant.Variant{ .float = 1.0 };
++    const b = variant.Variant{ .float = 9.0 };
++    const early = keyframes.interpolateWithMode(a, b, 0.4, .nearest);
++    const late = keyframes.interpolateWithMode(a, b, 0.6, .nearest);
++    try testing.expectApproxEqAbs(@as(f64, 1.0), early.float, 0.0001);
++    try testing.expectApproxEqAbs(@as(f64, 9.0), late.float, 0.0001);
++}
++
++test "keyframes.interpolateWithMode (assignment gate): linear delegates" {
++    const variant = @import("../core/variant/index.zig");
++    const a = variant.Variant{ .float = 0.0 };
++    const b = variant.Variant{ .float = 100.0 };
++    const mid = keyframes.interpolateWithMode(a, b, 0.5, .linear);
++    try testing.expectApproxEqAbs(@as(f64, 50.0), mid.float, 0.0001);
++}
++
++test "keyframes.interpolateWithMode (assignment gate): cubic falls back to linear" {
++    const variant = @import("../core/variant/index.zig");
++    const a = variant.Variant{ .float = 0.0 };
++    const b = variant.Variant{ .float = 10.0 };
++    const at = keyframes.interpolateWithMode(a, b, 0.25, .cubic);
++    try testing.expectApproxEqAbs(@as(f64, 2.5), at.float, 0.0001);
++}

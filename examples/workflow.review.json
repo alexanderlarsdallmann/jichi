@@ -1,0 +1,17 @@
+{
+  "//": "A deterministic review workflow (M101). Run: jichi workflow examples/workflow.review.json",
+  "//items": "Replace the map items with the files you want reviewed.",
+  "name": "review",
+  "stages": [
+    {
+      "type": "map",
+      "prompt": "Read $ITEM and review it for correctness bugs, resource leaks, and unclear code. Cite file:line. Be terse; if it looks fine, say so in one line.",
+      "items": ["src/main.c"],
+      "readonly": true
+    },
+    {
+      "type": "synthesize",
+      "prompt": "Combine the per-file reviews into one prioritized report: 'must fix' first, then 'nice to have'. Drop duplicates and anything that says the file is fine."
+    }
+  ]
+}

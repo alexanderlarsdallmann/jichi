@@ -1,0 +1,30 @@
+{
+  "_comment": "Fixed bench config for the local-GPU small-model bench (docs/BENCH_LOCAL_GPU.md). Deliberately minimal and self-contained: one small model over an OpenAI-compatible endpoint, no remote fallback, no routing, so a measurement attributes to exactly one model. Override the endpoint/model with JC_BENCH_MODEL / JC_BENCH_API_BASE in run_bench.py.",
+
+  "models": [
+    {
+      "name": "local-small",
+      "provider": "openai",
+      "model": "google/gemma-4-e4b",
+      "apiBase": "http://127.0.0.1:1234/v1",
+      "contextLength": 8192,
+      "temperature": 0.2,
+      "toolCalling": "native",
+      "promptCache": false,
+      "roles": ["chat", "edit", "apply", "summarize"]
+    }
+  ],
+
+  "contextLimit": 6000,
+  "maxToolIters": 25,
+  "fuzzyEdit": true,
+  "snapshots": false,
+  "repoMap": false,
+  "references": false,
+  "autoContext": false,
+  "markdown": false,
+  "hooksEnabled": false,
+  "selfReview": 0,
+  "routing": { "enabled": false },
+  "logging": { "level": "metrics" }
+}

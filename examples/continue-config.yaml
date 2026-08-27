@@ -1,0 +1,45 @@
+name: my-assistant
+version: 0.0.1
+schema: v1
+models:
+  - name: Claude Sonnet
+    provider: anthropic
+    model: claude-sonnet-4
+    apiKey: ${{ secrets.ANTHROPIC_API_KEY }}
+    roles:
+      - chat
+      - edit
+      - apply
+    defaultCompletionOptions:
+      maxTokens: 8192
+      temperature: 0.1
+  - name: Local Embed
+    provider: openai
+    model: nomic-embed-text
+    apiBase: http://localhost:11434/v1
+    roles:
+      - embed
+rules:
+  - Always write tests for new behavior.
+  - name: Style
+    rule: |
+      Follow the existing code style.
+      Keep functions small and focused.
+mcpServers:
+  - name: filesystem
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-filesystem"
+      - .
+    env:
+      LOG_LEVEL: info
+docs:
+  - name: React
+    startUrl: https://react.dev/reference/react
+prompts:
+  - name: review
+    description: Review the current diff
+    prompt: |
+      Review the staged changes for correctness and clarity.
+      Point out any bugs you find.

@@ -1,0 +1,37 @@
+{
+  "comment": "Example: user-defined tools (config \"tools\"). See docs/USER_TOOLS.md. Add a real model block before use.",
+  "model": {
+    "provider": "openai",
+    "model": "your-model-id",
+    "apiBase": "https://api.example/v1",
+    "apiKeyEnv": "OPENAI_API_KEY",
+    "roles": ["chat"]
+  },
+  "tools": [
+    {
+      "name": "countbytes",
+      "description": "Count the bytes in the given text.",
+      "schema": {
+        "type": "object",
+        "properties": { "text": { "type": "string" } },
+        "required": ["text"]
+      },
+      "shell": "printf '%s' \"$JICHI_ARG_TEXT\" | wc -c",
+      "readonly": true
+    },
+    {
+      "name": "jq",
+      "description": "Run a jq filter over JSON passed in the 'json' argument.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "filter": { "type": "string" },
+          "json": { "type": "string" }
+        },
+        "required": ["filter", "json"]
+      },
+      "shell": "printf '%s' \"$JICHI_ARG_JSON\" | jq \"$JICHI_ARG_FILTER\"",
+      "readonly": true
+    }
+  ]
+}

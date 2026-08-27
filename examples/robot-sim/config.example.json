@@ -1,0 +1,62 @@
+{
+  "comment": "INERT example (never a live config.json). Simulated robot for docs/ROBOTICS.md: sensors + kinetic actuators + sound, all safe flat-file mocks. Add a real model block. On real hardware, point each command at an absolute path OUTSIDE the workspace (doctor warns about workspace-resident kinetic scripts) and swap the mock sound scripts for aplay/arecord. See docs/ROBOTICS.md.",
+
+  "models": [
+    { "name": "brain", "provider": "openai", "model": "your-model-id",
+      "apiBase": "https://api.example/v1", "apiKeyEnv": "OPENAI_API_KEY",
+      "roles": ["chat"] }
+  ],
+
+  "pathFence": true,
+  "privilegedCommands": "deny",
+  "kineticCommands": "ask",
+  "kineticCommandsAllow": ["stop_all"],
+  "snapshots": true,
+  "control": true,
+
+  "tools": [
+    { "name": "read_sensors",
+      "description": "Read the robot's sensors: pose, heading, battery %, obstacle flag. Returns JSON.",
+      "readonly": true,
+      "command": "./devices/read-sensors.sh",
+      "schema": { "type": "object", "properties": {} } },
+
+    { "name": "drive_motor",
+      "description": "Drive the wheels. left/right are signed speeds; duration in ticks.",
+      "kinetic": true,
+      "command": "./devices/drive-motor.sh",
+      "schema": { "type": "object", "properties": {
+        "left":  { "type": "integer" },
+        "right": { "type": "integer" },
+        "duration": { "type": "integer" } },
+        "required": ["left", "right", "duration"] } },
+
+    { "name": "move_arm",
+      "description": "Set an arm joint to an angle (degrees).",
+      "kinetic": true,
+      "command": "./devices/move-arm.sh",
+      "schema": { "type": "object", "properties": {
+        "joint": { "type": "integer" },
+        "angle": { "type": "integer" } },
+        "required": ["joint", "angle"] } },
+
+    { "name": "stop_all",
+      "description": "Command every actuator to a safe state. Use when a sensor reading is unsafe or on any doubt.",
+      "kinetic": true,
+      "command": "./devices/stop-all.sh",
+      "schema": { "type": "object", "properties": {} } },
+
+    { "name": "set_led",
+      "description": "Set the status LED (on/off). A non-kinetic indicator.",
+      "command": "./devices/set-led.sh",
+      "schema": { "type": "object", "properties": {
+        "state": { "type": "string", "enum": ["on", "off"] } },
+        "required": ["state"] } }
+  ],
+
+  "sound": {
+    "play":   { "command": "./devices/mock-play.sh" },
+    "record": { "command": "./devices/mock-record.sh" },
+    "recordMaxSeconds": 10
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "comment": "Web search as a user-defined tool (no built-in needed). See docs/USER_TOOLS.md. jichi passes the model's arguments as JICHI_ARG_<NAME> env vars (never on the command line), so the API key stays in your environment. Pick ONE backend below, set its key env var, and add a real model block. The agent calls this like any other tool.",
+  "model": {
+    "provider": "openai",
+    "model": "your-model-id",
+    "apiBase": "https://api.example/v1",
+    "apiKeyEnv": "OPENAI_API_KEY",
+    "roles": ["chat"]
+  },
+  "tools": [
+    {
+      "name": "web_search",
+      "description": "Search the web and return the top results (title, URL, snippet) as text. Use for current events, docs, or facts outside the codebase.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "The search query." }
+        },
+        "required": ["query"]
+      },
+      "comment": "Tavily example. Get a key at tavily.com and export TAVILY_API_KEY. Swap the curl for Brave/SearXNG/etc. as you like; the contract is just: read JICHI_ARG_QUERY, print results to stdout.",
+      "shell": "curl -fsS https://api.tavily.com/search -H 'Content-Type: application/json' -d \"$(jq -nc --arg q \"$JICHI_ARG_QUERY\" --arg k \"$TAVILY_API_KEY\" '{api_key:$k, query:$q, max_results:5}')\" | jq -r '.results[] | \"- \\(.title)\\n  \\(.url)\\n  \\(.content)\"'",
+      "readonly": true,
+      "timeout": 30
+    }
+  ]
+}

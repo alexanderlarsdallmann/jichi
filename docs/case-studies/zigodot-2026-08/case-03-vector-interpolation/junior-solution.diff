@@ -1,0 +1,80 @@
+diff --git a/src/animation/keyframes.zig b/src/animation/keyframes.zig
+index 6a58f80..ec272ce 100644
+--- a/src/animation/keyframes.zig
++++ b/src/animation/keyframes.zig
+@@ -57,21 +57,32 @@ pub fn cubicInterpolate(
+ /// Interpolate between two values using linear interpolation.
+ ///
+ /// For float values, performs linear interpolation: result = from + (to - from) * t
++/// For vector2 and vector3, performs component-wise linear interpolation using .lerp()
+ /// For other types, returns `from` (the caller should handle type-specific interpolation).
+ pub fn interpolate(
+     from: variant.Variant,
+     to: variant.Variant,
+     t: f32,
+ ) variant.Variant {
+-    // Handle float type with linear interpolation
+-    if (from == .float and to == .float) {
+-        const result = from.float + (to.float - from.float) * @as(f64, @floatCast(t));
+-        return .{ .float = result };
+-    }
++    return switch (from) {
++        .float => if (to == .float) blk: {
++            const result = from.float + (to.float - from.float) * @as(f64, @floatCast(t));
++            break :blk .{ .float = result };
++        } else from,
++
++        .vector2 => if (to == .vector2) blk: {
++            const result = from.vector2.lerp(to.vector2, t);
++            break :blk .{ .vector2 = result };
++        } else from,
++
++        .vector3 => if (to == .vector3) blk: {
++            const result = from.vector3.lerp(to.vector3, t);
++            break :blk .{ .vector3 = result };
++        } else from,
+ 
+-    // For other types, return from (this matches the original behavior for unhandled types)
+-    // The caller should handle type-specific interpolation if needed
+-    return from;
++        // For all other types, return from unchanged
++        else => from,
++    };
+ }
+ 
+ /// Interpolate with time-based interpolation.
+diff --git a/src/core/variant/variant.zig b/src/core/variant/variant.zig
+index c701cbf..cdcc6dc 100644
+--- a/src/core/variant/variant.zig
++++ b/src/core/variant/variant.zig
+@@ -137,6 +137,14 @@ pub const Vector2 = struct {
+     pub fn init(x: f32, y: f32) Vector2 {
+         return .{ .x = x, .y = y };
+     }
++
++    /// Linear interpolation between two Vector2 values
++    pub fn lerp(self: Vector2, to: Vector2, weight: f32) Vector2 {
++        return Vector2{
++            .x = self.x + (to.x - self.x) * weight,
++            .y = self.y + (to.y - self.y) * weight,
++        };
++    }
+ };
+ 
+ /// Vector3 type
+@@ -148,6 +156,15 @@ pub const Vector3 = struct {
+     pub fn init(x: f32, y: f32, z: f32) Vector3 {
+         return .{ .x = x, .y = y, .z = z };
+     }
++
++    /// Linear interpolation between two Vector3 values
++    pub fn lerp(self: Vector3, to: Vector3, weight: f32) Vector3 {
++        return Vector3{
++            .x = self.x + (to.x - self.x) * weight,
++            .y = self.y + (to.y - self.y) * weight,
++            .z = self.z + (to.z - self.z) * weight,
++        };
++    }
+ };
+ 
+ /// Rect2 type

@@ -1,0 +1,98 @@
+commit cc3e4573a15432b06afc559a96b3f7d6c227b135
+Author: Alexander-Lars Dallmann
+Date:   Thu Aug 13 01:58:02 2026 +0200
+
+    feat(animation): ping-pong wrap + float interpolate -- the junior's work, reviewed and merged
+    
+    Solved by jlu/qwen3-coder-next as learner-junior via `jichi attempt
+    --keep-worktree` (973k tokens, 0 hints used -- with a WORKING 3-rung ladder this
+    time, so that is a real datum, not the M409 artifact). Verdict PASS with zero
+    test-assertion edits; the kept worktree was reviewed before merging, which is
+    the M410 flow doing its job.
+    
+    pingpongWrap: period 2*length, positive @mod with negative-time handling,
+    forward phase [0,length] / reflected phase (length,2L), wired into advance's
+    .loop_pingpong branch. Direction emerges from re-wrapping accumulated time each
+    frame, so no speed flip is needed -- `reversed` is currently unused by advance,
+    kept for callers that need the phase.
+    
+    keyframes.interpolate: float-only linear interpolation, done in f64 with no
+    precision loss (better than an earlier discarded draft that round-tripped
+    through f32), `from` returned for other tags.
+    
+    Two honest review notes. The junior was set ONLY the ping-pong task; the shared
+    suite-wide verify (zig build test) made assignment 1's red gates its problem
+    too, so it solved both -- the third demonstration this week that a broad verify
+    couples assignments (point verify at the specific acceptance test). And
+    interpolate satisfies its GATE (two float tests) while the spec's prose asks for
+    more tags: the gate is the floor, not the spec -- vector interpolation remains
+    open, honestly.
+    
+    Suite: 499/499 green; gate_lint ok; both specs grade PASS.
+    
+    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+diff --git a/src/animation/evaluator.zig b/src/animation/evaluator.zig
+index f840484..8a71a46 100644
+--- a/src/animation/evaluator.zig
++++ b/src/animation/evaluator.zig
+@@ -32,16 +32,38 @@ pub const AnimationState = struct {
+ /// Ping-pong time wrap for `.loop_pingpong` (docs/assignments/
+ /// ping-pong-loop-mode-in-the-animation-evaluator.md).
+ ///
+-/// UNIMPLEMENTED on purpose, per this project's rule (.jichi/memory.md;
+-/// ANECDOTES.md #6): a placeholder that returned a plausible value would be a
+-/// silent wrong answer, so the gate tests crash here until the assignment is
+-/// worked. Contract: treat the loop as a period of 2*length; the first half
++/// Contract: treat the loop as a period of 2*length; the first half
+ /// plays forward (reversed=false), the second half is reflected
+ /// (wrapped_time = 2*length - t, reversed=true).
+ pub fn pingpongWrap(time: f32, length: f32) struct { wrapped_time: f32, reversed: bool } {
+-    _ = time;
+-    _ = length;
+-    @panic("TODO: pingpongWrap is not implemented");
++    // Handle edge case: zero or negative length
++    if (length <= 0.0) {
++        return .{ .wrapped_time = 0.0, .reversed = false };
++    }
++
++    // Calculate the period (2 * length for a full ping-pong cycle)
++    const period = length * 2.0;
++
++    // Use modulo to wrap time into the period
++    // Zig's % operator gives remainder, which can be negative for negative inputs
++    // We want a positive modulo result in [0, period)
++    var t_mod = @mod(time, period);
++
++    // Handle negative time by wrapping it to positive
++    if (t_mod < 0.0) {
++        t_mod += period;
++    }
++
++    // Determine if we're in the forward or reverse phase
++    if (t_mod <= length) {
++        // Forward phase: time is in [0, length]
++        return .{ .wrapped_time = t_mod, .reversed = false };
++    } else {
++        // Reverse phase: time is in (length, 2*length)
++        // Reflect back from the upper boundary
++        const wrapped = period - t_mod;
++        return .{ .wrapped_time = wrapped, .reversed = true };
++    }
+ }
+ 
+ pub const AnimationEvaluator = struct {
+@@ -114,10 +136,9 @@ pub const AnimationEvaluator = struct {
+                 }
+             },
+             .loop_pingpong => {
+-                // TODO: Implement ping-pong
+-                if (self.state.current_time >= length) {
+-                    self.state.current_time = length - (self.state.current_time - length);
+-                }
++                // Use pingpongWrap to handle all cases including multiple cycles
++                const result = pingpongWrap(self.state.current_time, length);
++                self.state.current_time = result.wrapped_time;
+             },
+             else => {
+                 if (self.state.current_time >= length) {

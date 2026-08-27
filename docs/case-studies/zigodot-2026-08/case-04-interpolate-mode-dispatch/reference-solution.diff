@@ -1,0 +1,33 @@
+diff --git a/src/animation/keyframes.zig b/src/animation/keyframes.zig
+index ec272ce..d93377a 100644
+--- a/src/animation/keyframes.zig
++++ b/src/animation/keyframes.zig
+@@ -140,3 +140,28 @@ pub fn clampTime(time: f32, length: f32, loop_mode: LoopMode) f32 {
+     // asserting 0.0 is correct.
+     return @max(0.0, @min(time, length));
+ }
++
++/// Interpolate two Variants honouring the Interpolation MODE
++/// (docs/assignments/interpolate-value-dispatch.md).
++///
++/// UNIMPLEMENTED on purpose (a panic beats a plausible default): the gate
++/// tests crash here until the assignment is worked. Contract: .nearest snaps
++/// to the closer endpoint (t < 0.5 -> from); .linear delegates to interpolate;
++/// .cubic and every other mode fall back to linear -- this signature has no
++/// pre/post neighbor points, and an honest linear beats a silent wrong cubic.
++pub fn interpolateWithMode(
++    from: variant.Variant,
++    to: variant.Variant,
++    t: f32,
++    mode: Interpolation,
++) variant.Variant {
++    return switch (mode) {
++        // Nearest never blends: snap to the closer endpoint in time.
++        .nearest => if (t < 0.5) from else to,
++        .linear => interpolate(from, to, t),
++        // Cubic (and the _angle modes) need the neighboring keyframes, which
++        // this signature does not receive -- fall back to linear rather than
++        // fake a curve. An honest linear beats a silent wrong cubic.
++        else => interpolate(from, to, t),
++    };
++}
