@@ -2,7 +2,9 @@
 
 *What is the same, what differs, and what jichi does not have. Revised
 2026-08-21 (M522) and again 2026-08-22 (M531), when an independent reading of both
-trees corrected five claims on this page — three of them in jichi's favour. The measured basis is
+trees corrected five claims on this page — three of them in jichi's favour — and
+extended 2026-09-17 (M648) with a **landscape** section covering 373 surveyed CLI
+agents and harnesses, at the weakest evidence tier and labelled as such. The measured basis is
 [`analysis/2026-08-09-opencode-continue-comparison.md`](analysis/2026-08-09-opencode-continue-comparison.md);
 this page is the usable summary, extended to Claude Code and corrected where the
 first pass could not be reproduced.*
@@ -220,6 +222,104 @@ recommendations, honestly:
   without reconstructing it from telemetry. Recorded as unfinished rather than
   quietly dropped.
 
+## The wider landscape (M648): 373 entries, and where jichi actually sits
+
+*Added 2026-09-17, after the operator pointed at
+[`awesome-cli-coding-agents`](https://github.com/bradAGI/awesome-cli-coding-agents)
+and asked how the open-source CLI agents and orchestration harnesses compare.
+**Read the sourcing rule above before reading this section.** Almost everything
+here is the weakest of the three kinds — **published behaviour**, and mostly a
+README at that. Nothing in this section was run, and only the language and
+licence columns were checked against an authoritative source (the GitHub API)
+rather than the list's own prose.*
+
+**The list is bigger than it says.** It advertises "130+" and actually carries
+**373** entries: 103 open-source agents, 12 in one vendor ecosystem, 18 closed
+source, 78 session managers and parallel runners, 48 orchestrators and
+autonomous loops, 114 infrastructure pieces. A prioritised subset was verified:
+65 repositories confirmed to exist and queried for language and licence, 46
+READMEs read.
+
+### The finding that matters for jichi: the compiled-language field is four entries wide
+
+Of 373 entries, the agents written in a compiled, low-runtime language are:
+
+| Project | Language | Licence (API-verified) | Note |
+|---|---|---|---|
+| **hax** | **C** | MIT | The only C entry in the list, and a genuine coding agent |
+| **agentty** | C++26 | MIT | Single static binary; ACP server |
+| **3code** | Nim | MIT | ~1.6 MB binary; also an embeddable library |
+| **nullclaw** | Zig | MIT | 678 KB static; a personal-assistant runtime rather than a coding agent |
+
+Everything else of substance is **Rust** (~22 agents, ~8 harnesses) or **Go**
+(~10 agents, ~8 harnesses), with the large remainder in TypeScript and Python.
+
+**So jichi is one of two C coding agents in a 373-entry survey.** That is worth
+stating precisely rather than triumphantly: it means the niche is real and
+nearly empty, not that jichi is better. `hax` is the honest head-to-head — it
+has `-p` one-shot with piped stdin, a documented `--json` stream, XDG paths,
+`llama.cpp` auto-discovery, and it builds on **libcurl + jansson** with meson.
+Its README argues *against* MCP on purpose, in a `docs/philosophy.md` that
+justifies each omission. jichi's nearest disagreement with it is exactly there:
+jichi **is** an MCP client and an ACP server, and treats protocol reach as part
+of the job.
+
+### Where the field is ahead of jichi, stated plainly
+
+- **Structured output for CI.** `octomind` (Rust) has the cleanest story
+  anywhere in the list: `--format jsonl` *plus* `--schema todos.schema.json` for
+  JSON-Schema-constrained output, a `--daemon`, and a policy-as-code guardrail
+  DSL aimed at CI. jichi has `--output json/jsonl`; it has no
+  schema-constrained output mode.
+- **ACP in both directions.** `moltis` both serves ACP and *drives* other ACP
+  agents. jichi is an ACP **server** only. Whether it should also be a client is
+  an open question this page does not answer.
+- **OS-level sandboxing as a default.** `orca-agent` (Seatbelt / bwrap /
+  Landlock+seccomp, fail-closed), `agentty` (bubblewrap), `ipsupport-code`
+  (Landlock). jichi's fences are in-process — path fence, edit scope, tool
+  allow-lists — which is a deliberate and *weaker* position, and the honest
+  comparison says so.
+- **Deterministic replay of a crash.** `smelt` fuzzes with a fixed clock and
+  stubbed I/O so any crash replays. jichi fuzzes 19 targets and has a fault tier,
+  but does not offer replay of an arbitrary crash.
+- **Ready-made orchestration.** `NEEDLE` (a SQLite bead queue driving headless
+  agent CLIs as a deterministic state machine) and `tmuxlet` (which normalises
+  *interactive* CLIs behind a `claude -p`-style blocking interface with
+  `--output-format json`) both solve the coordination problem **outside** the
+  agent. This is directly relevant to `DISTRIBUTED.md`: neither requires the
+  agent to grow a scheduler. They require it to behave like a well-mannered
+  headless Unix tool with stable machine-readable output — which is a
+  requirement jichi already meets.
+
+### Where jichi differs from all of them
+
+- **C89, and the portability that follows.** No other entry claims a matrix of
+  four kernels, five libcs and 14 architectures, because no other entry needs
+  one.
+- **The teaching dimension is close to unique.** Three entries have one:
+  `huggingface/tau` ("a teaching project", Python), `claw0` (an actual staged
+  curriculum in 10 runnable Python files) and `mini-kode` (TypeScript,
+  education-first, last pushed 2025-11-04). **Nothing in the list pairs a
+  working agent with a staged build-it-yourself curriculum in a compiled
+  language.** That gap is jichi-shaped, and it is the clearest differentiator
+  the survey found.
+
+### What this subsection is not
+
+- **Nothing was run.** Not one of these tools was installed or executed.
+- **Feature presence is not quality**, and a README is a marketing document as
+  well as a description.
+- **The source list has errors**, found while checking: `Claurst` is GPL-3.0
+  where the list says MIT; `QQCode` is Python where the list says Rust;
+  `Reasonix` is described as a single Go binary but its README requires Node
+  ≥ 22; `g3`, `zap` and `claw0` have **no licence file** at all despite listed
+  licences; one entry (`BitFun`) has been renamed and its listed features are
+  gone from the current README. The list itself carries no LICENSE file. **Treat
+  any row here as a pointer to check, not as a fact** — which is the same rule
+  the top of this page applies to everything else on it.
+- **Moving software, photographed.** The list was last pushed 2026-09-14 and
+  read 2026-09-17.
+
 ## What this page cannot tell you
 
 - **Nothing here is a benchmark.** No quality, speed or cost comparison between
@@ -230,3 +330,7 @@ recommendations, honestly:
   reliable part and the "ahead" section as the least.
 - **A file count is not a capability**, and the one number this page quotes is
   quoted twice to show why.
+- **The landscape section is README-deep and nothing more.** Three tools were
+  compared by reading their source or parsing their config format; 373 were
+  compared by reading a list and, for 65 of them, a repository's metadata. Those
+  are not the same activity and the page does not blur them.

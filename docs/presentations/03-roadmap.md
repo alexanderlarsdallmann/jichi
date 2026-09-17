@@ -15,9 +15,12 @@ paginate: true
 
 # How it was built
 
-- **Milestones, not a big bang.** M1 (skeleton) → a steady capability climb →
-  **M173** today, across six phases (foundation → protocols → autonomy →
-  hardening → release → post-release depth).
+- **Milestones, not a big bang.** M1 (skeleton) → a steady capability climb.
+  The six phases this deck walks through — foundation → protocols → autonomy →
+  hardening → release → post-release depth — run to **M173**; the project stood
+  at **M648 on 2026-09-17**, and the later bands are summarised near the end.
+  *(Every figure on these slides is either a bound or a dated stamp, never a
+  live count — the M391 rule. This one is a stamp.)*
 - Each milestone is a focused plan; designs + implications recorded in
   `docs/ROADMAP.md` (with a **thematic index** up top) and, for novel work, a
   `docs/proposals/*.md`.
@@ -158,6 +161,25 @@ defect**, so the fix is usually a lint rather than a patch.
 
 ---
 
+# And the bands to M648 (stamped 2026-09-17)
+
+| Band | What it is |
+|---|---|
+| **The lint-universe sweep** (M498–M545) | a green check tells you *its universe* is clean, not that the universe is the one you meant. Enumerating each set a second way found four consecutive gaps. Same band: one lenient boolean dialect, after fifteen shipped configs ran with `pathFence` **off** while saying `"pathFence": 1` |
+| **Accessibility, A1–A7** (M546–M581) | seven stages, each closed by a measurement rather than a judgement — streaming read out 3.5 characters at a time, an approval prompt that spelled its own keys aloud, and a "should this be the default?" answered in milliseconds (**median 340 ms** on prose, **12.5 ms** on short lines) |
+| **Measurement and the mentor** (M582–M605) | instruments before conclusions, twice reporting that the conclusion did not survive — including a milestone whose own correction says the cause it named was never measured. Telemetry becomes on by default, *because a learner forgets otherwise* |
+| **State, hardening, teaching** (M606–M618) | three seam surveys mended wave by wave, each born red first; `attempt` refuses what it cannot grade, and the tutor cannot spend the learner's hint ladder for them |
+| **Licence and the first public snapshot** (M619–M624) | Apache-2.0; one curated commit to GitLab and GitHub — and then a hosted runner finds the three ways the gate had assumed *our* machine: our git identity, our filesystem's directory order, and a course that was green because its toolchain was absent so it **never ran** |
+| **Argumentation and reach** (M625–M648) | how does an answer know what it knows — a verify that cannot run says so (exit 77), the **reach footer** puts what the run actually checked under every answer, warrant tags, steelman before rebuttal, a pre-registered `refute` stage; then the drift sweep that found the front page still stamping its green run at M486 |
+
+**The same through-line, tested against itself.** M645 found the README claiming
+a green run 158 milestones old, and M646 found that the project retrospective
+had *carried forward* two figures in the very revision that said it had
+re-counted everything. Both were caught by a person reading, not by a test —
+which is why each closed with a lint rather than a correction.
+
+---
+
 # Guiding principles for what's next
 
 1. **Correctness first, then cost.** Verify aggressively; roll back only red.
@@ -176,8 +198,8 @@ The engineering loop is healthy; the release checklist is the current focus.
 |---|---|
 | **Rename → `jichi`** ("just code" · 自治（じち）, *autonomy*) | ✔ done, end to end |
 | **Curriculum** (self-learner-first) | ✔ **complete** — 12 modules, **over 75 graded tasks**, C1–C7, plus six reading-first design tutorials |
-| **Open-source licence** | Apache-2.0 leaning; **waiting on an answer, not on us** (JLU rights question, asked 2026-07-27) |
-| **Public snapshot** | blocked on the licence — but now **planned in writing**: what ships, what does not, and the order (`docs/plans/2026-08-public-snapshot.md`) |
+| **Open-source licence** | ✔ **answered 2026-08-27: Apache-2.0**, © Justus-Liebig-Universität Gießen — `LICENSE` in the tree, SPDX in every source (M619) |
+| **Public snapshot** | ✔ **shipped 2026-08-27** exactly as planned in writing — v0.9.0 on the HRZ GitLab and GitHub, tagged on both (`docs/plans/2026-08-public-snapshot.md`) |
 | **Slides · logo** | the only items not blocked externally |
 
 Recent hardening came from **driving jichi on real work**: a local-GPU small-model

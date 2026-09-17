@@ -158,10 +158,13 @@ In reading order:
 6. [PROJECT_RECORDS.md](PROJECT_RECORDS.md) — how the decision/deferral records
    are kept over months in plain markdown.
 
-External concepts worth reading up on (search these; prefer primary sources): the
-*C4 model* (Simon Brown — the zoom levels of §2); *Architecture Decision Records*
-(Michael Nygard's original template); *"Fundamentals of Software Architecture"*
-(the trade-off framing — architecture as the decisions with no right answer, only
-trade-offs); *coupling and cohesion* (the oldest and most useful pair of words for
-judging a boundary); *Conway's Law* (why your architecture tends to mirror your
-team, or your solo habits).
+**Four of the sources behind this tutorial** are cited in full in [BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) §1, "The design tutorials' own sources": **Simon Brown's C4
+model** (the zoom levels of §2, free online), **Michael Nygard's original ADR
+template** (free online — and [DECISIONS.md](DECISIONS.md) is that idea with the
+rejected alternatives made mandatory), **Richards & Ford, *Fundamentals of
+Software Architecture*** (the trade-off framing: architecture as the decisions
+with no right answer), and **Conway's own 1968 paper** (free online, and
+narrower than the slogan it became).
+
+Concepts to look up beyond those: *coupling and cohesion* — the oldest and most
+useful pair of words for judging a boundary.

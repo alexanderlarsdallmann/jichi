@@ -63,6 +63,7 @@ jc_status jc_workflow_parse(const char *json, struct jc_workflow *out,
         return JC_ERR_PARSE;
     }
     out->name = jc_json_dup_str(root, "name", a);
+    out->input = jc_json_dup_str(root, "input", a);   /* M641; NULL if absent */
     stages = cJSON_GetObjectItem(root, "stages");
     if (!cJSON_IsArray(stages)) {
         cJSON_Delete(root);

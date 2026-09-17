@@ -5,11 +5,12 @@ theme: default
 paginate: true
 ---
 <!-- tracks: ../../../presentations/03-roadmap.md @ 0632b94 -->
-<!-- slides-behind: 2 (en has 15 slide separators, this has 13). The English deck
+<!-- slides-behind: 3 (en has 16 slide separators, this has 13). The English deck
      gained slides this translation does not carry. Translating them is prose in a
      language this repository cannot review, so the gap is DECLARED rather than
      filled -- and the numbers above are checked, so the declaration cannot be left
-     behind silently either. M582. -->
+     behind silently either. M582; widened to 3 at M648, when the English deck
+     gained the M391-M648 band slide. -->
 
 <!-- _class: lead -->
 
@@ -22,8 +23,11 @@ paginate: true
 # Cómo se construyó
 
 - **Milestones, no un big bang.** M1 (esqueleto) → una subida constante de
-  capacidad → **M173** hoy, a lo largo de seis fases (cimientos → protocolos →
-  autonomía → endurecimiento → release → profundidad post-release).
+  capacidad. Las seis fases que recorre esta presentación — cimientos →
+  protocolos → autonomía → endurecimiento → release → profundidad post-release
+  — llegan hasta **M173**; el proyecto en sí estaba en **M648** el **2026-09-17**.
+  *(Cada cifra de estas diapositivas es una cota inferior o un sello fechado,
+  nunca un recuento en vivo — la regla M391. Esta es un sello.)*
 - Cada milestone es un plan enfocado; diseños + implicaciones registrados en
   `docs/ROADMAP.md` (con un **índice temático** arriba) y, para trabajo novedoso,
   un `docs/proposals/*.md`.

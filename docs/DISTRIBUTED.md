@@ -266,6 +266,81 @@ agent negotiation (`AGENT_COLLABORATION.md`'s standing decision, inherited by th
 protocol proposal as P1); and NFS/sshfs beneath the rename-claiming queue, which
 `fleet-run.sh` already rejected once for the best possible reason.
 
+## 5a. A concrete workload for the run §6 asks for (M652)
+
+§6's first bullet has been open since M526: *"a real multi-host workload run to
+completion on topology 1c, with the wall-clock, token and failure numbers written
+down."* It has stayed open partly because **nobody proposed a workload**, and the
+workload is the hard part — a fleet demo needs a task that is long-running,
+partitionable, and **verifiable without a human**, and most candidates fail the
+third.
+
+The operator's proposal is a **building game with process-generated changes**,
+and it is a better fit than it first sounds. Four properties, each answering a
+requirement this page already states:
+
+| Requirement (from) | Why a building world satisfies it |
+|---|---|
+| **Long-running**, so the run measures a fleet rather than a burst | A world keeps ticking. The unit of work is a tick, not the project, so the run can be stopped at any tick and still have completed whole units |
+| **Partitionable with no shared writes** (§1c: *every agent is fenced to a scratch workspace it owns*) | One agent owns one **region directory**. Regions are disjoint by construction, so the push topology's "exactly-once by construction" holds without a queue, a claim or a lock |
+| **A positive marker in the jsonl, never an exit code** (§2) | A world has **invariants a script can check**: every structure parses, no two structures occupy one cell, resources balance, every path the generator declared is traversable. `verify` emits the marker; the exit code is not the verdict |
+| **Tolerant of a failed member** (§1c decision 2) | A region that does not advance this tick leaves the other regions valid. A fleet whose slowest device is a Pi must not fail the tick, which is exactly what the per-device deadline multiplier exists for |
+
+### The shape, concretely
+
+- **The artifact is plain text under git** — one directory per region, one file
+  per structure, a declarative format a `sh` script can validate. Not a binary
+  save file: the whole point is that the diff is reviewable and the invariant
+  check needs no engine.
+- **The generator is a script, not a model.** Each tick it writes one change
+  request per region — *"a river now crosses at x=12; the road must still
+  connect"*, *"this region's stone is exhausted; the wall needs another
+  material"*. Process-generated means **deterministic from a seed**, so a run can
+  be replayed. A model generating the changes would make the experiment
+  unrepeatable and would measure the generator.
+- **The assignment is one tick, one region**, pushed over ssh by
+  `scripts/fleet-run.sh`. Devices stay thin clients (§1c decision 1): the model
+  runs on the workstation, the device gets an `apiBase`.
+- **The fence is `--edit-scope` to that region directory**, with
+  `--strict-scope` — and §1c decision 3's cost lands here honestly: a task that
+  needs to *run* something cannot use the closed shell. The invariant check is
+  therefore run by **the supervisor after collection**, not by the agent inside
+  its own fence, which is also the only way the check stays trustworthy.
+- **Merging is the real risk, and it is named rather than designed away.**
+  Regions are disjoint, but a world has **seams**: a road leaving region 3 must
+  meet the road entering region 4. The honest first run should make every change
+  request **strictly region-local** and leave seams out; a seam is a shared
+  write, and a shared write is the coordination problem this topology exists to
+  avoid. Cross-region work is a second experiment, not a stretch goal of the
+  first.
+
+### What it would actually measure
+
+Not "can agents build a nice town". The four numbers §6 says are missing:
+
+1. **Wall clock per tick per device**, which is the first real test of the
+   per-device deadline multiplier on a workload nobody tuned for it.
+2. **Tokens per tick**, which turns §3's arithmetic claim — that ten hosts with
+   a 1M budget each is an unauthorized 10M fleet — into a measurement.
+3. **The failure taxonomy**: how often a tick comes back invalid, and whether
+   the cause is the model, the fence, the transport, or the request being
+   ambiguous. This is the finding worth the run.
+4. **Whether a slow device's held assignment costs anything real** — §6's
+   fourth bullet, which currently justifies *not* building work stealing.
+
+### Stage 0 still applies
+
+§5's first recommendation is *do nothing and be able to say why*, and it is not
+suspended by having a good workload. Build this **only** if the four numbers
+above are wanted; a building game that produces a charming world and no numbers
+has measured nothing, and would be the most expensive way this project has yet
+found to avoid writing something down.
+
+**Preconditions, all of them already rules here:** local models only; caps off
+for the measurement and fences on; verdicts from positive markers; exit 77 for
+cannot-run recorded as its own outcome, never folded into failure; and the
+generator seeded so the run replays.
+
 ## 6. What would have to be measured first
 
 Nothing in §5 beyond Stage 1 should be built on the strength of this document.

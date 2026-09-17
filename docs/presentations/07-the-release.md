@@ -132,9 +132,12 @@ Each was born from a defect that shipped.
 - The original is ~39k lines of TypeScript/React/Node; this is the focused C
   core of the same idea.
 
-Credit is not a copyright line: the notice will read
-`Copyright (c) 2026 Alexander-Lars Dallmann`, with Claude credited in
-CREDITS/NOTICE — because copyright generally requires human authorship.
+Credit is not a copyright line. Decided 2026-08-27 (M619) and in force: the
+notice reads `Copyright (c) 2026 Justus-Liebig-Universität Gießen` over
+`Author: Alexander-Lars Dallmann` — authorship stays with the author, the
+economic rights sit with the employer (§ 69b UrhG). Claude is credited in
+`CREDITS.md` and `NOTICE` as a tool and collaborator, **not** as a holder,
+because copyright generally requires human authorship.
 
 ---
 
@@ -159,8 +162,8 @@ Graded by pure `sh`. The only toolchain required is jichi.
 
 | Item | State |
 |---|---|
-| **Licence** | Apache-2.0 leaning. Waiting on a JLU rights answer (asked 2026-07-27) — **on them, not on us** |
-| **Public repository** | blocked on the licence: the first commit needs the LICENSE file |
+| **Licence** | **decided 2026-08-27: Apache-2.0** (M619), so the question that was open here is closed. What remains open: a possible deliberate switch to MIT after review |
+| **Public repository** | ✔ **shipped 2026-08-27**: v0.9.0, one curated commit, on the HRZ GitLab (`jichi-public/jichi`) and GitHub, tagged on both; advanced to the M639 state on 2026-09-17 |
 | **Logo, jingle** | open |
 | **Robotics: motor rungs** | deliberately **human-gated** — a person on the physical E-stop |
 | **Prompt injection** | *mitigated*, not solved. Fenced as data; the real defences do not depend on the model's cooperation |

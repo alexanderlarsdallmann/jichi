@@ -5,11 +5,12 @@ theme: default
 paginate: true
 ---
 <!-- tracks: ../../../presentations/03-roadmap.md @ 0632b94 -->
-<!-- slides-behind: 2 (en has 15 slide separators, this has 13). The English deck
+<!-- slides-behind: 3 (en has 16 slide separators, this has 13). The English deck
      gained slides this translation does not carry. Translating them is prose in a
      language this repository cannot review, so the gap is DECLARED rather than
      filled -- and the numbers above are checked, so the declaration cannot be left
-     behind silently either. M582. -->
+     behind silently either. M582; widened to 3 at M648, when the English deck
+     gained the M391-M648 band slide. -->
 <!-- 注意：本翻译为机器初译，以英文原版 ../../../presentations/03-roadmap.md 为准。 -->
 
 <!-- _class: lead -->
@@ -22,9 +23,11 @@ paginate: true
 
 # 它是如何构建的
 
-- **里程碑，而非大爆炸。** M1（骨架） → 稳步的能力攀升 →
-  今天的 **M173**，横跨六个阶段（基础 → 协议 → 自主 →
-  加固 → 发布 → 发布后纵深）。
+- **里程碑，而非大爆炸。** M1（骨架） → 稳步的能力攀升。
+  本演示所走过的六个阶段（基础 → 协议 → 自主 → 加固 → 发布 →
+  发布后纵深）截至 **M173**；而项目本身在 **2026-09-17** 已达 **M648**。
+  *（本幻灯片中的每个数字都是下限或带日期的标记，而非实时计数 — M391 规则。
+  这是一个标记。）*
 - 每个里程碑都是一个聚焦的计划；设计 + 影响记录在
   `docs/ROADMAP.md`（顶部有一个**主题化索引**）中，对新颖工作还有一份
   `docs/proposals/*.md`。

@@ -4990,3 +4990,41 @@ skipped course is a shrunken universe: five green gates proved nothing about
 Rust because Rust was never in them. And the machine that can run what yours
 cannot is not a nuisance to appease -- it is a rig this project never had,
 telling the truth at a rate of one lesson per run.
+
+## 80. The bugs were in the reports the refuters disagreed about (2026-09-17)
+
+**Symptom.** None, at first. M641 measured whether a `refute` stage's verdicts
+were right: twelve planted false claims, four refuter models, every attack on a
+non-planted claim checked against the source by hand. Two calls were disputed --
+a diff fallback the small models called "a valid diff" and the 27B called an
+out-of-bounds read, and three unchecked `fprintf` returns the baseline dismissed
+with "fclose will report it". The operator's reply to the grading was three
+words: "we should test this."
+
+**Dead ends.** The temptation was to settle both by reading harder. The
+fallback's arithmetic can be traced on paper in a minute (`mm = 0, nn = mm + nn`
+into a loop over `new_[p + j]`); the `fprintf` returns are visibly unchecked.
+Reading had already been done four times by four models and once by the grader,
+and the disagreement survived it.
+
+**Root cause, twice.** A progress file made a symlink to `/dev/full`: `grade
+--record` recorded nothing, printed nothing, and returned the same exit code as
+the control -- the appenders answered `JC_OK` because neither `fprintf` nor
+`fclose` was checked. Then the diff's table allocation made to fail under the
+fault injector: the unit suite **segfaulted** -- the fallback emitted no
+deletions and read `mm` entries past the end of the new-lines array. The first
+seat's report had been right about both, wrong about the mechanism of one, and
+outvoted on both.
+
+**Fix.** The two writers check both return values and report `JC_ERR_IO`; the
+fallback is the trivial branch that was always bounds-safe; one guard in
+`jc_rss.c` names the buffer it is exact for. Each with a born-red test -- and
+the fault tier now runs the unit suite, which it never had, so a
+`#ifdef JC_FAULT` test written at M198 ran under the gate for the first time
+today.
+
+**Lesson.** A refuter measured against planted falsehoods is measured on recall;
+the *disagreements* it produces about unplanted claims are where the true
+positives hide, because a claim four readers cannot settle is a claim a test
+should settle. "Test this" beat "read it again" in under an hour, twice. The
+grading page now says which calls were tested and which were only read.

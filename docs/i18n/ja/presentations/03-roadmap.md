@@ -5,11 +5,12 @@ theme: default
 paginate: true
 ---
 <!-- tracks: ../../../presentations/03-roadmap.md @ 0632b94 -->
-<!-- slides-behind: 2 (en has 15 slide separators, this has 13). The English deck
+<!-- slides-behind: 3 (en has 16 slide separators, this has 13). The English deck
      gained slides this translation does not carry. Translating them is prose in a
      language this repository cannot review, so the gap is DECLARED rather than
      filled -- and the numbers above are checked, so the declaration cannot be left
-     behind silently either. M582. -->
+     behind silently either. M582; widened to 3 at M648, when the English deck
+     gained the M391-M648 band slide. -->
 <!-- 注意: この翻訳は機械下訳です。英語版 ../../../presentations/03-roadmap.md を正とします。 -->
 
 <!-- _class: lead -->
@@ -22,9 +23,12 @@ paginate: true
 
 # どう作られたか
 
-- **ビッグバンではなく、マイルストーン。** M1（骨組み） → 着実な機能の登り →
-  今日の **M173**、6つのフェーズにわたって（基盤 → プロトコル → 自律 →
-  堅牢化 → リリース → リリース後の深化）。
+- **ビッグバンではなく、マイルストーン。** M1（骨組み） → 着実な機能の登り。
+  本デッキがたどる6つのフェーズ（基盤 → プロトコル → 自律 → 堅牢化 →
+  リリース → リリース後の深化）は **M173** までを対象とする。
+  プロジェクト自体は **2026-09-17** 時点で **M648** に達していた。
+  *（本スライドの数値はすべて下限値または日付入りのスタンプであり、
+  現在値ではない — M391 のルール。これはスタンプである。）*
 - 各マイルストーンは焦点を絞った計画；設計 + 含意は `docs/ROADMAP.md`（上部に
   **テーマ別インデックス**つき）に、新規の作業には `docs/proposals/*.md` に記録される。
 - すべてのマイルストーンは**テスト**と**警告ゼロ**を伴って着地する——スイートは

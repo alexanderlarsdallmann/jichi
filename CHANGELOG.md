@@ -25,6 +25,22 @@ the `describe` interface contract.
 
 ## [Unreleased]
 
+Nothing yet. The next user-visible change opens this section.
+
+## [0.9.1] — 2026-09-17 — the drift sweep, the licence, and the first snapshot
+
+> **What this section's span actually is, because it is wider than the version
+> bump.** It runs from **M327 to M653**, not from the 0.9.0 release to this one.
+> The reason is a bookkeeping gap rather than a decision: the `[0.9.0]` section
+> below is dated **2026-07-28**, but the *public* release on **2026-08-27**
+> shipped `v0.9.0` (M619–M620) **without opening a new section**, so everything
+> from M327 onward accumulated here. Retitling it is the honest repair — the
+> alternative is splitting it retroactively at a boundary nobody recorded at the
+> time. The version step itself is a **PATCH**, and the band since the public
+> tag (M640–M653) is what a patch release is for: fixes, a silent-flag refusal,
+> and a documentation drift sweep.
+
+
 > **Coverage note (M402).** This section had stopped at **M326z** while the project
 > reached **M401** — seventy-five milestones of user-visible change that a reader
 > would have had to parse the git history for, which is the one thing this file
@@ -34,6 +50,15 @@ the `describe` interface contract.
 > afternoon; leaving it uncaught cost the file its purpose.
 
 ### Added
+
+- **A workflow spec can seed its context with `input`** (M641). The text the
+  pipeline starts from, so a `refute` or `synthesize` stage can come first and
+  still have a claim. Found by the refute A/B harness: it had passed each report
+  as the refute stage's prompt, the frame then read `(empty)` where the claim
+  goes, and two of four models answered "no claim was provided" without reading
+  a file. The harness (`tests/bench/refute_ab/`) also gained `--model`,
+  `--api-base`, `--arms`, `--workspace`, `--context-length` and `--dry-run`, and
+  refuses any model that is not free.
 
 - **A second machine in the task 78 and 80 reference measurements** (M639). A
   Raspberry Pi 400 (Cortex-A72) ran both benches; its tables sit beside the
@@ -101,7 +126,206 @@ the `describe` interface contract.
   not in any gate); `tests/smoke/bibliography_lint.sh` checks the page's shape
   and counts offline in every `make smoke`.
 
+### Added
+
+- **Two plans the operator asked for, each with a finding that precedes the plan**
+  (M652). `plans/2026-09-curriculum-rehearsal.md`: one reading of "test-run the
+  whole curriculum" is **already done and gated** — re-measured at **224 checks,
+  96 s, 0 failures, 1 loud skip** — so the plan prices the other reading (a
+  model attempting the tasks), states that the subject under test is **the
+  curriculum and not the agent**, and starts with a ten-task sample because the
+  only cost anchor in the tree is a quarter-million tokens on one 4-point task
+  that failed. `DISTRIBUTED.md` §5a: the multi-host run that page has wanted
+  since M526 was waiting on a **workload**, not a design. A building game with
+  seeded, script-generated changes supplies one — a world has invariants a
+  script can check, which is the positive marker that page requires — with the
+  generator deliberately a script rather than a model, the invariant check in
+  the supervisor rather than inside the agent's fence, and cross-region seams
+  excluded from the first run because a shared write is the coordination problem
+  the topology exists to avoid.
+
 ### Fixed
+
+- **The Japanese retrospective's figures are current again; its marker reads 0**
+  (M651). `docs/i18n/ja/PROJECT_TIMELINE.md` carried `figures-behind: 25` after
+  the M646 English recount left its numerals a revision behind. The half of that
+  debt that needs no Japanese — the numerals — is carried across: the subsystem
+  pie (now 18 slices, English having added `include`), the authored-lines table
+  on the corrected English-only universe, the summary table, a recounted commits
+  row. Two rows needed more: the TEST row's parenthetical had **changed shape**,
+  and the LANGUAGE/TARGET row wrongly listed cJSON as a dependency when
+  `src/json/cJSON.c` is this project's own code (M171). What is still owed is the
+  **prose that interprets** those tables, and the marker says so.
+
+- **Six tutorials named books and cited none of them** (M650). The design
+  tutorials ended with works listed under *"search these; prefer primary
+  sources"* — Evans, Vernon, Cockburn, Richards & Ford, Brown, Nygard, Wirth,
+  Knuth, Conway, Fowler, Brandolini, the OMG UML spec and the mermaid docs —
+  with no publisher, year, ISBN, DOI or URL between them. All fourteen are now
+  entries in `BIBLIOGRAPHY.md`, **verified rather than recalled**: four ISBN-13s
+  resolved against Open Library to that exact title and publisher, eight URLs
+  probed at HTTP 200, and two cited by DOI because ACM and Oxford answer an
+  automated request with 403. The tutorials name their sources and link them
+  instead of instructing a search, and separate the works from the *concepts* in
+  the same lists, which correctly have nothing to cite. 64 → 78 entries;
+  `bibliography_lint` gains check 8 (the six tutorials must route the reader to
+  the page) and its checks 5 and 7 caught all three stale count quotations.
+
+### Added
+
+- **`08-self-learners.md` — a deck for learning software development alone**
+  (M649). Its argument: a self-learner's deficit is not information but a
+  **feedback loop with teeth**, and an agent that answers fluently makes most of
+  that deficit worse rather than better. The teaching layer is therefore
+  presented as four refusals — grading by a script you cannot argue with, help
+  as a ladder you must deliberately pull, trap cases that teach distrust of a
+  green, and real source with the project's failures still in it — followed by
+  what jichi will **not** do, and a closing slide stating that no
+  learning-outcome study has been run.
+
+### Changed
+
+- **The presentation decks are restamped and now reach M649** (M649).
+  `03-roadmap.md` had said "**M173** today" for 475 milestones; *today* was the
+  defect, because slide figures must be bounds or dated stamps and never live
+  counts. It now carries a dated stamp and a new slide covering the six bands
+  from M391 to M648. `06-building-with-ai.md`'s stamp is refreshed to
+  2026-09-17 / M648 and **quotes the stamp it replaced**. The four localized
+  `03-roadmap` decks moved from 2 slides behind to an exactly-declared 3.
+
+### Fixed
+
+- **A release slide named the wrong copyright holder** (M648). `07-the-release.md`
+  said the notice "**will read** `Copyright (c) 2026 Alexander-Lars Dallmann`".
+  It reads `Copyright (c) 2026 Justus-Liebig-Universität Gießen` over
+  `Author: Alexander-Lars Dallmann`, decided at M619 and in force since
+  2026-08-27. The slide now states the decision and its basis (§ 69b UrhG:
+  authorship stays with the author, economic rights sit with the employer) and
+  keeps what was always right — Claude credited in `CREDITS.md` and `NOTICE` as
+  a tool and collaborator, not as a holder. Found by the operator reading a
+  slide. Historical occurrences of the old string are deliberately untouched.
+
+### Added
+
+- **Five operator questions answered in writing** (M648), each as a dated
+  analysis rather than a feature. **The Agent Host Protocol: watch, do not
+  adopt** — 96 action types and 392 command definitions, and jichi is on the
+  wrong side of its central noun, since AHP's server is a sessions *host* and
+  jichi is the agent; the cheap path to "jichi sessions in VS Code" is an
+  out-of-process bridge against the existing `--output jsonl` and control
+  channel. **libcurl stays** — 11 functions and 37 options in one 953-line
+  file, no proxy and no HTTP/2 anywhere, and the footprint prize a rewrite
+  chases is bounded at ~300 KB because HTTPS means substituting a TLS library,
+  not removing a dependency. **Small-model tool use, measured** — nine local
+  models, three probes each, one resident at a time: **5 native, 4 text**, the
+  smallest model native and a 14B *coder* model not, so the reserved
+  `toolCalling: "text"` mode has a real audience. **The CLI-agent landscape** —
+  373 surveyed entries, of which four are in a compiled language, added to
+  `COMPARED.md` at the weakest evidence tier and labelled as such. **GitHub
+  topics** — seven recommended additions, because nothing in the existing
+  thirteen says AI, LLM or coding agent.
+
+- **`docs/PLATFORM_RETEST.md` — when a verified platform needs re-running**
+  (M647). The operator asked at which point the platforms need a retest; there
+  was no policy. The trigger is **never a calendar**: a row is a claim about a
+  commit and does not decay with time, only with changes to the tree under it.
+  Seven trigger classes, each named after an incident in this project, and a
+  measurable staleness figure — **coverage debt**, the smoke drivers in the tree
+  today minus the drivers that row ran. At M647: FreeBSD 97, NetBSD/OpenBSD/WSL2
+  89 each, the Raspberry Pi Zero 2 W **204**. Under 25, cite the row in the
+  present tense; 25–100, cite it with its stamp; over 100, it is a historical
+  datum and a claim resting on it needs a new run. The answer to "retest
+  everything" is **never all at once**, with the reasoning given rather than
+  asserted. `platform_retest_lint.sh` keeps every Verified row datable so debt
+  stays computable; it deliberately does not try to detect the triggers, and the
+  page says why.
+
+### Fixed
+
+- **The illumos `/proc/self/status` prediction is measured, not reasoned**
+  (M647). `PLATFORMS.md` has said since M469 that illumos has that file as a
+  binary `pstatus_t`, so `fopen` succeeds where a reader might hope it failed,
+  and predicted `jc_meminfo_parse` would find no `VmRSS:` and report zero — *no
+  data* rather than *wrong data* — "reasoned from the source, not measured".
+  Nobody has an illumos box, but the prediction is about a pure function over
+  bytes, so it is now tested on Linux: a `pstatus_t`-shaped buffer with embedded
+  NULs reports not-found, and the **mechanism** is pinned — bytes spelling
+  `VmRSS:` after an embedded NUL stay unreachable, while the same bytes without
+  the NUL are found, so the pair cannot pass vacuously. The row stays **NEVER
+  COMPILED**; what is tested is a pure core, not the platform.
+
+- **The project retrospective is re-counted, and two M620 figures were wrong**
+  (M646). `docs/PROJECT_TIMELINE.md` reports ~30 measured figures; M620 said it
+  had re-counted all of them. Two had been copied. The **documentation line
+  count was measured over a different set than the page count beside it** --
+  lines including `docs/i18n/`, pages excluding it -- so English documentation
+  was overstated by ~8,000 lines and the translations were counted twice in the
+  grand total (124,746 + 8,020 = 132,766, the claimed "~132,800"). And there are
+  **19 fuzz targets, not 21**, as there were at the M620 commit too. Both were
+  found by re-deriving M620's own published numbers from the M620 commit before
+  trusting today's; three other universes reproduced to the digit, which is what
+  confirmed them. The narrative reached M497 and now reaches M645, six phases
+  later; the waypoint row labelled "now" is dated to M505, where `git log -S`
+  places it. `docs_counts_lint` gains checks 17-18 -- the second tests which
+  *universe* the doc figure was measured over rather than how far it has
+  drifted, because drift tolerance tight enough to catch an 8,000-line universe
+  error would fire on ordinary growth every few weeks.
+
+- **The front page's "Green end to end" stamp is current again, and gated**
+  (M645). README.md stamped M486 -- 12,422 unit checks, 211 smoke drivers -- at
+  M644, 158 milestones behind, while every currency check in the tree stayed
+  green because all of them watch the milestone banner or the curriculum counts,
+  never the README's own test figures. Re-measured before editing (**13,323 unit
+  checks / 0 failures**, smoke **297 drivers / 1,728 checks**) and restamped; the
+  bound rises "over 11,000" -> "over 13,000". Two pages that describe the smoke
+  tier in the present tense were wrong by 229 and 80 drivers (CONTRIBUTING.md,
+  docs/VOCABULARY.md) and now state the counted total. `docs_counts_lint` gains
+  checks 14-16 over a **named** universe; the tree-wide version was written,
+  measured at ~185 correct-historical lines out of ~190, and dropped.
+
+- **The licence has been decided since 2026-08-27; five live pages still said it
+  was pending** (M645). Both public decks were the worst of it: `03-roadmap.md`
+  offered "Apache-2.0 leaning; **waiting on an answer, not on us**" with the
+  public snapshot "blocked on the licence", and `07-the-release.md` listed
+  "Waiting on a JLU rights answer" under "What is not done, said plainly". All
+  now state the decision (Apache-2.0, M619) and keep the part that is genuinely
+  open -- a possible deliberate switch to MIT after review.
+  `docs/DEFERRED_LOCAL_GPU.md` no longer counts the LICENSE file among the
+  outstanding human tracks. Historical narrative that records the question as
+  open *at the time* is deliberately untouched.
+
+- **`docs/BENCH_LOCAL_GPU.md` and `docs/DEFERRED_LOCAL_GPU.md` contradicted each
+  other on telemetry for 478 milestones** (M645). The bench page stated in bold
+  that `nudge` and `args_repair` "have no reader in `jichi telemetry`"; the
+  deferred page recorded that gap closed by M167e. `src/util/jc_telemetry.c`
+  handles both events by name and prints a self-correction block, so the bench
+  page was wrong and is corrected. Its "8-task corpus" sentence, over an 11-task
+  corpus, was the fifth home of the rot check 11 exists for; check 16 now holds
+  it by meaning rather than by one phrasing.
+
+- **`--agent <profile>` is refused where it does nothing** (M644). It is honoured
+  by `attempt` and `improve --attempt`; every other invocation accepted it and
+  silently ran the default agent, so a run believed to be under a `readonly: true`
+  profile was not fenced at all. The refusal names where profiles do apply and
+  which flags fence a one-off run.
+
+- **A `workflow` spec's per-stage `model` now works on `synthesize` too** (M643).
+  It was honoured by `map` and `refute` and ignored by `synthesize`, which ran on
+  whichever model was active — so a spec that pinned the judgement to a reasoning
+  model silently got the fast one, with nothing in the output or the telemetry to
+  say so. An unknown model name is now named on stderr instead of falling through.
+
+- **A progress line that cannot be written is reported** (M642). The three
+  appenders behind `grade --record`, the hint log and `/predict` ignored the
+  return values of `fprintf` and `fclose`, so a full disk lost the line while
+  jichi printed nothing. Both are checked; the caller's "could not append"
+  warning now fires. Tested with a progress file that is a symlink to `/dev/full`.
+- **The diff's no-memory fallback read past the end of an array** (M642). When
+  the LCS table could not be allocated, `lcs_middle` recursed with the wrong
+  lengths, emitted no deletions and read `mm` entries beyond the new-lines array;
+  under the fault injector the unit suite segfaulted. The fallback is now the
+  bounds-safe trivial branch. Found by a first-seat review in the refute A/B and
+  disputed by two refuters; see `docs/ANECDOTES.md` #80.
 
 - **`write_file` into a directory that does not exist yet is no longer refused
   by the path fence** (M638). The resolver tolerated one missing path component;

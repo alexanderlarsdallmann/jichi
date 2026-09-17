@@ -4,6 +4,7 @@
 /* jc_diff.c - line-level unified-diff rendering (see jc_diff.h). */
 
 #include "jc_diff.h"
+#include "jc_fault.h"
 #include "jc_str.h"
 #include "jc_snprintf.h"
 
@@ -99,8 +100,28 @@ static int lcs_middle(const struct line *old, const struct line *new_,
     int i, j, k;
     long cells = (long)(mm + 1) * (long)(nn + 1);
 
-    /* Trivial sides, or a middle too large for the DP: no real LCS needed. */
-    if (mm == 0 || nn == 0 || cells > DIFF_LCS_CELL_CAP) {
+    /* The DP table, when the middle is worth one: both sides non-empty and the
+     * table under the cap. Under FAULT=1 the injector can make this malloc
+     * fail, which is how tests/test_diff.c reaches the fallback below. */
+    dp = NULL;
+    if (mm > 0 && nn > 0 && cells <= DIFF_LCS_CELL_CAP) {
+        dp = JC_FAULT_HIT(JC_FAULT_ALLOC) ? NULL
+                                          : (int *)malloc((size_t)cells * sizeof(int));
+    }
+
+    /* Trivial sides, a middle too large for the DP, or no memory for the
+     * table: emit the mm deletions then the nn additions -- a correct if
+     * unminimal diff, bounds-safe by construction.
+     *
+     * M642: until this milestone the no-memory case was a recursive call
+     * `lcs_middle(old, new_, p, 0, mm + nn, ops, base)`, which took this
+     * branch with mm = 0 and nn = mm + nn: zero deletions, so the old middle
+     * vanished from the diff, and mm + nn additions read from new_[p + j],
+     * mm entries past the end of an array holding nn. A first-seat review in
+     * the refute A/B flagged the line (with the wrong mechanism); two of four
+     * refuters called it a valid diff; under the injector the unit suite
+     * segfaulted on it. Now the fallback IS this branch. */
+    if (dp == NULL) {
         k = base;
         for (i = 0; i < mm; i++) {
             ops[k].tag = OP_DEL; ops[k].p = old[p + i].p;
@@ -111,11 +132,6 @@ static int lcs_middle(const struct line *old, const struct line *new_,
             ops[k].len = new_[p + j].len; k++;
         }
         return k - base;
-    }
-
-    dp = (int *)malloc((size_t)cells * sizeof(int));
-    if (dp == NULL) {
-        return lcs_middle(old, new_, p, 0, mm + nn, ops, base); /* degrade */
     }
     for (i = mm; i >= 0; i--) {
         for (j = nn; j >= 0; j--) {

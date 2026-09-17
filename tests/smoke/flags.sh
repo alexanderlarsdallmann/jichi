@@ -4,7 +4,7 @@
 # machine-readable interface contract) parses and carries a version.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 12
+t_plan 14
 smoke_home
 tmp=$(smoke_tmp)
 
@@ -123,6 +123,32 @@ if [ $rc -eq 2 ] && grep -q "run modes" "$tmp/err8"; then
     t_ok "--acp beside -p is refused (exit 2)"
 else
     t_fail "--acp + -p: rc=$rc err=$(head_bytes 100 "$tmp/err8")"
+fi
+
+# M644: `--agent <profile>` is an `attempt`/`improve --attempt` flag. It was
+# accepted on EVERY invocation and honoured by neither a headless -p run nor the
+# TUI, so `jichi --agent reviewer -p "..."` silently ran the DEFAULT agent. Found
+# by dogfooding on the zigodot project, where two runs were believed to be running
+# under read-only profiles ("readonly: true", "Changes nothing") and were not:
+# a probe agent declared read-only overwrote a file, because the profile it
+# declared that in was never applied at all.
+#
+# Profiles fence SUBagents by design (spawn_subagent / spawn_parallel / attempt);
+# that is not what this checks. This checks that a flag which cannot take effect
+# says so instead of being dropped.
+with_deadline 20 "$BIN" --config-json "{}" --agent reviewer -p "hi" < /dev/null \
+    >"$tmp/out9" 2>"$tmp/err9"; rc=$?
+if [ $rc -eq 2 ] && grep -q -- "--agent" "$tmp/err9"; then
+    t_ok "--agent on a plain -p run is refused, not silently ignored (exit 2)"
+else
+    t_fail "--agent on -p: rc=$rc err=$(head_bytes 140 "$tmp/err9")"
+fi
+# ...and the refusal must NAME where a profile does apply, or the reader has to
+# guess (the M342 message class: a cause with no way forward).
+if grep -qE "attempt|spawn_subagent|subagent" "$tmp/err9"; then
+    t_ok "the refusal names where an agent profile does take effect"
+else
+    t_fail "refusal names no way forward: $(head_bytes 140 "$tmp/err9")"
 fi
 
 t_done

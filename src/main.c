@@ -10385,6 +10385,11 @@ static int run_workflow(struct jc_app *app, const char *spec_path)
     snap_ok = jc_snapshot_available(&wfm);
 
     jc_sb_init(&ctx);
+    if (wf.input != NULL && wf.input[0] != '\0') {
+        /* M641: the spec's `input` is the context stage 1 sees -- for refute,
+         * "the claim under review"; for synthesize, the material. */
+        jc_sb_append(&ctx, wf.input);
+    }
     for (si = 0; si < wf.nstages; si++) {
         struct jc_wf_stage *s = &wf.stages[si];
         if (app->abort_flag) {
@@ -10640,6 +10645,8 @@ static int run_workflow(struct jc_app *app, const char *spec_path)
             struct jc_sb up;
             char *answer;
             int synth_timeout = 0;
+            struct jc_provider *sprov = app->provider;   /* M643 */
+            struct jc_provider *synprov = NULL;
             fprintf(stderr, "workflow: [stage %d] synthesize\n", si + 1);
             jc_sb_init(&up);
             jc_sb_append(&up, (s->prompt != NULL && s->prompt[0] != '\0')
@@ -10647,7 +10654,32 @@ static int run_workflow(struct jc_app *app, const char *spec_path)
                          : "Synthesize the following into one coherent result.");
             jc_sb_append(&up, "\n\n--- inputs ---\n");
             jc_sb_append(&up, ctx.data != NULL ? ctx.data : "");
-            answer = jc_oneshot_ex(app->provider,
+            /* M643: honour the stage's `model`, as map and refute already do.
+             * This branch called jc_oneshot_ex(app->provider, ...) and never
+             * looked at s->model, so a spec that pinned the synthesis to a
+             * reasoning model silently got the ACTIVE model -- the fast one,
+             * in the dogfooding run that found this (zigodot, 2026-09-17),
+             * where spending the slow model on the judgement was the entire
+             * point of the pin. Proved by effect: a synthesize stage pinned to
+             * an unreachable endpoint still answered. */
+            if (s->model != NULL && s->model[0] != '\0') {
+                int smi = jc_config_find_model(&app->config, s->model);
+                struct jc_model_cfg *smc = (smi >= 0)
+                    ? jc_config_model_at(&app->config, smi) : NULL;
+                if (smc == NULL) {
+                    /* Naming it is the point: a typo in a spec must not look
+                     * like a successful run on the model you meant. */
+                    fprintf(stderr, "workflow: [stage %d] synthesize: no model "
+                            "named '%s' in this config -- using the active "
+                            "model instead\n", si + 1, s->model);
+                } else {
+                    synprov = jc_provider_create(smc);
+                    if (synprov != NULL) {
+                        sprov = synprov;
+                    }
+                }
+            }
+            answer = jc_oneshot_ex(sprov,
                 "You synthesize sub-results into one coherent, deduplicated "
                 "answer. Output only the result.",
                 up.data != NULL ? up.data : "", 180, &app->abort_flag,
@@ -10666,6 +10698,9 @@ static int run_workflow(struct jc_app *app, const char *spec_path)
             }
             free(answer);
             jc_sb_free(&up);
+            if (synprov != NULL) {
+                synprov->vt->free(synprov);
+            }
         }
     }
     if (ctx.len == 0) {
@@ -15562,6 +15597,36 @@ int main(int argc, char **argv)
         int attempt_mode = args.npos > 0 &&
                            strcmp(args.pos[0], "attempt") == 0;
         int wf_mode = args.npos > 0 && strcmp(args.pos[0], "workflow") == 0;
+
+        /* M644: `--agent <profile>` is honoured by `attempt` and by
+         * `improve --attempt`, and by nothing else -- the flag is parsed into
+         * args.attempt_agent and read only by run_attempt. It was accepted on
+         * every other invocation and dropped, so `jichi --agent reviewer -p ...`
+         * silently ran the DEFAULT agent with the default fences.
+         *
+         * Found by dogfooding on another project: two runs were believed to be
+         * running under read-only profiles ("readonly: true", "Changes nothing")
+         * and were not, and a probe agent declared read-only then overwrote a
+         * file -- because the profile it declared that in had never been applied.
+         * A profile's tools/readonly fence is a SUBagent concern by design
+         * (jc_app_command_agent_apply says so); what was wrong is that the flag
+         * asking for it said nothing when it could not deliver.
+         *
+         * Refused rather than warned: this flag is how a caller asks for a
+         * fence, and a fence that quietly is not there is the failure class
+         * M519/M530 already cost this project twice. */
+        if (args.attempt_agent != NULL && !attempt_mode && !improve_live) {
+            fprintf(stderr,
+                "error: --agent takes effect only on `attempt` and on "
+                "`improve --attempt`.\n"
+                "  This run would have ignored it and used the default agent.\n"
+                "  An agent profile also fences a SUBagent: spawn_subagent and "
+                "spawn_parallel take an `agent` argument,\n"
+                "  and a workflow stage takes \"model\". For a one-off run, set "
+                "the fences directly: --edit-scope, --verify,\n"
+                "  --max-tool-calls, --strict-scope.\n");
+            return 2;
+        }
 
         /* M431e: take the per-workspace run lease HERE, immediately before the work
          * begins -- not where the envelope arms. The envelope is configured well

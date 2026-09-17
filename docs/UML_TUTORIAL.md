@@ -166,10 +166,12 @@ In reading order:
    diagrams) and [TUTORIAL_ADVANCED.md](TUTORIAL_ADVANCED.md) are worked examples
    of diagrams that pull their weight in real documentation.
 
-External concepts worth reading up on (search these; prefer primary sources): the
-*UML* specification itself (so you know the 10 diagram types you are choosing
-*not* to use, and why); *C4 model* (Context/Container/Component/Code — a lighter
-alternative to UML for system architecture, and the subject of the architecture
-tutorial); *the mermaid documentation* (the full syntax for each diagram type);
-*"diagrams as code"* as a movement (why text-first beats a drawing tool for
-anything that must stay true to a codebase).
+**The three primary sources behind this tutorial** are cited in [BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) §1, "The design tutorials' own sources", all free to read: the
+**OMG UML specification** itself (so you know the diagram types you are choosing
+*not* to use, and why), the **C4 model** (Context / Container / Component / Code
+— a lighter alternative for system architecture, and the subject of
+[ARCHITECTURE_TUTORIAL.md](ARCHITECTURE_TUTORIAL.md)), and the **mermaid
+documentation** (the full syntax for each diagram type).
+
+One idea rather than a book: *"diagrams as code"* as a movement — why text-first
+beats a drawing tool for anything that must stay true to a codebase.

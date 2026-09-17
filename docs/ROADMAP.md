@@ -9,7 +9,146 @@ both (M620, the plan executed as written; M621 mended what the first hosted CI r
 found). The loop keeps running -- **design, test, develop, dogfood, harden**. The
 checklist, with what remains:
 
-> **Where we stand** — updated **2026-09-17**, latest milestone **M639**:
+> **Where we stand** — updated **2026-09-17**, latest milestone **M655**:
+> **The homepage URL is resolved and written down**, with all three candidates
+> probed and the default branch confirmed against the API rather than assumed —
+> the `blob` form, because the `tree` form buries the routing table under 157
+> filenames. Recording it also caught the index's own first line claiming **138
+> pages** against a real 156 at the top level and 473 in all: a stale count on the
+> first line every reader is routed to.
+>
+> **Previously — M654:**
+> **GitHub Pages, weighed rather than assumed.** A published site is a *second copy
+> of a claim*, and M645–M650 were four instances of one claim being correct in one
+> place and stale in another. The recommendation is the homepage field pointing at
+> the repository's own `docs/` index — no second copy, no drift by construction. A
+> built site would have to be built by CI and carry a visible generated-on date.
+> `make ci` green end to end on the 0.9.1 release.
+>
+> **Previously — M653:**
+> **jichi is 0.9.1.** The constant and the CHANGELOG section moved in one commit,
+> which is this file's stated release rule. The retitled section spans M327–M653,
+> wider than the step, because the 2026-08-27 public release shipped v0.9.0 without
+> opening a new one — said plainly rather than split at a boundary nobody recorded.
+> Measured against the public tag the band is M640–M653: fixes and prose, which is
+> what a PATCH is for.
+>
+> **Previously — M652:**
+> **Two plans, each with a finding that came before the plan.** "Test-run the whole
+> curriculum" is **already done** in one reading — 224 checks, 96 s, 0 failures,
+> every grader two-sided — so the plan prices the *other* reading and says the
+> subject under test would be the curriculum, not the agent. And the multi-host run
+> `DISTRIBUTED.md` has wanted since M526 was waiting on a **workload**, not a
+> design; a building game with seeded, script-generated changes supplies one,
+> because a world has invariants a script can check.
+>
+> **Previously — M651:**
+> **Five local models were asked to translate one paragraph of this documentation,
+> against a passage whose correct Japanese is already in the tree.** Four must not
+> be trusted with it — one rendered "under supervision" as "in a lower position",
+> and one fabricated a different English document with invented week counts and
+> repeated it six times. `llm-jp-4-8b-thinking` is fit to **draft for a reviewer**.
+> Then the half of the Japanese debt that needed no translator — the numerals —
+> was carried across, and that page's `figures-behind` marker reads **0**.
+>
+> **Previously — M650:**
+> **Six tutorials named fourteen books and cited none of them**, under the
+> instruction "search these" — in a repository that added a bibliography at M636
+> for exactly this. All fourteen are now entries: four ISBNs resolved against Open
+> Library, eight URLs probed at HTTP 200, two cited by DOI because their
+> publishers answer 403. 64 → 78 entries, and the tutorials route to them.
+>
+> **Previously — M649:**
+> **The decks are restamped, and there is now a deck for the person learning
+> alone.** `03-roadmap` had said "**M173** today" for 475 milestones — and *today*
+> is the defect, since slide figures must be bounds or dated stamps, never live
+> counts. The deck now reaches M648. `08-self-learners.md` argues that a
+> self-learner's deficit is a feedback loop rather than information, and presents
+> the teaching layer as four refusals rather than four features.
+>
+> **Previously — M648:**
+> **A release deck named a copyright holder the project decided against**, in the
+> future tense, three days after the same file was corrected for saying the licence
+> was undecided. Fixed against `jc_license.h`, which is the source of truth. Five
+> operator questions answered in writing: AHP is **watch, not adopt** (jichi is the
+> agent; AHP's server is a sessions host), libcurl **stays** (11 functions, 37
+> options, one file — and a replacement substitutes a TLS library rather than
+> removing a dependency), and nine local models probed three times each came back
+> **5 native, 4 text**, so the reserved `toolCalling: "text"` mode has a measured
+> audience and "small models cannot call tools" is refuted in both directions.
+>
+> **Previously — M647:**
+> **A verified platform is re-run on a trigger, never on a calendar.** 18 stamped
+> rows and no policy saying when a stamp stops carrying a claim. `PLATFORM_RETEST.md`
+> names seven triggers, each after an incident here, and makes staleness a number:
+> coverage debt, the drivers in the tree minus the drivers the row ran — 97 for
+> FreeBSD, 204 for the Pi Zero. And the illumos prediction that `jc_meminfo_parse`
+> reports *no data* rather than *wrong data* on a binary `pstatus_t` is now
+> **measured**, because it reduces to a pure function over bytes and needed no
+> illumos box. The row stays NEVER COMPILED.
+>
+> **Previously — M646:**
+> **The retrospective was re-counted, and two of M620's figures had been copied
+> rather than counted.** The documentation line count had been measured over a
+> different set than the page count beside it, overstating English docs by ~8,000
+> lines and double-counting the translations in the grand total; the fuzz-target
+> count said 21 against a table of 19. Both found by re-deriving M620's own
+> published numbers from the M620 commit before trusting today's. The narrative
+> reached M497 and now reaches M645; six phases were missing.
+>
+> **Previously — M645:**
+> **The front page stamped its green run at M486, and nothing was watching.**
+> 158 milestones of drift under "Green end to end", while every currency check in
+> the tree stayed green because all of them point elsewhere. Re-measured before
+> editing (13,323 unit checks, 297 smoke drivers / 1,728 checks), restamped, and
+> gated by three named-universe checks — a tree-wide sweep was written, measured
+> at ~185 false fires out of ~190 lines, and dropped. Five live pages still called
+> the licence undecided; it was answered 2026-08-27.
+>
+> **Previously — M644:**
+> **A flag that asked for a fence was dropped in silence.** `--agent <profile>` is
+> honoured by `attempt` alone; every other invocation accepted it and ran the
+> default agent. Two zigodot runs were believed to be read-only and were not, and
+> a probe agent declaring `readonly: true` overwrote a file. The flag is now
+> refused where it cannot take effect, naming where profiles do apply.
+>
+> **Previously — M643:**
+> **Dogfooding on another project found a silent model mix-up.** A workflow
+> stage's `model` field was honoured by `map` and `refute` and ignored by
+> `synthesize`, which ran the judgement on whichever model was active — proved by
+> a stage pinned to a dead endpoint answering anyway. Fixed, with a check that
+> observes which mock receives the request, because the first draft of that check
+> passed either way.
+>
+> **Previously — M642:**
+> **The disputed calls were tested, and two were bugs.** Of the three grading
+> calls the cross-model refute measurement rested on, two turned out to be real
+> defects the first seat had reported and the refuters had argued about: a full
+> disk lost a learner's progress line silently (fixed, tested on `/dev/full`), and
+> the diff's no-memory fallback read past an array (fixed; under the fault
+> injector the old code segfaulted the unit suite). The fault tier now runs the
+> unit suite. The counts on the measurement page did not move; the evidence under
+> them did.
+>
+> **Previously — M641:**
+> **The refute frame travels.** Three more refuters on the same twelve planted
+> reports, refute arm only, in a clean workspace: `qwen3.8-27b` 9 of 12,
+> `gemma-4-26b-it` 11 of 12, `gpt-oss-20b` 9 of 12, each with fewer false attacks
+> than hits; the baseline's own count is 4 false in 45. The false attacks cluster
+> on the one real defect in the corpus, which the small models called false and
+> the 27B upheld. Running it found two harness defects — the report sat in the
+> prompt slot, not the claim slot, and the workspace held the answer key — and one
+> workflow feature: a spec's `input` seeds the pipeline context.
+>
+> **Previously — M640:**
+> **The cross-model refute run is pre-registered and the harness can take it.**
+> `refute_ab.py run --model` accepts only free ids (jlu/* through the gateway, or
+> loopback), refuses a stripped prefix before any request, and runs the refute arm
+> alone; the form gained the false-attack denominator. The proposal page fixes the
+> refuters, two bars (6 of 12 hits; fewer false attacks than hits) and what will not
+> be concluded. Not yet run.
+>
+> **Previously — M639:**
 > **The benches have a second machine.** The reference measurements of tasks 78
 > and 80 carry a Raspberry Pi 400 beside the Ryzen: the hash table is never
 > slower there either and the N = 8 gap the workstation's noise hid is measurable
@@ -36075,3 +36214,1072 @@ clang, no `-O3`, no laptop with a turbo clock that moves mid-run. The Pi's
 `ondemand` governor was at 1.8 GHz for every reading taken, but the bench does
 not pin it. Nothing here re-measures jichi's own N = 17 tool lookup; the finding
 is still "fast enough, not faster", on both machines.
+
+**Published.** With this milestone green, the public repository was advanced
+from its M624 state to M639 as one curated commit (`0790755`, GitLab
+`jichi-public/jichi` and GitHub), fifteen milestones in one message. Procedure:
+`make-snapshot.sh --rev 196fc06c`, the public checkout's tracked files replaced
+by the archive and `git add -A` (the two `.jichi/agents/docs-reviewer-*.md`
+files stay out, gitignored by `*.jichi`, as in every public state since
+v0.9.0), a file-list diff and a per-file `cmp` against the archive, the tree
+built and unit-tested standalone (13,308 checks), then pushed. GitHub Actions
+run 35195662942 passed on the first attempt -- the first re-cut that did not
+teach the gate something (M621-M624 each did). No tag: `--version` still says
+0.9.0.
+
+### M640 -- the refute harness takes a model, and the cross-model run is pre-registered -- done
+
+The A/B (M637) measured one model reading its own prose, and its results page
+left one column reading "not assessed": the false-attack rate. Both gaps are
+one experiment, and this milestone builds what it needs and fixes what it will
+say before it runs.
+
+**The harness.** `tests/bench/refute_ab/refute_ab.py run` gains `--model`,
+`--api-base`, `--arms refute|both` and `--dry-run`. The model was a constant
+held by `priced_model_lint`; an option needs its own fence, and `check_free()`
+is it: through the HRZ gateway only `jlu/*` ids pass, off the gateway only a
+loopback server (LM Studio) does, and anything else is refused before a request
+is built -- with the refusal naming the rule, because the failure it guards
+against is the one from ANECDOTES #68, an id that starts working when its
+prefix is stripped and routes to a priced vendor. Checked at the command line:
+the default and `jlu/qwen3.8-27b` pass, a stripped `qwen3.8-27b` and a foreign
+base are refused (exit 1, before anything is created), the loopback form passes.
+The blind pack now handles a single-arm run (one answer per report; the arm is
+not blind, the counts still are), the form carries `attacks` beside
+`attacks_true` so the rate has its denominator, and `score` prints the rate
+with both numbers -- or "denominator not recorded" for the M637 form, which
+predates the column. The sealed record carries the model, base and arms, so
+the grading header reads the run's model rather than the constant. `ab-1`
+re-scored unchanged: refute 12 of 12, control 1 of 12.
+
+**The pre-registration** is a new section of `proposals/2026-09-refute-ab.md`.
+Two questions: does the frame travel to a different model, and does it find
+rather than attack. Refuters `jlu/qwen3.8-27b` (same family, later generation,
+thinking, 977k window by the gateway's metadata), `jlu/gemma-4-26b-it`,
+`jlu/gpt-oss-20b`, optionally the 9B in LM Studio as a size floor; the same
+twelve reports and plants; the refute arm only, the control not re-run and no
+frame-versus-words claim made for the new models. Two bars fixed: at least 6 of
+12 hits, and fewer false attacks than hits. The false-attack count is also made
+on the existing twelve `qwen3-coder-next` answers first, so the baseline gets
+the number its table lacks. The mislead section says the grader planted the
+claims, that verbosity moves the count (hence the denominator), and that the
+context figures are the gateway's.
+
+**What was checked.** `jlu/qwen3.8-27b` answers through the gateway (a
+16-token probe returned no content because the reasoning consumed the cap; at
+512 it answered in 0.6 s with 96 characters of reasoning) -- so the run keeps
+the output cap where it is. Every request in this milestone went to the free
+namespace.
+
+**Not run.** The runs themselves are the next act, and the grading is a
+person's: roughly sixty attacks to check against the source for the baseline
+alone.
+
+### M641 -- the cross-model refute run, and what it took to run it honestly -- done
+
+The run M640 pre-registered, made the same day, with two product findings on
+the way and one workflow feature.
+
+**The baseline's false-attack count** (`analysis/2026-09-17-refute-ab.md`, last
+section): 45 attacks across the twelve `qwen3-coder-next` answers, 4 false
+(unchecked `fprintf` returns at three sites, dismissed with a reason the same
+file shows to be wrong; a dead store called "speculative"). Fewer than the 12
+hits: the baseline found rather than attacked. Also seen: nine of ten
+`jc_path.c` attacks in one sentence, right each time and inspected none; one
+false acceptance (`jc_cli.c`); two answers captured without their openings.
+
+**Two things found by running.** (1) The refute stage reads its claim from
+the pipeline context, and the harness had passed each report as the stage's
+PROMPT, so the frame read `--- the claim under review --- (empty)` with the
+report above it. The Qwen models read past that; `gemma-4-26b-it` and
+`gpt-oss-20b` answered "no claim was provided" 12 of 12 times each, in a
+second, and were right to. A workflow spec now takes a top-level `input`, the
+text the pipeline context starts from, so `refute` or `synthesize` can be the
+first stage and still have a subject (`jc_workflow.h`, `jc_workflow_parse`,
+`run_workflow`; `test_workflow.c`; `workflow_refute.sh` check 8, born red:
+the request must carry the seeded text under the claim marker and never
+`(empty)`). Teeth: the runner not appending and the parser not parsing each
+turned exactly their checks red. (2) The first cross-model pass ran in this
+checkout, and the 27B cited `results/ab-1/grading/.../A.md` -- the baseline's
+graded answer, on disk beside `planted.tsv`. Three answers discarded; the
+harness gained `--workspace`, a `contaminated` flag in the sealed record, and
+a warning; every run in the table used a `git archive` of `fce98655`, the
+source the reports describe, which holds no `tests/bench/refute_ab/`. The
+baseline ran with `planted.tsv` on disk, uncommitted; nothing in its answers
+names it; the limit is recorded.
+
+**The run** (`analysis/2026-09-17-refute-cross-model.md`). Same reports, same
+plants, refute arm only, clean workspace, report as `input`:
+`qwen3.8-27b` 9 of 12 (46 attacks, 0 false; three answers lost to the output
+ceiling), `gemma-4-26b-it` 11 of 12 (51, 2), `gpt-oss-20b` 9 of 12 (46, 1).
+Every refuter clears both pre-registered bars. **The frame travels.** The
+seven false attacks across the four models are two claims, and one of them is
+the only substantive true defect in the corpus -- `jc_diff.c`'s degrade
+fallback, which drops the old middle and reads `new_` out of bounds: the 27B
+upheld it twice and named the OOB read, the baseline called it partly true,
+and Gemma and gpt-oss both called it FALSE. Where the reports held a real bug,
+the small models were confidently wrong in the direction the frame pushes.
+
+**What the rate does not see**, said on the page: false acceptances (Gemma at
+least seven, gpt-oss at least five, the 27B none, the baseline one); "nothing
+found" produced in one or two seconds with no file read (three of 24
+small-model answers); headings used as decoration; the 27B's misses all being
+jichi's default output cap (a fifth of an undeclared `contextLength`) starving
+a thinking model -- a labelled deviation run with 131k declared is the table's
+last row (`--context-length`): **12 of 12, 70 attacks, 0 false**, every answer
+complete, so the misses were the cap and not the frame; and an inverted-condition plant being guessable
+(gpt-oss "found" `pipe(fds) == 0` in one second with no time to read).
+
+**Honest limits.** One grader, who planted the claims; two families beyond
+Qwen, one size each; attacks counted per claim so a blanket dismissal weighs
+its breadth; retracted claims still count as attacks when rebutted. The
+prompt-slot Gemma/gpt-oss runs are kept on disk and excluded from the table:
+they measured the harness.
+
+### M642 -- the three disputed calls, tested: two defects the refuters argued about -- done
+
+M641's false-attack count rested on three grading calls the operator asked to
+walk through, then to test. Where a test could reach the code, it did; where it
+could not, the page says so.
+
+**`jc_progress.c`** -- claims 1-3 of the first-seat report (unchecked `fprintf`
+at lines 171, 211, 296). Tested with a progress file that is a symlink to
+`/dev/full`: `grade --record` printed nothing, recorded nothing, and returned
+the control's exit code -- the three appenders answered `JC_OK` because neither
+`fprintf` nor `fclose` was checked. Fixed: both checked, `JC_ERR_IO` on either,
+the caller's existing "could not append" line now fires. Born red:
+`test_progress.c` (all three appenders return `JC_ERR_IO` against the device,
+`JC_OK` and one line against a file) and `tests/smoke/progress_write_fails.sh`
+(4 checks: the control records, the failure is reported, the exit code is the
+same in both workspaces, nothing appeared beside the symlink).
+
+**`jc_diff.c`** -- claim 2 (the degrade fallback at line 118). Tested under the
+fault injector: `JC_FAULT_HIT(JC_FAULT_ALLOC)` now guards the table's malloc,
+and with `JICHI_FAULT_ALLOC_AFTER=0` the old fallback -- `lcs_middle(old, new_,
+p, 0, mm + nn, ...)` -- **segfaulted the unit suite**: zero deletions, and
+`mm + nn` additions read from an array holding `nn`. Fixed: the no-memory case
+is the trivial branch (mm deletions, nn additions), which was always
+bounds-safe. `test_diff.c` asserts `-b -c -d +X +Y` for a 3-versus-2 middle with
+the allocation failing. The test is `#ifdef JC_FAULT`, and **`make smoke-faults`
+now builds and runs the unit suite under `FAULT=1`** -- it never had, so
+`test_session.c`'s M198 fault test ran under the gate today for the first time.
+
+**`jc_rss.c`** -- claim 15 (`>=` "should be `>`" at line 76). No test can reach
+it: `field()` is static and every tag jichi passes is at most 11 characters.
+The bound is rewritten for the buffer it is exact for (`strlen(tag) + 3 >
+RSS_TAG_BUF`, both buffers sharing the named size) with a comment saying why
+`>` writes 25 bytes into 24. Behaviour unchanged; tested by reading only, and
+recorded as such.
+
+**Effect on M641.** None of the counts move: the four baseline false attacks
+stand (three now reproduced on a device, one a dead store), the two small-model
+false attacks on the fallback stand (the fallback crashed). What changed is the
+kind of evidence under them. ANECDOTES #80.
+
+**Honest limits.** The `/dev/full` tests skip silently where the device or
+symlinks are absent. The diff test runs only in the fault tier, once per `make
+ci`. The rss guard has no runtime test and will not get one without an API
+change nobody needs.
+
+### M643 -- a workflow stage's `model` was honoured by two stage types of three -- done
+
+Found by dogfooding on another project. The zigodot repository was pointed at
+`jlu/qwen3-coder-next` (fast) and `jlu/qwen3.8-27b` (a thinking model), and a
+four-analyst workflow pinned the SYNTHESIS -- the judgement -- to the slow
+model, which was the entire point of using two.
+
+**The defect.** `map` and `refute` resolve `s->model` into a temporary provider.
+`synthesize` called `jc_oneshot_ex(app->provider, ...)` and never looked at
+`s->model`, so the judgement ran on whichever model happened to be ACTIVE --
+the fast one. Silently: nothing in the output, the stderr or `jichi telemetry`
+said which model answered. Proved by effect before it was fixed: a synthesize
+stage pinned to a model whose `apiBase` was `http://127.0.0.1:9` (nothing
+listens there) still answered, in 0.3 s, from the live model.
+
+**Why it survived.** No test asserted a synthesize stage's output or its model.
+`tests/smoke/workflow.sh` covered spec errors and the read-only map fence and
+stopped there.
+
+**The fix.** The synthesize branch resolves `s->model` the way the other two
+do, and an unknown model name is NAMED on stderr rather than silently falling
+through to the active model -- a typo in a spec must not look like a successful
+run on the model you meant.
+
+**The test, and the vacuous draft that preceded it.** `workflow.sh` checks 6-7,
+born red. The first draft asserted the ANSWER text with the pinned model
+unreachable, and passed whether or not the pin worked -- because this one-shot
+path yields no answer from a mock either way, so both arms produced the same
+empty result. The shipped check observes AT THE WIRE instead: two mocks, and
+the question is only which capture directory receives the request. Teeth: with
+the provider selection discarded, check 6 reports `requests to the pinned
+model=0, to the ACTIVE model=1`; with the diagnostic removed, check 7 fires.
+
+**Honest limits.** `map` and `refute` were already correct and are still not
+covered by a wire-level check -- only synthesize is. The companion gap in
+DEFERRED (workflow model calls are invisible to telemetry) is NOT fixed here:
+the one-shot path still emits no `model_call` event, so a workflow's cost and
+latency remain unmeasured.
+
+### M644 -- `--agent` asked for a fence and was dropped in silence -- done
+
+The second defect found by dogfooding on zigodot, and the one that matters:
+two runs in that session were believed to be running under READ-ONLY agent
+profiles and were not.
+
+**What was true.** `--agent <profile>` is parsed into `args.attempt_agent` and
+read in exactly one place, `run_attempt`. On any other invocation the flag was
+accepted and dropped: `jichi --agent reviewer -p "..."` ran the DEFAULT agent,
+with the default fences, and said nothing. The zigodot session used
+`--agent planner` and `--agent zig-reviewer` for read-only work; both profiles
+declare `readonly: true` and a short `tools:` list, and both runs called
+`run_terminal_command` -- 3 times and 8 times respectively -- because no profile
+was ever applied. Proved by effect afterwards on a scratch workspace: an agent
+whose profile says `readonly: true` and lists only `read_file`/`list_files` was
+asked to overwrite a file, and did.
+
+**What was NOT wrong.** A profile's `tools:`/`readonly:` fencing is a SUBagent
+concern by design -- `jc_app_command_agent_apply` says so in as many words, and
+`spawn_subagent`, `spawn_parallel` and `attempt` all honour it. The defect is
+not that top-level runs lack profile fences; it is that the flag asking for
+them was silently ineffective.
+
+**The fix.** `--agent` outside `attempt` / `improve --attempt` is now refused
+with exit 2, and the message names where a profile DOES take effect and which
+flags fence a one-off run instead (`--edit-scope`, `--verify`,
+`--max-tool-calls`, `--strict-scope`). Refused rather than warned because this
+flag is how a caller asks for a fence, and a fence that quietly is not there is
+the failure class M519 (fifteen configs running with `pathFence` off) and M530
+(a writable child for a model that asked for a read-only one) already cost.
+
+**Tests.** `flags.sh` 13-14, born red: the refusal happens and exit 2 is
+returned, and the refusal NAMES a way forward rather than only a cause (M342).
+Teeth: with the condition disabled both go red. `attempt --agent` still reaches
+its own usage path, checked by hand.
+
+**Honest limits.** This makes the gap visible; it does not close it. Applying a
+profile's system prompt, tools and readonly flag to a top-level headless run is
+a real feature and is not built here -- the refusal tells the caller to use the
+run-level fences instead, which are not the same thing as a curated profile.
+
+---
+
+### M645 -- the front page said M486, and nothing was watching -- done
+
+The operator read README.md and asked why, at M644, it stamped "Green end to
+end at **M486** on the development box: **12,422 checks / 0 failures**, smoke
+**211 drivers / 1,141 checks**". One hundred and fifty-eight milestones of
+drift on the first screen of the project's front page, under a sentence a
+reader takes as a claim about the tree they just cloned.
+
+**Why every currency check stayed green.** They were all pointed somewhere
+else. `docs_counts_lint` checks 9-11 hold the README's *milestone banner* and
+its graded/trap counts; check 6 holds the ROADMAP banner; checks 12-13 hold
+PROJECT_TIMELINE's milestone and driver count; `milestone_currency_lint` asks
+whether the ROADMAP is behind pages that CITE a milestone. Not one of them
+looks at the README's own test figures. This is the M326t and M497 shape for
+the third time: the flagship claim was the unlinted one.
+
+**Measured, then fixed.** The gate came before the edit. `make test` =
+**13,323 checks / 0 failures**; `make WERROR=1 smoke` = **297 drivers / 1,728
+checks**, both green on this box today. (The pre-edit baseline read 1,725; the
+gate run reads three more, because the three checks this milestone adds are
+themselves in the tier. The stamp records the gate, not the reconnaissance.) The README is restamped at M645 with
+those numbers, and its bound rises 11,000 -> 13,000 (the M307 rule: a figure
+that only grows is stated as a bound).
+
+**Two more pages describe the tier in the present tense, and both were wrong.**
+CONTRIBUTING.md said the smoke tier is "68 drivers, all Python-free" -- the
+count at the end of the M209-M217 port, 229 behind. VOCABULARY.md said "217
+drivers, ~1,200 checks", 80 behind. Neither is a stamp; both are sentences
+about what the tier IS.
+
+**Why the gate is a NAMED universe and not a tree sweep.** The obvious lint --
+"an exact driver count must carry an M-stamp or a date" -- was written and
+measured against the tree before being dropped: ~190 lines state a driver
+count and ~185 are ROADMAP, CHANGELOG, ANECDOTES, `plans/` and PLATFORMS rows,
+where a historical figure is CORRECT and must not be "fixed". A gate that
+fires 185 times to catch 5 is an audit wearing a lint's clothes. The same
+measurement killed the docs-wide quote lint (1 verbatim quote in 110 blocks).
+So checks 14-16 name their files, as checks 1-3 already do for CURRICULUM.md
+and SDLC.md, and the header states the universe and the rejection.
+
+**Checks 14-16** (`docs_counts_lint.sh`, `t_plan` 13 -> 16):
+14 the present-tense tier descriptions in CONTRIBUTING.md and VOCABULARY.md
+must equal the counted driver total, exactly -- no tolerance, because these
+sentences claim what the tier is rather than what one run measured;
+15 the README's "Green end to end at **MNNN**" stamp must be within 40
+milestones of the ROADMAP's newest entry -- a stamp may age, but not by an
+era, and its check COUNTS are deliberately not compared, since a stamp records
+one past run and overwriting its numbers is how a stamp becomes a lie;
+16 any "N-task corpus" in BENCH_LOCAL_GPU.md must be the counted corpus.
+
+**Teeth, per check and per member.** Five perturbations, each reverted: break
+CONTRIBUTING's figure alone (14 red naming that file only); break VOCABULARY's
+alone (14 red naming that file only -- proving neither member is vacuous, the
+M508/M510/M511 gap); delete CONTRIBUTING's figure entirely (14 red with
+`no-figure-extracted`, the floor firing instead of passing); age the README
+stamp to M603 (15 red at 41 milestones, one past the bound); remove the stamp's
+sentence shape (15 red with "reads nothing"). Check 16 red at "8-task", green
+at "11-task".
+
+**The two local-GPU pages contradicted each other for 478 milestones.**
+BENCH_LOCAL_GPU.md stated in bold that "`nudge` and `args_repair` have no
+reader in `jichi telemetry`"; DEFERRED_LOCAL_GPU.md recorded that same gap as
+closed by M167e. The source settles it -- `src/util/jc_telemetry.c` handles
+both events by name and prints a self-correction block -- so the bench page was
+wrong and is corrected. Its "8-task corpus" sentence was the fifth home of the
+corpus-size rot check 11 was built for; check 16 now holds it by meaning rather
+than by one phrasing.
+
+**The licence was answered on 2026-08-27 and five live pages still said it was
+pending** (item 6 of the operator's list). Both public decks presented it as
+open -- `03-roadmap.md` as "waiting on an answer, not on us", with the public
+snapshot "blocked on the licence", and `07-the-release.md` as "Waiting on a JLU
+rights answer" under the heading "What is not done, said plainly". These are
+the most externally visible surfaces in the tree. Corrected to the decision
+(Apache-2.0, M619) with the genuinely open part kept: a possible deliberate
+switch to MIT after review. **Reading the diff caught a second error, mine:**
+the first correction still said the public repository was waiting on its curated
+first commit, when README.md two screens away records that commit as shipped on
+2026-08-27 and advanced to the M639 state on 2026-09-17 — a page can be stale in
+two directions at once, and fixing the loud half is how the quiet half survives.
+Both deck rows now say shipped. `DEFERRED_LOCAL_GPU.md` no longer lists the
+licence file among the outstanding human tracks, and the two conditional headings in
+LICENSING.md and `licenses/README.md` ("once the decision is in", "if
+Apache-2.0 is chosen") now read as the record of a sweep that ran.
+
+**Left alone, deliberately.** PROJECT_TIMELINE.md's "the licence deliberately
+left undecided" and the July curriculum proposal's "still-unchosen license" are
+narrative of what was true at M497 and in July, protected by the house rule at
+`docs/DECISIONS.md`. The timeline's own currency is a separate problem -- its
+figures were recounted at M620 and its narrative still ends at M497 -- and
+belongs to its own recount milestone, not to a sweep that would silently
+rewrite history to make a page look current.
+
+---
+
+### M646 -- the retrospective, re-counted: two figures M620 had copied -- done
+
+The operator asked for `docs/PROJECT_TIMELINE.md` to be brought current. The
+lint was not asking: `docs_counts_lint` check 12 fires at 40 milestones of
+drift and M645 was 25 past M620. Doing it anyway found two figures that a
+lint-triggered recount would have carried for another sixteen milestones --
+and both were in the revision that wrote "Nothing anomalous surfaced this
+round -- every figure moved in the expected direction".
+
+**The method, which is the finding.** Before trusting any of today's numbers,
+every universe was pinned by re-deriving M620's *own published figure* from the
+M620 commit. Three reproduced to the digit -- first-party source 106,696
+against "~106,700" over exactly 316 files; tests 87,907 against "~87,900" over
+**all** tracked files under `tests/`, not just `.c/.h/.sh/.py`; unit files 127.
+That is what confirms a universe. The two that would not reproduce are the two
+defects.
+
+**Defect 1: the documentation line count was measured over a different set than
+the page count beside it, and the difference was then added again.** M620 said
+"~132,800 lines, 442 English markdown pages". At the M620 commit, `docs/**.md`
+excluding `docs/i18n/` is **124,746** lines over exactly **442** pages -- the
+page count's universe -- and `docs/i18n/` is **8,020**. 124,746 + 8,020 =
+**132,766**. So the lines included the translations, the pages did not, and the
+table then said "plus ~8,000 lines of translation" on top: the ~327,400 grand
+total (106,696 + 87,907 + 132,766 = 327,369) counted them twice. English
+documentation was overstated by ~8,000 lines for 25 milestones in the table the
+whole page rests on.
+
+**Defect 2: 19 fuzz targets, not 21.** `JC_FUZZ_TARGETS[]` has 19 entries,
+nameable one by one, and had **19 at the M620 commit too**. Not drift -- the
+number was carried forward in the revision that said it counted everything.
+
+**An error of mine, caught by the same discipline.** `find src include -name
+'*.[ch]'` returned 324 files against `git ls-files`'s 323. The extra was
+`include/jc_buildrev_stamp.h`, a generated build artifact. The convenient route
+was wrong and the tracked route was right; enumerating twice is what said so.
+
+**What the recount publishes.** 2026-06-18 -> 2026-09-17 (91 days, 54 active);
+1,141 commits; M1-M645 over 635 entries; source ~108,700 in 323 tracked files;
+tests ~93,700 with 129 unit files, 297 smoke drivers, 9 e2e modules, 19 fuzz
+targets, 13,323 unit checks and 1,728 smoke checks; documentation ~131,300 over
+466 English pages (517 files with the translations), 43 proposals, 74 analysis
+notes, 31 reading guides, 84 graded assignments, 71 trap cases. Total authored
+**~333,700** plus **~8,000** translation -- disjoint, which M620's were not.
+
+**The narrative reached M497 and now reaches M645.** Six phases were missing
+from both diagrams and from the prose: P13 self-hosting and the lint-universe
+sweep, P14 accessibility A1-A7, P15 measurement and the mentor, P16 the seam
+mends and teaching, P17 the licence and the three machine assumptions a hosted
+runner found, P18 argumentation and the reach footer. The waypoint table's last
+row was labelled "now"; `git log -S` places it at **M505**, so for 140
+milestones the page's last datum said "now" and meant August. This is the M645
+defect in the neighbouring file, and the reason it matters more here: a
+retrospective that stops reads as *the story so far*, so its last sentence --
+"the licence deliberately left undecided" -- was taken as current for 148
+milestones after it stopped being true.
+
+**Recounted downstream, not just in the table.** The commits-per-day chart and
+its fallback are regenerated from `git log` (44 rows -> 54, and its last value
+for Aug 20 was 4 against the real 16, because the day was still running when it
+was drawn). The composition pie and the code:test:docs split were M497-era and
+are re-measured (~1 : 0.86 : 1.21; documentation still outweighs source). The
+effort model gains its missing band -- M498-M645 at 9,145 / 19,315 / 33,414
+lines, converted at the **~368 lines per expert-day the existing subtotal
+implies**, not at a rate chosen for it -- lifting the estimate to ~1,110
+expert-days and rescaling all four delivery models from it. The ~35-day
+"produces no lines" allowance is **left unchanged and flagged as now too low**:
+P13-P18 added the Pi 400 rows and the cross-model runs, and guessing a number
+inside a figure this page asks to be argued with is worse than an allowance
+known to be low.
+
+**Checks 17-18** (`docs_counts_lint.sh`, `t_plan` 16 -> 18). 17: the page's
+fuzz-target count must equal the `JC_FUZZ_TARGETS` table. 18 is the interesting
+one -- it does **not** measure drift. Documentation grew 5.3% in 26 milestones,
+so any tolerance tight enough to catch an 8,000-line universe error would fire
+on ordinary growth every few weeks, and a gate that cries wolf gets silenced.
+Instead it asks *which of the two candidate universes the claim is nearer* --
+English-only, or i18n-inclusive -- which growth cannot trip and the M620
+mistake cannot survive.
+
+**Teeth.** 17 red with the count restored to 21, and red with `no-figure` when
+the sentence shape breaks. 18 red when the figure is restated as ~139,500 --
+the i18n-inclusive count, which *is* the M620 defect reproduced -- and red with
+"reading nothing" when the shape breaks. Both green restored.
+
+**Honest debt.** The Japanese translation's `figures-behind:` marker rises 7 ->
+25, because the numerals M587 brought across are now the previous English
+figures. The marker is exact and says so; clearing it means re-translating the
+recounted sections, which belongs to the documentation-translation work and is
+not patched by hand here.
+
+---
+
+### M647 -- when does a verified platform need re-running, and the illumos claim, measured -- done
+
+Two operator questions, answered together because they are the same question
+seen from two ends: *"At which point do we need a retest on all the various
+platforms and operating systems?"* and *"What about testing jichi with
+illumos?"*
+
+**There was no policy.** `PLATFORMS.md` has 18 Verified rows, each a stamped
+datum, and nothing anywhere said when a stamp stops carrying a claim. The
+answer is now `docs/PLATFORM_RETEST.md`, and its first commitment is that the
+trigger is **never a calendar**. A row is a claim about a commit; that claim
+does not decay with time, it decays with *changes to the tree under it*.
+
+**Seven triggers, each named after an incident here rather than imagined.**
+T1 a capability probe changes (M449's `malloc_trim` linking while its
+declaration was hidden; M458's `CC ?= cc`) -- puts **every non-glibc row** in
+doubt. T2 a platform conditional changes (M400's un-compilable Darwin
+`sysctl`, which no row existed to notice). T3 signal/process/terminal
+discipline (M467's `$!` naming the subshell under ksh). T4 libcurl usage
+(the 7.19.4 floor and the minimal-curl build). T5 filesystem and permission
+semantics (M475's 1,639 files "modified" through v9fs; M490's `noacl` mount
+where `chmod` succeeds and changes nothing). T6 a new smoke driver. T7 the
+timeout model, because the multiplier is a *ratio* and is invalidated by a
+change to the bench, not only to the device.
+
+**Coverage debt makes staleness a number instead of a feeling.** Drivers in the
+tree today minus drivers the row ran. It is deliberately crude -- it counts
+drivers, not risk -- and what it has going for it is that it is computable
+without re-running anything and moves in one direction. At M647, against 298
+drivers: FreeBSD (M465) ran 201, debt **97**; NetBSD, OpenBSD and WSL2 each ran
+209, debt **89**; the Pi Zero 2 W (M272) ran 94, debt **204** -- the aarch64 row
+speaks for under a third of today's tier. Thresholds: under 25 cite in the
+present tense; 25-100 cite **with** the stamp and not without it; over 100 the
+row is historical and a claim resting on it needs a new run. In drivers rather
+than milestones, because milestones vary enormously in test surface and the
+thing that went unexercised is a driver.
+
+**And the answer to "retest everything": never all at once**, which is a
+recommendation and not an evasion. A simultaneous sweep costs days of VM and
+hardware time, yields one undifferentiated result, and -- being expensive --
+gets deferred until it is stale anyway. Instead: the milestone that makes a
+T1-T5/T7 change re-runs the rows *that* change puts in doubt, at the cheapest
+ladder rung that answers it (`make` / `make test` / `make check-target` /
+`make ci`); before a release claiming platform support, re-run every row with
+debt over 100, which at M647 is the Pi Zero row and nothing else among the
+full-gate rows.
+
+**The policy states its own hole.** It assumes somebody notices that a change is
+a T1-T5 change, and nothing enforces that. Automating it would mean classifying
+every diff, and a classifier wrong in the quiet direction is worse than a rule a
+human has read -- so the page says so instead of pretending.
+
+**`platform_retest_lint.sh` (5 checks), and what it deliberately does not do.**
+It checks that every Verified row is *datable* and that debt stays computable;
+it does not re-run anything, because a lint cannot boot a NetBSD guest.
+Extraction is anchored on the platform table's own header: the first version
+bounded on "everything under `### Verified`" and swallowed the
+alternate-build-front-end table, reporting seven toolchain rows as unstamped
+platforms. Floored at 18 rows.
+
+**Two checks passed while I was perturbing the wrong thing, and that is the
+lesson worth keeping.** Stripping the FreeBSD row's `(M465)` left check 2 green,
+because the row cites M460 and M466 elsewhere -- so what the check actually
+guarantees is that a row is *datable at all*, not that its stamp belongs to the
+measurement, and the header now says that instead of overclaiming it. Check 3
+stayed green when I changed "209 of 209 drivers" -- because those words are in
+the page's prose, outside the table the check reads, where a historical figure
+is correct. Both are live: check 2 goes red when *every* stamp is stripped from
+a row, check 3 when a count inside a table row is inflated. Read the extracted
+set, not its size.
+
+**illumos: the prediction was reasoned, so it was reduced and measured.**
+`PLATFORMS.md` has said since M469 that illumos's `/proc/self/status` exists as
+a binary `pstatus_t`, so `fopen` **succeeds** where a reader might hope it had
+failed, and predicted that `jc_meminfo_parse` then hunts for `VmRSS:` in binary
+bytes, finds nothing and reports zero -- *no data* rather than *wrong data* --
+"reasoned from the source, not measured". Nobody has an illumos box. But that
+prediction is about a **pure function over bytes**, so it is testable on Linux
+today, and now is: `tests/test_meminfo.c:test_binary_status` feeds a
+`pstatus_t`-shaped buffer (little-endian words, embedded NULs, stray `0x0A`
+bytes so the line walk really iterates) and asserts not-found with the
+out-params zeroed. It also pins the **mechanism**, which is the part that could
+silently change: bytes that *do* spell `VmRSS:` are unreachable once an embedded
+NUL precedes them -- and with the NUL removed the same bytes *are* found
+(99999), so the pair cannot both pass vacuously.
+
+**Teeth, and the first two missed.** Relaxing the parser's NUL guard so it steps
+over an embedded NUL makes it report the fabricated **99999**, and exactly that
+check goes red naming the value. `*found = 1` unconditionally reddens the
+`pstatus_t` check; `*found = 0` at the match site reddens the control. My first
+two perturbations changed `strchr`'s branch and produced nothing, because the
+loop exits on its `while` guard and not on `strchr` -- a perturbation that fires
+nothing is evidence about the perturbation first, and only then about the check.
+
+**This does not promote the row; illumos stays NEVER COMPILED**, and both pages
+say so. What is tested is a pure core. That illumos's `fopen` succeeds, that its
+`pstatus_t` has this shape, and that `jc_meminfo_self`'s `fread` path behaves
+the same there all still need the platform. The transferable principle is the
+point: **a portability claim that reduces to a pure core should be tested on the
+box you have, so that only what genuinely needs the kernel waits for the
+kernel.** illumos remains the cheapest remaining row and `PLATFORM_RETEST.md`
+§6 names it first, with ksh93 as `/bin/sh` making T3 load-bearing there.
+
+---
+
+### M648 -- five questions answered in writing, and a deck that named the wrong copyright holder -- done
+
+Five of the operator's questions were answerable by analysis rather than by
+building, and one defect arrived mid-session from the operator's own reading.
+The defect first, because it is the one that was shipping.
+
+**The release deck named a copyright holder the project decided against.**
+`07-the-release.md` said, in the future tense, that "the notice **will read**
+`Copyright (c) 2026 Alexander-Lars Dallmann`". The notice reads
+`Copyright (c) 2026 Justus-Liebig-Universität Gießen` over
+`Author: Alexander-Lars Dallmann`, decided at M619 and in force since
+2026-08-27 -- `include/jc_license.h` is the single source of truth and `NOTICE`
+and `CREDITS.md` both say it. This is **the M645 defect again, three days
+later, in the same file**: a public-facing deck still describing a
+pre-decision state. The slide now states the decision, keeps the reasoning that
+was always right (Claude credited as a tool and collaborator, not as a holder,
+because copyright generally requires human authorship) and adds the legal basis
+`CREDITS.md` gives -- § 69b UrhG, authorship with the author, economic rights
+with the employer. **Left alone:** the same string in ROADMAP, CHANGELOG, the
+M497 analysis note, and inside the snapshot plan's explicitly dated
+`*(M497, 2026-08-20: ...)*` parenthetical, whose preceding line already records
+the M619 resolution. Those are history and correctly framed as such. The
+operator found this by reading a slide; no lint was pointed at it, and after
+M645's measurement a deck-wide lint is still the wrong instrument.
+
+**Item 2 -- the Agent Host Protocol: watch, do not adopt.**
+`analysis/2026-09-17-agent-host-protocol.md`. AHP (Microsoft, MIT, **v0.9.0**)
+is JSON-RPC 2.0, transport-agnostic with WebSocket in practice, routed by a
+universal `channel: URI`, with immutable state and pure reducers on the wire.
+Counted from its own schema rather than estimated: **96 action types** across
+nine channel families (chat 30, session 28, terminal 11, changeset 8) and
+**392** command definitions. The finding is one sentence: **jichi is on the
+wrong side of the protocol's central noun.** AHP's server is a sessions *host*
+and its clients are *viewers*; the agent sits behind the host. jichi *is* the
+agent. The problem AHP solves -- N clients, one session state, kept consistent
+-- is not a problem jichi has, and the cost of pretending otherwise is sized
+against something real: jichi's entire ACP implementation is **1,815 lines for
+nine methods**, there is no WebSocket code anywhere in the tree
+(`grep -ri websocket src/ include/` returns nothing), and C89 gives immutable
+state and pure reducers for free in no sense at all. The recommendation that
+costs nothing: if "show jichi sessions in VS Code" ever becomes concrete, write
+an **out-of-process bridge** against one of the six existing SDKs -- jichi
+already exposes `--output jsonl` and the AF_UNIX newline-framed control channel,
+which is exactly what such a bridge consumes.
+
+**Item 10 -- libcurl: keep it; do not write an HTTP client.**
+`analysis/2026-09-17-libcurl-surface.md`. The surface is **one translation
+unit** -- 953 + 200 lines -- using **11 distinct functions** and **37
+`CURLOPT_` options**, and what is *absent* is the useful half of the count: no
+proxy support at all, and **no `CURLOPT_HTTP_VERSION`**, so jichi never asks for
+HTTP/2. The verdict rests on a measurement taken at M430, before the question
+was asked: minimal libcurl + static musl + mbedTLS is **804 KB RSS, zero shared
+libraries, model call verified**, against a curl-free build at ~500 KB that
+**cannot make a model call at all**. So the entire prize available to any
+replacement is bounded by ~300 KB -- and jichi speaks HTTPS, so a replacement
+does not remove a dependency, it substitutes a TLS library for curl while
+losing the SSRF guard, `FD_CLOEXEC`, the protocol allow-list, the TLS floor and
+portability back to libcurl 7.19.4 (2009). **Stated gap:** the split of those
+804 KB between curl's HTTP code and mbedTLS+musl is **not measured**, and that
+is the measurement to take first if anyone reopens this.
+
+**Item 11 -- small models: the population was measured, and it is not small.**
+`analysis/2026-09-17-local-tool-calling-sweep.md`. Nine local LM Studio models,
+**three probes each, one model resident at a time**, using jichi's own
+`jc_toolprobe` classifier. Result: **5 native, 4 text, 0 none** -- four models
+consistently *describe* a tool call in prose instead of emitting one, which is
+precisely the population the `toolCalling: "text"` mode reserved at M149 would
+serve. Eight of nine were stable 3-for-3. Two findings beyond the count.
+**First, "small" does not predict it:** the smallest model in the set
+(`gemma-4-e4b`) is native three times out of three, while the text-only group
+includes a **14B coding model** (`qwen2.5-coder-14b`) -- so any advice of the
+shape "below N billion parameters expect no tool calls" is refuted in both
+directions. **Second, an infrastructure failure looks exactly like a capability
+verdict, and it caught me twice in one session.** The first sweep probed a warm,
+contended server and six of ten models returned nothing; the cause was
+`HTTP 400 "Failed to load model"` -- VRAM contention, not the models, four of
+which turn out to be **native**. `bonsai-27b` then reproduced the same shape at
+27B. That distinction is what `JC_TOOLPROBE_UNKNOWN` was added for at M628, and
+here the operator's own sweep needed it. The recommendation is to build
+`"text"`, reusing `jc_toolcall_scan`'s registry-resolution rule as the safety
+floor and routing every parsed call through `jc_tool_execute` by the same door
+as a native one -- never a second execution path, which is how M535's three
+unknown write tools happened -- but to **settle the chat-template question
+first**, because a verdict that flips when a tool-aware template is applied is a
+packaging problem and shrinks the audience.
+
+**Item 9 -- the CLI-agent landscape, at the weakest evidence tier and labelled
+so.** `COMPARED.md` gains a landscape section. The list carries **373** entries,
+not the "130+" it advertises; 65 repositories were checked against the GitHub
+API for language and licence, 46 READMEs read, **nothing was run**. The finding
+worth the section: **the compiled-language field is four entries wide** -- `hax`
+(C), `agentty` (C++26), `3code` (Nim), `nullclaw` (Zig) -- so jichi is one of
+two C coding agents in 373, which says the niche is nearly empty rather than
+that jichi is better. `hax` is the honest head-to-head and disagrees with jichi
+on exactly one axis: it declines MCP on purpose. Where the field is **ahead**:
+`octomind`'s JSON-Schema-constrained `--format jsonl` for CI, `moltis` serving
+*and* driving ACP, OS-level sandboxing as a default in three projects against
+jichi's in-process fences, and `smelt`'s deterministic crash replay. Where
+nothing else is: **no entry pairs a working agent with a staged
+build-it-yourself curriculum in a compiled language.** Also relevant to
+`DISTRIBUTED.md`: `NEEDLE` and `tmuxlet` solve coordination **outside** the
+agent and ask only that it behave like a well-mannered headless Unix tool with
+stable machine-readable output -- a requirement jichi already meets, which is an
+argument against growing a scheduler. The section records five errors found in
+the source list itself (a GPL-3.0 project listed MIT, a Python project listed
+Rust, a "single Go binary" whose README requires Node, three projects with no
+licence file, one renamed repository) and tells the reader to treat every row as
+a pointer to check.
+
+**Item 7 -- GitHub topics.** `plans/2026-08-public-snapshot.md` §8. The thirteen
+existing topics contain **nothing saying AI, LLM or coding agent**, so jichi is
+absent from every browse surface for the category it is in. Seven additions
+recommended to reach the cap of 20 -- `llm`, `ai-agent`, `coding-agent`, `mcp`,
+`local-llm`, `tui`, `agent-client-protocol` -- with `ai`, `lsp`, `education`,
+`from-scratch` and `no-dependencies` considered and rejected, and nothing
+proposed for removal. **Not applied:** the available token answers `403
+Resource not accessible by personal access token` on that endpoint, so the page
+carries the exact `curl` to run with an administration-scoped token, and warns
+that the endpoint *replaces* the set. Two observations worth more than any
+topic and both operator decisions rather than documentation fixes: the homepage
+field is empty, and **Issues and Discussions are both disabled** while
+`CONTRIBUTING.md` invites contribution -- so a reader who finds a defect has no
+route to report it.
+
+---
+
+### M649 -- the decks restamped, and a deck for the person learning alone -- done
+
+The operator asked for the presentation slides to be updated, and for **a set of
+extra slides focused on self-learners in software development**.
+
+**Two stamps had aged past usefulness, and one was not a stamp at all.**
+`03-roadmap.md` said "M1 (skeleton) -> a steady capability climb -> **M173**
+today". *Today* is the defect: M391's rule is that slide figures are **bounds or
+dated stamps, never live counts**, and "today" is a live count written once. It
+was 475 milestones stale. The slide now says the six phases it walks through run
+to M173, that the project stood at **M648 on 2026-09-17**, and it names the rule
+it is obeying. `06-building-with-ai.md` carried a correctly-formed stamp --
+"as of 2026-08-11: M390, over 90,000 lines of C89, over 11,000 unit checks, over
+160 smoke drivers" -- which had simply aged; it is restamped at 2026-09-17 /
+M648 / over 108,000 / over 13,000 / over 290, and **the old stamp is quoted in
+the replacement**, because a stamp that ages visibly is the mechanism working
+rather than failing.
+
+**The deck stopped at M390 and now reaches M648.** A new slide covers six bands
+in the deck's own voice: the lint-universe sweep (M498-M545), accessibility
+A1-A7 (M546-M581) with the 340 ms / 12.5 ms measurement that answered a design
+question in milliseconds, measurement and the mentor (M582-M605), the seam mends
+and teaching (M606-M618), the licence and the first public snapshot with the
+three ways the gate had assumed our own machine (M619-M624), and argumentation
+and reach (M625-M648). It closes on the through-line tested against itself:
+M645 and M646 were both found **by a person reading**, not by a test.
+
+**`08-self-learners.md` (13 slides).** Its argument, which is the reason it is
+not just "the curriculum deck again": **a self-learner's deficit is not
+information, it is a feedback loop with teeth.** The internet has the
+information and so does the model; what is missing is review that disagrees,
+a test somebody else wrote, the question "why did you do it that way", and
+somebody who has seen this fail before. **An agent that answers fluently makes
+three of those four worse.** So the deck presents the teaching layer as four
+*refusals* rather than four features: grading by a script you cannot argue with,
+help as a ladder you must deliberately pull, trap cases that teach distrust of a
+green, and real source with the project's own failures still in it. It ends on
+what jichi **will not** do -- it will not tell you your design is good, will not
+make you a reviewer, will not notice you are stuck, and will not replace other
+people -- and on a "what this deck cannot tell you" slide stating that **no
+learning-outcome study has been run** and the curriculum has never been taught
+to a cohort.
+
+**The day-one advice is deliberately inverted.** Start with the agent *grading
+code you wrote*, not writing code for you. The order is the lesson.
+
+**Honest debt, declared rather than hidden.** The new band slide widened the
+English `03-roadmap` deck from 15 separators to 16, so all four localized decks
+went from 2 slides behind to 3. `i18n_tracks_lint` check 4 refuses an
+approximate declaration -- "a number nobody maintains is how the previous
+convention rotted" -- so each marker was updated to the exact 3 with the reason
+appended. `08` is English-only, like `07`, for the reason `presentations/README`
+already gives: a confident wrong translation of a deck that makes claims is
+worse than an absent one.
+
+**No lint was added.** M391 considered and rejected linting the decks, and M645
+re-measured that question against the whole tree and reached the same answer:
+~185 of ~190 driver-count lines in this repository are correct history. The
+decks are prose whose figures are bounds or stamps by convention, and the
+convention is enforced by a reader.
+
+---
+
+### M650 -- books named and not cited: fourteen works, verified and routed -- done
+
+The operator read the end of `DOMAIN_MODELLING_TUTORIAL.md` and found it naming
+Eric Evans's *Domain-Driven Design* and Vaughn Vernon's *Implementing
+Domain-Driven Design* with **no URL, ISBN or publisher** -- under the
+instruction *"search these; prefer primary sources"*. In a repository whose
+register is that a claim carries its evidence, and which added a whole
+bibliography at M636 for exactly this, telling a reader to go and find a book is
+the defect that page exists against.
+
+**The sweep found it was not one page.** Six design tutorials end with the same
+paragraph: `DOMAIN_MODELLING`, `USE_CASE`, `UML`, `ARCHITECTURE`, `PSEUDOCODE`
+and `TESTING`. Between them they named **Evans, Vernon, Cockburn, Richards &
+Ford, Simon Brown, Michael Nygard, Wirth, Knuth, Conway, Fowler, Brandolini,
+the OMG UML specification and the mermaid documentation** -- thirteen works and
+a specification, and not one citation. `PROJECT_TIMELINE.md` also invoked
+"Brooks' coordination tax" while the bibliography already carried *The Mythical
+Man-Month* with its ISBN two pages away.
+
+**Fourteen entries added, every one verified rather than recalled** -- the
+distinction `BIBLIOGRAPHY.md`'s own marker table insists on, and the reason it
+exists. Four ISBN-13s resolved against Open Library and returned that exact
+title, publisher and page count: Evans **978-0-321-12521-7** (Addison-Wesley,
+529 pp.), Vernon **978-0-321-83457-7**, Cockburn **978-0-201-70225-5**
+(304 pp.), Richards & Ford **978-1-4920-4345-4** (O'Reilly, 432 pp.). Eight URLs
+probed and answered HTTP 200: Dijkstra's EWD249, c4model.com, Nygard's original
+ADR post, the OMG UML spec, the mermaid docs, Conway's own 1968 paper, Fowler's
+*AnemicDomainModel*, eventstorming.com. Two cited **by DOI** -- Wirth's
+*Program Development by Stepwise Refinement* (CACM 14(4)) and Knuth's *Literate
+Programming* (Comp. J. 27(2)) -- because ACM and Oxford both answer an automated
+request with **403**, which is precisely the case the page's marker table was
+written for. **Nothing was cited that did not answer**, and searched-for open
+copies of the two papers that returned 404 are not claimed.
+
+**The tutorials now name their sources and route to them** instead of
+instructing a search. The paragraphs were rewritten rather than appended to:
+each names the works, says what each is for, and separates them from the
+*concepts* in the same list -- bounded context, coupling and cohesion,
+equivalence partitioning, flaky tests -- which are ideas rather than books and
+correctly have nothing to cite. `TESTING_TUTORIAL` turned out to name **no work
+at all**, only concepts, so it says so and points at the craft section anyway.
+`CHOOSING_A_MODEL.md` is in the same position and was deliberately left alone.
+
+**Counts, recounted rather than incremented.** 64 -> **78 entries** (craft 19 ->
+33), free to read 37 -> 45. `bibliography_lint` checks 5 and 7 caught the three
+stale quotations immediately -- the page's own prose, the docs index, and
+`CURRICULUM.md` -- which is the lint doing at M650 exactly what M636 built it
+for.
+
+**Check 8, and what it deliberately does not do.** The six tutorials must link
+`BIBLIOGRAPHY.md`. It holds the *route*, not the citations: M510's lesson is
+that a guide nobody is routed to is a guide nobody reads. It **cannot** tell
+that a newly added book carries a citation -- that needs a classifier over
+prose, and M645's measurement against this tree says such a gate fires
+overwhelmingly on correct history. The header says so rather than implying
+coverage it lacks, and names `CHOOSING_A_MODEL.md`'s exclusion with the reason.
+Teeth: removing one tutorial's link reddens it naming that file; renaming a
+tutorial in the list reddens the floor instead of passing on five.
+
+---
+
+### M651 -- five local models asked to translate one paragraph, and the numerals carried across -- done
+
+The operator asked to use the local LM Studio server and its Japanese models to
+translate jichi's documentation. Before translating anything, the translators
+were measured -- and the result is that **four of the five must not be trusted
+with this documentation**, while the fifth is fit to draft for a reviewer.
+
+**The method is what makes the answer checkable.** Translate a passage whose
+correct Japanese **already exists in this repository**, then compare. The
+passage is `PROJECT_TIMELINE.md`'s opening, 1,084 characters, chosen because it
+is dense with what a technical translation must not lose: two load-bearing
+qualifiers (*under supervision*, *active* days), an emphasis structure, and four
+parallel noun phrases a summariser would collapse. Two grading criteria were
+fixed in advance from the reviewed Japanese -- 監督 (supervision, directing)
+against 監視 (surveillance), and 稼働 for *active* days.
+
+**`llm-jp-4-8b-thinking` is the best and is usable as a draft.** It got both
+criteria right (監督下で, 54 活動日), translated the headings rather than leaving
+them English, kept the emphasis markers, and numbered the four delivery models
+(1)-(4) -- clearer than the English. Two flaws: a raw `<|im_end|>` control token
+leaked into the output, and "delivery models" was dropped from the last clause.
+
+**`prism-ml/bonsai-27b` is mixed** -- 監視下で (the wrong sense), five phrases
+left in English, "delivery models" as 配信モデル (distribution, not delivery) --
+and it spent **6,216 reasoning tokens to produce 287 of output**, 21 to 1.
+
+**`llama-3-elyza-jp-8b` is fluent and wrong**, which is the more dangerous of the
+two failures: 4.5 seconds, natural-reading Japanese, and "under supervision"
+rendered **下位で** -- "in a lower position". It also dropped *active* from the
+day count and dropped "assisted by an AI agent" from the one delivery model that
+feature defines.
+
+**`rakutenai-7b` failed catastrophically.** It did not translate. It generated a
+**different English document** containing **fabricated figures** -- "Expert: 6-8
+weeks", "Balanced team: 7-9 weeks", "Junior solo dev: 20+ weeks", none of which
+appear in the source or anywhere in this project -- and repeated that block six
+times until it hit the cap. Confident, fluent, invented, and in the wrong
+language.
+
+**`qwen3.5-9b` produced no output**, and that result is reported as a bound
+rather than a verdict.
+
+**An error of my own, and it is the third of its kind this session.** The first
+run gave the two reasoning models `max_tokens` 1,200. Both returned empty
+content having spent it all on reasoning, and the obvious reading -- *"these two
+cannot do it"* -- would have been **wrong for one of them**: re-run at 8,000,
+`bonsai-27b` produced a real translation. This project's rule is that caps stay
+**off** for measurement runs because *a cap that fires manufactures a plausible
+different answer*, and I armed one. The other two instances are in the
+tool-calling sweep (M648): a warm contended server, and a 27B still settling.
+
+**Then the half of the debt that needed no translator at all was paid.** The
+Japanese `PROJECT_TIMELINE.md` carried `figures-behind: 25` -- a marker M646
+widened from 7 when the English recount left its numerals a revision behind. The
+previous note drew the right distinction (*which figures are substitutable and
+which need prose*) and then did not act on it. At M651 the substitutable half is
+carried across: the subsystem pie, now **18 slices** because English added
+`include` (rendered 公開ヘッダ), the authored-lines proportion table on the
+M646-corrected English-only universe, the whole summary table, a recounted
+commits row, and one prose numeral. Two rows needed more than substitution and
+got it: the TEST row's parenthetical **changed shape** in English, so a current
+total beside a stale breakdown would have been worse than a stale pair; and the
+LANGUAGE/TARGET row said the dependencies are "libcurl + cJSON", which is wrong
+in the same direction as the row that page already deleted -- `src/json/cJSON.c`
+is this project's original code (M171), not a dependency. **The marker now reads
+`figures-behind: 0`.**
+
+**What is still owed is prose, and the page says so.** The paragraphs that
+*interpret* those two tables still argue the previous shape; English now argues
+"documentation now outweighs source" and reads a nineteen-day gap in the commit
+record. Rewriting an argument needs a Japanese writer -- which is precisely what
+the measurement above concluded a local model may draft for and may not replace.
+
+---
+
+### M652 -- two plans: the curriculum rehearsal, and a workload for the fleet run -- done
+
+Two of the operator's items asked for plans rather than code, and both turned
+out to have a useful first finding: **one of them is half-done already, and the
+other has been waiting on a workload rather than on a design.**
+
+**Item: test-run all assignments and the complete curriculum.**
+`plans/2026-09-curriculum-rehearsal.md`. The first finding is that one reading
+of the request is **already done and green**, and saying so is worth more than a
+plan that quietly re-proposes it: `curriculum_graders.py` drives every spec
+through `jichi grade` itself and was re-run for this plan --
+**224 checks, 96 s, 0 failures, 1 loud skip** (the Rust course, because `rustc`
+is not usable under that tier's private `$HOME`, which is M624's discipline
+working). Both sides are asserted per spec, and compound graders get a third
+assertion so a half-answer still fails.
+
+What does **not** run is a model attempting the tasks, and the plan is careful
+about what that would be for. It would not measure the agent -- **the subject
+under test is the curriculum**, and a run reporting "the model scored 61%" has
+measured the wrong noun. It would find the thing nothing in the tree currently
+looks for: **whether a task is solvable from its own spec**, given that the spec
+and its reference solution were written by the same author in the same sitting.
+It would explicitly **not** test the hint ladder, because M319 and M320 already
+answered that -- 24 `attempt` runs across two tasks whose ladders are
+load-bearing, **zero `hint` calls**, including six runs that failed with the
+tool in hand.
+
+Priced before proposed. The one honest anchor in this tree is M320's quarter of
+a million tokens over 23-25 model calls on a single **4-point** task **that
+failed**; across 246 points that is a multi-million-token run whose spread is
+unmeasured, which is why the plan starts with a **ten-task sample to get a
+rate** and a decision gate that says publishing the rate is itself a result.
+Four stage-0 conditions are the project's own rules: local models only, caps
+**off** because this is a measurement, per-task throwaway `HOME` and a private
+Zig cache (M511 measured a shared one flipping an identical source from fail to
+pass), toolchain probes answering *usable* not *present*, and exit 77 recorded
+as a third outcome rather than folded into failure.
+
+**Item: a distributed, long-running autonomous project.** `DISTRIBUTED.md` gains
+§5a. That page's §6 has asked since M526 for *"a real multi-host workload run to
+completion on topology 1c, with the wall-clock, token and failure numbers
+written down"*, and it has stayed open partly because **nobody proposed a
+workload** -- which is the hard part, since a fleet demo needs a task that is
+long-running, partitionable, and **verifiable without a human**, and most
+candidates fail the third.
+
+The operator's building game with process-generated changes satisfies all three,
+and the section says why against this page's own requirements: a tick is a whole
+unit of work so the run can stop anywhere; one agent owns one **region
+directory**, so regions are disjoint and the push topology's "exactly-once by
+construction" holds with no queue, claim or lock; and a world has **invariants a
+script can check** -- everything parses, no two structures share a cell,
+resources balance, declared paths traverse -- which supplies exactly the
+**positive marker** §2 demands instead of an exit code.
+
+Three design decisions are load-bearing and each names its cost. **The generator
+is a script, not a model**, deterministic from a seed, because a model
+generating the changes would make the run unrepeatable and would measure the
+generator. **The invariant check runs in the supervisor after collection**, not
+inside the agent's own fence, which is the only way it stays trustworthy -- and
+it is also where §1c's closed-shell cost lands honestly. And **seams are
+excluded from the first run**: a road leaving region 3 must meet the road
+entering region 4, which is a *shared write*, and a shared write is the
+coordination problem this topology exists to avoid. Cross-region work is a
+second experiment, not a stretch goal of the first.
+
+**Stage 0 is not suspended by having a good workload.** The section closes on
+it: build this only if the four numbers are wanted, because a building game that
+produces a charming world and no numbers would be the most expensive way this
+project has yet found to avoid writing something down.
+
+---
+
+### M653 -- 0.9.1 -- done
+
+The operator asked for the version to be bumped to **0.9.1**, noting it matters
+for the public snapshots, and that the snapshots wait until today's work is
+finished. This is that commit, and it is last on purpose.
+
+`include/jc_version.h`'s own header states the rule: *a release = bump this
+constant + retitle the CHANGELOG's `[Unreleased]` section, in the same commit.*
+Both done here. `jichi --version` now prints `jichi 0.9.1` over the Apache-2.0
+copyright block.
+
+**The retitled section spans M327-M653, which is wider than the version step,
+and the CHANGELOG now says why rather than leaving a reader to wonder.** The
+`[0.9.0]` section is dated **2026-07-28**, but the *public* release on
+**2026-08-27** shipped `v0.9.0` (M619-M620) **without opening a new section**,
+so everything from M327 accumulated under `[Unreleased]`. Retitling is the
+honest repair; the alternative is splitting it retroactively at a boundary
+nobody recorded at the time. **The step itself is a PATCH and that is the right
+class**: measured against the public tag rather than the section, the band is
+M640-M653 -- a cross-model refutation run, a workflow stage whose `model` two
+stage types of three honoured, a flag that asked for a fence and was dropped in
+silence, and a documentation drift sweep. Fixes and prose, which is what a patch
+release is.
+
+**What was deliberately NOT touched.** The `0.9.0` strings in
+`tests/test_telemetry.c` and `tests/test_runsview.c` are **recorded fixture
+data** -- JSONL a past run emitted, with a version field in it -- not assertions
+about `JC_VERSION`, so bumping them would have falsified a recording. The
+`0.9.0` in `Makefile`, `src/util/jc_buildrev.c` and `SESSION_RUNBOOK.md` is the
+M-era anecdote about two different trees both reporting the same version, which
+is the whole point of that story and stays. Two live claims did move: the
+`DAEMON.md` `hello.ok` example, and the README sentence about the public tree --
+which now distinguishes the **public** tree (still 0.9.0, untagged since) from
+**this** tree (0.9.1), because conflating them is how the next reader is
+misled.
+
+**Gate:** `make test` **13,329 checks / 0 failures**; `make WERROR=1 smoke`
+**298 drivers / 1,736 checks**, 0 failures. The binary changed, so
+`sudo make install` is worth running on this box.
+
+---
+
+### M654 -- GitHub Pages: the option, weighed -- done
+
+The operator asked where the documentation about git topics and GitHub Pages
+lives. **Half of that question had a wrong premise, and correcting it is the
+milestone.** The topics work is at `plans/2026-08-public-snapshot.md` §8
+(M648) -- thirteen existing topics, seven recommended additions, the exact
+`curl` to apply them with an administration-scoped token, and the note that the
+endpoint *replaces* the set. **GitHub Pages was never written about.** §8 said
+"there is no published documentation site" and stopped, which names a gap
+without weighing it.
+
+§8a now weighs it, and the argument against is **this session's own lesson**. A
+Pages site is a **second copy of a claim**, and M645, M646, M648 and M650 were
+all one defect wearing four hats: a figure, a stamp, a licence status and a
+citation that were each correct in one place and stale in another. A generated
+site inherits that risk *structurally* -- built once, it can serve August's
+numbers for a year, which is precisely what the front page did with M486's for
+158 milestones. **A published site not rebuilt from the tree on every change is
+a new home for a stale claim**, and four milestones of evidence say this project
+cannot rely on noticing.
+
+Four options, cheapest first, each with its cost named: leave it (GitHub already
+renders the 466 pages and every relative link works, but the eight Marp decks
+stay unviewable); **point the homepage field at the repository's own `docs/`
+index** -- no second copy and therefore no drift by construction, one field
+rather than a project, and the recommendation; serve `docs/` directly with Pages
+(no generator, but Jekyll needs a `.nojekyll` or a theme decision, and **a
+served page is a page people cite**, which raises the price of a stale figure
+rather than lowering it); or a built site, the only option that makes the decks
+viewable, which **must** be built by CI on every push, and which runs into
+`make slides` needing `npx`/`marp-cli` -- a network dependency deliberately kept
+out of `make ci`, so wiring it in is a decision about that rule and not just a
+workflow file.
+
+If a built site is ever taken, it must carry **a generated-on date visible to
+the reader**, so a stale site *says* it is stale instead of looking current --
+the M391 stamp rule applied to a website.
+
+Neither the homepage field nor Pages could be set from here: both need the same
+repository-administration scope that refused the topics call at M648.
+
+**Also in this commit:** `make ci` run exclusively on the M653 release and
+**green end to end** -- gcc and clang build/test, ASan/UBSan, valgrind, the
+curl-free link, the FAULT tier, smoke, mutant and e2e.
+
+---
+
+### M655 -- the homepage URL, resolved; and the index's own count was stale -- done
+
+The operator applied M648's twenty topics and asked for the homepage URL. The
+answer is recorded in `plans/2026-08-public-snapshot.md` §8 rather than only
+said, with the reasoning and both routes to set it.
+
+**The value:**
+`https://github.com/alexanderlarsdallmann/jichi/blob/master/docs/README.md`
+
+**Why that form, with all three candidates probed rather than reasoned about**
+(each HTTP 200 on 2026-09-17). The `blob` URL renders `docs/README.md` alone,
+and that page opens *"The documentation map -- this is the routing table"*,
+which is exactly what the field should reach. The `tree/master/docs` form
+renders the same README **below a listing of 157 filenames**, because GitHub
+puts a directory's README *after* its file list -- so the curated index ends up
+buried under the thing it exists to replace. The `#readme` anchor returns the
+visitor to the page they are already on. The mirror's default branch was
+**confirmed as `master` against the API**, not assumed, and `docs/README.md` is
+present there at 18,846 bytes.
+
+**Both routes are written down, UI first**, because the API route needs the
+repository-administration scope that refused the topics call at M648 and the
+gear icon beside "About" needs nothing. The cost is named rather than hidden: a
+homepage pointing into its own repository is unusual, and it is right here
+*because* there is no external site and §8a argues against building one -- the
+URL cannot go stale, since it **is** the source.
+
+**And the index's own first line was stale, which is the session's defect one
+more time.** `docs/README.md` opened *"138 pages sit beside this one"*. The real
+figure is **156** at the top level and **473** across the tree -- a claim 18
+pages out on the **first line of the routing table every reader is sent to**,
+and ungated. It now states both numbers. The `138` in `docs_index_lint.sh`'s
+header is left alone: that is the origin story (138 pages with no index at all),
+where it is correct as history. Its one *failure message* quoting the same
+number is rewritten, because a message that fires in the future should not date
+itself to the past.
+
+**No lint added.** The same measurement as M645 and M650 applies: a gate over
+prose counts fires overwhelmingly on correct history in this tree, and this is
+the fourth time a reader has found what a classifier would have drowned.

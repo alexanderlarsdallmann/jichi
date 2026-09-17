@@ -16,8 +16,8 @@ all. Those three gaps, and fifty more like them, are what follows.
 
 **Who it is for.** The same reader as the rest: a self-learner with a laptop,
 alone ([CURRICULUM.md](CURRICULUM.md)). So **free and freely-readable works are
-marked and come first within each group**: of the **64 entries** below (19 craft,
-17 C, 11 C++, 8 Zig, 9 Rust), **37 can be read for nothing** — including a complete C
+marked and come first within each group**: of the **78 entries** below (33 craft,
+17 C, 11 C++, 8 Zig, 9 Rust), **45 can be read for nothing** — including a complete C
 book, a complete Zig book, SICP, and every language standard that matters here in
 its last free working draft. A bibliography a learner cannot afford is a reading
 list for somebody else.
@@ -135,6 +135,60 @@ which is the half that tells you which of today's certainties are fashions.
   Read it for: the machine your C actually runs on — linking, memory hierarchy, system-level I/O. The bridge between this section and the next.
 
 ---
+
+### The design tutorials' own sources (added M650)
+
+Six tutorials in this tree — [USE_CASE_TUTORIAL.md](USE_CASE_TUTORIAL.md),
+[UML_TUTORIAL.md](UML_TUTORIAL.md),
+[DOMAIN_MODELLING_TUTORIAL.md](DOMAIN_MODELLING_TUTORIAL.md),
+[ARCHITECTURE_TUTORIAL.md](ARCHITECTURE_TUTORIAL.md),
+[PSEUDOCODE_TUTORIAL.md](PSEUDOCODE_TUTORIAL.md) and
+[TESTING_TUTORIAL.md](TESTING_TUTORIAL.md) — each ended with a list of works and
+concepts under the instruction *"search these; prefer primary sources"*. Naming a
+book and then telling the reader to go and find it is the one thing this page
+exists to stop, so the works those lists name are cited here properly and the
+tutorials now point at this section. **Concepts** in those lists stayed concepts;
+only named works are entries.
+
+#### Freely readable
+
+- **Notes on Structured Programming** — E. W. Dijkstra, 1970. EWD249. <https://www.cs.utexas.edu/users/EWD/ewd02xx/EWD249.PDF> [probed 2026-09-17: HTTP 200]
+  Read it for: sequence, selection and iteration argued from first principles — the claim [PSEUDOCODE_TUTORIAL.md](PSEUDOCODE_TUTORIAL.md) rests on when it says three constructs are enough.
+- **The C4 model for visualising software architecture** — Simon Brown. <https://c4model.com/> [probed 2026-09-17: HTTP 200]
+  Read it for: the Context / Container / Component / Code zoom levels that [ARCHITECTURE_TUTORIAL.md](ARCHITECTURE_TUTORIAL.md) §2 borrows, from the person who defined them.
+- **Documenting Architecture Decisions** — Michael Nygard, 2011. <https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions> [probed 2026-09-17: HTTP 200]
+  Read it for: the original ADR template. [DECISIONS.md](DECISIONS.md) is this idea with one addition made mandatory — the alternatives that were **rejected**.
+- **OMG Unified Modeling Language specification** — Object Management Group. <https://www.omg.org/spec/UML/> [probed 2026-09-17: HTTP 200]
+  Read it for: the diagram types [UML_TUTORIAL.md](UML_TUTORIAL.md) deliberately does *not* teach. Knowing what you are declining is the point of that tutorial.
+- **Mermaid documentation** — <https://mermaid.js.org/intro/> [probed 2026-09-17: HTTP 200]
+  Read it for: the full syntax behind every diagram in this repository, since "diagrams as code" is why they survive review at all.
+- **How Do Committees Invent?** — Melvin E. Conway, 1968. *Datamation* 14(5). <https://www.melconway.com/Home/Committees_Paper.html> [probed 2026-09-17: HTTP 200]
+  Read it for: Conway's Law in the author's own words, which is narrower and more interesting than the slogan. [ARCHITECTURE_TUTORIAL.md](ARCHITECTURE_TUTORIAL.md) asks what it means for a solo author, which is a question the paper does not answer.
+- **AnemicDomainModel** — Martin Fowler, 2003. <https://martinfowler.com/bliki/AnemicDomainModel.html> [probed 2026-09-17: HTTP 200]
+  Read it for: the anemic-versus-rich argument [DOMAIN_MODELLING_TUTORIAL.md](DOMAIN_MODELLING_TUTORIAL.md) tells you to make on purpose, stated by the person who named the anti-pattern.
+- **EventStorming** — Alberto Brandolini. <https://www.eventstorming.com/> [probed 2026-09-17: HTTP 200]
+  Read it for: the workshop technique for discovering a domain model with experts — the half of domain modelling a solo learner cannot practise, which is worth knowing precisely because of that.
+
+#### Behind a publisher's paywall — cited by DOI
+
+Both return `403` to an automated request, which is the case this page's marker
+table covers; neither is quoted here beyond its bibliographic record.
+
+- **Program Development by Stepwise Refinement** — Niklaus Wirth, 1971. *Communications of the ACM* 14(4), 221–227. [DOI 10.1145/362575.362577]
+  Read it for: pseudocode as a program you sharpen in passes, which is exactly [PSEUDOCODE_TUTORIAL.md](PSEUDOCODE_TUTORIAL.md)'s method and older than most of the languages it could be written in.
+- **Literate Programming** — Donald E. Knuth, 1984. *The Computer Journal* 27(2), 97–111. [DOI 10.1093/comjnl/27.2.97]
+  Read it for: the opposite bet to this tree's — that prose and code should live in one artifact. Worth reading so that deciding against it is a decision.
+
+#### In print
+
+- **Domain-Driven Design: Tackling Complexity in the Heart of Software** — Eric Evans, 2003. Addison-Wesley, 529 pp. ISBN 978-0-321-12521-7 [ISBN verified 2026-09-17]
+  Read it for: entity, value object, aggregate and ubiquitous language from the source — the four words [DOMAIN_MODELLING_TUTORIAL.md](DOMAIN_MODELLING_TUTORIAL.md) is built on. The "blue book"; long, and the first three chapters carry most of what that tutorial uses.
+- **Implementing Domain-Driven Design** — Vaughn Vernon, 2012. Addison-Wesley Professional. ISBN 978-0-321-83457-7 [ISBN verified 2026-09-17]
+  Read it for: the practical companion to Evans — what the patterns look like in code rather than in definition.
+- **Writing Effective Use Cases** — Alistair Cockburn, 2000. Addison-Wesley Professional, 304 pp. ISBN 978-0-201-70225-5 [ISBN verified 2026-09-17]
+  Read it for: goal levels and extension numbering, which [USE_CASE_TUTORIAL.md](USE_CASE_TUTORIAL.md) uses and credits without previously telling you where to find them.
+- **Fundamentals of Software Architecture: An Engineering Approach** — Mark Richards & Neal Ford, 2020. O'Reilly Media, 432 pp. ISBN 978-1-4920-4345-4 [ISBN verified 2026-09-17]
+  Read it for: architecture as the decisions that have no right answer, only trade-offs — the framing [ARCHITECTURE_TUTORIAL.md](ARCHITECTURE_TUTORIAL.md) adopts.
 
 ## 2. C — the C89 this project is written in, and the C the rest of the world writes
 

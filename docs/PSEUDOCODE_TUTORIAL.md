@@ -118,10 +118,14 @@ In reading order:
    than written (a state machine, a call sequence), a diagram is pseudocode's
    visual cousin; pick by whether the hard part is the steps or the structure.
 
-External concepts worth reading up on (search these; prefer primary sources):
-*structured programming* (why sequence/selection/iteration are enough); *stepwise
-refinement* (Wirth — pseudocode as a program you sharpen in passes); *literate
-programming* (the opposite bet, that prose and code should live together — worth
-knowing so you can decide against it deliberately); *invariants* and *loop
-variants* (the properties a tricky loop must preserve, which good pseudocode makes
-checkable).
+**The three papers this tutorial rests on** are cited in [BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) §1, "The design tutorials' own sources": **Dijkstra's *Notes on
+Structured Programming*** (free — why sequence, selection and iteration are
+enough, argued rather than asserted), **Wirth's *Program Development by Stepwise
+Refinement*** (by DOI; pseudocode as a program you sharpen in passes, which is
+precisely this tutorial's method and predates most languages it could be written
+in), and **Knuth's *Literate Programming*** (by DOI — the opposite bet, that
+prose and code belong in one artifact, worth reading so that deciding against it
+is a decision).
+
+Concepts to look up beyond those: *invariants* and *loop variants* — the
+properties a tricky loop must preserve, which good pseudocode makes checkable.

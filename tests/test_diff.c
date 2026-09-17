@@ -6,7 +6,9 @@
 #include "jc_test.h"
 #include "jc_diff.h"
 #include "jc_str.h"
+#include "jc_fault.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 /* Count lines in `s` beginning with `pre`. */
@@ -126,6 +128,34 @@ static void test_color_and_truncate(void)
     jc_sb_free(&sb);
 }
 
+#ifdef JC_FAULT
+/* M642: the LCS table's malloc can fail, and the fallback that ran then was
+ * `lcs_middle(old, new_, p, 0, mm + nn, ...)` -- zero deletions for the old
+ * middle and mm + nn additions read from new_[p + j], past the end of an array
+ * with nn entries. Found by the refute A/B's first seat, called "a valid diff"
+ * by two of four refuters, upheld by one. Only reachable with the injector
+ * compiled in (make FAULT=1): the smoke-faults tier runs this suite. */
+static void test_oom_fallback(void)
+{
+    struct jc_sb sb;
+    int changed;
+
+    jc_sb_init(&sb);
+    setenv("JICHI_FAULT_ALLOC_AFTER", "0", 1);
+    jc_fault_reset();
+    /* prefix "a", middle old = b c d (3) vs new = X Y (2), suffix "e" */
+    changed = jc_diff_unified("a\nb\nc\nd\ne\n", "a\nX\nY\ne\n", 3, 0, 0, &sb);
+    unsetenv("JICHI_FAULT_ALLOC_AFTER");
+    jc_fault_reset();
+    JC_CHECK(changed == 5);
+    JC_CHECK(count_prefix(sb.data, '-') == 3);
+    JC_CHECK(count_prefix(sb.data, '+') == 2);
+    JC_CHECK(strstr(sb.data, "-b\n") != NULL && strstr(sb.data, "-d\n") != NULL);
+    JC_CHECK(strstr(sb.data, "+X\n") != NULL && strstr(sb.data, "+Y\n") != NULL);
+    jc_sb_free(&sb);
+}
+#endif
+
 void test_diff(void)
 {
     test_identical();
@@ -134,4 +164,7 @@ void test_diff(void)
     test_context_window();
     test_two_hunks();
     test_color_and_truncate();
+#ifdef JC_FAULT
+    test_oom_fallback();
+#endif
 }

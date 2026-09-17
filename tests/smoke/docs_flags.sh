@@ -50,6 +50,15 @@ cat > "$tmp/foreign" <<'EOF'
 --eval
 --test
 --edition
+# Other CLI coding agents', from COMPARED.md's landscape section (M648). That
+# section compares jichi against surveyed tools, so it necessarily names THEIR
+# command surfaces: octomind's `--format jsonl`/`--schema`/`--daemon`, hax's
+# documented `--json` stream, tmuxlet's `--output-format json`. Rewording them
+# away would mean describing a comparison without the thing being compared.
+--json
+--schema
+--daemon
+--output-format
 # rustup's, from BIBLIOGRAPHY.md's Rust section (M636c): `rustup doc --book` is
 # how a reader puts The Rust Programming Language on a bench with no route out,
 # which is the load-bearing half of that entry for this project's offline-first

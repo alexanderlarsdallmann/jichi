@@ -101,7 +101,7 @@ opencode, and Claude Code) configurations —
 
 **Never compiled from source before?** [`docs/PREPARE_AND_BUILD.md`](docs/PREPARE_AND_BUILD.md) walks you from an empty terminal to a working build on Linux, macOS, or Windows/WSL. Linux and **WSL2** are both verified paths — the WSL2 walkthrough has been executed end to end, by a non-root user, against pristine HEAD. **macOS is the one door nobody has opened**, and [`docs/PLATFORMS.md`](docs/PLATFORMS.md) is the one page that states, per platform, what was actually compiled and gate-run.
 
-Built incrementally in milestones — **631 of them**, 599 written up in full (the
+Built incrementally in milestones — **655 of them**, 645 written up in full (the
 gap is numbers merged, split or skipped) — each with its design and its failures
 recorded. **The documentation ships in full, on purpose** — the analyses, plans,
 dialogues and anecdotes, including every recorded failure, mis-diagnosis and dead
@@ -195,12 +195,12 @@ editor integrations (Emacs, Vim, nano, ACP), an autonomous-operations arc
 (loop supervisor + observability readers + a mid-run control socket), a
 teaching/curriculum layer, and — for the first public release — the rename to
 **jichi**. All build under strict C89 with zero warnings; `make test` runs the
-unit suite (**over 11,000 checks** — a growing figure, so stated as a bound
+unit suite (**over 13,000 checks** — a growing figure, so stated as a bound
 per the M307 rule), `make smoke` adds a **python-free** tier that makes
 `make check-target` a full gate on any POSIX box, and `make ci` additionally runs
 the suite under two compilers, AddressSanitizer + UndefinedBehaviorSanitizer,
-Valgrind, and a fuzzer. Green end to end at **M486** on the development box:
-**12,422 checks / 0 failures**, smoke **211 drivers / 1,141 checks**.
+Valgrind, and a fuzzer. Green end to end at **M650** on the development box:
+**13,329 checks / 0 failures**, smoke **298 drivers / 1,736 checks**.
 
 Each verified platform is **kept as its own stamped datum** rather than
 overwritten, because "it passes on a small machine" and "it passes on that
@@ -1066,11 +1066,15 @@ Use `--model <selector>` to override the role-default model for `embed`/`rerank`
 
 ## Roadmap
 
-**Where we stand: latest milestone M639.** The engineering loop is healthy; the
+**Where we stand: latest milestone M655.** The engineering loop is healthy; the
 **first public release shipped 2026-08-27**: **v0.9.0**, one curated commit,
 published to the HRZ GitLab (`jichi-public/jichi`) and to GitHub, tag `v0.9.0`
 on both ([`docs/plans/2026-08-public-snapshot.md`](docs/plans/2026-08-public-snapshot.md),
-executed as written). The release checklist, as it landed:
+executed as written); the public tree was **advanced to the M639 state on
+2026-09-17** (public commit `0790755`, hosted CI green on the first run; no new tag,
+so the **public** tree still reads 0.9.0). **This development tree is 0.9.1 since
+M653 (2026-09-17)**; the next snapshot carries it out. The release checklist, as it
+landed:
 
 - **done** — the rename to jichi (name, binaries, paths, remote, dependent
   projects); the **curriculum**, complete and still growing (all four shu-ha-ri

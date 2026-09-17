@@ -1053,6 +1053,9 @@ smoke-mutant:
 # binary that looks built. Each driver is named explicitly rather than globbed:
 # smoke_lint asserts this list matches the drivers that require the build, so
 # adding a fourth fault driver fails the gate until it is wired in here.
+# M642: the unit suite runs here too, because `#ifdef JC_FAULT` tests
+# (test_session.c since M198, test_diff.c since M642) are compiled out of every
+# other stage of `make ci` -- the M198 one had never run under the gate.
 .PHONY: smoke-faults
 smoke-faults:
 	$(MAKE) clean
@@ -1060,7 +1063,8 @@ smoke-faults:
 	sh tests/smoke/faults.sh
 	sh tests/smoke/faults_net.sh
 	sh tests/smoke/faults_net_midstream.sh
-	@echo "smoke-faults: OK (3 drivers, FAULT=1)"
+	$(MAKE) WERROR=1 FAULT=1 test
+	@echo "smoke-faults: OK (3 drivers + the unit suite, FAULT=1)"
 
 # Compile the shipped example programs under the project's strict flags so a
 # reference artifact can't rot. Currently the C89 autonomous-loop supervisor.

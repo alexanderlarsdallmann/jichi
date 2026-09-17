@@ -117,7 +117,7 @@ Useful flags:
 Each task runs in a throwaway workspace with a throwaway `HOME`, then is graded by
 its own `verify`. One task's failure never affects another's.
 
-A full sweep of the 8-task corpus takes about a minute of wall clock on the
+A full sweep of the 11-task corpus takes about a minute of wall clock on the
 reference hardware — cheap enough to run on every provider-layer change.
 
 ## 5. What to record, and the two rows that need `--log-level full`
@@ -140,10 +140,14 @@ and the taxonomy becomes readable. Run the taxonomy pass separately:
 python3 tests/bench/run_bench.py --profile core --log-level full --label taxonomy
 ```
 
-**`nudge` and `args_repair` have no reader in `jichi telemetry`.** The
-events are emitted (M147/M148) but the built-in summarizer parses only
-`turn`/`model_call`/`tool_call`/`route`/`compact`. `report.py` reads the raw JSONL
-instead. Closing that gap is the first recommendation in the analysis note.
+**`nudge` and `args_repair` are read by `jichi telemetry`** — since M167, which
+closed the gap this paragraph used to describe (and which `DEFERRED_LOCAL_GPU.md`
+has recorded as closed ever since, while this page went on claiming it was open:
+two pages, one subject, contradicting each other for 478 milestones). The
+summarizer counts nudges fired and recovered and the repair total, and prints them
+as a self-correction block — `src/util/jc_telemetry.c` handles the `nudge` and
+`args_repair` events by name. `report.py` still reads the raw JSONL, because it
+needs the per-task rows the summary aggregates away.
 
 **Record the calibration ratio.** After a run against a persistent `HOME`,
 `~/.jichi.d/calibration.json` holds what jichi learned about this model's

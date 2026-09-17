@@ -38,6 +38,29 @@ FILES_TXT = os.path.join(HERE, "files.txt")
 MODEL = "jlu/qwen3-coder-next"           # free; priced_model_lint holds this
 API_BASE = "https://api.hrz.uni-giessen.de/v1"
 KEY_ENV = "JICHI_API_KEY"
+GATEWAY_HOST = "api.hrz.uni-giessen.de"
+LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
+
+
+def check_free(model, api_base):
+    """M640: `--model` may name only a model that costs nothing. Through the
+    institutional gateway that is the `jlu/` namespace and nothing else -- the
+    gateway lists 353 ids, a bare alias of a jlu/ model routes to a priced vendor
+    (CLAUDE.md, ANECDOTES #68), and stripping a prefix to make an error go away
+    is the move this refuses. Off the gateway, only a loopback server (LM Studio)
+    is accepted: free by construction. Anything else is refused before a request
+    is built, and the refusal names the rule, not the id's vendor."""
+    host = re.sub(r"^https?://", "", api_base).split("/")[0].split(":")[0].strip("[]")
+    if host == GATEWAY_HOST:
+        if not model.startswith("jlu/"):
+            die("refused: through the HRZ gateway only jlu/* ids are free; "
+                "%r is not in that namespace (the same id without its prefix "
+                "may answer, and route to a priced vendor)" % model)
+    elif host in LOCAL_HOSTS:
+        return
+    else:
+        die("refused: --api-base must be the HRZ gateway (jlu/* only) or a "
+            "loopback server; %r is neither, and this harness spends no money" % api_base)
 
 # The control arm's words, fixed by the pre-registration.
 CONTROL_PREFIX = "Review the following critically and list anything wrong:\n\n"
@@ -53,18 +76,30 @@ def die(msg):
     sys.exit("refute_ab: %s" % msg)
 
 
-def write_config(path):
+def write_config(path, model=MODEL, api_base=API_BASE, context_length=0):
     """One config for every run. Everything resource- or prompt-shaped is pinned
     so the machine is not a hidden variable (craft_ab's rule)."""
+    check_free(model, api_base)
+    entry = {
+        "name": "subject",
+        "provider": "openai",
+        "model": model,
+        "apiBase": api_base,
+        "roles": ["chat"],
+    }
+    if context_length > 0:
+        # M641: jichi's max_tokens defaults to a fifth of contextLength, and the
+        # default contextLength starved a thinking model's reasoning (one empty
+        # answer, "hit the OUTPUT CEILING"). A run that declares this is a
+        # labelled DEVIATION from the pre-registered config; the sealed record
+        # carries the number so the two can never be confused.
+        entry["contextLength"] = context_length
+    if GATEWAY_HOST in api_base:
+        entry["apiKeyEnv"] = KEY_ENV
+    else:
+        entry["apiKey"] = "local"       # a loopback server takes any key
     cfg = {
-        "models": [{
-            "name": "subject",
-            "provider": "openai",
-            "model": MODEL,
-            "apiBase": API_BASE,
-            "apiKeyEnv": KEY_ENV,
-            "roles": ["chat"],
-        }],
+        "models": [entry],
         "lowResource": False,
         "repoMap": False,
         "references": False,
@@ -193,6 +228,31 @@ def read_planted():
 def cmd_run(args):
     """Two arms per planted report, under opaque ids; the condition is written
     only to .sealed/runs.json."""
+    model = args.model
+    api_base = args.api_base
+    check_free(model, api_base)          # refuse before anything is created
+    # M641: the refuter reads the workspace it runs in. Run in THIS tree and it
+    # can read planted.tsv, reports/ and results/*/grading -- the answer key.
+    # The 27B refuter did exactly that on its second answer and cited a prior
+    # grading file. A cross-model run therefore points --workspace at a clean
+    # export of the source the reports were written against (git archive of
+    # that commit, with no tests/bench/refute_ab in it).
+    workspace = os.path.abspath(args.workspace) if args.workspace else ROOT
+    if not os.path.isdir(os.path.join(workspace, "src")):
+        die("--workspace %s has no src/: not a jichi tree" % workspace)
+    if os.path.exists(os.path.join(workspace, "tests", "bench", "refute_ab")):
+        print("WARNING: the workspace contains tests/bench/refute_ab -- the refuter "
+              "can read the plant list; the run is recorded as CONTAMINATED",
+              file=sys.stderr)
+        contaminated = True
+    else:
+        contaminated = False
+    arm_names = ["refute", "control"] if args.arms == "both" else ["refute"]
+    if args.dry_run:
+        print("dry run: model %s via %s, arms %s, %d reports, deadline %s, workspace %s%s -- nothing run"
+              % (model, api_base, "+".join(arm_names), len(read_planted()), args.deadline,
+                 workspace, " (CONTAMINATED: holds the plant list)" if contaminated else ""))
+        return
     preflight()
     planted = read_planted()
     label = args.label or time.strftime("%Y%m%d-%H%M%S")
@@ -202,22 +262,31 @@ def cmd_run(args):
     os.makedirs(os.path.join(outdir, "runs"), exist_ok=True)
     os.makedirs(os.path.join(outdir, ".sealed"), exist_ok=True)
     cfg = os.path.join(outdir, "config.json")
-    write_config(cfg)
+    write_config(cfg, model, api_base, args.context_length)
     recs = []
     for entry in planted:
         with open(os.path.join(REPORTS_DIR, entry["file"]), encoding="utf-8") as f:
             report = f.read()
-        arms = [("refute", {"type": "refute", "prompt": report}),
-                ("control", {"type": "synthesize", "prompt": CONTROL_PREFIX + report})]
+        # M641: the report is the CLAIM, so it goes in the spec's `input` (the
+        # context stage 1 starts from), not in the refute stage's prompt. The
+        # first build passed it as the prompt; the frame then read "--- the
+        # claim under review --- (empty)", which the Qwen models read past and
+        # gemma-4-26b-it and gpt-oss-20b answered literally ("no claim was
+        # provided"), 12 of 12 each, in about a second per run. The control
+        # arm keeps its pre-registered shape: instruction + report as prompt.
+        arms = [("refute", {"input": report, "stages": [{"type": "refute"}]}),
+                ("control", {"stages": [{"type": "synthesize",
+                                         "prompt": CONTROL_PREFIX + report}]})]
+        arms = [a for a in arms if a[0] in arm_names]
         secrets.SystemRandom().shuffle(arms)     # run order is not the arm
-        for arm, stage in arms:
+        for arm, spec in arms:
             rid = "r-" + secrets.token_hex(4)
             rundir = os.path.join(outdir, "runs", rid)
             os.makedirs(rundir)
             spec_path = os.path.join(rundir, "spec.json")
             with open(spec_path, "w", encoding="utf-8") as f:
-                json.dump({"name": "refute-ab", "stages": [stage]}, f)
-            rc, out, err, wall = jichi_workflow(cfg, spec_path, ROOT, args.deadline)
+                json.dump(dict({"name": "refute-ab"}, **spec), f)
+            rc, out, err, wall = jichi_workflow(cfg, spec_path, workspace, args.deadline)
             with open(os.path.join(rundir, "answer.md"), "w", encoding="utf-8") as f:
                 f.write(out)
             with open(os.path.join(rundir, "stderr.txt"), "w", encoding="utf-8") as f:
@@ -230,10 +299,16 @@ def cmd_run(args):
                          "bytes": len(out)})
             print("  %s  %s  rc=%d  %ss  %d bytes" % (entry["file"], rid, rc, wall, len(out)))
     with open(os.path.join(outdir, ".sealed", "runs.json"), "w", encoding="utf-8") as f:
-        json.dump({"label": label, "model": MODEL,
+        json.dump({"label": label, "model": model, "api_base": api_base,
+                   "arms": arm_names, "workspace": workspace,
+                   "contaminated": contaminated,
+                   "context_length": args.context_length,
+                   "claim_slot": "input",     # M641; the ab-1 baseline ran with "prompt"
                    "when": time.strftime("%Y-%m-%dT%H:%M:%S"), "runs": recs}, f, indent=2)
     with open(os.path.join(outdir, "meta.json"), "w", encoding="utf-8") as f:
-        json.dump({"label": label, "model": MODEL, "runs": len(recs)}, f, indent=2)
+        json.dump({"label": label, "model": model, "arms": arm_names,
+                   "workspace": workspace, "contaminated": contaminated,
+                   "runs": len(recs)}, f, indent=2)
     print("wrote %s (%d runs). next: python3 refute_ab.py blind --label %s"
           % (outdir, len(recs), label))
 
@@ -260,29 +335,44 @@ def cmd_blind(args):
     for r in sealed["runs"]:
         by_report.setdefault(r["report"], {})[r["arm"]] = r
     mapping = {}
-    lines = ["# Refute A/B -- grading form (%s, %s)" % (args.label, MODEL), "",
-             "Per report, two answers, A and B, in an order drawn at random per report.",
-             "For EACH of A and B answer three things. `planted.tsv` says what was",
-             "planted in that report; a HIT is an answer that names the planted claim's",
-             "subject as false or as unsupported (under Rebutting or Undercutting in a",
-             "framed answer; anywhere in a free one). `attacks_true` counts claims the",
-             "answer attacks that are in fact TRUE of the source -- check the source.",
+    single = sealed.get("arms", ["refute", "control"]) == ["refute"]
+    lines = ["# Refute A/B -- grading form (%s, %s)" % (args.label, sealed["model"]), "",
+             ("Per report, ONE answer, A: the refute arm (a cross-model run; the arm is"
+              if single else
+              "Per report, two answers, A and B, in an order drawn at random per report."),
+             ("not blind, the counts still are -- check the source, not the answer's tone)."
+              if single else
+              "For EACH of A and B answer four things."),
+             "`planted.tsv` says what was planted in that report; a HIT is an answer that",
+             "names the planted claim's subject as false or as unsupported (under",
+             "Rebutting or Undercutting in a framed answer; anywhere in a free one).",
+             "`attacks` counts the OTHER claims the answer attacks -- every claim it calls",
+             "false, wrong or unsupported that is not the planted one. `attacks_true`",
+             "counts how many of THOSE are in fact TRUE of the source: the false attacks.",
+             "Check the source file for each one; the rate is attacks_true / attacks.",
              "Do not open .sealed/ until you run score.", ""]
     for report in sorted(by_report):
         arms = by_report[report]
-        if "refute" not in arms or "control" not in arms:
-            print("skipping %s: only one arm recorded" % report)
-            continue
-        order = ["refute", "control"]
-        secrets.SystemRandom().shuffle(order)
+        if single:
+            if "refute" not in arms:
+                print("skipping %s: no refute run recorded" % report)
+                continue
+            order = ["refute"]
+        else:
+            if "refute" not in arms or "control" not in arms:
+                print("skipping %s: only one arm recorded" % report)
+                continue
+            order = ["refute", "control"]
+            secrets.SystemRandom().shuffle(order)
         pdir = os.path.join(gdir, report)
         os.makedirs(pdir)
         for letter, arm in zip("AB", order):
             shutil.copyfile(os.path.join(outdir, "runs", arms[arm]["rid"], "answer.md"),
                             os.path.join(pdir, "%s.md" % letter))
             lines += ["## %s / %s" % (report, letter), "",
-                      "hit (y/n): ?", "attacks_true (count): ?", "notes: ?", ""]
-        mapping[report] = {"A": order[0], "B": order[1]}
+                      "hit (y/n): ?", "attacks (count): ?",
+                      "attacks_true (count): ?", "notes: ?", ""]
+        mapping[report] = dict(zip("AB", order))
     flat = (1767225600, 1767225600)
     for base, dirs, files in os.walk(gdir):
         for name in files + dirs:
@@ -310,7 +400,7 @@ def parse_form(path):
                 continue
             if cur is None:
                 continue
-            m = re.match(r"^(hit|attacks_true|notes)\b[^:]*:\s*(.*)$", line)
+            m = re.match(r"^(hit|attacks_true|attacks|notes)\b[^:]*:\s*(.*)$", line)
             if m:
                 answers[cur][m.group(1)] = m.group(2).strip()
     return answers
@@ -332,8 +422,8 @@ def cmd_score(args):
     unfilled = [k for k, a in answers.items() if a.get("hit", "?") in ("?", "")]
     if unfilled:
         die("%d form entries are still '?': %s" % (len(unfilled), ", ".join("%s/%s" % k for k in unfilled[:4])))
-    tally = {"refute": {"n": 0, "hits": 0, "false_attacks": 0},
-             "control": {"n": 0, "hits": 0, "false_attacks": 0}}
+    tally = {"refute": {"n": 0, "hits": 0, "false_attacks": 0, "attacks": 0, "attacks_known": True},
+             "control": {"n": 0, "hits": 0, "false_attacks": 0, "attacks": 0, "attacks_known": True}}
     for (report, letter), a in answers.items():
         arm = mapping.get(report, {}).get(letter)
         if arm is None:
@@ -345,17 +435,39 @@ def cmd_score(args):
             t["false_attacks"] += int(re.match(r"\d+", a.get("attacks_true", "0") or "0").group(0))
         except (AttributeError, ValueError):
             die("attacks_true for %s/%s is not a number: %r" % (report, letter, a.get("attacks_true")))
+        # M640: the denominator. A form from before M640 has no `attacks` row,
+        # and a rate without its denominator is not printed as a number.
+        if "attacks" in a and re.match(r"\d+", a["attacks"] or ""):
+            t["attacks"] += int(re.match(r"\d+", a["attacks"]).group(0))
+        else:
+            t["attacks_known"] = False
     walls = {"refute": [], "control": []}
     for r in sealed["runs"]:
         walls[r["arm"]].append(r["wall_s"])
     print("Refute A/B -- %s -- model %s" % (args.label, sealed["model"]))
-    for arm in ("refute", "control"):
+    arms_run = sealed.get("arms", ["refute", "control"])
+    for arm in arms_run:
         t = tally[arm]
         w = walls[arm]
-        print("  %-8s hits %d of %d   false attacks %d   mean wall %.0fs (n=%d)"
-              % (arm, t["hits"], t["n"], t["false_attacks"],
-                 sum(w) / len(w) if w else 0.0, len(w)))
+        rate = ("%d of %d attacks (%.0f%%)" % (t["false_attacks"], t["attacks"],
+                                                 100.0 * t["false_attacks"] / t["attacks"])
+                if t["attacks_known"] and t["attacks"] > 0
+                else "%d (denominator not recorded)" % t["false_attacks"])
+        print("  %-8s hits %d of %d   false attacks %s   mean wall %.0fs (n=%d)"
+              % (arm, t["hits"], t["n"], rate, sum(w) / len(w) if w else 0.0, len(w)))
     nr, nc = tally["refute"]["hits"], tally["control"]["hits"]
+    if arms_run == ["refute"]:
+        # M640's cross-model pre-registration: recall against the same 6-of-12
+        # bar, and "found rather than attacked" = fewer false attacks than hits.
+        t = tally["refute"]
+        travels = nr >= 6
+        found = t["false_attacks"] < nr
+        print("pre-registered reading (cross-model): the frame %s on this model (refute %d/%d, "
+              "threshold 6 of 12); it %s (false attacks %d %s hits %d)"
+              % ("travels" if travels else "does NOT travel", nr, t["n"],
+                 "found rather than attacked" if found else "attacked rather than found",
+                 t["false_attacks"], "<" if found else ">=", nr))
+        return
     if nr >= 6 and nr > nc:
         v = VERDICTS["frame"]
     elif nr >= 6:
@@ -374,9 +486,24 @@ def main():
     r.add_argument("--force", action="store_true", help="overwrite existing reports -- destroys the planting")
     r.add_argument("--deadline", default="30m", help="per-run headroom, not a working cap")
     r.set_defaults(fn=cmd_reports)
-    ru = sub.add_parser("run", help="run both arms per planted report (spends wall-clock)")
+    ru = sub.add_parser("run", help="run the arms per planted report (spends wall-clock)")
     ru.add_argument("--label", default=None)
     ru.add_argument("--deadline", default="30m")
+    ru.add_argument("--model", default=MODEL,
+                    help="M640: the refuter. jlu/* through the gateway, or any id on a "
+                         "loopback --api-base; anything priced is refused (default %(default)s)")
+    ru.add_argument("--api-base", default=API_BASE,
+                    help="the HRZ gateway (default) or a loopback server such as LM Studio")
+    ru.add_argument("--arms", choices=["both", "refute"], default="both",
+                    help="'refute' alone for the cross-model run (the control was measured once)")
+    ru.add_argument("--context-length", type=int, default=0,
+                    help="M641: declare contextLength for the model (max_tokens is a fifth "
+                         "of it); 0 = jichi's default. A DEVIATION, recorded in the sealed run")
+    ru.add_argument("--workspace", default=None,
+                    help="M641: the tree the refuter reads (cwd for jichi); default this "
+                         "checkout, which holds the answer key -- use a clean export")
+    ru.add_argument("--dry-run", action="store_true",
+                    help="print the plan and the free-namespace verdict; run nothing")
     ru.set_defaults(fn=cmd_run)
     b = sub.add_parser("blind", help="build the blinded grading pack")
     b.add_argument("--label", required=True)

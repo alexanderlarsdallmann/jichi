@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define RSS_TAG_BUF 24   /* "</" + tag + NUL; see field() */
 #define RSS_MAX_ITEMS   40
 #define RSS_DESC_MAX  1200 /* per-item description snippet cap (bytes) */
 
@@ -61,19 +62,30 @@ static void trim(const char **s, const char **e)
 static int field(const char *start, const char *end, const char *tag,
                  struct jc_sb *dst)
 {
-    char open[24];
+    char open[RSS_TAG_BUF];
     const char *o;
     const char *gt;
     const char *inner;
     const char *inner_end;
     const char *close;
-    char closebuf[24];
+    char closebuf[RSS_TAG_BUF];
     struct jc_sb tmp;
     const char *is;
     const char *ie;
 
-    /* "<tag" then a delimiter (space, >, /) so <link> != <linkfoo>. */
-    if (strlen(tag) + 2 >= sizeof(open)) return 0;
+    /* "<tag" then a delimiter (space, >, /) so <link> != <linkfoo>.
+     *
+     * M642: ONE guard for TWO buffers. `open` takes "<" + tag + NUL (len + 2)
+     * and `closebuf` takes "</" + tag + NUL (len + 3), both RSS_TAG_BUF wide,
+     * so the bound is written for the longer of the two: a tag of
+     * RSS_TAG_BUF - 3 characters is the longest that fits both. It is exact
+     * for closebuf and conservative by one byte for open. A first-seat review
+     * once proposed relaxing it by one ("`>=` should be `>`", reasoning from
+     * `open` alone) and two refuters accepted the proposal; with it a 22-byte
+     * tag writes 25 bytes into closebuf at the strcpy below. No tag jichi
+     * passes exceeds 11 characters, so nothing is reachable either way -- the
+     * comment is here so the next reader does not re-derive the wrong bound. */
+    if (strlen(tag) + 3 > RSS_TAG_BUF) return 0;
     open[0] = '<';
     strcpy(open + 1, tag);
     o = ci_find(start, end, open);

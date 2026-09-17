@@ -150,11 +150,16 @@ In reading order:
    structure: fields, invariants, lifetime/ownership)" section is a domain model
    in a design document's clothing.
 
-External concepts worth reading up on (search these; prefer primary sources):
-*Domain-Driven Design* (Eric Evans — the source of entity/value/aggregate and
-ubiquitous language; the "blue book"); *"Implementing Domain-Driven Design"* (Vernon,
-the more practical companion); *bounded context* (when one word legitimately means
-different things in different parts of a large system, and how to keep them from
-colliding); *anemic vs. rich domain model* (whether the rules live with the data
-or in a separate service layer — a decision worth making on purpose); *event
-storming* (a workshop technique for discovering the model with domain experts).
+**The works this tutorial stands on** are cited in full — author, publisher,
+year, ISBN, and how each was verified — in [BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) §1, "The
+design tutorials' own sources": **Evans, *Domain-Driven Design*** (the "blue
+book", and the source of entity / value object / aggregate / ubiquitous
+language), **Vernon, *Implementing Domain-Driven Design*** (the practical
+companion), **Fowler's *AnemicDomainModel*** and **Brandolini's *EventStorming***
+(both free to read online).
+
+Concepts to look up beyond those, which are ideas rather than books:
+*bounded context* (when one word legitimately means different things in
+different parts of a large system, and how to keep them from colliding);
+*anemic vs. rich domain model* (whether the rules live with the data or in a
+separate service layer — a decision worth making on purpose).

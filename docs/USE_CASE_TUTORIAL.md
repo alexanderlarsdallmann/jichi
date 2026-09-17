@@ -155,9 +155,13 @@ In reading order:
 5. [UML_TUTORIAL.md](UML_TUTORIAL.md) §3 — turning a use case's main flow into a
    sequence diagram.
 
-External concepts worth reading up on (search these; prefer primary sources):
-*Alistair Cockburn, "Writing Effective Use Cases"* (the canonical treatment, and
-the source of the goal-levels and extension-numbering conventions); *acceptance
+**Cockburn's *Writing Effective Use Cases*** is where the goal levels and the
+extension-numbering convention used above come from, and it is cited in full —
+publisher, year, ISBN, verification — in [BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) §1, "The design
+tutorials' own sources". This tutorial borrows those conventions; the book is
+the treatment.
+
+Concepts to look up beyond it, which are ideas rather than books: *acceptance
 testing* and *acceptance-test-driven development* (the use case as the test's
 source); *user stories* and *the "3 Cs" (Card, Conversation, Confirmation)* — so
 you understand the tool this tutorial is deliberately *not* teaching, and can

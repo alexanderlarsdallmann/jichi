@@ -48,6 +48,18 @@ static void test_parse(void)
     JC_CHECK(strstr(JC_WF_REFUTE_FRAME_A, "Do not agree with it") != NULL);
     JC_CHECK(strstr(JC_WF_REFUTE_FRAME_B, "nothing found") != NULL);
 
+    /* M641: a spec may seed the pipeline context with `input`, so a stage
+     * that reads "the claim under review" from the context -- refute -- can
+     * be the FIRST stage and still have a claim. The refute A/B harness had
+     * passed the report as the stage's prompt instead, and two of four models
+     * answered "no claim was provided" to a context that read "(empty)". */
+    JC_CHECK(jc_workflow_parse(
+        "{\"input\":\"line 47 is inverted\",\"stages\":[{\"type\":\"refute\"}]}",
+        &wf, a) == JC_OK);
+    JC_CHECK_STR(wf.input, "line 47 is inverted");
+    JC_CHECK(jc_workflow_parse(SPEC, &wf, a) == JC_OK);
+    JC_CHECK(wf.input == NULL); /* absent: NULL, never an empty claim */
+
     /* Errors. */
     JC_CHECK(jc_workflow_parse("not json", &wf, a) == JC_ERR_PARSE);
     JC_CHECK(jc_workflow_parse("{\"stages\":[]}", &wf, a) == JC_ERR_INVALID);

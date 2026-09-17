@@ -92,7 +92,12 @@ both parties read and mutate.
   frame — Rebutting / Undercutting / Stands — with "nothing found"
   permitted; measured M637: it named 12 of 12 planted false claims where
   a "review critically" prompt named 1, one model, n = 12) when the fan-out
-  should be scripted rather than model-chosen.
+  should be scripted rather than model-chosen. A spec's top-level `input`
+  (M641) is the text the pipeline context starts from, so `refute` or
+  `synthesize` can be the first stage and still have a claim: the refute
+  A/B harness had passed each report as the stage's prompt, the frame read
+  `(empty)` where the claim goes, and two of four models answered "no claim
+  was provided" without reading a file.
 
 ## Supervising
 

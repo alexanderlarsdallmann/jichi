@@ -5,7 +5,11 @@
 
 #include "jc_test.h"
 #include "jc_progress.h"
+#include "jc_snprintf.h"
 #include <string.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 static const char *LOG =
     "{\"ts\":1,\"spec\":\"docs/assignments/00-hello.md\",\"passed\":false,"
@@ -182,8 +186,60 @@ static void test_hints_scan(void)
      * turning every hint into a failed attempt. */
 }
 
+/* M642: a write that fails must be REPORTED. The three appenders ignored
+ * fprintf's and fclose's return values and answered JC_OK, so `grade --record`
+ * on a full disk printed no warning and the learner's attempt was gone (the
+ * refute A/B's first seat claimed it; the second seat dismissed it; the
+ * measurement made us test it). /dev/full is a device on which every write
+ * fails with ENOSPC, so a progress file that is a symlink to it is exactly that
+ * disk. */
+static int link_full(const char *sub, const char *name, char *out, size_t cap)
+{
+    jc_snprintf(out, cap, "%s/%s", sub, name);
+    (void)remove(out);
+    return symlink("/dev/full", out) == 0;
+}
+
+static void test_write_failure(void)
+{
+    const char *dir = jc_test_tmp("jichi_progress_full");
+    char sub[600];
+    char l1[700], l2[700], l3[700];
+    FILE *f;
+    int n;
+    int c;
+
+    (void)mkdir(dir, 0700);
+    jc_snprintf(sub, sizeof sub, "%s/.jichi", dir);
+    (void)mkdir(sub, 0700);
+    if (!link_full(sub, "progress.jsonl", l1, sizeof l1) ||
+        !link_full(sub, "hints.jsonl", l2, sizeof l2) ||
+        !link_full(sub, "predictions.jsonl", l3, sizeof l3)) {
+        return; /* no symlinks or no /dev/full here: skip silently */
+    }
+    JC_CHECK(jc_progress_append(dir, "01-x.md", 1, 100, 1, 0, -1) == JC_ERR_IO);
+    JC_CHECK(jc_progress_hint_append(dir, "01-x.md", 1) == JC_ERR_IO);
+    JC_CHECK(jc_progress_predict_append(dir, "it will pass") == JC_ERR_IO);
+
+    /* Control: the same calls against real files succeed and land one line. */
+    (void)remove(l1); (void)remove(l2); (void)remove(l3);
+    JC_CHECK(jc_progress_append(dir, "01-x.md", 1, 100, 1, 0, -1) == JC_OK);
+    JC_CHECK(jc_progress_hint_append(dir, "01-x.md", 1) == JC_OK);
+    JC_CHECK(jc_progress_predict_append(dir, "it will pass") == JC_OK);
+    f = fopen(l1, "rb");
+    n = 0;
+    if (f != NULL) {
+        while ((c = fgetc(f)) != EOF) { if (c == '\n') n++; }
+        fclose(f);
+    }
+    JC_CHECK(n == 1);
+    (void)remove(l1); (void)remove(l2); (void)remove(l3);
+    (void)rmdir(sub); (void)rmdir(dir);
+}
+
 void test_progress(void)
 {
+    test_write_failure();
     test_hints_scan();
     test_predict_scan(); /* M635 */
     test_base();

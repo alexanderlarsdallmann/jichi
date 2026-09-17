@@ -68,6 +68,15 @@ struct jc_wf_stage {
 
 struct jc_workflow {
     const char *name;
+    /* M641: optional text the pipeline context STARTS with, so a stage that
+     * reads the context as its subject -- refute, synthesize -- can be the
+     * first stage and still have one. Absent: NULL, and the context starts
+     * empty as before. Born of the refute A/B harness: it passed each report
+     * as the refute stage's prompt, the frame then read "--- the claim under
+     * review --- (empty)", and two of four models answered "no claim was
+     * provided" without reading a file. The report is the claim; this is
+     * where a claim goes. */
+    const char *input;
     struct jc_wf_stage stages[JC_WF_MAX_STAGES];
     int nstages;
     /* M610: what the parse SILENTLY dropped, so a caller can say so. A spec
@@ -81,7 +90,8 @@ struct jc_workflow {
 };
 
 /* Parse a JSON (JSONC-tolerant) workflow spec into *out (strings arena-owned).
- * Shape: {"name":..,"stages":[{"type":"map","prompt":..,"items":[..],
+ * Shape: {"name":..,"input":..(optional, M641: the context stage 1 starts
+ * from),"stages":[{"type":"map","prompt":..,"items":[..],
  * "model":..,"readonly":true} | {"type":"synthesize","prompt":..}]}. Returns
  * JC_ERR_PARSE on invalid JSON, JC_ERR_INVALID if there are no usable stages.
  * Pure. */

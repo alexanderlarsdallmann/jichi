@@ -196,5 +196,5 @@ where they were raised — listed here only so the "what's left" picture is whol
   warm ACP pool, advisory session `flock`) —
   `docs/proposals/2026-07-web-frontend.md`. (The jsonl heartbeat,
   `ls --output json`, and `export --output json` candidates **shipped as M165**.)
-- The August-release human tracks (the license file, a verified macOS/BSD
-  build, native review of the ja/zh doc drafts) — `docs/ROADMAP.md` top.
+- The August-release human tracks still open (a verified macOS/BSD build,
+  native review of the ja/zh doc drafts; the licence was answered 2026-08-27) — `docs/ROADMAP.md` top.

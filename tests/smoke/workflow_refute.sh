@@ -19,7 +19,7 @@
 # or as not run, never as expected.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 7
+t_plan 8
 smoke_home
 ws=$(smoke_tmp)
 tmp=$(smoke_tmp)
@@ -107,5 +107,33 @@ if [ "$n" -ge 2 ]; then
     t_ok "the read-only map AND the refuter had their write refused at the gate ($n refusals on the wire)"
 else
     t_fail "expected 2 gate refusals on the wire, saw $n -- read-only by advertisement only"
+fi
+# --- 8: M641 -- a spec's `input` seeds the context, so refute can be the FIRST stage
+# The refute A/B harness passed each report as the stage's prompt; the frame then
+# said "--- the claim under review --- (empty)", and two of four models answered
+# "no claim was provided" without reading a file. With `input`, the report IS the
+# claim: the request must carry it under that marker and never say "(empty)".
+cat > "$tmp/replies2.mm" <<'EOF2'
+wire openai
+rule
+  match "You are the second seat"
+  text ## Rebutting\n- nothing found\n## Undercutting\n- nothing found\n## Stands\n- the seeded claim
+  usage 10 5
+EOF2
+mm_start "$tmp/replies2.mm" "$tmp/cap2"
+write_config "$tmp/config2.json" "$MM_PORT"
+cat > "$ws/spec2.json" <<'EOF2'
+{ "name": "seeded-second-seat",
+  "input": "SEEDED_CLAIM: add.c line 1 returns the sum.",
+  "stages": [ { "type": "refute" } ] }
+EOF2
+(cd "$ws" && with_deadline 120 "$BIN" --config "$tmp/config2.json" workflow spec2.json \
+    < /dev/null > "$tmp/out2.txt" 2> "$tmp/err2.txt"); rc=$?
+mm_stop
+if cat "$tmp/cap2"/* 2>/dev/null | grep -q "the claim under review ---.*SEEDED_CLAIM" &&
+   ! cat "$tmp/cap2"/* 2>/dev/null | grep -q "the claim under review ---.*(empty)"; then
+    t_ok "a spec's input is the claim under review for a first-stage refute (never '(empty)')"
+else
+    t_fail "input not seeded as the claim (rc=$rc): $(cat "$tmp/cap2"/* 2>/dev/null | grep -o 'the claim under review[^\"]*' | head_bytes 160)"
 fi
 t_done

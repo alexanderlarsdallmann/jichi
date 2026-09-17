@@ -26,7 +26,7 @@ a grant, and one greppable token for the sweep that then came.)
 | `NOTICE.Apache-2.0` | The `NOTICE` file Apache-2.0 section 4(d) propagates, installed only if that licence is chosen. |
 | `SHA256SUMS` | Checksums of the texts above. `license_lint` verifies them, so a candidate cannot drift or be edited unnoticed. |
 
-## Release, once the decision is in
+## Re-running the sweep (the decision is in; this is how it was applied)
 
     scripts/set-license.sh Apache-2.0
 

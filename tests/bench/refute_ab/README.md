@@ -20,6 +20,10 @@ make                                         # the harness drives ./jichi
 python3 refute_ab.py reports                 # 12 first-seat reports (wall-clock)
 #   ... plant ONE false claim in each report by hand; list them in planted.tsv ...
 python3 refute_ab.py run   --label <label>   # 24 runs (wall-clock)
+python3 refute_ab.py run   --label <label> --arms refute --model jlu/qwen3.8-27b
+                                             # M640: the cross-model run, refute arm only;
+                                             # --model takes jlu/* or a loopback --api-base
+                                             # and refuses anything priced; --dry-run to check
 python3 refute_ab.py blind --label <label>   # the blinded grading pack
 #   ... fill in results/<label>/grading/FORM.md, one row per arm ...
 python3 refute_ab.py score --label <label>

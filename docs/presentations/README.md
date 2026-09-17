@@ -19,8 +19,9 @@ diff and review like any other doc.
 | `05-school.md` | Classroom use and the guardrails that make it safe. |
 | `06-building-with-ai.md` | The build retrospective: numbers, phases, and the four delivery models (incl. one dev + AI). |
 | `07-the-release.md` | **The release argument** (M307): the four claims, and how a reviewer checks each one. The deck to open first. |
+| `08-self-learners.md` | **Learning software development alone** (M648): the feedback deficit a self-learner actually has, the four mechanisms that address it, and what jichi will not do for you. |
 
-> **`07` is English-only for now.** The four localized sets (de · es · ja · zh) carry
+> **`07` and `08` are English-only for now.** The four localized sets (de · es · ja · zh) carry
 > decks `00`–`06`; translating `07` waits for the same trigger as the rest of the
 > translation work (see the curriculum note in `docs/ROADMAP.md`) — a confident wrong
 > translation of a *claims* deck would be worse than an absent one.

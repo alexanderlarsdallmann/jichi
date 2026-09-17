@@ -438,7 +438,9 @@ can — that is exactly why the in-place rehearsal was reverted and rebuilt.
   `jc_workflow` (pure, unit-tested) parses a JSONC spec of `map` (one subagent
   per `$ITEM`, read-only by default) and `synthesize` (fold the collected answers
   via a one-shot) stages; `run_workflow` executes them, carrying each stage's
-  output into the next, each subtask a normal sandboxed subagent. Verified live:
+  output into the next (from the spec's optional `input`, M641, when a stage
+  that reads the context -- `refute`, `synthesize` -- comes first), each subtask
+  a normal sandboxed subagent. Verified live:
   a map-review-then-synthesize flow correctly flagged the one file whose body
   didn't match its name. Example: `examples/workflow.review.json`.
   **Write stages + verify DONE:** a `map` with `readonly:false` edits each item

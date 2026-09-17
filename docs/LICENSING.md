@@ -54,7 +54,7 @@ Everything else derives from it or is checked against it:
 `docs/licenses/` holds **candidate** texts. Nothing there grants anything; see its
 README.
 
-## Releasing, once the decision is in
+## Releasing under the decision (recorded; the sweep ran at M619)
 
     scripts/set-license.sh Apache-2.0        # -n first, to see the plan
     make clean && make -j4 WERROR=1 && make ci
@@ -98,7 +98,7 @@ template says as much.
 Runtime dependencies are the C89 standard library and, optionally, a TLS
 implementation the operator supplies; neither is distributed with the source.
 
-## If Apache-2.0 is chosen: what it obliges
+## What Apache-2.0 obliges, now that it is in force
 
 Not advice -- just the clauses that impose work on this project, so nothing is a
 surprise later:

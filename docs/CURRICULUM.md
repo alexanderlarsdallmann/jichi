@@ -163,7 +163,7 @@ and the **Rust systems course** (tasks 63–66: the borrow checker as compile-ti
 
 **Reading outside this tree.** Everything above teaches from jichi's own source,
 which is the design and also a closed world.
-[BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) is the door out of it: 64 checked entries on
+[BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) is the door out of it: 78 checked entries on
 the craft, C, C++, Zig and Rust, each saying which question in *these* pages it
 answers — 37 of them free to read, including complete books on C, Zig and Rust,
 SICP, and every language standard that matters here in draft. **Every language

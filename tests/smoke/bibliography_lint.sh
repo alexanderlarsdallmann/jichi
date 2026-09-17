@@ -30,7 +30,7 @@
 # is how the first draft of this lint reported 61.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 7
+t_plan 8
 G=/usr/bin/grep
 [ -x "$G" ] || G=grep
 tmp=$(smoke_tmp)
@@ -188,6 +188,48 @@ else
     t_fail "the entry count quoted away from the page is stale:$bad (page has $entries).
 A reader meets the index line before the page itself. Update every place that
 states the number -- or state it once and route the others through it."
+fi
+
+# ---- 8 (M650): the design tutorials must route the reader HERE ----------
+# WHY. Six tutorials each ended with a list of works under the instruction
+# "search these; prefer primary sources" -- naming Evans, Vernon, Cockburn,
+# Nygard, Brown, Wirth and Knuth with no publisher, year, ISBN, DOI or URL
+# between them, in a repository whose whole register is that a claim carries its
+# evidence. The operator found it by reading one tutorial's last paragraph.
+#
+# Those works are now entries above, and each tutorial points at them. This check
+# holds the ROUTE, which is the part that silently rots: M510's lesson is that a
+# guide nobody is routed to is a guide nobody reads, and the fix there was a
+# link, checked.
+#
+# WHAT THIS DOES NOT DO, stated rather than implied. It cannot tell that a NEWLY
+# added book carries a citation -- that needs a classifier over prose, and the
+# M645 measurement against this tree says such a gate fires overwhelmingly on
+# correct history. This checks reachability only. CHOOSING_A_MODEL.md is
+# deliberately NOT in the universe: its outward list names concepts (scaling
+# laws, quantization, benchmark contamination) and no works, so it has nothing
+# to cite and telling a reader to search a concept is correct.
+b8=""
+n8=0
+for f in docs/USE_CASE_TUTORIAL.md docs/UML_TUTORIAL.md \
+         docs/DOMAIN_MODELLING_TUTORIAL.md docs/ARCHITECTURE_TUTORIAL.md \
+         docs/PSEUDOCODE_TUTORIAL.md docs/TESTING_TUTORIAL.md; do
+    if [ ! -f "$f" ]; then
+        b8="$b8 $f(missing)"
+        continue
+    fi
+    n8=$((n8 + 1))
+    "$G" -q 'BIBLIOGRAPHY.md' "$f" || b8="$b8 $f"
+done
+if [ "$n8" -lt 6 ]; then
+    t_fail "only $n8 of the 6 design tutorials were found ($b8) -- a renamed page \
+makes this check read nothing. Fix the list, not the floor."
+elif [ -z "$b8" ]; then
+    t_ok "all $n8 design tutorials route the reader to BIBLIOGRAPHY.md"
+else
+    t_fail "design tutorial(s) that name outside reading but do not link the \
+bibliography:$b8 -- a work named without a citation is the defect this page \
+exists against, and a citation nobody is routed to is the next one."
 fi
 
 t_done

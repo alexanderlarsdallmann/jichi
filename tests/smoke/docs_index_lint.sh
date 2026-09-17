@@ -26,7 +26,7 @@ t_plan 4
 IDX="$SMOKE_ROOT/docs/README.md"
 
 if [ ! -f "$IDX" ]; then
-    t_fail "docs/README.md is missing -- 138 pages with no map"
+    t_fail "docs/README.md is missing -- the docs tree with no map"
     t_fail "-"; t_fail "-"; t_fail "-"
     t_done
 fi

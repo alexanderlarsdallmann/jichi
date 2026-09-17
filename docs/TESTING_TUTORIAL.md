@@ -271,9 +271,14 @@ In reading order:
    evidence), #50 (a bizarre reply that was a prompt-delivery bug, not a model
    weakness). These are the reason the doctrine pages exist.
 
-External concepts worth reading up on (search these; prefer primary sources):
+Unlike the other design tutorials, everything this one points at is a **concept
+rather than a book**, so there is nothing here to cite — look these up directly:
 *test-driven development* and *red-green-refactor*; *equivalence partitioning*
 and *boundary-value analysis* (the input-classes idea, named); *mutation
 testing* (proving teeth, mechanized at scale); *property-based testing* (assert an
 invariant over generated inputs rather than one case); *flaky tests* and why
 re-running to green is a bug, not a fix.
+
+For books on the craft of testing and programming generally — with publisher,
+year, ISBN and how each was verified — see
+[BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) §1.

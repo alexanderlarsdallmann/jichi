@@ -5,11 +5,12 @@ theme: default
 paginate: true
 ---
 <!-- tracks: ../../../presentations/03-roadmap.md @ 0632b94 -->
-<!-- slides-behind: 2 (en has 15 slide separators, this has 13). The English deck
+<!-- slides-behind: 3 (en has 16 slide separators, this has 13). The English deck
      gained slides this translation does not carry. Translating them is prose in a
      language this repository cannot review, so the gap is DECLARED rather than
      filled -- and the numbers above are checked, so the declaration cannot be left
-     behind silently either. M582. -->
+     behind silently either. M582; widened to 3 at M648, when the English deck
+     gained the M391-M648 band slide. -->
 
 <!-- _class: lead -->
 
@@ -22,8 +23,11 @@ paginate: true
 # Wie es entstand
 
 - **In Meilensteinen, nicht auf einen Schlag.** M1 (Skelett) → stetiger Ausbau
-  der Fähigkeiten → **M173** heute, über sechs Phasen (Fundament → Protokolle →
-  Autonomie → Härtung → Release → Post-Release-Tiefe).
+  der Fähigkeiten. Die sechs Phasen, die dieses Deck durchgeht — Fundament →
+  Protokolle → Autonomie → Härtung → Release → Post-Release-Tiefe — reichen
+  bis **M173**; das Projekt selbst stand am **2026-09-17** bei **M648**.
+  *(Jede Zahl auf diesen Folien ist entweder eine untere Schranke oder ein
+  datierter Stempel, nie ein Live-Wert — die M391-Regel. Dies ist ein Stempel.)*
 - Jeder Meilenstein ist ein klar umrissener Plan; Design und Konsequenzen stehen
   in `docs/ROADMAP.md` (mit **thematischem Index** oben), bei neuartiger Arbeit
   zusätzlich in einem `docs/proposals/*.md`.

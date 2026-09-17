@@ -19,8 +19,10 @@ human actually did. Full data: `docs/PROJECT_TIMELINE.md`.
 # The first 37 days, in numbers
 
 *A retrospective of one window, not a running total — the table is stamped, and
-the project has kept going (as of 2026-08-11: M390, over 90,000 lines of C89,
-over 11,000 unit checks, over 160 smoke drivers).*
+the project has kept going. **As of 2026-09-17 (M648): over 108,000 lines of
+C89, over 13,000 unit checks, over 290 smoke drivers.** The previous stamp on
+this line read 2026-08-11 / M390 / over 90,000 / over 11,000 / over 160, which
+is what a stamp is for — it aged honestly instead of silently.*
 
 | Metric | Value |
 |---|---|

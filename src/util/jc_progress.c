@@ -132,6 +132,7 @@ jc_status jc_progress_append(const char *dir, const char *spec, int passed,
                              int pct, int tests_run, int tests_failed,
                              int hints)
 {
+    int ok;
     char sub[1100];
     char path[1160];
     cJSON *o;
@@ -168,16 +169,24 @@ jc_status jc_progress_append(const char *dir, const char *spec, int passed,
         free(line);
         return JC_ERR_IO;
     }
-    fprintf(f, "%s\n", line);
-    fclose(f);
+    /* M642: fprintf buffers, so a full disk surfaces at fclose; both are
+     * checked and the line is reported lost. Before this the three appenders
+     * answered JC_OK with nothing on disk, and `grade --record` said nothing
+     * (tests/smoke/progress_write_fails.sh: a progress file that is a symlink
+     * to /dev/full). */
+    ok = fprintf(f, "%s\n", line) >= 0;
+    if (fclose(f) != 0) {
+        ok = 0;
+    }
     free(line);
-    return JC_OK;
+    return ok ? JC_OK : JC_ERR_IO;
 }
 
 /* --- M502: the hint log ---------------------------------------------------- */
 
 jc_status jc_progress_hint_append(const char *dir, const char *spec, int rung)
 {
+    int ok;
     char sub[1100];
     char path[1160];
     cJSON *o;
@@ -208,10 +217,17 @@ jc_status jc_progress_hint_append(const char *dir, const char *spec, int rung)
         free(line);
         return JC_ERR_IO;
     }
-    fprintf(f, "%s\n", line);
+    /* M642: fprintf buffers, so a full disk surfaces at fclose; both are
+     * checked and the line is reported lost. Before this the three appenders
+     * answered JC_OK with nothing on disk, and `grade --record` said nothing
+     * (tests/smoke/progress_write_fails.sh: a progress file that is a symlink
+     * to /dev/full). */
+    ok = fprintf(f, "%s\n", line) >= 0;
+    if (fclose(f) != 0) {
+        ok = 0;
+    }
     free(line);
-    fclose(f);
-    return JC_OK;
+    return ok ? JC_OK : JC_ERR_IO;
 }
 
 static void scan_hint_line(const char *line, const char *want_base,
@@ -275,6 +291,7 @@ void jc_progress_hints_scan(const char *jsonl, const char *spec_name,
 
 static jc_status predict_write(const char *dir, cJSON *o)
 {
+    int ok;
     char sub[1100];
     char path[1160];
     char *line;
@@ -293,10 +310,17 @@ static jc_status predict_write(const char *dir, cJSON *o)
         free(line);
         return JC_ERR_IO;
     }
-    fprintf(f, "%s\n", line);
+    /* M642: fprintf buffers, so a full disk surfaces at fclose; both are
+     * checked and the line is reported lost. Before this the three appenders
+     * answered JC_OK with nothing on disk, and `grade --record` said nothing
+     * (tests/smoke/progress_write_fails.sh: a progress file that is a symlink
+     * to /dev/full). */
+    ok = fprintf(f, "%s\n", line) >= 0;
+    if (fclose(f) != 0) {
+        ok = 0;
+    }
     free(line);
-    fclose(f);
-    return JC_OK;
+    return ok ? JC_OK : JC_ERR_IO;
 }
 
 jc_status jc_progress_predict_append(const char *dir, const char *text)

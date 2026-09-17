@@ -1,7 +1,8 @@
 # The documentation map
 
-138 pages sit beside this one, and they are not all for the same reader. This is
-the routing table: **[Start here](#start-here)** if you have just arrived, the
+**156** pages sit beside this one at the top level, and **473** in all once
+`analysis/`, `plans/`, `proposals/`, `reading/`, `assignments/` and `curriculum/`
+are counted. They are not all for the same reader. This is the routing table: **[Start here](#start-here)** if you have just arrived, the
 group that matches your question otherwise.
 
 **The project record ships in full, on purpose.** [`analysis/`](analysis/),
@@ -182,6 +183,7 @@ What has actually been compiled and run, and what it costs to build.
 - [`LOW_MEMORY.md`](LOW_MEMORY.md) — Running jichi on low-RAM / embedded systems
 - [`MIGRATION.md`](MIGRATION.md) — Migrating from `jlu_continue` to `jichi`
 - [`PLATFORMS.md`](PLATFORMS.md) — Platforms — what has actually been compiled and run
+- [`PLATFORM_RETEST.md`](PLATFORM_RETEST.md) — When a verified platform needs re-running — triggers, coverage debt, and the ladder
 - [`PORTING_WINDOWS.md`](PORTING_WINDOWS.md) — jichi on Windows: where POSIX ends
 - [`ZIG_BUILD.md`](ZIG_BUILD.md) — Compiling jichi with the Zig compiler — findings, honestly
 
@@ -196,7 +198,7 @@ The curriculum, the reading guides, and the craft tutorials.
 - [`ARCHITECTURE_TUTORIAL.md`](ARCHITECTURE_TUTORIAL.md) — System architecture, and how to show it — a tutorial
 - [`ASSIGNMENTS.md`](ASSIGNMENTS.md) — Assignments — practising the whole software lifecycle
 - [`BENCH_LOCAL_GPU.md`](BENCH_LOCAL_GPU.md) — The local-GPU bench: measuring jichi against a small model on your own hardware
-- [`BIBLIOGRAPHY.md`](BIBLIOGRAPHY.md) — The reading jichi's documentation points at — 64 checked entries on the craft, C, C++, Zig and Rust (M636)
+- [`BIBLIOGRAPHY.md`](BIBLIOGRAPHY.md) — The reading jichi's documentation points at — 78 checked entries on the craft, C, C++, Zig and Rust (M636, M650)
 - [`CURRICULUM.md`](CURRICULUM.md) — The curriculum — learning software development with an agent at your side
 - [`DATA_STRUCTURES.md`](DATA_STRUCTURES.md) — Choosing a data structure — jichi has one, and that is an argument (M636f)
 - [`FILE_HANDLING.md`](FILE_HANDLING.md) — Handling files — what jichi does, where it is wrong, and what else there is (M636f)

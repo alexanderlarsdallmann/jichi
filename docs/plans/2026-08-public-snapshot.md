@@ -1,6 +1,6 @@
 # Plan: the public git snapshot — what ships, what does not, and in what order
 
-*Status: **EXECUTED (M620, 2026-08-27)** — the licence landed (M619, Apache-2.0)
+*Status: **EXECUTED (M620, 2026-08-27); advanced 2026-08-27 (M621–M624) and 2026-09-17 (M625–M639, public commit `0790755`, GitHub Actions run 35195662942 green first time)** — the licence landed (M619, Apache-2.0)
 and the first public snapshot was produced and committed the same day: every gate
 in §2 held, every §5 step ran as built, and the snapshot builds and passes its
 suite standalone. Publication (the push to a public remote, §5.5) remains the
@@ -215,3 +215,183 @@ Deliberately boring, in this order:
 4. **Tag and version scheme** after 0.9.0 — still out of scope; the first tag
    implies a second, and `EMBEDDING.md`'s "how a break is announced" tier will
    need a concrete versioning rule to point at. The one still-open row.
+
+---
+
+## 8. Discoverability of the published repositories (M648)
+
+*The operator added topic markers to the GitHub mirror and asked which others
+would help people find jichi. This section is the answer, the reasoning, and the
+one command that applies it.*
+
+### What is there now
+
+Read from the GitHub API on 2026-09-17, thirteen topics:
+
+    agent · ansi-c · c · c89 · c90 · cli · cpp-compilable · linux
+    opensource · posix · self-learning · software-development · zig-compilable
+
+Also observed on the same read, and mentioned because they matter more for
+discovery than any topic does: **homepage empty**, **Issues disabled**,
+**Discussions disabled**, wiki enabled, licence correctly detected as
+Apache-2.0.
+
+### The gap, in one sentence
+
+**Nothing in those thirteen topics says AI, LLM, or coding agent.** The
+description does, but topic pages are how GitHub's browse and filter surfaces
+work, and jichi is absent from every one of them. Someone looking for an
+AI coding agent — the category jichi is in — cannot currently arrive here by
+topic.
+
+### Recommended additions (seven, reaching GitHub's cap of 20)
+
+| Topic | Why |
+|---|---|
+| `llm` | The single highest-volume term jichi is missing |
+| `ai-agent` | The category page for this kind of tool |
+| `coding-agent` | The narrower, exact category |
+| `mcp` | jichi is a Model Context Protocol **client**; a real capability, and a term people filter on |
+| `local-llm` | Matches jichi's actual positioning — it is built and tested against locally hosted models |
+| `tui` | jichi has a real terminal UI with a line editor, not just a prompt |
+| `agent-client-protocol` | jichi is an ACP **agent server**; low volume, high precision |
+
+**Considered and rejected:** `ai` (too broad to carry signal), `lsp` (jichi is an
+LSP *client*, a secondary capability, and the slot is worth more elsewhere),
+`education` (`self-learning` already covers it), `from-scratch` and
+`no-dependencies` (not established topic pages). **Nothing existing is proposed
+for removal** — `opensource` and `software-development` carry little signal, but
+they are the operator's and the cap is not yet binding.
+
+### Applying it
+
+The seven additions were **not applied**: the maintenance token available here
+returns `403 Resource not accessible by personal access token` for the topics
+endpoint, which needs repository-administration scope. To apply them, run this
+with a token that has it:
+
+```sh
+T=<token with repo administration scope>
+curl -X PUT \
+  -H "Authorization: Bearer $T" \
+  -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/alexanderlarsdallmann/jichi/topics \
+  -d '{"names":["agent","ansi-c","c","c89","c90","cli","cpp-compilable","linux",
+       "opensource","posix","self-learning","software-development","zig-compilable",
+       "llm","ai-agent","coding-agent","mcp","tui","local-llm","agent-client-protocol"]}'
+```
+
+The endpoint **replaces** the whole set, so the thirteen existing topics are
+repeated above deliberately; sending only the new seven would delete the rest.
+
+### Two things worth more than topics, and both are decisions rather than work
+
+1. **The homepage field is empty.** It is the second-most-clicked element on a
+   repository page after the description. There is no published documentation
+   site, so the honest options are to leave it empty or point it at the GitLab
+   mirror.
+2. **Issues and Discussions are both disabled.** That is a legitimate position
+   for a project with one maintainer — an unanswered issue tracker is worse than
+   none — but it means a reader who finds a defect has **no route to report
+   it**, and `CONTRIBUTING.md` invites contribution. Either enabling Issues or
+   naming a contact route in the README would close that, and **which one is the
+   operator's call**, not a documentation fix.
+
+### 8a. GitHub Pages — the option, and the reason to be careful with it (M654)
+
+*Added because §8 said "there is no published documentation site" and stopped
+there, which names a gap without weighing it.*
+
+**What it would serve.** `docs/` is **466 English markdown pages**, already
+cross-linked and already indexed by `docs/README.md`. That is a documentation
+site that happens not to be published. `make slides` additionally renders eight
+Marp decks to HTML (into a **gitignored** `docs/presentations/out/`), and those
+are the single most Pages-shaped artifact in the tree: they are meant to be
+*looked at*, and markdown on a repository page is a poor way to look at slides.
+
+**The argument against, and it is this session's own lesson.** A Pages site is a
+**second copy of a claim**, and M645, M646, M648 and M650 were all the same
+defect: a figure, a stamp, a licence status or a citation that was correct in one
+place and stale in another. A generated site inherits that risk *structurally* —
+it can be built once and then serve August's numbers for a year, exactly as the
+front page served M486's for 158 milestones. **A published site that is not
+rebuilt from the tree on every change is a new home for a stale claim**, and this
+project has now spent four milestones proving it cannot rely on noticing.
+
+**The options, cheapest first:**
+
+1. **Leave it.** GitHub renders markdown, so `docs/README.md` is already browsable
+   and every relative link between pages works. Cost: nothing. Loss: the decks
+   stay unviewable, and the homepage field stays empty.
+2. **Set the homepage field to the repository's own `docs/` index.** No new
+   infrastructure, no second copy, no drift by construction — the link resolves
+   to the file that *is* the source. **This is the recommendation**, and it is
+   one field rather than a project.
+3. **Serve `docs/` directly with Pages** (GitHub's "deploy from a branch",
+   folder `/docs`). No generator to maintain, and the content is the tree. Two
+   real costs: Jekyll processes the folder by default, so a `.nojekyll` file or a
+   theme decision is needed, and **a served page is a page people cite**, which
+   raises the price of every stale figure rather than lowering it.
+4. **A built site** (mdBook, or the Marp decks as HTML). The only option that
+   makes the decks viewable. **It must be built by CI on every push, never by
+   hand** — a hand-built site is option 3's drift risk with an extra step. Note
+   `make slides` needs `npx`/`marp-cli`, which is a network dependency this
+   project deliberately keeps out of `make ci` (it is a no-op with a note when
+   absent), so wiring it into a publish workflow is a decision about that rule,
+   not just a workflow file.
+
+**Recommendation: option 2 now, option 4 only with the CI build.** And if option
+4 is ever taken, the site must carry the same discipline the pages do — a
+generated-on date visible to the reader, so that a stale site *says* it is stale
+instead of looking current. That is the M391 stamp rule applied to a website.
+
+### The homepage URL, resolved (M655)
+
+The twenty topics of §8 were applied by the operator on 2026-09-17. The homepage
+field is the remaining half, and the value to put in it is:
+
+```
+https://github.com/alexanderlarsdallmann/jichi/blob/master/docs/README.md
+```
+
+**Why that form and not the other two**, each probed on 2026-09-17 and each
+answering HTTP 200:
+
+| Candidate | What a visitor gets |
+|---|---|
+| `…/blob/master/docs/README.md` | **The routing table, rendered, and nothing above it.** `docs/README.md` opens "The documentation map — this is the routing table", which is exactly what the field should reach |
+| `…/tree/master/docs` | The same README **below a list of 157 filenames**. GitHub renders a directory's README *after* its file listing, so the curated index is buried under the thing it exists to replace |
+| `…/jichi#readme` | The project README, which the visitor is already looking at |
+
+The default branch on the mirror is **`master`** (confirmed against the API, not
+assumed), and `docs/README.md` is present there at 18,846 bytes.
+
+**How to set it** — no token needed, and this is the escape route if the API
+route refuses as it did for topics:
+
+1. Open `https://github.com/alexanderlarsdallmann/jichi`.
+2. Click the **gear icon** beside **About**, top right of the file listing.
+3. Paste the URL above into **Website**. Leave *"Use your GitHub Pages website"*
+   **unticked** — there is no Pages site, and §8a argues against creating one.
+4. **Save changes.** The link appears in the About sidebar immediately.
+
+The API route, for a token that carries repository-administration scope:
+
+```sh
+T=<token with repo administration scope>
+curl -X PATCH \
+  -H "Authorization: Bearer $T" \
+  -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/alexanderlarsdallmann/jichi \
+  -d '{"homepage":"https://github.com/alexanderlarsdallmann/jichi/blob/master/docs/README.md"}'
+```
+
+**The one cost, named.** A homepage pointing into the same repository is
+unusual — the field normally carries an external site. It is the right choice
+here precisely because there is no external site and §8a argues there should not
+be one yet: this URL cannot go stale, because it *is* the source. If a built
+documentation site is ever published, this field is the thing to repoint, and
+that is a one-line change rather than a migration.
+
+**Enabling Pages remains a repository setting rather than a file**, so it is not
+in reach from the tree either way.

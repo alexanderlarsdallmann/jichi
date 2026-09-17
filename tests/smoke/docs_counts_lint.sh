@@ -42,7 +42,7 @@
 #               not guaranteed built when the smoke tier runs).
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 13
+t_plan 18
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 graded=$(grep -l '^verify:' "$root"/docs/assignments/*.md | wc -l | tr -d ' ')
@@ -296,6 +296,160 @@ elif [ $((real_drv - tl_drv)) -le 25 ]; then
 else
     t_fail "PROJECT_TIMELINE claims $tl_drv smoke drivers; $real_drv exist -- \
 $((real_drv - tl_drv)) behind, so its test figures are a different era's"
+fi
+
+# --- 14-15 (M645): the two claims the operator found stale, and neither gated --
+#
+# The operator read the front page and asked why it said "Green end to end at
+# M486 ... 12,422 checks / 0 failures, smoke 211 drivers / 1,141 checks" at M644.
+# Every currency check in the tree was green: checks 9-11 hold the README's
+# MILESTONE banner and its graded/trap counts, check 13 holds PROJECT_TIMELINE's
+# driver count -- and none of them looks at the README's own test figures, or at
+# the two pages that describe the smoke tier in the present tense. CONTRIBUTING
+# said 68 drivers and VOCABULARY said 217, against 297 real: 229 and 80 behind.
+#
+# WHY NOT A TREE-WIDE SWEEP. The obvious gate -- "an exact driver count must
+# carry an M-stamp or a date" -- was written, measured against the tree, and
+# dropped: ~190 lines state a driver count and ~185 of them are ROADMAP,
+# CHANGELOG, ANECDOTES, plans/ and PLATFORMS rows, where a historical figure is
+# CORRECT and must not be "fixed" (docs/DECISIONS.md house rule). A gate that
+# fires 185 times to catch 5 is an audit wearing a lint's clothes. The same
+# measurement killed the docs-wide quote lint (1 verbatim quote in 110 blocks).
+# So the universe is NAMED, as it is for CURRICULUM.md and SDLC.md above.
+#
+#   checked     -- the driver count in CONTRIBUTING.md's and VOCABULARY.md's
+#                  present-tense description of the smoke tier (the line that
+#                  states a count AND names Python -- one line in each file,
+#                  verified by extraction, not assumed), and the milestone on
+#                  the README's "Green end to end at **MNNN**" stamp.
+#   not checked -- the README stamp's check COUNTS. A stamp records one past
+#                  run, so its numbers are right for their milestone and wrong
+#                  to overwrite; what rots is the stamp being ancient, which is
+#                  what check 15 bounds. Counting unit checks needs ./run_tests,
+#                  which the smoke tier cannot assume is built (the note above).
+
+# 14: the present-tense tier descriptions. EXACT equality -- unlike check 13's
+# tolerance, these sentences claim what the tier IS, not what a run measured.
+c14_bad=''
+for c14_f in CONTRIBUTING.md docs/VOCABULARY.md; do
+    c14_n=$(grep -nE '[0-9]+ drivers' "$root/$c14_f" | grep -i python \
+        | sed -n 's/^\([0-9][0-9]*\):.*/\1/p' | head -1)
+    c14_v=$(grep -E '[0-9]+ drivers' "$root/$c14_f" | grep -i python \
+        | sed -n 's/.*[^0-9]\([0-9][0-9]*\) drivers.*/\1/p' | head -1)
+    if [ -z "$c14_v" ]; then
+        c14_bad="$c14_bad $c14_f(no-figure-extracted)"
+    elif [ "$c14_v" != "$real_drv" ]; then
+        c14_bad="$c14_bad $c14_f:$c14_n=$c14_v"
+    fi
+done
+if [ "$real_drv" -lt 100 ]; then
+    t_fail "driver count came back $real_drv -- fix the extraction, not the floor"
+elif [ -z "$c14_bad" ]; then
+    t_ok "the present-tense tier descriptions both state the real driver count ($real_drv)"
+else
+    t_fail "smoke-tier driver count is stale in:$c14_bad -- the tree has $real_drv. \
+These sentences say what the tier IS; re-measure with 'make smoke' and restate."
+fi
+
+# 15: the README's green-end-to-end stamp. A stamp may age, but not by an era:
+# M486 sat on the front page until M645, 158 milestones and 901 unit checks later,
+# under the words "Green end to end" -- which a reader takes as a claim about the
+# tree they just cloned, not about August.
+JC_README_STAMP_MAX_DRIFT=40
+rs_ms=$(sed -n 's/.*Green end to end at \*\*M\([0-9][0-9]*\)\*\*.*/\1/p' \
+    "$root/README.md" | head -1)
+if [ -z "$rs_ms" ] || [ -z "$rm_ms" ]; then
+    t_fail "cannot read the README's green-end-to-end stamp (readme='$rs_ms' \
+roadmap='$rm_ms') -- the sentence shape changed and this check reads nothing"
+elif [ $((rm_ms - rs_ms)) -le "$JC_README_STAMP_MAX_DRIFT" ]; then
+    t_ok "the README's green stamp is within $JC_README_STAMP_MAX_DRIFT milestones (M$rs_ms vs M$rm_ms)"
+else
+    t_fail "the README stamps 'Green end to end' at M$rs_ms; the ROADMAP's newest \
+entry is M$rm_ms -- $((rm_ms - rs_ms)) milestones. Re-run the gate and restate the \
+numbers with today's milestone; do not just bump the M."
+
+fi
+
+# 16: the corpus size in PROSE, which is where it rotted for the fifth time.
+# Check 11 above holds the "N tasks / M points)" parenthetical in this same file
+# and was green throughout, while two paragraphs earlier the page said "a full
+# sweep of the 8-task corpus" over an 11-task corpus -- the identical rot the
+# header describes finding in a fourth home, caught there by shape and missed
+# here because the sentence spells it "8-task" instead. Extraction by MEANING,
+# not by one phrasing: any "N-task corpus" in the page must be the counted N.
+c16_bad=$(grep -oE '[0-9]+-task corpus' "$root/docs/BENCH_LOCAL_GPU.md" \
+    | sed 's/-task corpus//' | sort -u | grep -v "^$btasks$")
+if [ "$btasks" -lt 2 ]; then
+    t_fail "bench corpus counted $btasks tasks -- fix the extraction, not the floor"
+elif [ -z "$c16_bad" ]; then
+    t_ok "BENCH_LOCAL_GPU's prose corpus size matches the counted corpus ($btasks tasks)"
+else
+    t_fail "BENCH_LOCAL_GPU calls it a $(echo $c16_bad | tr '\n' ' ')-task corpus; \
+$btasks specs exist under tests/bench/corpus. Same rot, fifth home."
+fi
+
+# --- 17-18 (M646): the two figures the M646 recount found wrong in M620's table --
+#
+# PROJECT_TIMELINE's ~30 figures are re-counted, not incremented; checks 12-13
+# bound how stale the page may get. Neither notices a figure that was COPIED
+# rather than counted in a revision that said it counted everything. Both of
+# these were.
+#
+#   checked     -- the fuzz-target count against the JC_FUZZ_TARGETS table, and
+#                  whether the documentation line figure was measured over the
+#                  English-only universe its own page count uses.
+#   not checked -- drift in the doc line figure. Deliberately: it grew 5.3% in
+#                  26 milestones, so any tolerance tight enough to catch an
+#                  8,000-line universe error would fire on ordinary growth every
+#                  few weeks, and a gate that cries wolf gets silenced. Check 18
+#                  tests the UNIVERSE instead, which growth cannot trip.
+
+# 17: fuzz targets. The page said 21 for 25 milestones; the table had 19, and had
+# 19 at the M620 commit too -- carried forward, not counted.
+ft=$(awk '/^const struct jc_fuzz_target JC_FUZZ_TARGETS\[\] = \{/,/^};/' \
+    "$root/tests/fuzz/jc_fuzz_targets.c" 2>/dev/null | grep -cE '^[[:space:]]*\{ *"')
+tl_ft=$(sed -n 's/.*+ \*\{0,2\}\([0-9][0-9]*\)\*\{0,2\} fuzz targets.*/\1/p' "$TL" | head -1)
+if [ -z "$tl_ft" ] || [ "$ft" -lt 5 ]; then
+    t_fail "cannot compare fuzz targets (claimed='$tl_ft' counted=$ft) -- fix the \
+extraction, not the floor"
+elif [ "$tl_ft" = "$ft" ]; then
+    t_ok "PROJECT_TIMELINE's fuzz-target count matches JC_FUZZ_TARGETS ($ft)"
+else
+    t_fail "PROJECT_TIMELINE claims $tl_ft fuzz targets; JC_FUZZ_TARGETS has $ft. \
+Count the table; do not carry the number forward."
+fi
+
+# 18: the documentation line figure must have been measured over the SAME set as
+# the page count beside it -- English only. M620 measured the lines over
+# docs/**.md INCLUDING docs/i18n/ and the pages over docs/**.md EXCLUDING it, then
+# added the translations again as "plus ~8,000", overstating English docs by ~8,000
+# lines and double-counting them in the grand total. This does not measure drift:
+# it asks which of the two candidate universes the claim is nearer, which stays
+# correct however much either grows.
+en=$(git -C "$root" ls-files docs 2>/dev/null | grep '\.md$' | grep -v '^docs/i18n/' \
+    | (cd "$root" && xargs cat 2>/dev/null) | wc -l | tr -d '[:space:]')
+all=$(git -C "$root" ls-files docs 2>/dev/null | grep '\.md$' \
+    | (cd "$root" && xargs cat 2>/dev/null) | wc -l | tr -d '[:space:]')
+tl_dl=$(sed -n 's/.*\*\*~\([0-9][0-9]*\),\([0-9][0-9][0-9]\) lines\*\* across.*/\1\2/p' \
+    "$TL" | head -1)
+if [ -z "$en" ] || [ "$en" -lt 1000 ]; then
+    # Not a repository (the shipped tree, M463) -- cannot enumerate; say so.
+    t_skip_one "docs line universe: not a git checkout here, nothing to enumerate against"
+elif [ -z "$tl_dl" ]; then
+    t_fail "PROJECT_TIMELINE states no '**~N,NNN lines** across' documentation \
+figure -- the sentence shape changed and this check is reading nothing"
+else
+    d_en=$((tl_dl - en)); [ "$d_en" -lt 0 ] && d_en=$((-d_en))
+    d_all=$((tl_dl - all)); [ "$d_all" -lt 0 ] && d_all=$((-d_all))
+    if [ "$d_en" -lt "$d_all" ]; then
+        t_ok "PROJECT_TIMELINE's doc line figure is on the English-only universe \
+($tl_dl vs $en English, $all incl. i18n)"
+    else
+        t_fail "PROJECT_TIMELINE claims $tl_dl documentation lines, which is nearer \
+the i18n-INCLUSIVE count ($all) than the English-only count ($en) its page count \
+uses. That is the M620 defect: the lines and the pages were measured over \
+different sets, and the translations were then added a second time."
+    fi
 fi
 
 t_done
