@@ -2,6 +2,7 @@
 title: The gate is green. The code is wrong.
 audience: student
 phase: testing
+stage: ri
 difficulty: advanced
 points: 4
 verify: "sh docs/assignments/14-the-hollow-gate/test.sh"

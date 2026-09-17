@@ -2,6 +2,7 @@
 title: Hello, bench — one full turn
 audience: student
 phase: implementation
+stage: shu
 difficulty: intro
 points: 1
 verify: "grep -qx 'hello from my bench' docs/assignments/00-hello/hello.txt"

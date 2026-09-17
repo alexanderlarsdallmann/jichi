@@ -2,6 +2,7 @@
 title: Refactor it to C++
 audience: student
 phase: implementation
+stage: migration
 difficulty: advanced
 points: 4
 verify: "sh docs/assignments/28-refactor-to-cpp/test.sh"

@@ -2,6 +2,7 @@
 title: Extend it in Zig
 audience: student
 phase: implementation
+stage: migration
 difficulty: advanced
 points: 4
 verify: "sh docs/assignments/25-extend-in-zig/test.sh"

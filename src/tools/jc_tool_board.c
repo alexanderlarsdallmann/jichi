@@ -153,7 +153,8 @@ static const struct jc_tool BOARD_TOOL = {
     0, /* mutating: writes .jichi/board.json -> permission-gated */
     board_run,
     NULL, NULL, NULL,
-    1 /* main_agent_only: the board is shared with the user (M436) */
+    1 /* main_agent_only: the board is shared with the user (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 const struct jc_tool *jc_tool_board(void)

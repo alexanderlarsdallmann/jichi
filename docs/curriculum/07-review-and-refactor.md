@@ -23,10 +23,38 @@ disagree with it, say why in your REVIEW.md; where it found what you missed,
 that goes in your record. The reference review is the comparison bar, same
 ritual as Module 3's worked solution: floor first, compare honestly after.
 
+**1b. Read for review before you review** (M627). A review is only as good as
+the reading under it, and "I read it" is not a reading.
+[`CODE_REVIEW.md`](../CODE_REVIEW.md) names the five readings a reviewer
+makes — abstraction to concrete, control flow, data flow, execution, and the
+review lens turned on your own reading — and
+[`74-read-the-turn`](../assignments/74-read-the-turn.md) grades them on jichi's
+own source, anchors checked against the tree. Optional here, one rung above
+task 24; if `11-name-whats-wrong` felt like guessing, this is why.
+
 **2. A smell is a consequence, not a preference.** The discipline the
 assignment grades (structurally) and the reference models (fully): every
 finding names *what future change* becomes riskier or costlier, and for
 whom. "I would have written it differently" is not a finding.
+
+**2b. The four questions a consequence argument must survive** (M633). An
+argument from consequences — "this duplication will cost us when X changes" —
+has a standard set of *critical questions* (Walton's, in argumentation
+theory), and a reviewer who knows them will ask them. Ask them of your own
+finding first, before a reviewer has to:
+
+1. **How likely** is the consequence? A change that "might someday" happen
+   is a weaker warrant than one the roadmap already names.
+2. **How costly**, and **to whom**? A cost the author pays once is not the
+   cost a maintainer pays every time.
+3. **What would the alternative have cost?** Every fix has its own
+   consequence; a finding that names only one side is half an argument.
+4. **What is the evidence for the likelihood — not for the badness?** Most
+   weak findings prove the consequence would be bad and assume it will
+   happen. The number you need is the one about *will*, not *how bad*.
+
+A finding that answers all four is a review; one that answers none is a
+preference wearing a consequence's clothes.
 
 **3. Refactor under a green light.** Work
 [`12-refactor-without-change`](../assignments/12-refactor-without-change.md):

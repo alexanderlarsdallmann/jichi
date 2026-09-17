@@ -2,6 +2,7 @@
 title: Capstone — a bounded real project
 audience: student
 phase: implementation
+stage: ri
 difficulty: advanced
 points: 3
 verify: "sh docs/assignments/17-capstone/test.sh"

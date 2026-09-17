@@ -113,7 +113,13 @@ extracting ground truth from the source and failing when a document disagrees.
   `*` is a comment), never an exception list.
 - **Some defects only a reader can find.** Coherent, well-formed, *false* prose
   passes every lint. That is why [`DOC_REVIEW.md`](DOC_REVIEW.md) exists as a
-  reusable review instrument — the counterweight, not a competitor.
+  reusable review instrument — the counterweight, not a competitor — and why
+  it has a code twin, [`CODE_REVIEW.md`](CODE_REVIEW.md) (M627): five readings
+  of one piece of code, graded on jichi's own source by
+  [`assignments/74-read-the-turn.md`](assignments/74-read-the-turn.md), because
+  a *reading* that names every function correctly and describes a flow the
+  code does not have is the same defect as false prose, and as invisible to
+  a lint.
 
 The sharpest version of "which lint": [`PLATFORMS.md`](PLATFORMS.md#the-finding-that-made-this-page-m400)
 describes code that violated this project's own mandatory compiler flags for

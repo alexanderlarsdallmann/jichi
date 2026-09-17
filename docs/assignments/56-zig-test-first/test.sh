@@ -4,7 +4,7 @@
 #   2. it actually tests something (>= 3 expect checks -- not a hollow suite);
 #   3. an independent acceptance probe confirms the bug is really fixed.
 cd "$(dirname "$0")" || exit 1
-zig version >/dev/null 2>&1 || { echo "FAIL: zig is not usable -- install Zig (ziglang.org) (or a version-manager shim with no version selected)"; exit 1; }
+zig version >/dev/null 2>&1 || { echo "CANNOT RUN: zig is not usable -- install Zig (ziglang.org) (or a version-manager shim with no version selected)"; exit 77; }
 
 if [ ! -f test_list_max.zig ]; then
     echo "FAIL: write the failing test first -- test_list_max.zig is missing"; exit 1; fi

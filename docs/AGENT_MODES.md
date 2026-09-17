@@ -191,6 +191,23 @@ advertised tool list are rebuilt each turn).
 
 ## Plan-then-execute workflow
 
+> **The plan is a file since M631.** In plan mode the model writes it with
+> `write_plan` — the one write plan mode allows (`plan_allowed`, honoured by the
+> permission verdict, the tool advertiser and the execution-time read-only
+> fence; it writes exactly `.jichi/PLAN.md` and nothing else) — in five sections a script can count:
+> `## Claim`, `## Rejected` (≥1 alternative *with why it lost*), `## Falsifier`
+> (what would show the plan wrong), `## Not-goals`, `## Touches` (the files the
+> work expects to change). An incomplete plan is refused as a tool **error
+> value** naming the missing section, so the model writes it. When you then run
+> the work under `--auto`, the reach footer (M630) reconciles the files the run
+> wrote against `## Touches` — `plan: 2 of 2 predicted files touched`, or
+> `plan drift: src/tui/jc_tui.c` — and the `done` object carries `plan_named`,
+> `plan_touched`, `plan_drift`. **A plan is a prediction, not a fence**: drift is
+> reported, never blocked; `--edit-scope` is the fence. The shape is the one
+> the learner's own registers use (PROJECT_RECORDS.md), so the same person can
+> read both, and the *why* survives compaction as a file — DESIGN_INPUT.md is
+> the input twin of this artifact.
+
 1. Start in plan mode (`--plan`, or `/plan`). Mutating tools are hidden; the
    system prompt asks the model to investigate and produce a step-by-step plan
    without changing anything.

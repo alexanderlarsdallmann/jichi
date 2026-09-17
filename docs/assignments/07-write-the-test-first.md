@@ -2,6 +2,7 @@
 title: Make it fail first
 audience: student
 phase: testing
+stage: shu
 difficulty: medium
 points: 3
 verify: "sh docs/assignments/07-write-the-test-first/test.sh"

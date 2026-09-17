@@ -2,6 +2,7 @@
 title: Write the test first (Rust)
 audience: student
 phase: testing
+stage: rust
 difficulty: easy
 points: 3
 verify: "sh docs/assignments/64-rust-test-first/test.sh"

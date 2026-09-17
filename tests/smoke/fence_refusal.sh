@@ -8,7 +8,7 @@
 # refused one will not appear, and the run must still complete.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 5
+t_plan 6
 smoke_home
 tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
@@ -74,6 +74,14 @@ if grep -q 'done' "$tmp/out"; then
     t_ok "the run completed after the refusal"
 else
     t_fail "run did not finish: $(head_bytes 150 "$tmp/err")"
+fi
+
+# --- 6: M638 -- the footer counts the agent-fence denial as a refusal, apart
+# from the errors it is one of (the loop's denial sites never reach a tool)
+if grep -q "1 tool call, 1 error (1 refused by a fence)" "$tmp/err"; then
+    t_ok "the reach footer counts the agent-fence denial as a refusal"
+else
+    t_fail "footer did not count the refusal: $(grep checked "$tmp/err" | head_bytes 200)"
 fi
 
 t_done

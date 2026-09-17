@@ -2,6 +2,7 @@
 title: From loops to folds (Racket)
 audience: student
 phase: implementation
+stage: racket
 difficulty: medium
 points: 3
 verify: "sh docs/assignments/33-racket-loops-to-folds/test.sh"

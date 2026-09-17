@@ -2,6 +2,7 @@
 title: The Zig capstone — a postfix calculator
 audience: student
 phase: implementation
+stage: zig
 difficulty: medium
 points: 4
 verify: "sh docs/assignments/58-zig-capstone/test.sh"

@@ -2,6 +2,7 @@
 title: Extend it in C++
 audience: student
 phase: implementation
+stage: migration
 difficulty: advanced
 points: 4
 verify: "sh docs/assignments/27-extend-in-cpp/test.sh"

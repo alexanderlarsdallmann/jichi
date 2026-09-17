@@ -9,4 +9,4 @@
 {"v":1,"type":"message_start","model":"mock","mode":"auto"}
 {"v":1,"type":"text","delta":"Done -- notes.txt now says oat milk."}
 {"v":1,"type":"usage","input":20,"output":5,"cost":0}
-{"v":1,"type":"done","text":"Done -- notes.txt now says oat milk.","model":"mock","tokens":{"input":60,"output":15},"cost":0,"tool_calls":2,"aborted":false,"stop_reason":"done","work_kept":true,"starved":false,"peak_input":20,"cache":{"read":0,"write":0},"tools":{"read":1,"write":1,"shell":0,"other":0}}
+{"v":1,"type":"done","text":"Done -- notes.txt now says oat milk.","model":"mock","tokens":{"input":60,"output":15},"cost":0,"tool_calls":2,"aborted":false,"stop_reason":"done","work_kept":true,"starved":false,"peak_input":20,"cache":{"read":0,"write":0},"tools":{"read":1,"write":1,"shell":0,"other":0},"reach":{"verify":"none","tool_calls":2,"tool_errors":1,"tool_refused":0,"test_edits":0,"scope":"none","shell_ran":false,"checked":"2 tool calls, 1 error (0 refused by a fence)","not_checked":"no envelope armed -- no verifier, no edit scope, no budget; nothing about this run's result was tested (see docs/AUTONOMY.md)"}}

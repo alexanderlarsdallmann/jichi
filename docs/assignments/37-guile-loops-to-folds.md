@@ -2,6 +2,7 @@
 title: From loops to folds (Guile)
 audience: student
 phase: implementation
+stage: guile
 difficulty: medium
 points: 3
 verify: "sh docs/assignments/37-guile-loops-to-folds/test.sh"

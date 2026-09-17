@@ -5,8 +5,10 @@
 
 #include "jc_test.h"
 #include "jc_assign.h"
+#include "jc_assignlist.h"
 #include "jc_testparse.h"
 #include "jc_mem.h"
+#include "jc_vec.h"
 #include <string.h>
 
 static const char *SPEC =
@@ -17,6 +19,7 @@ static const char *SPEC =
     "setup: git checkout -- .\n"
     "points: 10\n"
     "phase: implementation\n"
+    "stage: shu\n"
     "difficulty: easy\n"
     "---\n"
     "Make parse_config reject malformed input instead of crashing.\n";
@@ -37,6 +40,8 @@ static void test_parse_and_render(void)
      * M174); the curriculum listing keys off them. */
     JC_CHECK_STR(spec.phase, "implementation");
     JC_CHECK_STR(spec.difficulty, "easy");
+    /* M626: the curriculum group; the listing's totals key off it. */
+    JC_CHECK_STR(spec.stage, "shu");
     JC_CHECK(strstr(spec.task, "parse_config") != NULL);
 
     /* Agent framing exposes the verify command as the success criterion. */
@@ -270,6 +275,79 @@ static void test_verify_program(void)
     }
 }
 
+/* M626: the per-stage fold behind the grouped listing. Fed in BOTH orders
+ * (the M622 lesson: an order-dependent result must be shown order-correct,
+ * not assumed), and the stage-less bucket must group LAST even when its row
+ * sorts first. */
+static void push_row(struct jc_vec *rows, const char *stage, int points,
+                     int passed)
+{
+    struct jc_assign_row r;
+    memset(&r, 0, sizeof(r));
+    r.name = "x.md";
+    r.spec.stage = stage;
+    r.spec.points = points;
+    r.prog.passed = passed;
+    jc_vec_push(rows, &r);
+}
+
+static void check_totals(const struct jc_vec *rows)
+{
+    struct jc_vec totals;
+    const struct jc_stage_total *t;
+    char line[128];
+
+    jc_vec_init(&totals, sizeof(struct jc_stage_total));
+    jc_assignlist_totals(rows, &totals);
+    JC_CHECK(totals.len == 3);
+    /* shu first (first named stage seen), the NULL bucket LAST. */
+    t = (const struct jc_stage_total *)jc_vec_at((struct jc_vec *)&totals, 0);
+    JC_CHECK_STR(t->stage, "shu");
+    JC_CHECK(t->pts_earned == 2 && t->pts_avail == 5);
+    JC_CHECK(t->passed == 1 && t->total == 2);
+    jc_assignlist_stage_line(t, line, sizeof line);
+    JC_CHECK_STR(line, "-- shu  (2/5 pts, 1/2 passed)");
+    t = (const struct jc_stage_total *)jc_vec_at((struct jc_vec *)&totals, 1);
+    JC_CHECK_STR(t->stage, "ha");
+    t = (const struct jc_stage_total *)jc_vec_at((struct jc_vec *)&totals, 2);
+    JC_CHECK(t->stage == NULL);
+    jc_assignlist_stage_line(t, line, sizeof line);
+    JC_CHECK_STR(line, "-- (no stage)  (0/3 pts, 0/1 passed)");
+    jc_assignlist_total_line(&totals, line, sizeof line);
+    JC_CHECK_STR(line, "total: 2/12 pts, 1/4 passed");
+    jc_vec_free(&totals);
+}
+
+static void test_stage_totals(void)
+{
+    struct jc_vec rows;
+
+    jc_vec_init(&rows, sizeof(struct jc_assign_row));
+    push_row(&rows, "shu", 2, 1);
+    push_row(&rows, "shu", 3, 0);
+    push_row(&rows, "ha", 4, 0);
+    push_row(&rows, NULL, 3, 0);
+    JC_CHECK(jc_assignlist_has_stage(&rows));
+    check_totals(&rows);
+    jc_vec_free(&rows);
+
+    /* The other order: the stage-less row FIRST -- it must still group last
+     * (a fixture where it also sorted last once made this check vacuous). */
+    jc_vec_init(&rows, sizeof(struct jc_assign_row));
+    push_row(&rows, NULL, 3, 0);
+    push_row(&rows, "shu", 2, 1);
+    push_row(&rows, "ha", 4, 0);
+    push_row(&rows, "shu", 3, 0);
+    check_totals(&rows);
+    jc_vec_free(&rows);
+
+    /* No stage anywhere: grouping must not activate. */
+    jc_vec_init(&rows, sizeof(struct jc_assign_row));
+    push_row(&rows, NULL, 1, 0);
+    JC_CHECK(!jc_assignlist_has_stage(&rows));
+    jc_vec_free(&rows);
+}
+
 void test_assign(void)
 {
     test_verify_program();
@@ -279,6 +357,7 @@ void test_assign(void)
     test_hints();
     test_hints_skip_empty();
     test_score();
+    test_stage_totals();
 }
 
 /* M529: the boundary for a name that arrived from outside. The `assignment`

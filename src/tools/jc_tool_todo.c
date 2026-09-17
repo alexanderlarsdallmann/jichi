@@ -384,7 +384,8 @@ static const struct jc_tool TODOWRITE_TOOL = {
     1, /* readonly: no fs/exec, just agent state */
     todowrite_run,
     NULL, NULL, NULL, /* not a dynamic (MCP) tool */
-    1 /* main_agent_only: the list belongs to the user's session (M436) */
+    1 /* main_agent_only: the list belongs to the user's session (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 static const struct jc_tool TODOREAD_TOOL = {
@@ -394,7 +395,8 @@ static const struct jc_tool TODOREAD_TOOL = {
     1, /* readonly */
     todoread_run,
     NULL, NULL, NULL, /* not a dynamic (MCP) tool */
-    1 /* main_agent_only (M436) */
+    1 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 const struct jc_tool *jc_tool_todowrite(void)

@@ -2,6 +2,7 @@
 title: Make the failing test pass (Guile)
 audience: student
 phase: testing
+stage: guile
 difficulty: intro
 points: 2
 verify: "sh docs/assignments/35-guile-make-it-pass/test.sh"

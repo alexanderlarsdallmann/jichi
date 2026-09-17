@@ -16,6 +16,7 @@ const char *jc_wf_type_name(int type)
     switch (type) {
     case JC_WF_MAP:        return "map";
     case JC_WF_SYNTHESIZE: return "synthesize";
+    case JC_WF_REFUTE:     return "refute";
     case JC_WF_VERIFY:     return "verify";
     default:               return "unknown";
     }
@@ -34,6 +35,9 @@ static int type_from_name(const char *s)
     }
     if (strcmp(s, "verify") == 0) {
         return JC_WF_VERIFY;
+    }
+    if (strcmp(s, "refute") == 0) {
+        return JC_WF_REFUTE; /* M634 */
     }
     return JC_WF_UNKNOWN;
 }

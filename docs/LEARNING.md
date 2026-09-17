@@ -193,6 +193,24 @@ every note that names a path which no longer resolves in the workspace. And a
 is **counted and named** by `learn apply` — *"3 correction bullet(s) ignored …
 they retract nothing"* — where before it vanished as if the section were empty.
 
+**A note says how it knows (M632).** Every drafted note ends in a *warrant tag*:
+`[warrant: measured]` (a number, a test run or a diff produced it),
+`[warrant: judgement]` (the mentor's reading of the code or the record) or
+`[warrant: unchecked]` (noticed once, never confirmed). It is M326b's trichotomy for
+deferrals — judgement / evidence / unchecked — applied to lessons, and it is a
+**label, not a gate**: nothing is refused, because an unchecked gotcha is exactly
+what a memory note is for. What changes is where the class is *visible*. `learn
+apply` appends a line after its summary — `Warrants: 1 measured, 1 judgement, 1
+unchecked (labelled -- check before trusting), 1 untagged` — counting the notes it
+committed, untagged included (an absent label is the mentor not having said how it
+knows, and is counted rather than hidden). `learn analyze` lists the unchecked
+notes **first**, by name, before the general staleness review, because that is
+where trust is thinnest and where a Corrections pass should start. The tag travels
+into `memory.md` with the note, like the other two trailers, so the model that reads
+the note reads its class too. *Limit:* a label is a hint, not a schema; a mentor can
+mislabel fluently, and a `measured` tag on a guess is worse than no tag. The prompt
+says so, and the reviewer of the draft is you.
+
 **A correction can take a rule back (M601).** `remove:` / `replace:` directives
 now also act on the rules file's `## Learned conventions` — the one store the loop
 could append to but never retract from. Only bullets under that heading are
@@ -232,7 +250,14 @@ Parses the (edited) `.jichi/lessons.draft.md` and commits it:
   note. This retracts a lesson that has become false — e.g. a note about a bug a
   commit has since fixed — instead of leaving it to mislead forever (before M78,
   a reworded note was just *appended* beside the stale one, since dedupe is
-  exact-line). The mentor is told to check the already-remembered notes against
+  exact-line). **The retracted line is deleted and counted, not kept** (M628,
+  DECISIONS.md) — the opposite of what the prose record does, and on purpose:
+  a memory note is an *instruction* the model reads every turn, so a wrong one
+  kept "for the record" is a wrong instruction delivered every turn, while an
+  analysis page or an anecdote is a record for a person and keeps its wrong
+  sentence under a correction banner (ANECDOTES.md #75, lesson 5) because the
+  wrong turn is half its value. The apply summary's `retracted` count is the
+  machine store's record of the retraction. The mentor is told to check the already-remembered notes against
   the current code and emit these; `learn analyze` adds a staleness-review
   reminder (counting notes, flagging those that cite a specific line/range as
   most prone to drift). Applied via the pure `jc_memory_apply_correction` +

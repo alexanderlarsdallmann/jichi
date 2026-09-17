@@ -77,6 +77,11 @@ Not optional, in rough order of how often each is skipped:
 2. **`stop_reason` on the terminal event** — `done`, `interrupted`, `timeout`,
    `budget`, `verify_failed`, `error`. A budget stop is *not* a failure: M80 keeps
    the work, and a supervisor that discards it is throwing away good output.
+2b. **`reach` on the terminal object** (M630) — `verify`, `tool_errors` (with `tool_refused`,
+   M638: how many of them were a fence working, not a tool failing), `scope` and
+   the `checked`/`not_checked` sentences say what the run's *record* tested. A
+   supervisor that trusts `text` without reading `reach.verify == "none"` is
+   trusting the one artifact nothing checked.
 3. **Unknown event types.** The jsonl stream gains events (`heartbeat` arrived at
    M165). Ignore what you do not recognise; do not treat it as a protocol error.
 4. **Liveness.** A long model call produces no output. Use `--heartbeat <secs>` to

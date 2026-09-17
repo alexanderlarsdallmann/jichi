@@ -49,11 +49,12 @@ cJSON *jc_agentjson_result(const char *text, const char *model,
                            int aborted, const char *stop_reason, int work_kept,
                            int err_code, const char *err_type,
                            const char *err_msg,
-                           const struct jc_agent_econ *econ)
+                           const struct jc_agent_econ *econ, cJSON *reach)
 {
     cJSON *o = jc_agentjson_event("done");
     cJSON *tok;
     if (o == NULL) {
+        cJSON_Delete(reach);
         return NULL;
     }
     cJSON_AddStringToObject(o, "text", text != NULL ? text : "");
@@ -136,6 +137,10 @@ cJSON *jc_agentjson_result(const char *text, const char *model,
             }
             cJSON_AddItemToObject(o, "degraded", d);
         }
+    }
+    /* M630: the reach footer's facts -- see the header for why here. */
+    if (reach != NULL) {
+        cJSON_AddItemToObject(o, "reach", reach);
     }
     return o;
 }

@@ -35,6 +35,19 @@ static void test_parse(void)
     JC_CHECK_STR(wf.stages[0].prompt, "Review $ITEM for bugs");
     JC_CHECK(wf.stages[1].type == JC_WF_SYNTHESIZE);
 
+    /* M634: refute parses to its own type, and its wire name round-trips; an
+     * unknown type is still counted as dropped, so the vocabulary grew by
+     * exactly one word. */
+    JC_CHECK(jc_workflow_parse(
+        "{\"stages\":[{\"type\":\"refute\",\"prompt\":\"be thorough\"}]}",
+        &wf, a) == JC_OK);
+    JC_CHECK(wf.nstages == 1);
+    JC_CHECK(wf.stages[0].type == JC_WF_REFUTE);
+    JC_CHECK_STR(jc_wf_type_name(JC_WF_REFUTE), "refute");
+    JC_CHECK(wf.stages_dropped == 0);
+    JC_CHECK(strstr(JC_WF_REFUTE_FRAME_A, "Do not agree with it") != NULL);
+    JC_CHECK(strstr(JC_WF_REFUTE_FRAME_B, "nothing found") != NULL);
+
     /* Errors. */
     JC_CHECK(jc_workflow_parse("not json", &wf, a) == JC_ERR_PARSE);
     JC_CHECK(jc_workflow_parse("{\"stages\":[]}", &wf, a) == JC_ERR_INVALID);

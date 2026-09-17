@@ -158,6 +158,8 @@ void test_priv(void);
 void test_provider(void);
 void test_golden_request(void);
 void test_toolprobe(void);
+void test_reach(void);
+void test_plan(void);
 void test_promptcache(void);
 void test_calib(void);
 void test_imagegen(void);

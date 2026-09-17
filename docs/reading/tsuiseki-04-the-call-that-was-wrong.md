@@ -75,13 +75,13 @@ runs will read that event and nothing else. Here is chapter 1's, from the run
 that changed the file:
 
 ```jsonl docs/reading/traces/tool-round/expected/stdout.jsonl
-{"v":1,"type":"done","text":"Changed 'buy milk' to 'buy oat milk' in notes.txt.","model":"mock","tokens":{"input":60,"output":15},"cost":0,"tool_calls":2,"aborted":false,"stop_reason":"done","work_kept":true,"starved":false,"peak_input":20,"cache":{"read":0,"write":0},"tools":{"read":1,"write":1,"shell":0,"other":0}}
+{"v":1,"type":"done","text":"Changed 'buy milk' to 'buy oat milk' in notes.txt.","model":"mock","tokens":{"input":60,"output":15},"cost":0,"tool_calls":2,"aborted":false,"stop_reason":"done","work_kept":true,"starved":false,"peak_input":20,"cache":{"read":0,"write":0},"tools":{"read":1,"write":1,"shell":0,"other":0},"reach":{"verify":"none","tool_calls":2,"tool_errors":0,"tool_refused":0,"test_edits":0,"scope":"none","shell_ran":false,"checked":"2 tool calls, 0 errors (0 refused by a fence)","not_checked":"no envelope armed -- no verifier, no edit scope, no budget; nothing about this run's result was tested (see docs/AUTONOMY.md)"}}
 ```
 
 And here is this run's, from the run that changed nothing:
 
 ```jsonl docs/reading/traces/wrong-args/expected/stdout.jsonl
-{"v":1,"type":"done","text":"Done -- notes.txt now says oat milk.","model":"mock","tokens":{"input":60,"output":15},"cost":0,"tool_calls":2,"aborted":false,"stop_reason":"done","work_kept":true,"starved":false,"peak_input":20,"cache":{"read":0,"write":0},"tools":{"read":1,"write":1,"shell":0,"other":0}}
+{"v":1,"type":"done","text":"Done -- notes.txt now says oat milk.","model":"mock","tokens":{"input":60,"output":15},"cost":0,"tool_calls":2,"aborted":false,"stop_reason":"done","work_kept":true,"starved":false,"peak_input":20,"cache":{"read":0,"write":0},"tools":{"read":1,"write":1,"shell":0,"other":0},"reach":{"verify":"none","tool_calls":2,"tool_errors":1,"tool_refused":0,"test_edits":0,"scope":"none","shell_ran":false,"checked":"2 tool calls, 1 error (0 refused by a fence)","not_checked":"no envelope armed -- no verifier, no edit scope, no budget; nothing about this run's result was tested (see docs/AUTONOMY.md)"}}
 ```
 
 Diff them yourself:
@@ -91,6 +91,17 @@ Diff them yourself:
 diff <(tail -1 docs/reading/traces/tool-round/expected/stdout.jsonl) \
      <(tail -1 docs/reading/traces/wrong-args/expected/stdout.jsonl)
 ```
+
+> **Corrected 2026-09-16 (M630): this finding is true of the record as it stood
+> until M630, and it is the reason the record changed.** The `done` event now
+> carries a `reach` member — what the run's record checked and did not — and in
+> it the two runs differ: `"tool_errors":0` here, `"tool_errors":1` in the run
+> that changed nothing. Check 1 of §*How you would actually catch this* — count
+> the errors, not the calls — is now done by the run itself and printed under
+> the answer. The paragraph below is left as written: the summary that could
+> not tell the two runs apart is exactly what M630 set out to fix, and a reader
+> should see what it looked like. (`reach.not_checked` says the rest: with no
+> envelope armed, nothing about either run's *result* was tested.)
 
 **Only the `text` field differs.** `stop_reason` is `done` in both.
 `tool_calls` is 2 in both. `work_kept` is true in both. `aborted` is false in
@@ -195,6 +206,9 @@ Four checks, cheapest first, all visible in these artifacts:
 
 1. **Count the errors, not the calls.** `grep -c '"is_error":true'` over the
    stream. Two runs with identical `done` events differ here, 1 against 0.
+   *Since M630 the run does this for you*: the `done` event's `reach.tool_errors`
+   and the two-line footer under a headless answer carry the same count — but
+   the habit is still yours, because a footer is one more line to skim past.
 2. **Look at the workspace.** A run that claims an edit and leaves the file
    byte-identical has said something checkable and false.
 3. **Ask for proof, not a report.** This is what `verify`/`--strict-green`

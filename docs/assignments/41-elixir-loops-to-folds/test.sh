@@ -4,7 +4,7 @@
 # hand-rolled recursion (a private helper destructuring [h | t]). The refactor
 # must change HOW, not WHAT: behaviour identical, reached with Enum.
 cd "$(dirname "$0")" || exit 1
-elixir --version >/dev/null 2>&1 || { echo "FAIL: elixir is not usable -- install Elixir/OTP (or a version-manager shim with no version selected)"; exit 1; }
+elixir --version >/dev/null 2>&1 || { echo "CANNOT RUN: elixir is not usable -- install Elixir/OTP (or a version-manager shim with no version selected)"; exit 77; }
 elixir test_squares.exs >/dev/null 2>&1 || { echo "FAIL: the tests are not green"; exit 1; }
 # Strip # comments first, so a note that mentions recursion is not a false hit.
 code=$(sed 's/#.*//' squares.exs)

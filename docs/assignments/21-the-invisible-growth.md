@@ -2,6 +2,7 @@
 title: The invisible growth
 audience: student
 phase: implementation
+stage: memory
 difficulty: intermediate
 points: 3
 verify: "sh docs/assignments/21-the-invisible-growth/test.sh"

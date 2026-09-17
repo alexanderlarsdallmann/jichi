@@ -26,7 +26,23 @@ reads like diligence.
 This codebase's response is structural, not exhortative. It does not ask
 the operator to "be careful"; it makes the model's claims *checkable*:
 
-- the reasoning is **streamed** so you can audit it, never hidden;
+> **Corrected 2026-09-16 (M628).** The first bullet below said the reasoning
+> is streamed so you can audit it. **The code does the opposite**: the OpenAI
+> provider reads `reasoning_content` and sets a flag (`saw_reasoning`,
+> `src/provider/jc_provider_openai.c`), and its own comment says *"Not the
+> answer -- we don't emit it"*; the Anthropic provider has no `thinking`
+> handling at all. What the flag buys is honest — an *empty* turn can be
+> diagnosed from evidence (M521: did the reasoning eat the output ceiling, or
+> did the model stop on its own?) — but nothing here lets you read the
+> trace. The sentence was written from what this chapter *argues a system
+> should do*, in the paragraph about what a reasoning trace warrants, and it
+> is left in place struck through because that is the mistake the chapter is
+> about: fluent prose about behaviour nobody checked. Whether to surface the
+> trace is a feature decision, recorded open; this note only makes the
+> description true.
+
+- the reasoning is ~~**streamed** so you can audit it, never hidden~~
+  **detected, and not shown** — see the correction below;
 - every claim that touches reality goes through a tool whose result is
   **ground truth in the conversation** (chapter 4) — a claim about a
   file's contents is followed by the file's contents, and the divergence

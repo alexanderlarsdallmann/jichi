@@ -22,6 +22,59 @@
 enum { SEC_NONE = 0, SEC_MEMORY, SEC_SKILLS, SEC_CORRECTIONS, SEC_RULES,
        SEC_OTHER, SEC_CHECKS /* M602 */ };
 
+/* M632: "[warrant: <word>]" anywhere on the note. Case-insensitive on the
+ * word; the bracket and key are the literal machine format. */
+static int ci_word_at(const char *s, const char *word)
+{
+    jc_size i;
+    for (i = 0; word[i] != '\0'; i++) {
+        char c = s[i];
+        if (c >= 'A' && c <= 'Z') {
+            c = (char)(c - 'A' + 'a');
+        }
+        if (c != word[i]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+enum jc_warrant jc_learn_warrant(const char *note)
+{
+    const char *p;
+    if (note == NULL) {
+        return JC_WARRANT_NONE;
+    }
+    p = strstr(note, "[warrant:");
+    if (p == NULL) {
+        return JC_WARRANT_NONE;
+    }
+    p += 9;
+    while (*p == ' ' || *p == '\t') {
+        p++;
+    }
+    if (ci_word_at(p, "measured")) {
+        return JC_WARRANT_MEASURED;
+    }
+    if (ci_word_at(p, "judgement") || ci_word_at(p, "judgment")) {
+        return JC_WARRANT_JUDGEMENT;
+    }
+    if (ci_word_at(p, "unchecked")) {
+        return JC_WARRANT_UNCHECKED;
+    }
+    return JC_WARRANT_NONE; /* a word the vocabulary lacks: untagged, honestly */
+}
+
+const char *jc_warrant_str(enum jc_warrant w)
+{
+    switch (w) {
+    case JC_WARRANT_MEASURED:  return "measured";
+    case JC_WARRANT_JUDGEMENT: return "judgement";
+    case JC_WARRANT_UNCHECKED: return "unchecked";
+    default:                   return "untagged";
+    }
+}
+
 void jc_learn_draft_init(struct jc_learn_draft *d)
 {
     jc_vec_init(&d->checks, sizeof(char *)); /* M602 */
@@ -791,6 +844,14 @@ jc_status jc_learn_apply(struct jc_app *app, unsigned sections, int force,
             if (jc_memory_add(app, note, &was_new) == JC_OK && was_new) {
                 st->memory_added++;
                 touched_memory = 1;
+                /* M632: count the warrant of what was COMMITTED, so the summary
+                 * describes memory.md's new lines, not the draft's. */
+                switch (jc_learn_warrant(note)) {
+                case JC_WARRANT_MEASURED:  st->warrant_measured++;  break;
+                case JC_WARRANT_JUDGEMENT: st->warrant_judgement++; break;
+                case JC_WARRANT_UNCHECKED: st->warrant_unchecked++; break;
+                default:                   st->warrant_untagged++;  break;
+                }
             }
         }
     }
@@ -1039,6 +1100,18 @@ void jc_learn_apply_summary(const struct jc_learn_apply_stats *st,
             jc_sb_append(out, frag[i]);
         }
         jc_sb_append_fmt(out, " from %s.\n", path);
+        /* M632: the warrant classes of the notes just committed. A separate
+         * line AFTER the pinned sentence (learn.sh holds that one byte-exact),
+         * only when notes were added: a zero-note apply has no warrants to
+         * report. "untagged" is counted, not hidden -- an absent label is the
+         * mentor not having said how it knows. */
+        if ((st->sections & JC_LEARN_MEMORY) != 0 && st->memory_added > 0) {
+            jc_sb_append_fmt(out, "Warrants: %d measured, %d judgement, %d "
+                             "unchecked (labelled -- check before trusting), "
+                             "%d untagged.\n", st->warrant_measured,
+                             st->warrant_judgement, st->warrant_unchecked,
+                             st->warrant_untagged);
+        }
         /* M294: a masked run is a PARTIAL apply by design. Saying what is still
          * waiting is the difference between "corrections done" and the user
          * believing the whole draft was committed. The draft is deliberately NOT

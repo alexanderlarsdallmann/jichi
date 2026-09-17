@@ -2,6 +2,7 @@
 title: The time-traveling C
 audience: student
 phase: implementation
+stage: extras
 difficulty: intermediate
 points: 3
 verify: "sh docs/assignments/23-the-time-traveling-c/test.sh"

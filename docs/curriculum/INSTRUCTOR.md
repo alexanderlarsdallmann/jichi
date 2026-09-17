@@ -221,7 +221,10 @@ walk; this table is only what changes *for you*.
   (file formats before users); "Alternatives considered" containing straw
   men. The floor cannot see either; this is the module where **your**
   judgment layer earns its place — read three submissions aloud
-  (anonymized) and let the room rank them.
+  (anonymized) and let the room rank them. (Since M633 the floor sees one
+  adjacent thing: an `## Objections` entry that replies to an objection it
+  never states is refused. That catches the *unstated* straw man; the
+  well-stated weak one is still yours to hear in the reading-aloud.)
 
 ### M7 — Review and refactor ([page](07-review-and-refactor.md))
 

@@ -7,8 +7,8 @@
 cd "$(dirname "$0")" || exit 1
 
 command -v zig >/dev/null 2>&1 || {
-    echo "FAIL: this extra needs zig on PATH (one download -- see ZIG_INTEROP.md)"
-    exit 1; }
+    echo "CANNOT RUN: this extra needs zig on PATH (one download -- see ZIG_INTEROP.md)"
+    exit 77; }
 
 grep -q "long wt_count_words(const char \*text);" wordtool.h &&
 grep -q "long wt_longest_word(const char \*text);" wordtool.h || {

@@ -156,7 +156,8 @@ static const struct jc_tool ASK_USER_TOOL = {
     1, /* read-only: no disk changes, so not permission-gated */
     ask_user_run,
     NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 const struct jc_tool *jc_tool_ask_user(void)

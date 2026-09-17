@@ -3,7 +3,7 @@
 # quality is /check's and a human's job (the three-layer assessment model).
 cd "$(dirname "$0")" || exit 1
 
-echo "1..5"
+echo "1..6"
 rc=0
 if [ ! -f DESIGN.md ]; then
     echo "not ok 1 - DESIGN.md is missing"
@@ -44,5 +44,34 @@ if [ "$(wc -c < DESIGN.md)" -ge 1500 ]; then
 else
     echo "not ok 5 - under 1500 bytes; this is a sketch, not a design"
     rc=1
+fi
+# M633: the steelman shape. The section is OPTIONAL (module 06's gate lets you
+# rebut /check in the doc); when it is present, every "- " entry must STATE the
+# objection (an `Objection:` label) before answering it (a `Reply:` label). A
+# reply to an objection nobody can read is the straw man's home; the script sees
+# two labels, never whether the objection is in its strongest form -- that part
+# is yours, and /check's.
+if grep -q '^## Objections' DESIGN.md; then
+    counts="$(awk '
+        function flush() { if (n > 0 && !(cur ~ /Objection:/ && cur ~ /Reply:/)) b++ }
+        /^## Objections/ { f = 1; next }
+        /^## / { if (f) flush(); f = 0 }
+        f && /^- / { flush(); n++; cur = $0; next }
+        f && n > 0 { cur = cur " " $0 }
+        END { if (f) flush(); print n + 0, b + 0 }
+    ' DESIGN.md)"
+    nobj="${counts% *}"
+    nbad="${counts#* }"
+    if [ "$nobj" -eq 0 ]; then
+        echo 'not ok 6 - ## Objections has no "- " entry; the heading alone rebuts nothing'
+        rc=1
+    elif [ "$nbad" -eq 0 ]; then
+        echo "ok 6 - every objection is stated (Objection:) before it is answered (Reply:)"
+    else
+        echo "not ok 6 - $nbad objection(s) lack an Objection: or a Reply: label -- state the reviewer's point in its strongest form, then answer it"
+        rc=1
+    fi
+else
+    echo "ok 6 - no ## Objections section (optional; when present each entry needs Objection: and Reply:)"
 fi
 exit $rc

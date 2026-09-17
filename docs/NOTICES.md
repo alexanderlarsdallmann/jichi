@@ -62,6 +62,7 @@ wording is free to change (stderr is not an interface — EMBEDDING.md).
 | `[brackets]` | the setup wizard's help sentence "take the default in [brackets]" |
 | `[evidence:` | the mentor's provenance trailer on a memory note (`[evidence: …]`) — **authored by the model**, kept by `learn apply` since M600 and read back by `learn analyze`; a convention the draft parser keys on, not a notice jichi renders. It reaches the model only inside a remembered note |
 | `[pins:` | the M600 pin trailer (`[pins: tests/smoke/x.sh]`) naming the test, lint or constraint that holds a note; same provenance and same reach as `[evidence:`. `jc_insights.c` matches the literal to count the pinned share, which is what put it in this lint's scrape |
+| `[warrant:` | the M632 warrant trailer (`[warrant: measured\|judgement\|unchecked]`) stating a note's provenance class — **authored by the model** at the mentor prompt's request, kept on the note like the two above, counted by `learn apply` and matched literally by `jc_insights.c` to list unchecked notes first. A label, never a gate; nothing is refused for lacking or carrying one |
 
 See also: [AUTONOMY.md](AUTONOMY.md) (the envelope notices),
 [COMPACTION.md](COMPACTION.md) (the context gauge and elision markers),

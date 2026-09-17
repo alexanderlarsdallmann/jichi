@@ -567,7 +567,8 @@ static const struct jc_tool RENAME_TOOL = {
     "Give the current 'symbol', the 'path' it appears in, and the 'new_name'. "
     "Mutating; registered only when lspServers is configured.",
     rename_schema, 0, rename_run, NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 static const struct jc_tool FORMAT_TOOL = {
@@ -576,7 +577,8 @@ static const struct jc_tool FORMAT_TOOL = {
     "one formats it, otherwise via the configured formatCommand. Mutating; "
     "registered when lspServers or formatCommand is set.",
     format_schema, 0, format_run, NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 static const struct jc_tool ACTION_TOOL = {
@@ -588,7 +590,8 @@ static const struct jc_tool ACTION_TOOL = {
     "(workspace/executeCommand, applying any edits the server pushes back). "
     "Mutating; registered only when lspServers is configured.",
     action_schema, 0, action_run, NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 const struct jc_tool *jc_tool_rename_symbol(void) { return &RENAME_TOOL; }

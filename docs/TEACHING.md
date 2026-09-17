@@ -434,9 +434,11 @@ Stated rather than implied, because each would otherwise look like a bug.
   prints its own format records `0/0` with a correct pass/fail verdict. Not a
   failure — just less detail than the shipped tasks give.
 - **No cohort view.** By decision (§7), not omission.
-- **`jichi assignments` is a flat, name-sorted list.** No stage grouping, no
-  per-stage totals; the gate arithmetic is still yours to do. Open in
-  [DEFERRED.md](DEFERRED.md).
+- **`jichi assignments` groups by stage with point totals** (M626), and
+  `--stage <name>` filters — but the gate VERDICT is still yours to make: a
+  gate is more than points (a debugging record, task 09 required, all four
+  floors), so the listing gives you the arithmetic and INDEX.md gives you the
+  gate.
 - **Path B is a first pass, never a grade.** It is a read-only agent comparing
   work to a rubric. Read its report; do not forward it.
 - **`/check` and `/assign` need the assignments pack.** `jichi init assignments`

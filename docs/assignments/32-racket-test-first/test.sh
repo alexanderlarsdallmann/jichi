@@ -4,7 +4,7 @@
 #   2. it actually tests something (>= 3 checks -- a hollow suite is not proof);
 #   3. an independent acceptance probe confirms the bug is really fixed.
 cd "$(dirname "$0")" || exit 1
-raco -h >/dev/null 2>&1 || { echo "FAIL: raco (Racket) is not usable (or a version-manager shim with no version selected)"; exit 1; }
+raco -h >/dev/null 2>&1 || { echo "CANNOT RUN: raco (Racket) is not usable (or a version-manager shim with no version selected)"; exit 77; }
 
 if [ ! -f test-list-max.rkt ]; then
   echo "FAIL: write the failing test first -- test-list-max.rkt is missing"; exit 1; fi

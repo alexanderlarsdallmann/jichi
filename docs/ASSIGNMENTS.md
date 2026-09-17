@@ -89,14 +89,24 @@ under `.jichi/`, and are deliberately *not* injected into every prompt — so th
 context budget stays lean. List them any time:
 
 ```sh
-jichi assignments      # one row per assignment: phase, points, status, solution
+jichi assignments              # grouped by stage, with per-stage point totals
+jichi assignments --stage shu  # just the stage you are working
 ```
 
 The listing is the learner's map (M174): each row shows the spec's `phase` and
 `points` from its own frontmatter plus a **status** column folded from the
 progress record — `-` (never graded), `attempted (best N%)`, or `passed` — and
 a `(+solution)` marker when a reference solution sibling exists. `INDEX.md` is
-listed nowhere: it is the set's map, not an assignment.
+listed nowhere: it is the set's map, not an assignment. Since M626 the rows
+group by the specs' `stage:` key (`shu`/`ha`/`ri`, then the tracks — the
+values mirror INDEX.md's tables and `tests/smoke/stage_index_lint.sh` holds
+the two identical), each group headed by its earned/available points and
+passed count, with one `total:` line at the end — so "am I ready for the next
+stage?" is a read, not hand-arithmetic. The gate *verdict* stays yours: gates
+have non-point parts (a debugging record, task 09 required, all four floors),
+so the binary deliberately prints totals, never "gate met". In a workspace
+whose specs carry no `stage:` key the listing stays the flat table it always
+was.
 
 ## The assignment structure
 
@@ -159,7 +169,8 @@ directly, graded by its own `verify` command, with graded help on hand.
 ### One file, two readers
 
 The assignment's frontmatter carries a `verify` command, a `points` weight, an
-`audience`, and a `hints:` ladder, so the same file that a human reads as a
+`audience`, a `stage:` (the curriculum group the listing folds totals by,
+M626), and a `hints:` ladder, so the same file that a human reads as a
 tutorial is *also* a spec the tooling can grade and solve:
 
 ```yaml
@@ -209,6 +220,30 @@ hints:
 > spec with no gate test at all, because a *sibling* assignment's tests were red
 > in the same suite. Which is one more reason to point `verify` at the specific
 > acceptance test, per the paragraph above.
+>
+> **The verify exit-code contract (M625).** Exit 0 is a pass; any other exit is
+> a FAIL — except **exit 77**, which is the verify *declaring it cannot run
+> here* (automake's SKIP convention): a missing compiler, a version-manager shim
+> with no toolchain selected. Every grading surface (`grade`, `attempt`, the
+> TUI's `/grade`, the daemon verb, `improve --attempt`) reads 77 as a
+> **refusal, never a grade** — exit 2, the script's own first output line
+> quoted, nothing recorded in the learner's progress file. Guard your
+> toolchain **by usability, not existence** (`rustc --version`, not
+> `command -v rustc` — a rustup shim answers the latter and fails the former,
+> M624) and say why:
+>
+> ```sh
+> rustc --version >/dev/null 2>&1 \
+>     || { echo "CANNOT RUN: rustc is not usable -- install Rust"; exit 77; }
+> ```
+>
+> 77 and not the obvious 2, because `grep` and `[` — which the intro-tier specs
+> use bare as their verify — exit 2 on ordinary operational errors, and a
+> missing learner file must grade FAIL, not refuse. A compile failure of the
+> learner's own code stays a FAIL: the guard is for the tool, never the work.
+> `--expect-fail` also refuses on 77 — a gate that cannot *run* proves nothing
+> about being able to *fail*. `tests/smoke/assignment_guard_lint.sh` holds the
+> shipped curriculum to this contract.
 - A solver requests the graded hints **one at a time** with the `hint` tool
   (only when genuinely stuck — they escalate nudge → approach → worked step and
   use is recorded, never silently penalised), asks a clarification with
@@ -289,6 +324,7 @@ needing to prompt the model for help:
 /assignments             list the briefs under docs/assignments/
 /assignment <spec.md>    load one; the model switches to TUTOR stance for it
 /hint                    reveal the next graded rung (nudge -> approach -> step)
+/predict <claim>|right|wrong   record what you expect BEFORE you look; bare = tally
 /grade                   run the brief's own verify; PASS/FAIL + first failures
 /tutor <question>        a read-only helper answers with a nudge, never the code
 /assignment off          end the session; normal jichi resumes

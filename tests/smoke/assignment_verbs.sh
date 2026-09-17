@@ -23,8 +23,9 @@
 # WHAT IS AND IS NOT CHECKED (the M305 rule):
 #   checked      -- the handshake advertises the group; list/get/grade over
 #                   purpose-built fixtures; a passing AND a failing grade; the
-#                   no-verify and not-gradeable refusals; and three shapes of
-#                   name that must be refused.
+#                   no-verify and not-gradeable refusals (both the unreachable
+#                   script and the M625 self-declared exit-77 cannot-run); and
+#                   three shapes of name that must be refused.
 #   NOT checked  -- `assignment.attempt`, which does not exist. Submitting an
 #                   attempt means writing caller-supplied files into a workspace
 #                   the daemon did not choose and grading them; it is left to a
@@ -33,7 +34,7 @@
 #                   grades and reports, it does not write the learner's file.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 12
+t_plan 13
 smoke_home
 tmp=$(smoke_tmp)
 SOCKQ="$SMOKE_TOOLS/sockq"
@@ -73,6 +74,14 @@ points: 5
 verify: "sh ./no/such/grader.sh"
 ---
 The verify script is not here, which is not the learner's fault.
+EOF
+cat > "$ws/docs/assignments/50-toolless.md" <<'EOF'
+---
+title: Toolchain is missing
+points: 2
+verify: "sh -c 'echo \"CANNOT RUN: frobc is not usable\"; exit 77'"
+---
+Graded only where frobc exists.
 EOF
 
 # A real, well-formed, GRADEABLE spec that is NOT in the assignment set, placed
@@ -190,6 +199,18 @@ case "$out" in
  marking service would record a FAIL for a harness problem, which is exactly the
  defect M502 fixed for the CLI: $out" ;;
     *) t_fail "unreachable-verify got: $out" ;;
+esac
+
+# --- 9b: a verify that DECLARES it cannot run (exit 77, M625) is the same
+# class on the wire: not_gradeable, never passed:false and never "unreadable"
+# (the spec reads fine; the MACHINE lacks the toolchain).
+out=$(ask '{"v":1,"type":"assignment.grade","name":"50-toolless.md"}')
+case "$out" in
+    *'"code":"assignment.not_gradeable"'*)
+        t_ok "a self-declared cannot-run (exit 77) is not a grade on the wire" ;;
+    *'"passed":false'*)
+        t_fail "a cannot-run verify was reported as passed:false: $out" ;;
+    *) t_fail "cannot-run verify got: $out" ;;
 esac
 
 # --- 10-11: a name may not express a location -------------------------------

@@ -32,7 +32,7 @@
 #                   needs the LSP layer to check each edit as it applies it.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 3
+t_plan 4
 smoke_home
 tmp=$(smoke_tmp)
 
@@ -70,6 +70,12 @@ if grep -q REFORMATTED "$CASE_WS/README.md"; then
  the fence knows three write tools and the event layer counts six"
 else
     t_ok "format_file is fenced outside the edit scope"
+fi
+# --- 1b: M638 -- the edit-scope denial is a fence working, and the footer says so
+if grep -q "1 tool call, 1 error (1 refused by a fence)" "$tmp/out"; then
+    t_ok "the reach footer counts the edit-scope denial as a refusal"
+else
+    t_fail "footer did not count the scope refusal: $(grep checked "$tmp/out" | head_bytes 200)"
 fi
 
 # --- 2: control -- inside the scope it must still work ----------------------

@@ -70,21 +70,85 @@ interop win below.
   build is `-std=c89 -pedantic` with gcc/clang. C++ compilation is a
   *property* of the codebase, not a target of it.
 
+## M636 — the tier had rotted, and three published commands did not work
+
+Everything above was true in 2026-07 and three of its commands had stopped
+working by 2026-09, which nobody knew because **nothing ran them**. M188 kept
+`cpp-check` out of `make ci` on purpose and put nothing in its place. Measured
+from a clean tree on 2026-09-16, before the fix:
+
+| Command | Then | Why |
+|---|---|---|
+| `make CC=g++` | builds, **913 warnings** | 900 of them are five C-only flags × 180 files; 13 are real |
+| `make CC=clang++` | **fails outright** | clang++ rejects `-std=c89`; g++ only warns |
+| `make cpp-check` | **fails from clean** | no prerequisite on the generated `jc_buildrev_stamp.h` (M495), which `make clean` deletes (M593) |
+| `make cpp-check CXX=clang++` | **fails from clean** | same |
+| `make cpp-check CXX="zig c++"` | **fails every file** | the driver dispatches on `.c` and meets `-std=c++17` |
+
+All five now pass, and the numbers after are:
+
+| Command | Now | Wall (32-core bench) |
+|---|---|---|
+| `make CC=g++` | builds, **13 warnings** | 1 s |
+| `make CC=clang++` | builds, **13 warnings** | 2 s |
+| `make cpp-check` | 302 files | 6 s |
+| `make cpp-check CXX=clang++` | 302 files | 8 s |
+| `make cpp-check CXX="zig c++"` | 302 files | 41 s |
+
+The 13 are the `-Wwrite-strings` residue this page already described — measured
+at 13 sites, not the "~20" claimed above. Four changes did it: `$(STAMP)` became
+a prerequisite of `cpp-check`; `-x c++` is passed explicitly (clang++ has
+*deprecated* compiling a `.c` input as C++, so the 180 notices were a warning
+about a future hard failure); the syntax-only mode is probed rather than assumed,
+because `zig c++` accepts `-fsyntax-only` and then fails every file with
+`error: FileNotFound`; and the presence probe uses `$(firstword $(CXX))`, so a
+two-word driver is not reported missing.
+
+**`make CC=clang++` works because the Makefile now asks what `$(CC)` is.** It
+compiles a C++-only program named `.c` and reads the exit status — g++ and
+clang++ accept it, gcc and clang do not — then selects `-x c++ -std=c++17` and
+drops the four C-only warning flags. The old C89 probe answered this question
+wrongly *and blamed the machine*: for clang++ it fell through to
+`STD_DIALECT = gnu89 (this platform's headers are not C89-parseable)`, which is a
+false statement about the host when the truth is a fact about the compiler.
+
+**`zig c++` is not a third C++ build.** Measured: given a file named `.c` it
+compiles C, exactly as `zig cc` does. `make CC="zig c++"` therefore builds the
+ordinary C89 jichi; only `make cpp-check CXX="zig c++"`, which passes `-x c++`,
+reaches zig's C++ front-end at all.
+
+**The tier stays out of `make ci`** — the M188 decision holds, the C gate is the
+gate — but `tests/smoke/cppcheck_lint.sh` now runs in every `make smoke`. It
+checks the four properties above plus, behaviourally, that `cpp-check` survives a
+missing stamp, at ~2 s rather than the 55 s a full three-front-end sweep costs.
+
+**What it found.** One real defect, in its first run after the repair:
+`src/index/jc_docs.c` carried `pending_nl = pending_nl || 0;` — a statement that
+compiles to nothing, which gcc never mentions and clang++ flags as
+`-Wconstant-logical-operand`. It was correct in intent (a literal newline in HTML
+source is inline whitespace, and must not clear a queued block boundary) and
+wrong as code: a reader who trusts it looks for an effect that is not there. It
+is now the comment it always was. That is the second time this tier has paid for
+itself — the first was the 12 implicit-conversion sites at M188.
+
 ## Practicalities, if you try it
 
-- Plain `make CC=g++` warns once per file that `-std=c89` "is valid for
-  C/ObjC but not for C++" and then compiles under g++'s default C++
-  standard. Harmless. (`WERROR=1` would promote that warning to an error;
-  don't combine them.)
+- `make CC=g++` and `make CC=clang++` both work and both print the same 13
+  warnings. Don't add `WERROR=1`: those 13 are real, deliberately left, and
+  described below.
 - Don't override `STD=` on the command line: the Makefile's feature
   probes append `-DJC_HAVE_VSNPRINTF`/`-DJC_HAVE_CURL` to it, and a
-  command-line variable would clobber both (make semantics).
+  command-line variable would clobber both (make semantics). The C++ dialect is
+  selected by the probe, not by you.
 - One residue class remains as warnings under `-Wwrite-strings`: the
   `argv[0] = "/bin/sh"` idiom (string literal into `char *argv[]` for
-  `execv`-family calls) — ~20 sites, correct C, and left alone
+  `execv`-family calls) — **13 sites** (measured 2026-09-16; this page said
+  "~20" from 2026-07 to M636), correct C, and left alone
   deliberately: POSIX's `execv` signature is the constraint, not our
   style. The `sk.description` cast in `jc_learn.c` similarly mirrors what
   C did silently; a full const-correctness pass is noted, not scheduled.
+- Want to read *about* C++ rather than compile C as it? The C++ section of
+  [BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) is 11 checked entries, five of them free.
 
 *See also: [PORTING_WINDOWS.md](PORTING_WINDOWS.md) (the sibling boundary
 survey), CONTRIBUTING.md (the C89 rules that made this nearly free).*

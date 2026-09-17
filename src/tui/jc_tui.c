@@ -29,6 +29,7 @@
 #include "jc_learn.h"
 #include "jc_eventlog.h"
 #include "jc_assign.h"
+#include "jc_assignlist.h"
 #include "jc_gradecore.h"
 #include "jc_progress.h"
 #include "jc_testparse.h"
@@ -2270,6 +2271,8 @@ static void help(struct jc_app *app)
     put("  /hint          reveal the next graded hint for the active brief\n");
     put("  /grade         run the brief's own verify; PASS/FAIL + failures\n");
     put("  /tutor <q>     ask the read-only helper (a nudge, never the code)\n");
+    put("  /predict <claim> | right | wrong   record what you expect BEFORE you\n"
+        "                 look, resolve it after; bare = the tally (never scored)\n");
 
     help_section(color, "Session");
     put("  /sessions      list saved conversations (recent last; --all "
@@ -2374,12 +2377,6 @@ static void help(struct jc_app *app)
 static struct jc_assign_spec g_assignment;
 static char g_assignment_path[1100]; /* as given to /assignment, for --record */
 
-/* Sort a jc_vec of char* names so a numbered curriculum lists in order. */
-static int tui_name_cmp(const void *a, const void *b)
-{
-    return strcmp(*(char * const *)a, *(char * const *)b);
-}
-
 static void assignment_off(struct jc_app *app)
 {
     app->assignment = NULL;
@@ -2427,6 +2424,17 @@ static void assignment_grade(struct jc_app *app, int color)
                "This is NOT a grade (nothing was recorded). Run jichi from "
                "the directory the spec's paths are relative to.\n",
                g.prog, g.spec.verify);
+        return;
+    case JC_GRADE_VERIFY_REFUSED:
+        /* M625: the verify itself said it cannot run (exit 77) -- a missing
+         * toolchain is a property of this machine, never of the work. */
+        printf("the verify command says it cannot run here (exit %d):\n"
+               "  %s\n"
+               "This is NOT a grade (nothing was recorded). Install what the "
+               "message names, or leave this task and come back later (the "
+               "skip rule, docs/assignments/INDEX.md).\n",
+               JC_VERIFY_CANNOT_RUN,
+               g.why[0] != '\0' ? g.why : "(the script printed no reason)");
         return;
     default:
         break;
@@ -2505,6 +2513,7 @@ static const char *TUI_CMDS[] = {
     "/learn analyze", "/learn apply", "/learn corrections",
     "/voice", "/listen", "/chat",
     "/assignments", "/assignment", "/hint", "/grade", "/tutor",
+    "/predict", /* M635 */
     "/config", "/benchmark", "/packages", "/markdown", "/typeahead",
     "/cache", "/autocontext", "/wisdom", "/accessible",
     "/quiet",
@@ -3707,77 +3716,35 @@ int jc_tui_run(struct jc_app *app)
         }
         /* --- learner-support commands (M173b) --------------------------- */
         if (strcmp(line, "/assignments") == 0) {
-            struct jc_vec names;
+            struct jc_vec arows;
             /* M200: the listing reads progress.jsonl, the directory names AND
              * every assignment file's spec -- all of it printed and dropped. On
              * app->arena (freed only at process exit) each /assignments in a
              * long TUI session retained the lot again: the same shape as the
-             * M197 /sessions bug, one command over. */
+             * M197 /sessions bug, one command over.
+             * M626: THROUGH THE ONE COLLECTOR (jc_assignlist). This used to be
+             * a re-implementation, and it had diverged exactly as copies do:
+             * it read no hints.jsonl, so a rung pulled here was invisible
+             * here, and it would have stayed a flat list while the CLI grew
+             * stage grouping. */
             struct jc_arena *la = jc_arena_new(0);
-            char adir[1100];
-            char solp[1300];
-            char ppath[1160];
-            char *progress = NULL;
-            jc_size ai;
-            int an = 0;
-            jc_snprintf(adir, sizeof(adir), "%s/docs/assignments", app->cwd);
-            jc_snprintf(ppath, sizeof(ppath), "%s/.jichi/progress.jsonl",
-                        app->cwd);
             if (la == NULL) {
                 put("(out of memory listing assignments)\n");
                 free(line);
                 continue;
             }
-            if (jc_read_file(ppath, &progress, NULL, la) != JC_OK) {
-                progress = NULL;
-            }
-            jc_vec_init(&names, sizeof(char *));
-            jc_list_dir(adir, &names, la);
-            if (names.len > 1) {
-                qsort(names.data, (size_t)names.len, sizeof(char *),
-                      tui_name_cmp);
-            }
-            for (ai = 0; ai < names.len; ai++) {
-                const char *nm = *(char **)jc_vec_at(&names, ai);
-                jc_size alen = (jc_size)strlen(nm);
-                char *atext = NULL;
-                struct jc_assign_spec aspec;
-                struct jc_progress aprog;
-                char row[512];
-                if (alen < 4 || strcmp(nm + alen - 3, ".md") != 0) continue;
-                if (alen >= 12 &&
-                    strcmp(nm + alen - 12, ".solution.md") == 0) continue;
-                if (strcmp(nm, "INDEX.md") == 0) continue;
-                jc_snprintf(solp, sizeof(solp), "%s/%.*s.solution.md", adir,
-                            (int)(alen - 3), nm);
-                if (an == 0) {
-                    jc_progress_row_header(row, sizeof(row));
-                    printf(C_DIM "  %s" C_RESET "\n", row);
-                }
-                memset(&aspec, 0, sizeof(aspec));
-                {
-                    char ap[1300];
-                    jc_snprintf(ap, sizeof(ap), "%s/%s", adir, nm);
-                    if (jc_read_file(ap, &atext, NULL, la) == JC_OK) {
-                        jc_assign_parse(atext, &aspec, la);
-                    }
-                }
-                jc_progress_scan(progress, nm, &aprog);
-                jc_progress_row(nm, aspec.phase, aspec.points,
-                                jc_file_exists(solp), &aprog,
-                                row, sizeof(row));
-                printf("  %s\n", row);
-                an++;
-            }
-            if (an == 0) {
+            jc_vec_init(&arows, sizeof(struct jc_assign_row));
+            jc_assignlist_collect(app->cwd, la, &arows);
+            if (arows.len == 0) {
                 put("(no assignments under docs/assignments/ -- ask the agent "
                     "to write one with /assign, or copy one from the "
                     "curriculum)\n");
             } else {
+                jc_assignlist_print(&arows, NULL, C_DIM, C_RESET);
                 put(C_DIM "  load one with /assignment "
                     "docs/assignments/<name>.md" C_RESET "\n");
             }
-            jc_vec_free(&names);
+            jc_vec_free(&arows);
             jc_arena_free(la);
             free(line);
             continue;
@@ -3877,6 +3844,62 @@ int jc_tui_run(struct jc_app *app)
                            ".jichi/hints.jsonl -- the hint stands, the "
                            "ladder record does not)\n");
                 }
+            }
+            free(line);
+            continue;
+        }
+        /* M635: /predict -- record what you expect BEFORE you look, resolve it
+         * after, read the tally. A learner-owned sink, .jichi/predictions.jsonl,
+         * separate from progress.jsonl for the reason hints.jsonl is: a
+         * prediction must never read as an attempt, and the hit rate is never
+         * scored. No model is involved: the hint ladder's measurement (M319,
+         * two models, 24 runs, zero calls) says learner-side mechanisms are
+         * learner-driven, and a slash command is what a person actually types. */
+        if (strncmp(line, "/predict", 8) == 0 &&
+            (line[8] == '\0' || line[8] == ' ')) {
+            const char *q = line + 8;
+            const char *pdir = app->root[0] != '\0' ? app->root : app->cwd;
+            while (*q == ' ') q++;
+            if (q[0] == '\0') {
+                struct jc_predictions pr;
+                char ppath[1200];
+                char *ptext = NULL;
+                jc_snprintf(ppath, sizeof(ppath), "%s/.jichi/predictions.jsonl",
+                            pdir);
+                if (jc_read_file(ppath, &ptext, NULL, jc_app_scratch(app))
+                    != JC_OK) {
+                    ptext = NULL;
+                }
+                jc_progress_predict_scan(ptext, &pr);
+                if (pr.made == 0) {
+                    put("Predictions: none yet. /predict <what you expect> "
+                        "BEFORE you look; /predict right|wrong after.\n");
+                } else {
+                    printf("Predictions: %d made, %d resolved, %d right",
+                           pr.made, pr.resolved, pr.right);
+                    if (pr.resolved > 0) {
+                        printf(" (hit rate %d%%)",
+                               (pr.right * 100) / pr.resolved);
+                    }
+                    printf(", %d open.\n", pr.open);
+                }
+            } else if (strcmp(q, "right") == 0 || strcmp(q, "wrong") == 0) {
+                jc_status prc = jc_progress_predict_resolve(pdir,
+                                    strcmp(q, "right") == 0);
+                if (prc == JC_ERR_NOTFOUND) {
+                    put("(no open prediction to resolve -- /predict <text> "
+                        "first, before you look)\n");
+                } else if (prc != JC_OK) {
+                    put("(could not write .jichi/predictions.jsonl)\n");
+                } else {
+                    printf("resolved: %s. /predict shows the tally.\n", q);
+                }
+            } else if (jc_progress_predict_append(pdir, q) == JC_OK) {
+                put("recorded. Now look -- then /predict right or "
+                    "/predict wrong.\n");
+            } else {
+                put("(could not write .jichi/predictions.jsonl -- the "
+                    "prediction stands in your head, not the record)\n");
             }
             free(line);
             continue;

@@ -2,6 +2,7 @@
 title: Refactor it to Zig
 audience: student
 phase: implementation
+stage: migration
 difficulty: advanced
 points: 4
 verify: "sh docs/assignments/26-refactor-to-zig/test.sh"

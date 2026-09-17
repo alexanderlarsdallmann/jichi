@@ -2,6 +2,7 @@
 title: The Guile capstone — a postfix calculator
 audience: student
 phase: implementation
+stage: guile
 difficulty: medium
 points: 4
 verify: "sh docs/assignments/38-guile-capstone/test.sh"

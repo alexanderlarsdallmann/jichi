@@ -2,6 +2,7 @@
 title: The arena
 audience: student
 phase: implementation
+stage: c-systems
 difficulty: medium
 points: 4
 verify: "sh docs/assignments/54-the-arena/test.sh"

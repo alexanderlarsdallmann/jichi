@@ -11,6 +11,13 @@
 # ACCOUNT.md must name the UB and the fix (why unsigned is the right tool).
 cd "$(dirname "$0")" || exit 1
 
+# M625: no usable compiler at all is a property of the MACHINE -- declare
+# cannot-run (exit 77, read as a refusal, never a grade). A compiler that
+# exists but rejects the code stays the graded FAIL below: the compile is
+# part of the task here.
+{ "${CC:-cc}" --version >/dev/null 2>&1 || clang --version >/dev/null 2>&1; } \
+    || { echo "CANNOT RUN: no C compiler (cc/gcc/clang) is usable here -- install one (build-essential / gcc) (or a version-manager shim with no version selected)"; exit 77; }
+
 build() {
     "$1" -std=c89 -pedantic -Wall -Wextra -Werror \
         -fsanitize=undefined -fno-sanitize-recover=all \

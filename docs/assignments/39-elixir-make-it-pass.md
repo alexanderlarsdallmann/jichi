@@ -2,6 +2,7 @@
 title: Make the failing test pass (Elixir)
 audience: student
 phase: testing
+stage: elixir
 difficulty: intro
 points: 2
 verify: "sh docs/assignments/39-elixir-make-it-pass/test.sh"

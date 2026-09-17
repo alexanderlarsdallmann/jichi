@@ -2,6 +2,7 @@
 title: The signed byte
 audience: student
 phase: implementation
+stage: extras
 difficulty: intermediate
 points: 3
 verify: "sh docs/assignments/30-the-signed-byte/test.sh"

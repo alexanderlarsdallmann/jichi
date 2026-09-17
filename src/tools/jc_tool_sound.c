@@ -107,7 +107,8 @@ static const struct jc_tool PLAY_TOOL = {
     0, /* mutating: emits sound into the shared environment */
     play_run,
     NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 const struct jc_tool *jc_tool_play_audio(void)
@@ -211,7 +212,8 @@ static const struct jc_tool RECORD_TOOL = {
     0, /* mutating: captures the environment + writes a file */
     record_run,
     NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 const struct jc_tool *jc_tool_record_audio(void)

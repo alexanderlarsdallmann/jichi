@@ -549,7 +549,15 @@ List output styles (.jichi/output\-styles)
 Print the resolved project rules (AGENTS.md chain)
 .TP
 .B assignments
-List assignments under docs/assignments/ (see `init assignments`)
+List assignments under docs/assignments/, grouped by the specs' curriculum
+stage with per-stage point totals and an overall standing line (M626; the
+grouping appears only when a spec carries a `stage:` key, so non-curriculum
+workspaces list flat as before).
+.B \-\-stage
+.I name
+filters the listing to one stage. Gate thresholds are deliberately not
+printed: a stage gate is more than points, so compare the totals against
+docs/assignments/INDEX.md. (See `init assignments`.)
 .TP
 .B sysmsg
 Print the resolved system prompt (debugging)

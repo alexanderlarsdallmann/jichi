@@ -131,7 +131,8 @@ static const struct jc_tool FETCH_TOOL = {
     1, /* readonly: it does not modify the filesystem */
     fetch_run,
     NULL, NULL, NULL, /* not a dynamic (MCP) tool */
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 const struct jc_tool *jc_tool_fetch(void)

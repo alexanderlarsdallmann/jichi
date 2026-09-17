@@ -31,7 +31,30 @@ extern "C" {
 #define JC_WF_MAX_STAGES 16
 #define JC_WF_MAX_ITEMS  64
 
-enum jc_wf_type { JC_WF_MAP = 0, JC_WF_SYNTHESIZE, JC_WF_VERIFY, JC_WF_UNKNOWN };
+/* M634: `refute` is the fourth stage -- a READ-ONLY second seat that takes the
+ * previous stage's output as "another agent's claim and evidence" and argues
+ * against it under a frame the spec author cannot weaken (JC_WF_REFUTE_FRAME_A
+ * and _B, the stage's system message; the spec's `prompt` is appended as
+ * context, never substituted). Rebutting (the claim is false), undercutting (the evidence
+ * does not support it), stands (tried and failed) -- and "nothing found" is a
+ * permitted answer, because an invented defeater is worse than none. */
+enum jc_wf_type { JC_WF_MAP = 0, JC_WF_SYNTHESIZE, JC_WF_VERIFY, JC_WF_REFUTE,
+                  JC_WF_UNKNOWN };
+
+/* Two halves, each under C89's 509-char literal limit; the runner appends
+ * both into one system message. */
+#define JC_WF_REFUTE_FRAME_A \
+    "You are the second seat. The text below is another agent's claim and " \
+    "evidence. Do not agree with it. For each load-bearing claim produce:\n" \
+    "## Rebutting -- evidence that the claim is FALSE (cite file:line, or a " \
+    "read-only command you ran and its output)\n"
+#define JC_WF_REFUTE_FRAME_B \
+    "## Undercutting -- reasons the evidence given does NOT support the claim, " \
+    "even if the claim is true\n" \
+    "## Stands -- claims you tried to defeat and could not, and what you tried\n" \
+    "Say \"nothing found\" under a heading rather than inventing a defeater. " \
+    "You may read files and run read-only commands; you may not edit anything."
+
 
 struct jc_wf_stage {
     int         type;                    /* enum jc_wf_type                 */

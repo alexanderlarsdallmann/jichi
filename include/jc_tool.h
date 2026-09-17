@@ -106,6 +106,19 @@ struct jc_tool {
      * initialiser omits, so adding this at the end leaves 40-odd definitions
      * untouched and correct. */
     int main_agent_only;
+    /* M631: this tool may run in PLAN mode although it is not read-only. The
+     * one tool that sets it is write_plan, which writes exactly one declared
+     * path (.jichi/PLAN.md) -- the artifact plan mode exists to produce.
+     * Honoured in three places from this one fact: the permission verdict
+     * (jc_perm_for_tool's read-only argument), the tool advertiser
+     * (jc_tool_build_neutral_ex, so the model is TOLD the tool exists in plan
+     * mode), and the execution-time read-only fence in jc_tool_execute, which
+     * plan mode arms through app->readonly -- and which the born-red driver
+     * found the first build had missed. NOT consulted by the constraint
+     * scanner: an authored `read-only` constraint still blocks it, because a
+     * constraint is the operator's word and outranks the mode. Trailing for
+     * the same C89 reason as main_agent_only. */
+    int plan_allowed;
 };
 
 struct jc_tool_registry {
@@ -363,6 +376,7 @@ const struct jc_tool *jc_tool_read_background(void);
 const struct jc_tool *jc_tool_kill_background(void);
 const struct jc_tool *jc_tool_web_search(void);
 const struct jc_tool *jc_tool_ask_user(void);    /* M34d/F4; uses app->ask delegate */
+const struct jc_tool *jc_tool_write_plan(void); /* M631: the plan artifact's one writer */
 const struct jc_tool *jc_tool_hint(void);        /* learner-support: assignment hint ladder */
 const struct jc_tool *jc_tool_ask_for_help(void);/* learner-support: clarify (human) or helper agent */
 const struct jc_tool *jc_tool_search_docs(void); /* M34a; needs role "embed" + docs */

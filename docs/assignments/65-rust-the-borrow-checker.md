@@ -2,6 +2,7 @@
 title: The borrow checker (Rust)
 audience: student
 phase: implementation
+stage: rust
 difficulty: medium
 points: 3
 verify: "sh docs/assignments/65-rust-the-borrow-checker/test.sh"

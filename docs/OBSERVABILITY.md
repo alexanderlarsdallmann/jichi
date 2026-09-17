@@ -369,6 +369,7 @@ event nothing emits). Consumers tolerate unknown events by design
 | `constraint_exempt` | an inferred read-only did NOT refuse a write: an explicit edit-scope names that path (M459; `tool`, `why`) |
 | `control` | a control-channel command was served (M159; `cmd` — injects make the run `steered=N` in `runs`) |
 | `ask` | the model asked the human (M359: `question`, `answered` — `runs` renders unanswered=N) |
+| `plan` | `write_plan` wrote `.jichi/PLAN.md` under this envelope (M631: `rejected` = alternatives carrying a reason, `touches` = files the plan predicts). The plan's shape is part of the run's record the way an ask is; the reconciliation against what the run then wrote is in the `done` object's `reach`, not here |
 | `parallel_verify` | a write child's worktree verify verdict before merge (M144: `task`, `exit` — a red child is quarantined) |
 | `self_review` | the one-shot self-review pass ran on the turn's diff (M39) |
 | `strict_green` | strict-green downgraded a green outcome over out-of-scope changes (M332) |

@@ -271,6 +271,13 @@ $ grep 'Where:' DECISIONS.md
 
 ### 3.1 Recommendations
 
+> **The graded floor of this section** is
+> [`assignments/75-process-decisions.md`](assignments/75-process-decisions.md) (M629):
+> three decisions, each with `Chose:`, `Rejected: … — why it lost` and `Because:`
+> — the criterion, traced to a requirement. The `Because:` line is what this page
+> calls the alternative's *why*, made a scale a reader can weigh on rather than a
+> verdict they must take.
+
 - **Write it while the alternative is still warm.** A week later you will
   remember the winner and reconstruct a flattering reason for it. That
   reconstruction is worse than no entry, because it reads as evidence.

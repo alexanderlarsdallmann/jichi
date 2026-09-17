@@ -26,7 +26,7 @@ timeouts undo workflow"
 --acp --route-fast \
 --route-strong --no-route --verify --verify-retries --verify-timeout \
 --verify-baseline --verify-kind --no-rollback --strict-scope --budget-tokens --deadline \
---max-tool-calls --edit-scope --journal --control --dry-run --list --global --force \
+--max-tool-calls --edit-scope --journal --control --dry-run --list --global --force --stage \
 -V --version -h --help"
 
     case "$prev" in

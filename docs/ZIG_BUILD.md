@@ -68,6 +68,37 @@ reports its documented "built without libcurl" error. For a static jichi
 ([LOW_MEMORY.md](LOW_MEMORY.md)'s recipe): zig bundles *libcs*, not your
 dependency tree — that half of the lesson stands.
 
+## Re-verified 2026-09-16 (zig 0.16.0, same bench)
+
+The claim was re-run from clean as part of M636's whole-toolchain sweep, because
+a compatibility claim nobody re-runs is a claim about 2026-07:
+
+| Row | Result | Wall |
+|---|---|---|
+| `make CC="zig cc"` | builds, 0 warnings | 11 s |
+| `make CC="zig cc" run_tests` | suite green | 15 s |
+| `make CC="zig cc -target x86_64-linux-musl" HAVE_CURL=` | **static-pie ELF**, `--version` runs and prints its build hash | 17 s |
+
+**Still true, all of it**, including the static cross — which is worth saying
+plainly, because that row is the one the M190 repair was about and nothing in
+`make ci` exercises it.
+
+One new finding, and it corrects an assumption rather than the page:
+**`zig c++` is not a C++ compiler for files named `.c`.** Given `foo.c` and no
+`-x` flag it compiles C, exactly as `zig cc` does (probe exit status 1, against 0
+for g++ and clang++). So `make CC="zig c++"` builds the ordinary C89 jichi — it
+is not a third C++ build — and only `make cpp-check CXX="zig c++"`, which passes
+`-x c++`, reaches zig's C++ front-end. When it does, it needs `-c -o /dev/null`:
+`zig c++` *accepts* `-fsyntax-only` and then fails every file with
+`error: FileNotFound`, which is why the cpp-check recipe now probes the mode
+instead of assuming it ([CPP_BUILD.md](CPP_BUILD.md) §M636).
+
+Want to read *about* Zig? The Zig section of
+[BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) is 8 checked entries, every one of them free —
+the language reference (cited pinned as well as floating, for the same reason
+`jichi --version` prints a build hash), the build-system guide, an open-access
+book, and Ziglings.
+
 ## Verdict
 
 - **Use it when** you want a hermetic toolchain (pinned compiler + libc

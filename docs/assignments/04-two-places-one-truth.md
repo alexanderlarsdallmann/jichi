@@ -2,6 +2,7 @@
 title: Two places, one truth
 audience: student
 phase: implementation
+stage: shu
 difficulty: easy
 points: 2
 verify: "grep -q 'RING_CAP 128' docs/assignments/04-two-places-one-truth/ring.h && grep -q '128 entries' docs/assignments/04-two-places-one-truth/README.md && ! grep -q 'RING_CAP 64' docs/assignments/04-two-places-one-truth/ring.h && ! grep -q '64 entries' docs/assignments/04-two-places-one-truth/README.md"

@@ -3,7 +3,7 @@
 #   1. the learner's test_clamp.c exists, compiles, and passes, and
 #   2. an acceptance probe confirms the bug in clamp.c is actually fixed.
 cd "$(dirname "$0")" || exit 1
-cc --version >/dev/null 2>&1 || { echo "FAIL: a C compiler (cc) is is not usable -- install one (build-essential / gcc) (or a version-manager shim with no version selected)"; exit 1; }
+cc --version >/dev/null 2>&1 || { echo "CANNOT RUN: a C compiler (cc) is not usable -- install one (build-essential / gcc) (or a version-manager shim with no version selected)"; exit 77; }
 
 if [ ! -f test_clamp.c ]; then
     echo "1..1"

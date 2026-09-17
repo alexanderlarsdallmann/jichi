@@ -2,6 +2,7 @@
 title: The wrong suspect
 audience: student
 phase: implementation
+stage: shu
 difficulty: hard
 points: 3
 verify: "sh docs/assignments/08-the-wrong-suspect/test.sh"

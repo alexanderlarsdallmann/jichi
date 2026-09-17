@@ -2,6 +2,7 @@
 title: Kanban — an honest board, WIP limited
 audience: student
 phase: process
+stage: process
 difficulty: medium
 points: 3
 verify: "sh docs/assignments/72-process-kanban/test.sh"

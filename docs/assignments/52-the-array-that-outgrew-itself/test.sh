@@ -8,7 +8,7 @@
 # only a test that grows the vector (and a real grow) survives the sanitizer.
 cd "$(dirname "$0")" || exit 1
 trap 'rm -f ivtest ivaccept _accept.c' EXIT
-cc --version >/dev/null 2>&1 || { echo "FAIL: a C compiler (cc) is is not usable -- install one (build-essential / gcc) (or a version-manager shim with no version selected)"; exit 1; }
+cc --version >/dev/null 2>&1 || { echo "CANNOT RUN: a C compiler (cc) is not usable -- install one (build-essential / gcc) (or a version-manager shim with no version selected)"; exit 77; }
 CC=${CC:-cc}
 SAN="-std=c89 -pedantic -Wall -Wextra -fsanitize=address -fno-sanitize-recover=all"
 

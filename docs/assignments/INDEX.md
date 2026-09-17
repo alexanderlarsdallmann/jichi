@@ -7,6 +7,14 @@ graded by its own `verify` command — two-sided by construction: it fails on
 the untouched fixtures and passes on a reference solution
 (`tests/e2e/curriculum_graders.py` proves both directions on every change).
 
+Each spec carries this page's grouping as a `stage:` frontmatter key (M626 —
+`shu`/`ha`/`ri` for the gated sets, a slug per track), which is what
+`jichi assignments` groups and totals by;
+[`stage_index_lint.sh`](../../tests/smoke/stage_index_lint.sh) holds the keys
+and these tables identical, so editing one means editing both. The gate
+*rules* live only here: the listing prints totals, never a gate verdict,
+because every gate below asks for more than points.
+
 > **Curious how a *machine* does these?** [`../case-studies/`](../case-studies/README.md)
 > keeps four real agent attempts whole — including one that "passed" by editing
 > the test file, and one whose solution was better than the reference. Reading a
@@ -231,6 +239,7 @@ Curriculum extras carry points but belong to no stage gate:
 | read a real project | [`24-read-a-real-project.md`](24-read-a-real-project.md) | 4 | none — see [READING_OPEN_SOURCE.md](../READING_OPEN_SOURCE.md) |
 | works on my machine | [`29-works-on-my-machine.md`](29-works-on-my-machine.md) | 3 | a UBSan-capable `cc`/`clang` — see [C_STANDARDS.md](../C_STANDARDS.md) |
 | the signed byte | [`30-the-signed-byte.md`](30-the-signed-byte.md) | 3 | a `cc`/`clang` with `-f{,un}signed-char` — see [C_STANDARDS.md](../C_STANDARDS.md) |
+| read the turn | [`74-read-the-turn.md`](74-read-the-turn.md) | 4 | none — the jichi checkout itself is the subject; see [CODE_REVIEW.md](../CODE_REVIEW.md) (the reading track's review rung, above 24) |
 
 ## Migration tracks (extras): compile → extend → refactor
 
@@ -435,11 +444,38 @@ runtime — earlier, and for free. Graded with `rustc --test` (no cargo needed).
 without it. **With this, the systems family is complete** — all four languages
 (C, Zig, C++, Rust) now have a standalone graded course.
 
+## Systems track — C: files & structures (graded)
+
+The sibling of the C course above, and the answer to a gap the 2026-09-16
+coverage review measured: **file I/O appeared in 0 of 79 graded tasks and 0 of 16
+source-reading chapters**, while jichi's own source reads and writes files in 26.
+Where "manual memory" makes you build the machinery, this course makes you
+survive the **inputs** — a file that is not there, one that is bigger than you
+expected, one whose length you assumed.
+
+Its companion reading is [`FILE_HANDLING.md`](../FILE_HANDLING.md) and
+[`DATA_STRUCTURES.md`](../DATA_STRUCTURES.md), and both do the same three moves
+every task here does: what jichi chose and why, **when that choice is wrong**, and
+what to reach for instead. Graded under AddressSanitizer like the rest of the
+family — and each task says which of its floors the sanitizer *cannot* see.
+
+All five tasks the plan named are shipped
+([`plans/2026-09-files-and-structures.md`](../plans/2026-09-files-and-structures.md)); 79 and 80 as
+graded tasks rather than reading, for the reason the ROADMAP's M636j entry gives.
+
+| Assignment | Pts | Practices |
+|---|---|---|
+| [`76-the-file-that-wasnt-there.md`](76-the-file-that-wasnt-there.md) | 3 | reading a file honestly: the missing path, the discarded `fread` return, the cap checked before the allocation, and an error message that names the file |
+| [`77-replace-it-without-losing-it.md`](77-replace-it-without-losing-it.md) | 3 | writing a file without losing the old one: a temp in the same directory, `rename()` last, `0600` at creation for a secret, the temp removed on every failure -- and why `fsync` is not graded |
+| [`78-the-scan-that-was-fast-enough.md`](78-the-scan-that-was-fast-enough.md) | 4 | a hash table to a fixed contract -- collisions, key ownership, deletion that spares its neighbours -- and a recorded measurement against the linear scan on your own machine, with a machine, a method and a crossover; the grader checks the shape of the measurement, never which way it came out |
+| [`79-when-a-vector-is-wrong.md`](79-when-a-vector-is-wrong.md) | 3 | the same fix twice: a vector kept honest by holding an index across `realloc`, and a linked list whose nodes keep their addresses and move between teams in O(1) -- both under ASan, so the comparison is the lesson |
+| [`80-the-order-you-didnt-sort.md`](80-the-order-you-didnt-sort.md) | 4 | an ordered map built twice -- a sorted array kept sorted on insert (jichi's `qsort` + `bsearch`) and an unbalanced BST -- correct on random and on SORTED input under ASan, then measured insert-heavy against query-heavy on your machine; the finding must say what sorted input did to the tree |
+
 ## Process track — how software is actually made (graded)
 
 The other half of software development, the half no compiler checks: the
-**process**. Seven graded phases — requirements, use-cases, design, docs, session
-notes, kanban, scheduling — each turning a beginner's vague first attempt into a
+**process**. Eight graded phases — requirements, use-cases, design, decisions, docs,
+session notes, kanban, scheduling — each turning a beginner's vague first attempt into a
 real artifact. The graders check a **structural floor** (presence, shape, and
 cross-file id consistency — a script's sweet spot); whether these are the *right*
 requirements or *clear* docs is the judgment you keep. This is the design in
@@ -456,8 +492,9 @@ it is the one graded track you can start on day one.
 | [`71-process-session-notes.md`](71-process-session-notes.md) | 2 | dated session notes with the did / decided / next spine |
 | [`72-process-kanban.md`](72-process-kanban.md) | 3 | an honest board: columns, a WIP limit, every Doing card traced to a requirement |
 | [`73-process-scheduling.md`](73-process-scheduling.md) | 3 | milestones with size estimates, and a retro comparing estimate vs actual |
+| [`75-process-decisions.md`](75-process-decisions.md) | 3 | decisions with criteria before options: chose / rejected with why / because — the criterion, traced to a requirement (M629) |
 
-17 points. The artifacts form a **chain** — requirements feed use-cases feed the
+20 points. The artifacts form a **chain** — requirements feed use-cases feed the
 design, which the board and plan track — so working them in order *is* the
 capstone: one small idea walked P1→P7 into a portfolio a self-learner can show.
 

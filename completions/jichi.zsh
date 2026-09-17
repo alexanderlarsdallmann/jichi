@@ -23,7 +23,7 @@ _jichi() {
           --route-fast --route-strong --no-route --verify --verify-retries
           --verify-timeout --verify-baseline --verify-kind --no-rollback --strict-scope
           --budget-tokens --deadline --max-tool-calls --edit-scope --journal --control
-          --dry-run --list --global --force -V --version -h --help)
+          --dry-run --list --global --force --stage -V --version -h --help)
     if [[ $words[CURRENT] == -* ]]; then
         compadd -- $opts
     else

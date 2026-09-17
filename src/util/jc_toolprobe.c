@@ -47,6 +47,14 @@ enum jc_toolprobe_verdict jc_toolprobe_classify(int ncalls,
     if (text != NULL && ci_find(text, JC_TOOLPROBE_TOOL) != NULL) {
         return JC_TOOLPROBE_TEXT;
     }
+    /* M628: distinguish an ANSWER that made no call (a finding about the
+     * model) from NO ANSWER (nothing observed). The empty reply used to fall
+     * through to NONE and print "none" -- the else-branch as a finding that
+     * CLAUDE.md forbids. A call to some OTHER tool is still NONE: that is an
+     * answer, and it ignored the instruction. */
+    if (ncalls == 0 && (text == NULL || text[0] == '\0')) {
+        return JC_TOOLPROBE_UNKNOWN;
+    }
     return JC_TOOLPROBE_NONE;
 }
 
@@ -54,14 +62,19 @@ const char *jc_toolprobe_verdict_str(enum jc_toolprobe_verdict v)
 {
     switch (v) {
     case JC_TOOLPROBE_NATIVE: return "native";
-    case JC_TOOLPROBE_TEXT:   return "text";
+    case JC_TOOLPROBE_TEXT:    return "text";
+    case JC_TOOLPROBE_UNKNOWN: return "unknown";
     case JC_TOOLPROBE_NONE:
-    default:                  return "none";
+    default:                   return "none";
     }
 }
 
 const char *jc_toolprobe_suggested_setting(enum jc_toolprobe_verdict v)
 {
+    /* M628: UNKNOWN observed nothing, and nothing is no reason to move off the
+     * default. Recommending "none" here would be the M166 mistake with a new
+     * name -- degrading a capable model on no evidence. */
+    if (v == JC_TOOLPROBE_UNKNOWN) return "native";
     return (v == JC_TOOLPROBE_NATIVE) ? "native" : "none";
 }
 
@@ -96,13 +109,28 @@ const char *jc_toolprobe_advice(enum jc_toolprobe_verdict observed,
                "the configured `toolCalling: \"none\"`";
     }
 
-    /* NONE. The interesting case, and the one that must not misdirect. */
+    if (observed == JC_TOOLPROBE_UNKNOWN) {
+        /* M628: the empty reply. This text used to be NONE's; it describes an
+         * empty reply, so it moved with the verdict that means one. */
+        if (cfg_native) {
+            return "the model answered a one-tool request with NOTHING. Suspect "
+                   "jichi's request before the model: capture and replay it (see "
+                   "docs/LOCAL_MODELS.md, \"When the model calls no tool at all\"). "
+                   "This is what a malformed request looks like -- setting "
+                   "`toolCalling: \"none\"` here would hide a bug, not fix one";
+        }
+        return "an empty reply is not evidence about tool calling either way; "
+               "the request or the server is the thing to look at, not the "
+               "`toolCalling` setting";
+    }
+
+    /* NONE: an answer, with neither a call nor prose about one. */
     if (cfg_native) {
-        return "the model answered a one-tool request with NOTHING. Suspect "
-               "jichi's request before the model: capture and replay it (see "
-               "docs/LOCAL_MODELS.md, \"When the model calls no tool at all\"). "
-               "This is what a malformed request looks like -- setting "
-               "`toolCalling: \"none\"` here would hide a bug, not fix one";
+        return "the model answered, but attempted no tool call and did not "
+               "describe one. Check the request is well-formed first (capture "
+               "and replay it, docs/LOCAL_MODELS.md); if it is, this model may "
+               "not follow tool instructions -- `toolCalling: \"none\"` is the "
+               "setting for that, and only after the request is cleared";
     }
     return "no tool call, as expected for `toolCalling: \"none\"`; the agent "
            "will rely on the prose-call nudge";
@@ -111,5 +139,9 @@ const char *jc_toolprobe_advice(enum jc_toolprobe_verdict observed,
 int jc_toolprobe_is_failure(enum jc_toolprobe_verdict observed,
                             const char *configured)
 {
-    return (observed == JC_TOOLPROBE_NONE && configured_native(configured));
+    /* M628: an empty reply (UNKNOWN) fails too -- not as a claim about the
+     * model, but because the loop cannot run on it; the word changes, the
+     * consequence does not. */
+    return ((observed == JC_TOOLPROBE_NONE || observed == JC_TOOLPROBE_UNKNOWN)
+            && configured_native(configured));
 }

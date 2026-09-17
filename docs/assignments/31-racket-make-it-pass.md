@@ -2,6 +2,7 @@
 title: Make the failing test pass (Racket)
 audience: student
 phase: testing
+stage: racket
 difficulty: intro
 points: 2
 verify: "sh docs/assignments/31-racket-make-it-pass/test.sh"

@@ -2,6 +2,7 @@
 title: The C++ capstone — a postfix calculator
 audience: student
 phase: implementation
+stage: cpp
 difficulty: medium
 points: 4
 verify: "sh docs/assignments/62-cpp-capstone/test.sh"

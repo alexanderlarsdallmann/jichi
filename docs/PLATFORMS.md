@@ -79,9 +79,23 @@ flowchart LR
 | **x86-64 musl, fully static, WITH a minimal libcurl** | x86-64 | M430: 0 shared libraries, 804 KB `--version` RSS, and a **verified model call** — the ≤64 MB tier's own recipe, built for the first time |
 | **FreeBSD** | **Verified — the full gate** (M465) | FreeBSD **15.1-RELEASE** amd64 under KVM (`scripts/tier-v-bsd.sh`). The first **non-Linux kernel** this project ran on. `gmake WERROR=1` clean with `STD_DIALECT = c89 (strict)`; **11,643 unit checks / 0 failures**; all four offline surfaces. **Smoke: OK (201 drivers, 1068 checks), 0 failures**, re-measured 2026-08-17 after the one stop was diagnosed — it was a harness defect, not a platform one (see below). 1068 against Linux's 1081: twelve checks are environment-gated and skip here. Needs `gmake` (FreeBSD's `make` is bmake). **Seven defects found at M460, all real** — see below. **Footnote (M466):** at least one of those 1068 checks was hollow — `changelog_coverage_lint` used a GNU `\b`, whose failure on a BSD grep was *silent* (one alternative of its pattern still matched), so it reported a number while ignoring most of its input. Fixed, and banned tier-wide; the promotion stands, but the count was never a guarantee that every check tested what it claimed. |
 
-Alternate build front-ends also verified on the development box: **`g++` and
-`clang++` `-std=c++17`** over the whole tree (`make cpp-check`, 0 failures) and
-**`zig cc` 0.16** (full suite green) — see [`CPP_BUILD.md`](CPP_BUILD.md) and
+Alternate build front-ends on the development box, **re-measured from a clean
+tree 2026-09-16** (M636) — the previous sentence here claimed `make cpp-check`
+passed for g++ *and* clang++ with 0 failures, and on the day it was re-run it
+passed for neither:
+
+| Front-end | `make CC=<it>` (whole tree) | `make cpp-check` (C++17 sieve, 302 files) |
+|---|---|---|
+| gcc 15.2.0 | green, 0 warnings, suite green | — (it is the C build) |
+| clang 21.1.8 | green, 0 warnings, suite green | — |
+| `zig cc` 0.16.0 | green; static musl cross green | — (`zig c++` compiles `.c` as **C**) |
+| g++ 15.2.0 | green, **13** warnings | **OK**, 6 s |
+| clang++ 21.1.8 | green, **13** warnings | **OK**, 8 s |
+| `zig c++` 0.16.0 | builds C, not C++ | **OK**, 41 s |
+
+The right-hand column had rotted: `cpp-check` had no prerequisite on a generated
+header, so it was green only after some other build had produced it. All rows
+above are post-repair. See [`CPP_BUILD.md`](CPP_BUILD.md) §M636 and
 [`ZIG_BUILD.md`](ZIG_BUILD.md). No `tcc` on the host, so `tcc` is unmeasured.
 
 Each row is **kept as its own stamped datum** rather than overwritten, because

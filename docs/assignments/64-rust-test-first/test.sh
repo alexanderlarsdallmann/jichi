@@ -5,7 +5,7 @@
 #   3. an independent acceptance probe confirms the bug is really fixed.
 cd "$(dirname "$0")" || exit 1
 trap 'rm -f lmtest lmaccept _accept.rs' EXIT
-rustc --version >/dev/null 2>&1 || { echo "FAIL: rustc is not usable -- install Rust (rustup.rs) (or a version-manager shim with no version selected)"; exit 1; }
+rustc --version >/dev/null 2>&1 || { echo "CANNOT RUN: rustc is not usable -- install Rust (rustup.rs) (or a version-manager shim with no version selected)"; exit 77; }
 
 if [ ! -f test_list_max.rs ]; then
     echo "FAIL: write the failing test first -- test_list_max.rs is missing"; exit 1; fi

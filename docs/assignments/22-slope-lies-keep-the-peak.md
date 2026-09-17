@@ -2,6 +2,7 @@
 title: Slope lies — keep the peak
 audience: student
 phase: testing
+stage: memory
 difficulty: advanced
 points: 4
 verify: "sh docs/assignments/22-slope-lies-keep-the-peak/test.sh"

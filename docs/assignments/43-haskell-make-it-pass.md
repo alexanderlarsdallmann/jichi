@@ -2,6 +2,7 @@
 title: Make the failing test pass (Haskell)
 audience: student
 phase: testing
+stage: haskell
 difficulty: intro
 points: 2
 verify: "sh docs/assignments/43-haskell-make-it-pass/test.sh"

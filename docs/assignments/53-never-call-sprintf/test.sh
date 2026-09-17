@@ -6,7 +6,7 @@
 # the buffer bigger while keeping sprintf is not a fix).
 cd "$(dirname "$0")" || exit 1
 trap 'rm -f fmttest' EXIT
-cc --version >/dev/null 2>&1 || { echo "FAIL: a C compiler (cc) is is not usable -- install one (build-essential / gcc) (or a version-manager shim with no version selected)"; exit 1; }
+cc --version >/dev/null 2>&1 || { echo "CANNOT RUN: a C compiler (cc) is not usable -- install one (build-essential / gcc) (or a version-manager shim with no version selected)"; exit 77; }
 CC=${CC:-cc}
 # snprintf is C99/POSIX (jichi probes for it, JC_HAVE_VSNPRINTF); expose it under
 # strict C89 the way jichi's own Makefile does, with _POSIX_C_SOURCE.

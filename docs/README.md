@@ -196,7 +196,10 @@ The curriculum, the reading guides, and the craft tutorials.
 - [`ARCHITECTURE_TUTORIAL.md`](ARCHITECTURE_TUTORIAL.md) — System architecture, and how to show it — a tutorial
 - [`ASSIGNMENTS.md`](ASSIGNMENTS.md) — Assignments — practising the whole software lifecycle
 - [`BENCH_LOCAL_GPU.md`](BENCH_LOCAL_GPU.md) — The local-GPU bench: measuring jichi against a small model on your own hardware
+- [`BIBLIOGRAPHY.md`](BIBLIOGRAPHY.md) — The reading jichi's documentation points at — 64 checked entries on the craft, C, C++, Zig and Rust (M636)
 - [`CURRICULUM.md`](CURRICULUM.md) — The curriculum — learning software development with an agent at your side
+- [`DATA_STRUCTURES.md`](DATA_STRUCTURES.md) — Choosing a data structure — jichi has one, and that is an argument (M636f)
+- [`FILE_HANDLING.md`](FILE_HANDLING.md) — Handling files — what jichi does, where it is wrong, and what else there is (M636f)
 - [`DOMAIN_MODELLING_TUTORIAL.md`](DOMAIN_MODELLING_TUTORIAL.md) — Domain modelling — a tutorial
 - [`ORG_MODE.md`](ORG_MODE.md) — Emacs org-mode for a software project
 - [`PROJECT_RECORDS.md`](PROJECT_RECORDS.md) — Keeping a project's records in plain text
@@ -238,6 +241,8 @@ Why jichi is the way it is, including everything that went wrong. This ships on 
 - [`DEFERRED.md`](DEFERRED.md) — Deferred register
 - [`DEFERRED_LOCAL_GPU.md`](DEFERRED_LOCAL_GPU.md) — Deferred until a local-model + GPU bench
 - [`DOC_REVIEW.md`](DOC_REVIEW.md) — Reviewing the documentation — the rubric, and how to run a pass
+- [`CODE_REVIEW.md`](CODE_REVIEW.md) — Reading code for review — five readings of one piece of code, and how to run one (M627)
+- [`ARGUMENT.md`](ARGUMENT.md) — The argument you were already making — the house vernacular mapped to its names (rationale, warrant, defeater, qualifier), and `/predict` (M635)
 - [`DRIVING.md`](DRIVING.md) — Driving jichi at a real project: what 28 runs measured
 - [`JOURNEY.md`](JOURNEY.md) — The journey — from first step to master's rest
 - [`NOTICES.md`](NOTICES.md) — The bracketed tags — the registry

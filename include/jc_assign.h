@@ -13,11 +13,14 @@
  * Frontmatter keys: title, audience (junior|student|senior|agent), verify
  * (command, required to grade), setup (optional reset command), points
  * (optional rubric weight), phase (SDLC phase, e.g. implementation|testing),
- * difficulty (free-form tier, e.g. intro|easy|medium|hard), hints (an optional
- * block-sequence "ladder" of graded nudges: nudge -> approach -> worked step,
- * revealed on demand by the `hint` tool while solving). The body is the task
- * description. `phase`/`difficulty` were documented long before they were
- * parsed; the curriculum's listing needs them (C4, M174).
+ * difficulty (free-form tier, e.g. intro|easy|medium|hard), stage (M626: the
+ * curriculum group the spec belongs to, e.g. shu|ha|ri|racket -- the listing
+ * groups and totals by it; the value set is the curriculum's, mirrored from
+ * INDEX.md by tests/smoke/stage_index_lint.sh, never interpreted here), hints
+ * (an optional block-sequence "ladder" of graded nudges: nudge -> approach ->
+ * worked step, revealed on demand by the `hint` tool while solving). The body
+ * is the task description. `phase`/`difficulty` were documented long before
+ * they were parsed; the curriculum's listing needs them (C4, M174).
  */
 #ifndef JC_ASSIGN_H
 #define JC_ASSIGN_H
@@ -37,6 +40,7 @@ struct jc_assign_spec {
     const char *setup;     /* optional pre-attempt reset command       */
     const char *phase;     /* SDLC phase, or NULL                      */
     const char *difficulty;/* difficulty tier, or NULL                 */
+    const char *stage;     /* M626: curriculum group slug, or NULL     */
     int         points;    /* rubric weight (0 = unset)                */
     const char *task;      /* the body (task description)              */
     const char **hints;    /* graded hint ladder (arena array), or NULL */

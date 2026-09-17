@@ -2,6 +2,7 @@
 title: The confident misdiagnosis
 audience: student
 phase: implementation
+stage: ri
 difficulty: advanced
 points: 4
 verify: "sh docs/assignments/15-the-confident-misdiagnosis/test.sh"

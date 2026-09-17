@@ -2,6 +2,7 @@
 title: From recursion to a pipeline (Haskell)
 audience: student
 phase: implementation
+stage: haskell
 difficulty: medium
 points: 3
 verify: "sh docs/assignments/45-haskell-loops-to-folds/test.sh"

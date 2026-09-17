@@ -2,6 +2,7 @@
 title: Ask for one file
 audience: student
 phase: implementation
+stage: plain
 difficulty: plain
 points: 1
 verify: "grep -qx 'I asked and it wrote this line' docs/assignments/p1-ask-for-a-file/note.txt"

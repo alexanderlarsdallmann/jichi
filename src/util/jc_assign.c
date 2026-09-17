@@ -58,6 +58,7 @@ jc_status jc_assign_parse(const char *text, struct jc_assign_spec *out,
         out->setup = jc_yaml_get_str(doc.front, "setup", NULL);
         out->phase = jc_yaml_get_str(doc.front, "phase", NULL);
         out->difficulty = jc_yaml_get_str(doc.front, "difficulty", NULL);
+        out->stage = jc_yaml_get_str(doc.front, "stage", NULL);
         s = jc_yaml_get_str(doc.front, "points", NULL);
         if (s != NULL) {
             out->points = (int)strtol(s, NULL, 10);
@@ -75,6 +76,8 @@ jc_status jc_assign_parse(const char *text, struct jc_assign_spec *out,
                                           : NULL;
         out->difficulty = (out->difficulty != NULL)
                           ? jc_arena_strdup(a, out->difficulty) : NULL;
+        out->stage = (out->stage != NULL) ? jc_arena_strdup(a, out->stage)
+                                          : NULL;
         /* Optional `hints:` block-sequence ladder (graded nudges). Only a block
          * sequence of scalars is supported (the jc_yaml subset -- no flow []). */
         {

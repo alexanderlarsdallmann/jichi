@@ -2,6 +2,7 @@
 title: Make the failing test pass
 audience: student
 phase: testing
+stage: shu
 difficulty: medium
 points: 3
 verify: "sh docs/assignments/06-make-the-test-pass/test.sh"

@@ -2,6 +2,7 @@
 title: Scheduling — estimate, then measure
 audience: student
 phase: process
+stage: process
 difficulty: medium
 points: 3
 verify: "sh docs/assignments/73-process-scheduling/test.sh"

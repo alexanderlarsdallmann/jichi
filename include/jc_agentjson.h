@@ -92,7 +92,13 @@ struct jc_agent_econ {
  * last green checkpoint (0); pass 1 when no envelope reverted anything.
  * M97: `econ` (nullable) adds run economics -- `starved`, `budget:{used,limit}`,
  * `budget_kind`, `peak_input`, `cache:{read,write}`, `tools:{read,write,shell,
- * other}` -- for a driving agent; NULL omits all of it. Pure. */
+ * other}` -- for a driving agent; NULL omits all of it.
+ * M630: `reach` (nullable, OWNERSHIP TAKEN) is the reach footer's object from
+ * jc_reach_json -- what the run's record checked and did not -- attached as the
+ * `reach` member. It is attached HERE rather than by the caller so that the one
+ * function describe_fields_lint reads as the `done` emitter is the one that
+ * writes every top-level field: a member added after the fact is a field the
+ * contract declares and the lint cannot see emitted. Pure. */
 cJSON *jc_agentjson_result(const char *text, const char *model,
                            const char *session_id, const char *run_id,
                            double in_tok,
@@ -100,7 +106,7 @@ cJSON *jc_agentjson_result(const char *text, const char *model,
                            int aborted, const char *stop_reason, int work_kept,
                            int err_code, const char *err_type,
                            const char *err_msg,
-                           const struct jc_agent_econ *econ);
+                           const struct jc_agent_econ *econ, cJSON *reach);
 
 #ifdef __cplusplus
 }

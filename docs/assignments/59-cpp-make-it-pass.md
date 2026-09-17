@@ -2,6 +2,7 @@
 title: Make the failing test pass (C++)
 audience: student
 phase: testing
+stage: cpp
 difficulty: intro
 points: 2
 verify: "sh docs/assignments/59-cpp-make-it-pass/test.sh"

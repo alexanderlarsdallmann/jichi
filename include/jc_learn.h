@@ -110,9 +110,33 @@ void jc_learn_analyze_render(struct jc_arena *arena, const char *text,
 #define JC_LEARN_CHECKS      0x10u  /* M602 */
 #define JC_LEARN_ALL         0x1fu
 
+/* M632: the warrant tag -- a note's PROVENANCE CLASS, stated by the drafter.
+ * M326b's trichotomy for deferrals (judgement / evidence / unchecked), applied
+ * to lessons: MEASURED -- a number, a test run or a diff produced it;
+ * JUDGEMENT -- a reading of the code or the record; UNCHECKED -- noticed once,
+ * never confirmed. A label, never a gate: nothing is refused (an unchecked
+ * gotcha IS what a memory note is for), the counts are reported where a person
+ * reads them, and `learn analyze` lists unchecked notes first. The trailer is
+ * `[warrant: measured|judgement|unchecked]`, kept on the note like the
+ * `[evidence: ...]` and `[pins: ...]` trailers (M600). */
+enum jc_warrant {
+    JC_WARRANT_NONE = 0,   /* no tag: untagged, and counted as such           */
+    JC_WARRANT_MEASURED,
+    JC_WARRANT_JUDGEMENT,
+    JC_WARRANT_UNCHECKED
+};
+
+/* The tag on a note, or NONE. Pure. Accepts "judgment" for "judgement". */
+enum jc_warrant jc_learn_warrant(const char *note);
+const char *jc_warrant_str(enum jc_warrant w);
+
 struct jc_learn_apply_stats {
     unsigned sections;         /* the mask that was applied (echoed back)     */
     int memory_added;
+    int warrant_measured;      /* M632: of the memory notes ADDED, per tag    */
+    int warrant_judgement;
+    int warrant_unchecked;
+    int warrant_untagged;
     int skills_added;
     int skills_skipped;        /* existed already; needs `force`              */
     int corrections_applied;

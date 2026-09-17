@@ -2,6 +2,7 @@
 title: From recursion to Enum (Elixir)
 audience: student
 phase: implementation
+stage: elixir
 difficulty: medium
 points: 3
 verify: "sh docs/assignments/41-elixir-loops-to-folds/test.sh"

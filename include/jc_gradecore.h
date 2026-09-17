@@ -29,12 +29,22 @@ extern "C" {
 #include "jc_assign.h"
 #include "jc_testparse.h"
 
+/* M625: the verify exit-code contract. A verify that exits with this code is
+ * DECLARING it cannot run here (a toolchain guard: "rustc is not usable"), and
+ * that is a refusal, never a grade -- M615's doctrine, extended past the
+ * program-reachability probe to what the script itself knows. 77 is automake's
+ * SKIP code; the obvious 2 was rejected because 12 shipped specs use `grep`/`[`
+ * bare as the verify and both exit 2 on ordinary operational errors -- a
+ * missing learner file must grade FAIL, not refuse (DECISIONS.md, M625). */
+#define JC_VERIFY_CANNOT_RUN 77
+
 enum jc_grade_fail {
     JC_GRADE_NONE = 0,
-    JC_GRADE_UNREADABLE,   /* the spec could not be read                     */
-    JC_GRADE_NO_TASK,      /* no task body -- not an assignment              */
-    JC_GRADE_NO_VERIFY,    /* no `verify` command, so nothing defines success */
-    JC_GRADE_CANNOT_RUN    /* M502: the verify program is unreachable here   */
+    JC_GRADE_UNREADABLE,    /* the spec could not be read                     */
+    JC_GRADE_NO_TASK,       /* no task body -- not an assignment              */
+    JC_GRADE_NO_VERIFY,     /* no `verify` command, so nothing defines success */
+    JC_GRADE_CANNOT_RUN,    /* M502: the verify program is unreachable here   */
+    JC_GRADE_VERIFY_REFUSED /* M625: the verify itself exited 77 = cannot run */
 };
 
 struct jc_grade_out {
@@ -58,6 +68,11 @@ struct jc_grade_out {
      * an already-failed grade, never a refusal, and the wording must say a
      * missing directory can also be part of the task. */
     char  miss_dir[512];
+    /* M625: JC_GRADE_VERIFY_REFUSED -- the first line the verify printed (its
+     * own reason: "CANNOT RUN: rustc is not usable ..."), "" when it was
+     * silent. Callers print it so the learner reads the script's words, not a
+     * paraphrase. */
+    char  why[256];
     char *text;           /* the spec source (arena), for callers that warn on it */
 };
 

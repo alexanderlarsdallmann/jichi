@@ -2,6 +2,7 @@
 title: The Clojure capstone — a postfix calculator
 audience: student
 phase: implementation
+stage: clojure
 difficulty: medium
 points: 4
 verify: "sh docs/assignments/50-clojure-capstone/test.sh"

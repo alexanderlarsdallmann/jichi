@@ -9,7 +9,155 @@ both (M620, the plan executed as written; M621 mended what the first hosted CI r
 found). The loop keeps running -- **design, test, develop, dogfood, harden**. The
 checklist, with what remains:
 
-> **Where we stand** — updated **2026-08-27**, latest milestone **M624**:
+> **Where we stand** — updated **2026-09-17**, latest milestone **M639**:
+> **The benches have a second machine.** The reference measurements of tasks 78
+> and 80 carry a Raspberry Pi 400 beside the Ryzen: the hash table is never
+> slower there either and the N = 8 gap the workstation's noise hid is measurable
+> on the A72; the ordered-map bench kept its insert verdicts and changed its
+> lookup one — a pointer chase costs more behind 1 MB of L2 than 64 MB of L3. The
+> workload decides the structure; the machine moves where the lines cross.
+>
+> **Previously — M638:**
+> **What the footer found was fixed the same day.** Under M637's shell-append
+> cascade sat a product defect: the path fence refused a `write_file` into a
+> directory that did not exist yet as "outside workspace" — false, for a tool
+> whose next line is `mkdir -p` — and the model routed around the lie through
+> the shell. The resolver now walks up to the deepest existing ancestor (a
+> `.`/`..` tail still fails closed). The footer prints `23 errors (4 refused by
+> a fence)` so the fences working are told apart from tools failing, and the
+> plan clause says why it is short when the shell ran.
+>
+> **Previously — M637:**
+> **The refute stage was measured, and the footer was read.** The pre-registered
+> A/B ran: a `refute` stage named 12 of 12 planted false claims where a "review
+> critically" prompt named 1 — the frame did work the words did not (one model,
+> n = 12, blind formal only, false attacks not yet counted). The harness was built
+> through jichi itself in plan mode and `--auto`, which is how the reach footer and
+> the plan artifact got their first reading in anger: the footer changed the order
+> of reading and exposed an under-specified verifier; it could not see that the
+> harness was wrong. Both notes are in `docs/analysis/`.
+>
+> **Previously — M636:**
+> **Every front-end the tree claims builds it, and now one of them is watched.**
+> A clean-tree sweep across gcc, clang, `zig cc`, a static musl cross, g++ and
+> clang++ found C and Zig green and the C++ tier rotted for 154 commits —
+> `cpp-check` had no prerequisite on a generated header, so it was green only
+> after some other build. Repaired, plus a Makefile probe that asks what `$(CC)`
+> *is* instead of blaming the platform; `make CC=clang++` works for the first
+> time and `make CC=g++` went from 913 warnings to 13. `docs/BIBLIOGRAPHY.md`
+> ships beside it: 53 outside works, every URL fetched or probed on a date and
+> every ISBN resolved against a catalogue — one link was already dead.
+>
+> **Previously — M635:**
+> **The argumentation program is closed.** `ARGUMENT.md` names the discipline
+> the curriculum already teaches — rationale, warrant, defeater, qualifier — and
+> says why the names come last. `/predict` records what you expected before you
+> looked, resolves it after, and tallies it in a file no grader reads. Eight
+> milestones (M628–M635); one experiment (`refute`) pre-registered and not yet
+> run.
+>
+> **Previously — M634:**
+> **Counter-argument is a stage.** `workflow` gains `refute`: a read-only second
+> seat that argues against the previous stage's output under a frame the author
+> cannot weaken — Rebutting, Undercutting, Stands, "nothing found" permitted —
+> and hands a human both the claim and the attack. Its benefit is a
+> pre-registered hypothesis (`proposals/2026-09-refute-ab.md`), not yet run.
+>
+> **Previously — M633:**
+> **State the objection before you answer it.** Task 10's grader now asks each
+> `## Objections` entry for an `Objection:` line before its `Reply:` — the section
+> stays optional, its shape does not — and module 07 teaches the four critical
+> questions a consequence argument must survive. The unstated straw man is
+> caught; the well-stated weak one is still the reader's to hear.
+>
+> **Previously — M632:**
+> **A lesson says how it knows.** Every drafted memory note now ends in a
+> warrant tag — `measured`, `judgement` or `unchecked` — counted by `learn apply`
+> (untagged included) and listed first by `learn analyze` when unchecked. A
+> label, never a gate: an unchecked gotcha is what a note is for; what changed is
+> that its class is visible where it is committed, reviewed and read.
+>
+> **Previously — M631:**
+> **The plan is a file.** In plan mode the model writes `.jichi/PLAN.md` through
+> one tool — claim, rejected alternatives with why, falsifier, not-goals, the
+> files it expects to touch — an incomplete plan refused as a tool error value
+> naming the missing part; the run is then reconciled against `## Touches` and
+> the reach footer reports drift, never fences it. Plan mode was a fence plus a
+> prose request; the plan now survives compaction as a file the person can read
+> beside their own registers, and the run is measured against its own prediction.
+>
+> **Previously — M630:**
+> **Every headless answer now says what checked it.** The reach footer — two lines
+> on stderr, and a `reach` member of the `done` object — states the verifier's
+> colour or its absence, the tool-error count, test edits, writes in or outside
+> the scope, a shell that ran: derived from counters, never from the model, the
+> M305 "what is and is not checked" header written for a run. The answer is the
+> one artifact nothing checked (tsuiseki-04); now the reader is told so.
+>
+> **Previously — M629:**
+> **The curriculum now grades a decision.** `75-process-decisions` asks for the
+> three lines a decision is made of — `Chose:`, `Rejected: … — why it lost`, and
+> `Because:`, the criterion traced to a requirement — and its trap case refuses
+> three reasoned rejections that name no criterion: criteria before options,
+> the comparative reasoning the analysis found taught nowhere. The process track
+> is eight phases and 20 points.
+>
+> **Previously — M628:**
+> **The argumentation program has begun** (`plans/2026-09-argumentation-program.md`,
+> eight milestones that give reasoning a floor), and its first slice settled the
+> three places the 2026-09-15 analysis found doctrine and code had parted: the
+> reading guide that said reasoning is streamed (it is detected, not shown — the
+> wrong words stay struck through under a banner), the "say unknown" rule that
+> had no enum value behind it (`JC_TOOLPROBE_UNKNOWN`, negative so it sits below
+> the capability scale; the doctor still FAILs on an empty reply, with a truer
+> word), and the two retraction norms now decided as two — delete-and-count for
+> instructions the model reads, keep-under-a-banner for records a person reads —
+> with a superseding convention and lint for the decision register.
+>
+> **Previously — M627:**
+> **A self-learner can now practise reading code for review, graded.**
+> `docs/CODE_REVIEW.md` is the code twin the doc-review instrument never had —
+> five readings of one piece of code (abstraction → concrete, control flow,
+> data flow, execution, and the review lens on the reading itself) — and
+> `74-read-the-turn` grades them on jichi's own source: one agent-loop turn,
+> both `build_request` implementations, the request body's life to the
+> callback that frees it, checked against a committed trace, every cited
+> `file.c:symbol` anchor resolved against the tree when graded from the
+> checkout. A `code-reading` skill coaches the five readings and never writes
+> one. The design turns on a survey finding: nothing here can generate a call
+> or data-flow view (no call graph, no AST, LSP without call hierarchy), and
+> generating it would remove the skill being trained.
+>
+> **Previously — M626:**
+> **`jichi assignments` is an orientation now.** Every spec carries its
+> curriculum group as a `stage:` key (shu/ha/ri + track slugs, mirrored from
+> INDEX.md's tables by a two-way lint that parses the document so the binary
+> never has to), the listing groups with per-stage earned/available points and
+> a `--stage` filter, and the TUI's `/assignments` — a diverged
+> re-implementation that read no hints.jsonl — now renders through the same
+> collector (`jc_assignlist.c`, the M614 move repeated). Gate verdicts are
+> deliberately not printed: a gate is more than points, so the binary gives the
+> arithmetic and INDEX.md keeps the gate. This is the mechanical half of the
+> self-learner support direction; the model-backed retrospective is the next
+> planned slice.
+>
+> **Previously — M625:**
+> **A missing toolchain is no longer a failing grade.** The seam M624 found and
+> deferred is closed: the verify exit-code contract is **exit 77 = cannot run
+> here** (automake's SKIP; the row's example `exit 2` was rejected because the
+> intro tier's bare `grep`/`[` verifies exit 2 on ordinary errors), read as a
+> refusal — exit 2, the script's own words quoted, **nothing recorded** — on
+> every grading surface: `grade`, `grade --expect-fail` (which had printed "RED
+> as expected" for a toolchain that never ran — M624's lesson mirrored),
+> `attempt`, the TUI `/grade`, the daemon verb, and `improve --attempt`, which
+> now skips a refusing spec before spending a worktree or a model turn. All 52
+> shipped toolchain guards say "CANNOT RUN" and exit 77, held there by
+> `assignment_guard_lint.sh`, whose second-way enumeration (invocation scan vs
+> marker scan) caught one script the hand audit missed and rejected one false
+> positive. Refusals stay out of the learner's ladder on purpose: cannot-run is
+> a property of the machine today, not the learner's history.
+>
+> **Previously — M624:**
 > **The first public release is out, and the hosted gate is teaching.** Apache-2.0
 > decided and stamped (M619); the snapshot cut, verified standalone, and published
 > to the HRZ GitLab and GitHub as **v0.9.0** (M620). Its first hosted CI runs then
@@ -2232,7 +2380,7 @@ checklist, with what remains:
 >
 > **Measured, not incremented** — the M259 discipline. Four figures below are
 > **counted by `tests/smoke/docs_counts_lint.sh`**, which since M326t also reads
-> *this banner*: the curriculum stands at **77 graded tasks and 55 trap cases**, over
+> *this banner*: the curriculum stands at **84 graded tasks and 71 trap cases**, over
 > **31** scaffold packs, and the latest milestone above must be this file's newest
 > entry — the four that had drifted here while the same lint held them correct in
 > `CURRICULUM.md`. The suite sizes are deliberately **lower bounds**, per M307, so
@@ -34757,3 +34905,1173 @@ reclassifying verify exit codes across nine courses is its own seam, found
 here and deliberately not smuggled in. Rejected (DECISIONS): exporting
 RUSTUP_HOME in the workflow -- the M621 rejection again; the gate must tell
 the truth on machines nobody prepared.
+
+### M625 -- the verify exit-code contract: cannot-run is exit 77, a refusal on every surface -- done
+
+The seam M624 found and deliberately did not smuggle in (DEFERRED, now
+closed). Fifty-two shipped test.sh scripts guard their toolchain -- and every
+guard exited 1, so a learner without the toolchain graded FAIL 0% and
+`--record` wrote passed:false into the permanent progress file, for a
+property of the MACHINE. Reproduced before fixing: grade on a missing-frobc
+fixture recorded exactly that row, and jc_testparse even counted the guard's
+"FAIL:" echo as a failed test.
+
+The contract: **verify exit 77 = "cannot run here"**, read by jc_gradecore
+(JC_GRADE_VERIFY_REFUSED, the script's first output line kept as the reason)
+and by improve_run_verify (-2), and honoured on every surface -- `grade`
+(exit 2, the script's own words, the INDEX.md skip rule named),
+`grade --expect-fail` (a gate that cannot RUN proves nothing about being able
+to FAIL: pre-M625 it printed "RED as expected" for a missing toolchain --
+M624's "green because it never ran", mirrored red), `attempt` (exit 2,
+nothing recorded), the TUI `/grade` and the daemon verb
+(assignment.not_gradeable, never passed:false and never "unreadable"), and
+`improve --attempt`, which now skips a refusing spec BEFORE the worktree and
+the model call -- a rehearsal whose grade can only be a refusal buys nothing
+with the tokens it spends. Refusals record nothing anywhere: cannot-run is a
+property of the machine today, not the learner's history (DECISIONS, with
+recording-with-a-marker rejected on M614's grounds). The 52 guards now say
+"CANNOT RUN" and exit 77; task 29 gained a PURE toolchain probe ahead of its
+graded build, because there a failing compile IS the grade; the doubled
+"is is" in 43 C-course guards went too.
+
+77 and not the row's example 2: 12 shipped specs use `grep`/`[` bare as the
+verify, and both exit 2 on ordinary operational errors -- a missing learner
+file must grade FAIL, not refuse (DECISIONS; 126/127 stay unclassified, a
+new DEFERRED row says why). Tests, born red first and each check's tooth
+proven by perturbation: `grade_cannot_run.sh` (10 checks: the five surfaces,
+the script's words surfaced, nothing recorded, and the exit-1 boundary
+control -- red under an over-classifying fix); `assignment_guard_lint.sh`
+(the universe enumerated TWICE -- 52 marker-carrying scripts floored exact,
+52 toolchain-INVOKING scripts by quote-stripped invocation scan, B minus A
+empty; the second route caught task 29 the hand audit missed and refused
+task 19, which greps for the text 'zig cc' and invokes nothing);
+`assignment_verbs.sh` 12 -> 13 (the wire refusal, red as
+"assignment.unreadable" without the daemon branch). The contract is
+documented in ASSIGNMENTS.md beside --expect-fail. Unit suite: 13,182
+checks, 0 failures.
+
+### M626 -- `stage:` frontmatter, and `assignments` becomes an orientation -- done
+
+The mechanical half of the self-learner direction (2026-09-15); the DEFERRED
+row closed exactly along its own "revisit when". `jichi assignments` printed
+all 77 shipped specs as one name-sorted list, so a day-one learner saw nine
+language tracks they cannot run and the stage gates stayed hand-arithmetic
+against INDEX.md.
+
+**What ships.** Every spec carries a `stage:` frontmatter key -- `shu`/`ha`/
+`ri` for the gated sets, a slug per track (17 values, a complete partition of
+the 77) -- parsed like any other key (`jc_assign_parse`) and mirrored
+byte-identically into the German plain-tier editions (the i18n lint's key loop
+gained `stage`). The listing groups by it with per-stage earned/available
+points and passed counts, one `total:` line, and a `--stage <slug>` filter
+whose unmatched-slug refusal names the stages that exist. Grouping activates
+only when a spec carries the key, so every non-curriculum workspace renders
+byte-identically to before. **The collector moved out of main.c**
+(`jc_assignlist.c`, the M614 gradecore move for the same linkability reason):
+the TUI `/assignments` was a re-implementation and had diverged exactly as
+copies do -- it read no hints.jsonl -- and now both surfaces render through
+one collector, one fold, one printer. Group order is FIRST-SEEN under the
+existing name sort (task numbering already encodes curriculum order), so the
+binary embeds no curriculum table; the stage-less bucket, when present, groups
+last as `(no stage)`.
+
+**Deliberately absent: gate verdicts** (DECISIONS). A gate is more than
+points -- a debugging record, task 09 among the passes, all four Stage-3
+floors -- so the binary prints totals and INDEX.md keeps the gates. And the
+old deferral's coupling objection was resolved by splitting the READERS:
+`tests/smoke/stage_index_lint.sh` parses INDEX.md's section tables (awk) and
+holds them identical to the frontmatter both ways -- 77 specs floored exact,
+vocabulary closed, B-minus-A empty -- while the binary reads only the key.
+
+**Tests, born red, teeth per check.** `assignments_stages.sh` (10 checks:
+headers with exact arithmetic, first-seen order, the stage-less bucket LAST --
+whose first fixture also sorted last, making the check vacuous against the
+ordering perturbation until the fixture was renamed to sort first; the filter
+both ways; the flat-mode boundary; JSON `stage`; the TUI via ptydrive).
+`stage_index_lint.sh` born red on the unstaged tree; teeth: a removed and a
+mis-staged key. Unit: `stage` parse + the totals fold fed in both orders
+(13,203 checks, 0 failures; the fold perturbation fails 10). Four code teeth
+(activation, arithmetic, NULL-bucket order, filter), each rebuilt and red on
+exactly its checks.
+
+### M627 -- reading code for review: the instrument, one graded turn, a coaching skill -- done
+
+The self-learner direction's second slice (2026-09-15), planned from a
+codebase survey with one decisive finding: **jichi cannot generate the view
+this discipline needs.** The repo map is a symbol-name scan with no call
+graph (`jc_repomap.h` says "no LSP, no parser"), the LSP layer gives
+find-references but no call hierarchy, and there is no C AST anywhere -- so a
+`jichi trace` that draws the flow was never on the table, and would have
+removed the skill being trained if it were. What a learner alone lacks is
+not a picture; it is the DISCIPLINE of reading a real program five ways and
+checking the reading against something that cannot be wrong about it.
+
+**What ships.** `docs/CODE_REVIEW.md`, the code twin of `DOC_REVIEW.md`
+(APPROACH.md practice 5 named only the doc instrument): five readings of one
+piece of code -- abstraction to concrete, control flow, data flow, execution,
+and the review lens turned on the reading itself -- each a question, a move,
+and the failure it catches; then how to run one. `74-read-the-turn`, the
+reading track's review rung above task 24, on **jichi's own source**: one
+turn of the agent loop, from `provider->build_request` through both concrete
+implementations, the `jc_agent_run_turn` control path, the request body's
+life from `build_request` to the libcurl read-callback that frees it, checked
+against the committed `tool-round` trace. The learner writes `READING.md`
+with the five sections, citing `path/file.c:symbol` anchors. And a
+`code-reading` skill in the assignments scaffold pack that COACHES the five
+readings -- fetch, predict-before-reveal, one question at a time -- and never
+writes the reading (the tutor stance, applied to reading).
+
+**The grader is two-tiered, deliberately** (DECISIONS). The subject is the
+real tree, so the honest check is that every cited anchor resolves -- but
+`curriculum_graders.py` proves graders two-sided in a COPY of
+`docs/assignments` with no `src/` beside it. A grader that refused there
+could never be proven; one that pretended to resolve what it cannot see
+would be hollow. So the structural floor (five sections, the named subject,
+BOTH `build_request` implementations, a recorded trace, six anchors) runs
+anywhere and is what the proof rests on, and the resolution gate runs only
+when `../../../src` exists, where an invented citation fails by name. The
+output says which tier decided -- M625's "grade what you can run here",
+applied to one check instead of the verdict. The reference `READING.md` lives
+ONCE, inside the solution walkthrough between HTML-comment markers, and the
+e2e driver, the smoke driver and the shipped solution all extract it from
+there.
+
+**Tests, born red, teeth per check.** `reading_review.sh` (10 checks:
+pristine, the authoring red-proof, a sectionless stub, the reference through
+`jichi grade` and the script, three-of-five, the unnamed subject, a fake tree
+built from the reference's own anchors so resolution can be exercised both
+ways, and -- added when a perturbation found them unguarded -- the anchor
+floor and the both-providers rule). Four grader teeth: Execution not
+required (check 5 red), the gate disabled (7-8 red), the anchor floor removed
+(9 red), one provider sufficing (10 red). Two lessons the driver itself
+taught: `jichi grade` folds the script's FAIL lines into a test report and
+echoes none of them, so wording checks must run the script; and a stub short
+enough to trip the emptiness floor never reaches the check it was written
+for. `curriculum_graders.py` 55 -> 56 traps (three of five readings
+rejected); universe and stage lints 77 -> 78; every advertised count moved
+with them. Unit suite 13,211 checks, 0 failures.
+
+**Deferred with a row:** per-facet tasks, until a learner's record says which
+reading is the one worth its own task.
+
+### M628 -- settle the three divergences the argumentation analysis found -- done
+
+First milestone of the argumentation program
+(`docs/plans/2026-09-argumentation-program.md`), and first for the reason
+DEFERRED.md's own rule gives: a register carrying a claim known to be false
+is worse than one missing the row. Three were live.
+
+**1. `fukabori-11` said the reasoning is streamed; the provider never emits
+it.** The OpenAI provider reads `reasoning_content` and sets `saw_reasoning`
+-- "Not the answer -- we don't emit it" -- and the Anthropic provider has no
+`thinking` handling at all. The false sentence sat in the paragraph about
+what a reasoning trace warrants. Corrected the ANECDOTES #75 way: the wrong
+words stay, struck through, under a banner that says what the code does and
+why the sentence was written -- fluent prose about behaviour nobody checked,
+which is the chapter's own subject. Whether to surface the trace is a
+feature decision, left open and said so.
+
+**2. "Make the fallback say *unknown*" (CLAUDE.md, M519) was a rule with no
+value behind it.** `jc_toolprobe_verdict` had NONE/TEXT/NATIVE, and an EMPTY
+reply fell through to NONE -- "neither a call nor a description of one" --
+which is a finding about an answer, printed for a probe that got no answer.
+`JC_TOOLPROBE_UNKNOWN = -1`: negative on purpose, because the enum is
+"ordered by capability" and callers compare observed against configured, so
+UNKNOWN sits below the scale rather than on it. The "answered with NOTHING,
+suspect the request" advice moved with the verdict it describes; NONE under
+`native` gets its own honest text (an answer that ignored the tool -- check
+the request first, then the setting); `suggested_setting(UNKNOWN)` stays
+`native` (no evidence is no reason to move off the default); and
+`is_failure(UNKNOWN, native)` is still 1 -- the loop cannot run on an empty
+reply -- so `doctor --live` FAILs as before with a truer word. The probe
+script gained the same fourth branch (`tools=unknown` for an empty
+`content`), hand-checked against three fixture replies since no harness
+drives it. Born red: the flipped unit checks failed on the old classifier
+before the value existed in the code.
+
+**3. Two retraction norms and a register with no status.** Decided, not
+unified (DECISIONS): a memory note is an instruction the model reads every
+turn, so a retracted one is deleted and counted; an analysis page is a
+record for a person, so its wrong sentence stays under a banner. LEARNING.md
+now says which norm it follows and why. DECISIONS.md gained the superseding
+convention -- keep the row, prefix `**Superseded at M<n>** --` -- and
+`decisions_superseded_lint.sh` holds the marker's form and its milestone to
+the ROADMAP. Its universe is empty today and the lint says so; its teeth
+were shown by planting a bogus `M9999` (check 2 red) and an unbolded marker
+(check 1 red). Rejected: a `Status` column (302 rows moving for a handful of
+markers) and back-filling reversals nobody witnessed.
+
+Unit suite: 13,221 checks, 0 failures.
+
+### M629 -- `75-process-decisions`: a decision is graded as criteria before options -- done
+
+Second milestone of the argumentation program. The process track (67-73)
+graded traceability, testable phrasing, negative cases and calibration -- and
+no decision and no argument: 69 checks every requirement id appears in the
+design and never asks why THIS design; 71 checks for the word "decided" and
+not for a reason. Nothing in the curriculum taught criteria before options.
+
+**What ships.** `75-process-decisions` (3 pts, `stage: process`): given the
+R1-R4 fixture and a design that made three choices silently -- a storage
+shape, an id scheme, a meaning for delete -- write `DECISIONS.md` with >= 3
+decisions, each carrying `Chose:`, `Rejected: <alternative> -- <why it
+lost>` and `Because:` -- the CRITERION, the requirement or property the
+options were weighed on, citing the `R<n>` it comes from. The `Because:`
+line is the whole lesson: "Rejected: SQLite" is a list; "Because: R3 asks
+for nothing but the binary -- the criterion is zero dependencies" is an
+argument a reader can weigh. The grader (POSIX sh, the track's style) walks
+each `## D<n>` block: the three lines present, the rejection carrying a
+reason separator, the criterion long enough to name something, at least one
+requirement id from the fixture. Two-sided and trapped in
+`curriculum_graders.py`: the stub fails, the reference passes, and three
+reasoned rejections with no `Because:` fail -- the old discipline (name what
+you rejected) without the new one (name the scale it lost on).
+
+**Honest floor.** A straw man passes this grader and fails a reader; whether
+the criterion is the one that SHOULD decide is the judgment the task's own
+blockquote hands back. PROJECT_RECORDS.md §3 now names 75 as its graded
+floor. The track is 20 points and eight phases; every advertised count moved
+(80 graded tasks, 57 traps; universe and stage lints refloored).
+
+Rejected (DECISIONS): upgrading 69 in place; grading soundness; a weighted
+trade-off table as the first lesson.
+
+### M630 -- the reach footer: what the record checked, under the answer -- done
+
+Third milestone of the argumentation program. tsuiseki-04 proved that a
+run's summary is a summary of what was TRIED and that the final sentence is
+"exactly as reliable as the run and not one bit more" -- the one artifact
+nothing checked. The journal knows what the answer cannot: whether a
+verifier ran and its colour, how many tool results carried is_error,
+whether a test assertion was edited, whether a write left the scope. A user
+reads the sentence and never the journal.
+
+**What ships.** `jc_reach.c`, a pure core: a struct of counts in, two lines
+or a JSON object out -- `checked: verify green · 2 tool calls, 1 error · 0
+test edits · writes in scope` / `not checked: (nothing -- a verifier and an
+edit scope were armed)`, or for a plain `-p` run `not checked: no envelope
+armed -- no verifier, no edit scope, no budget; nothing about this run's
+result was tested`. The M305 header (`WHAT IS AND IS NOT CHECKED`) that
+eleven smoke drivers carry, written for a run. The headless sink counts
+`is_error` results itself (tsuiseki-04's first check, "count the errors,
+not the calls", done for the reader), so the count exists with or without
+an envelope; the envelope supplies verifier, scope, shell and test-edit
+facts. Text mode prints the footer on stderr after the answer (stdout stays
+the raw answer, M73); `--output json`'s `done` object gains `reach`
+(verify green|red|none, tool_calls, tool_errors, test_edits, scope
+clean|violated|none, shell_ran, checked, not_checked), declared in
+`describe` and documented in SCRIPTING.md and EMBEDDING.md as an additive
+field. `-q` silences it like every diagnostic.
+
+**Tests, born red.** `test_reach.c` (four situations: no envelope, green
+with scope, red-with-violations-and-shell, envelope without verifier);
+`reach_footer.sh` (7 checks: the no-envelope sentence, the error count, the
+footer off stdout, the verifier's colour, the unarmed scope stated, `-q`,
+the JSON member). Teeth per check by perturbation. Unit suite, smoke tier
+green.
+
+**The record moved, on purpose.** `reading_trace.sh` re-takes the Tsuiseki
+traces on every smoke run and went red: every `done` line now ends in
+`reach`. Read first (the trace README's rule), then re-taken: the ONLY
+difference in all three is that member -- and in it `wrong-args` says
+`tool_errors: 1` where `tool-round` says 0. That is tsuiseki-04's central
+finding, "the two runs' summaries are byte-identical apart from the
+sentence", falsified by the change it argued for. The chapter keeps the
+paragraph as written under a correction banner (ANECDOTES #75's norm),
+notes that its first check -- count the errors, not the calls -- is now done
+by the run, and its three tagged `done` quotes were refreshed to the new
+bytes (the quotes lint holds them there).
+
+**Honest limit.** The footer says what was checked. It never says the
+answer is true -- coherent, green, in scope and wrong remains possible;
+what the footer removes is the case where nothing was checked and the
+reader did not know.
+
+### M631 -- the plan artifact: PLAN.md, written in plan mode, reconciled at run end -- done
+
+Fourth milestone of the argumentation program. Plan mode was a read-only
+fence plus a prose request (`jc_perm.c`: a mutating tool in plan mode is
+denied before any allow-list; PROMPT_PLAN: "present a clear plan and stop").
+The plan lived in the conversation, where compaction can drop it, and
+nothing compared it with what was then done. DESIGN_INPUT.md was the input
+twin -- a human's design, "authoritative for planning" -- with no output
+twin.
+
+**What ships.** `jc_plan.c`, a pure core: parse `.jichi/PLAN.md` into five
+sections (`## Claim`, `## Rejected` with >= 1 bullet carrying a reason
+separator, `## Falsifier`, `## Not-goals`, `## Touches`), say the FIRST thing
+a plan lacks in the words the model reads, render the sections from parts,
+and compute drift -- the paths a run wrote that Touches did not name
+(`.jichi/` never counts). `write_plan`, the one tool that writes the
+artifact: it takes the five parts, refuses an incomplete plan as a tool
+ERROR VALUE naming the missing section (errors are values, never control
+flow), writes exactly one path with `jc_write_file` -- deliberately NOT the
+`jc_app_write_file` chokepoint, so the plan never counts as a file the run
+wrote -- and journals a `plan` event under an envelope. It is not read-only;
+it is `plan_allowed`, a new trailing flag on `struct jc_tool` honoured in the
+THREE places that consulted read-only: the permission verdict
+(`jc_perm_for_tool`'s argument); the advertiser
+(`jc_tool_build_neutral_ex`, so the model is TOLD the tool exists in plan
+mode -- a tool the permission layer allows but the advertiser hides is a
+tool the model cannot call); and the execution-time fence in
+`jc_tool_execute`, which plan mode arms through `app->readonly` -- the
+first build honoured the first two and the born-red driver found the
+third: write_plan was called, advertised, allowed by the verdict and
+refused with "tool disabled in read-only mode". The exception there is
+plan-mode-only: a read-only agent definition sets the same flag for a
+different reason and keeps refusing. The constraint scanner is NOT given
+the exception -- an authored `read-only` constraint is the operator's word
+and outranks the mode. PROMPT_PLAN now says to write the plan with it
+(rewritten under C89's 509). At run end `hl_reach_fill` loads the plan, reconciles the
+envelope's `wrote` against Touches, and the M630 footer gains `plan: 1 of 1
+predicted file touched` or `plan drift: b.txt`; the `done` object gains
+`plan_named/plan_touched/plan_drift/plan_drift_paths`. No plan file, no
+plan clause -- no invented absence.
+
+**Tests, born red.** `test_plan.c` (full parse, the missing-section order
+including a bare bullet and an em dash, render round-trip, drift with `./`
+and `.jichi/` tolerance); `plan_artifact.sh` (9 checks: plan mode writes the
+file and touches nothing else; write_plan accepted, not denied as mutating;
+the plan-mode request ADVERTISED the tool -- checked on the wire against the
+tool's description, after a first pattern matched the history's echo of the
+call and could not go red; an incomplete plan refused with the section named
+and nothing written; drift named in the footer and counted in JSON; an
+honoured plan reported; the no-plan boundary). Seven teeth, each rebuilt and
+red on exactly its checks; two had to be redone because `make test` rebuilds
+only the unit binary and the driver had run the old agent. Reading the diff
+then caught a tooth's own restore: a `sed` that put the guard back matched
+two more lines than it had removed it from and handed the constraint scanner
+an exception nobody designed -- reverted before the commit.
+
+**The record moved again.** A registered tool is advertised on every chat-mode
+request, so the three Tsuiseki traces' `req.*` and `shape` files drifted:
+`tools=18` became `tools=19`, and a plain turn's request grew from 14,498 to
+15,761 bytes -- 12,862 of them tool schemas (81%), where tsuiseki-02 had
+measured 11,599 (80%). Read first, then re-taken; the chapter's tagged `shape`
+quotes were refreshed byte-exact (the quotes lint holds them there) and its
+prose now says nineteen tools and names M631 as the reason the figures moved
+-- the chapter's own rule: prose about a run rots, so the run is replayed.
+
+**Honest limit.** Shape, not quality: a fluent plan with a hollow falsifier
+passes. What it buys regardless: the *why* survives compaction as a file the
+person can read beside their own registers, and the run is measured against
+its own prediction -- which is what makes the plan a calibration record.
+
+### M632 -- warrant tags: a lesson says how it knows -- done
+
+Fifth milestone of the argumentation program. M326b's trichotomy --
+judgement / evidence / unchecked -- existed for deferrals and nowhere else.
+The `/learn` mentor drafted memory notes with an optional `[evidence: ...]`
+trailer (M600): a POINTER to where a lesson came from, not a CLASSIFICATION
+of how far to trust it. A gotcha noticed once and a number measured over
+forty runs landed in memory.md as the same kind of line and were re-injected
+into every turn with the same authority.
+
+**What ships.** `jc_learn_warrant`, a pure parse of `[warrant: <word>]` on a
+note -- measured, judgement (both spellings), unchecked; any other word is
+untagged, never guessed. `learn apply` counts the class of each note it
+COMMITS (not the draft's: the summary describes memory.md's new lines) and
+appends one line after the sentence learn.sh pins byte-exact: `Warrants: 1
+measured, 1 judgement, 1 unchecked (labelled -- check before trusting), 1
+untagged.` `learn analyze`'s staleness review gains a `memory-unchecked`
+finding pushed FIRST, naming the notes ("review these first"), and pushed
+only when there are any -- an absence is not a finding. The scaffolded
+mentor (`init`'s `agents/mentor.md`) asks for the tag on every note and says
+unchecked is allowed. The trailer travels into memory.md with the note, as
+the other two do, so the model that reads the note reads its class.
+
+**Nothing is refused, on purpose.** An unchecked note IS what memory is for.
+Refusing it would turn a label into a gate and lose the gotchas; what the
+tag changes is where the class is visible -- at commit, in the review, and
+in the injected text -- and in what order a Corrections pass is invited to
+start.
+
+**Tests, born red.** Unit: the parse (case, both spellings, an unknown word,
+a trailer named inside another trailer, NULL), the summary line's exact text,
+the insight pushed first and naming the note. `learn_warrant.sh` (5 checks:
+the four counts; the pinned sentence unchanged; the trailer kept in
+memory.md; analyze's unchecked finding BEFORE the general review, by name;
+`init`'s mentor prompt asks for the tag). Born 3 of 5 red -- the two that
+passed on the unwired binary are boundaries (the pinned sentence, the kept
+trailer: M600's behaviour). Five teeth, each red on exactly its check; the
+ordering tooth was redone because its first perturbation added a late copy
+of the insight while leaving the early push in place, so nothing could go
+red -- and restoring it with `git checkout` on the not-yet-committed file
+erased the milestone's own edits there, re-applied from the script. One
+pre-existing summary test gained the line it now prints.
+
+**Honest limit.** A label is a hint, not a schema (D8 of the analysis note):
+a mentor can mislabel fluently, and `measured` on a guess is worse than no
+tag. The prompt says so; the draft's reviewer is the person.
+
+### M633 -- steelman before rebuttal; the critical questions -- done
+
+Sixth milestone of the argumentation program, the learner-facing one.
+Module 06's gate said `/check` feedback must be "applied or explicitly
+rebutted in the doc (an `## Objections` note)". It did not require the
+objection be STATED before it was answered, and the one fallacy the
+curriculum names -- straw men -- was named to the instructor
+(INSTRUCTOR.md, M6 failure modes) and never to the learner who will commit
+it. Module 07 taught the FORM of a consequence argument ("a smell is a
+consequence, not a preference") and none of the questions such an argument
+must survive.
+
+**I -- the steelman shape.** Task 10's grader gains one CONDITIONAL check.
+When `DESIGN.md` has `## Objections`, every `- ` entry (continuation lines
+included) must carry an `Objection:` label and a `Reply:` label; a section
+with no entry fails ("the heading alone rebuts nothing"); a design with no
+section is graded exactly as before, and check 6 says so. The reference
+design gains a two-entry section that models the shape; the e2e proof gains
+a trap -- the same design whose first entry is a `Reply:` to nothing the
+reader can weigh -- so the trap count moved 57 -> 58 (docs_counts_lint holds
+the banners). The spec tells the learner why: a reply to an objection nobody
+can read is where straw men live.
+
+**H -- the critical questions.** Module 07 §2b gives Walton's four for an
+argument from consequences -- how likely; how costly and to whom; what the
+alternative costs; what the evidence is for the LIKELIHOOD, not the badness
+-- as the learner's own checklist before a reviewer asks them.
+CODE_REVIEW.md's Review row points to it. Prose, for a human: the tier where
+a checklist works and a grep would find words.
+
+**Tests, born red.** `design_objections.sh` -- 5 of 5 red on the old grader,
+which also PASSED the straw-man trap before the fix -- now 7 checks: five
+run the grader script directly on fixtures (no section passes and says
+optional; both labels pass; a reply without a stated objection fails,
+counting and naming the label; a stated objection with no reply fails; an
+empty section fails), and two go through `jichi grade` -- the verdict a
+learner actually sees is jichi's fold of the TAP -- FAIL on the straw man,
+PASS on the well-formed design (smoke_lint insisted a non-lint driver run
+the built binary, and was right). Five teeth on the awk and the branches,
+each red on exactly its checks; the e2e trap; the full e2e proof green. The
+grader was validated on scratch copies before it touched the tree, which
+found the driver's first defect (running the grader outside the directory
+it cds into) without a red run in the suite.
+
+**Honest limit.** "Strongest form" is a judgement; the grader sees two
+labels. It catches the UNSTATED straw man, not the well-stated weak one --
+that is still the instructor's reading-aloud and `/check`'s rubric.
+
+### M634 -- the `refute` workflow stage, pre-registered -- done
+
+Seventh milestone of the argumentation program. M602's R2 recommended
+"ask the second seat to adversarially refute the first" and noted the
+workflow `verify` stage could host it. `verify` runs a shell command.
+Counter-argument was not a move the loop could make.
+
+**What ships.** A fourth stage type beside `map` / `synthesize` / `verify`:
+`refute`. It takes the pipeline context so far as "another agent's claim
+and evidence" and runs a READ-ONLY subagent (`include_mutating` 0 -- the
+fence the read-only map uses, so a `write_file` from the refuter is refused
+at the gate, not by hope) under `JC_WF_REFUTE_FRAME_A`/`_B` (two literals,
+each under C89's 509), a system message the spec author cannot weaken: *do not agree with it*; `## Rebutting` (the
+claim is false -- cite file:line or a read-only command and its output);
+`## Undercutting` (the evidence does not support the claim even if true);
+`## Stands` (tried and failed, and what was tried); *say "nothing found"
+rather than inventing a defeater*. The spec's own `prompt` is appended as
+context after the frame, never substituted for it; `model` selects a
+different seat. The output KEEPS the claim above the refutation -- a human
+reads both and rules -- and a second seat that produced nothing is
+reported as "the claim stands unexamined, not confirmed".
+
+```mermaid
+flowchart LR
+    A["map: review each file"] --> S["synthesize: one report<br/><i>the first seat's claims</i>"]
+    S --> Rf["refute: attack the report<br/><i>rebutting · undercutting · stands</i>"]
+    Rf --> H["a human reads BOTH<br/>and rules"]
+    style Rf fill:#1e3a5f,color:#fff
+```
+
+**Measure first.** [`docs/proposals/2026-09-refute-ab.md`](proposals/2026-09-refute-ab.md)
+is the pre-registration, in the craft A/B's shape: twelve first-seat reports with
+one planted false claim each (listed before any run), `jlu/qwen3-coder-next`,
+a hit read by a person blind to the condition, the control a `synthesize`
+stage told to "review critically", the threshold (6 of 12, and more than
+the control) and what will not be concluded. **The experiment has not been
+run.** The stage exists; its benefit is a hypothesis with a number on it.
+
+**Tests, born red -- and two defects the driver found.** Unit: `refute`
+parses to its own type and its name round-trips; the frame carries its two
+load-bearing sentences. `workflow_refute.sh` (7 checks, scripted model; 4 of
+6 red on the old binary): the stage announces itself; the frame reached the
+wire verbatim; the first seat's claim was handed over as the text under
+review; the three headings are in the output; the refuter's write was
+refused; the claim is kept beside the refutation; and BOTH seats' writes
+were refused at the gate, counted on the wire. The first build crashed
+(`munmap_chunk(): invalid pointer`): the runner hands the answer back
+arena-owned and the stage `free()`d it. The second build let the refuter's
+`write_file` THROUGH: `include_mutating 0` only keeps the mutating tools off
+the menu, and the mock called one it was not shown -- the read-only `map`
+stage had the same gap since it shipped. Both stages now set `app->readonly`
+around the run, the fence `jc_tool_execute` actually consults; check 7 holds
+it for both. Six teeth (type unknown; frame dropped; claim not handed over;
+refuter unfenced; map unfenced; claim replaced), each rebuilt and red on
+exactly its checks -- two had to be redone with line-anchored perturbations
+after a restore `sed` matched the fence's own restore line.
+
+*(2026-09-16: the map fence now has its own gate -- `workflow.sh` checks 4-5,
+a scripted seat whose `write_file` must come back refused on the wire and
+leave the file under review byte-identical. Proven red by reverting the
+fence: the unfenced seat overwrote the file. This closes the DEFERRED row
+that observed a fence held only by a neighbour's driver is one refactor away
+from unheld.)*
+
+**Honest limit.** Two seats sharing a base model share blind spots (M602's
+caveat). The driver proves the frame arrives and the fence holds; whether
+a second seat finds anything real is the pre-registered question, to be
+reported as run or as not run -- never as expected.
+
+### M635 -- ARGUMENT.md and /predict -- done
+
+Eighth and last milestone of the argumentation program.
+
+**J -- the names, lightly, last.** `docs/ARGUMENT.md` maps the house
+vernacular to what it is called elsewhere: a rejected alternative is design
+rationale (an ADR is one decision with its rejected options); `Because:` is
+the warrant; `Revisit when` is a defeater named in advance; the
+floor-versus-judgement header and the reach footer are the qualifier; TAINTED
+is an undercutting defeater and a red test a rebutting one; the warrant tag
+is the kind of backing; the five readings ask the program rather than
+yourself; the steelman and Walton's critical questions are named for what
+they are. One Toulmin diagram, one table, and the ordering stated as a
+decision: practice first, because a learner who can name a warrant and
+cannot write one has a vocabulary, and the curriculum grades artifacts.
+
+**K -- record predictions, not only estimates.** Task 73 was the one
+calibration exercise; the code-reading skill asked the learner to predict
+before it revealed and then the prediction was gone. `/predict <text>` in
+the TUI appends a `predict` line to `.jichi/predictions.jsonl`; `/predict
+right|wrong` appends a `resolve` line for the last OPEN prediction and is
+refused when none is open; `/predict` alone prints the tally (made,
+resolved, right, hit rate, open). Its own file for the reason `hints.jsonl`
+is its own file: every reader of `progress.jsonl` treats a line as an
+attempt with a verdict, so the promise "never punished for learning" is
+true by construction. The fold ignores a resolve with nothing to close, so
+the tally cannot be made to lie by ordering. No model is involved.
+
+**Tests, born red.** Unit: the fold in both orders, a double resolve, NULL,
+and the separation (prediction lines are not attempts). `predict_record.sh`
+(6 checks through the real TUI under ptydrive: the empty tally; a resolve
+with nothing open refused; the prediction recorded verbatim; the resolve
+line; the tally reading 1/1/1 and 100%; and no progress.jsonl or
+hints.jsonl written). Teeth per check by perturbation.
+
+**Honest limit.** The record is what the learner SAID they predicted; if
+they look first and predict after, the file cannot tell. Honesty is theirs,
+as it is with the record -- ARGUMENT.md says so in the same paragraph.
+
+**The program, closed.** Eight milestones (M628-M635) moved the project's
+reasoning from prose to artifacts with a mechanical floor where one was
+possible, and said so where one was not: three divergences settled; a
+decision graded; the reach footer; the plan artifact; warrant tags; the
+steelman shape and the critical questions; the refute stage with its
+pre-registration; the names and the prediction record. What was measured
+and what is still a claim is written in each entry, in those words --
+and the pre-registered A/B (M634) is the one experiment the program left
+for the next session to run.
+
+### M636 -- the toolchain sweep: C, C++, Zig -- and the bibliography -- done
+
+**Why.** Two asks, and the first one found the second's reason to exist. Build
+the tree with every front-end it claims to support; then write down the outside
+reading the documentation points at but has never listed.
+
+**What the sweep measured** (threadwork, 2026-09-16, gcc 15.2.0, clang 21.1.8,
+zig 0.16.0, from a clean tree each row):
+
+| Row | Before | After |
+|---|---|---|
+| gcc `-std=c89 -pedantic -Werror`, build + suite | green, 0 warnings | unchanged |
+| clang `-std=c89 -pedantic -Werror`, build + suite | green, 0 warnings | unchanged |
+| `make CC="zig cc"`, build + suite | green | unchanged |
+| `make CC="zig cc -target x86_64-linux-musl"` | static-pie ELF, runs | unchanged |
+| `make CC=g++` | builds, **913 warnings** | builds, **13 warnings** |
+| `make CC=clang++` | **fails: `-std=c89 not allowed with 'C++'`** | builds, 13 warnings |
+| `make cpp-check` | **fails from clean** | 302 files, 6 s |
+| `make cpp-check CXX=clang++` | **fails from clean** | 302 files, 8 s |
+| `make cpp-check CXX="zig c++"` | **fails every file** | 302 files, 41 s |
+
+**C and Zig were clean end to end. The C++ tier was rotted, and had been for 154
+commits.** `src/util/jc_buildrev.c` includes a generated header (M495) that
+`make clean` deletes (M593), and the `cpp-check` rule declared no prerequisite on
+it -- so the target was green only when some earlier build had already made the
+header, and red when run the way `docs/CPP_BUILD.md` publishes it. Both
+directions were measured before anything was changed.
+
+**The cause is one this project already has a rule about.** M188 kept `cpp-check`
+out of `make ci` deliberately -- the sources are C89 and the C gate stays the
+gate -- and put nothing in its place. That is the M482 shape exactly: a tier
+named in no target runs nowhere, and nothing says it hasn't. The M188 decision
+still holds; what changes is that `tests/smoke/cppcheck_lint.sh` now occupies the
+slot, at ~2 s in every `make smoke` rather than the 55 s a three-front-end sweep
+costs.
+
+**Four repairs, each found by running a published command from clean:**
+
+1. `cpp-check` depends on `$(STAMP)`.
+2. `-x c++` is explicit, on the probe line and the compile loop. clang++ has
+   *deprecated* compiling a `.c` input as C++ -- the 180 notices were a warning
+   about a future hard failure, not noise.
+3. The syntax-only mode is **probed by compiling**, not assumed: `zig c++`
+   accepts `-fsyntax-only`, injects its own `-c`, and then fails every file with
+   `error: FileNotFound`. Asking "is the flag accepted" answers yes; asking "does
+   something compile with it" answers no. That is the CLAUDE.md probe rule, and
+   this is the second time it has been the whole bug (M449 was the first).
+4. `command -v $(firstword $(CXX))`, so a two-word driver is not reported missing.
+
+**And a fifth, in the Makefile's configure section: the C89 probe was answering
+a question about the COMPILER by blaming the MACHINE.** With `CC=clang++` it fell
+through to `STD_DIALECT = gnu89 (this platform's headers are not C89-parseable)`,
+which is false about the host. A new probe compiles a C++-only program named
+`.c` and reads the exit status -- g++ and clang++ accept it, gcc, clang, `zig cc`
+and **`zig c++` do not** -- then selects `-x c++ -std=c++17` and filters out the
+four C-only warning flags. Nothing is inferred from the driver's name, which is
+what got `zig c++` right: it is a C compiler for `.c` inputs, so
+`make CC="zig c++"` builds the ordinary C89 jichi and is not a third C++ build.
+
+**What the repaired tier found on its first run.** `src/index/jc_docs.c` carried
+`pending_nl = pending_nl || 0;` -- a statement that compiles to nothing, invisible
+to gcc, flagged by clang++ as `-Wconstant-logical-operand`. Correct in intent
+(a literal newline in HTML source is inline whitespace and must not clear a queued
+block boundary), wrong as code: a reader who trusts it looks for an effect that
+is not there. It is now the comment it always was. Second time this tier has paid
+for itself; the first was M188's 12 implicit-conversion sites.
+
+**The bibliography.** `docs/BIBLIOGRAPHY.md` -- 53 entries (18 craft, 16 C,
+11 C++, 8 Zig), each saying which question in *these* pages it answers, 29 of
+them free to read. The population was measured before it was written: across all
+of `docs/`, zero mentions of Kernighan, Ritchie, Stroustrup, Knuth, Parnas or
+Dijkstra, no ISBN, no DOI. A project whose entire teaching apparatus reads its
+own source had never pointed anywhere else.
+
+**Every claim carries its evidence, on a date.** 17 pages fetched and read, 16
+probed for status, 27 ISBN-13s resolved against Open Library to *that exact
+title, publisher, edition and year*, 1 DOI given because the publisher answers
+`403`.
+
+**And then the method caught the author.** c-faq.com, the canonical home of the
+comp.lang.c FAQ, refused the connection on both ports that morning, and this
+entry's first version reported it **dead** -- in the page, the CHANGELOG, this
+ROADMAP and the commit message. Re-probed the same afternoon when the operator
+asked for c-language.org to be added, it answered **200 in 0.47 s, three times,
+serving the real FAQ**. A transient outage, reported as a death.
+
+The corrected rule, kept on the page because it is worth more than the original
+claim was: **one probe separates "down right now" from "gone" not at all.** A
+single curl failure is evidence about a moment, and its honest report is
+*unreachable at HH:MM*. Re-probe before demoting a canonical URL, and when a
+mirror is used, name which is canonical. It is the same shape as the classifier
+rule in CLAUDE.md -- an else-branch stated as a positive finding (M519's `prose`
+verdict for five capable models) -- committed this time inside a page whose
+entire subject is checking claims before publishing them.
+
+**Two guards, split by what they need.** `tests/smoke/bibliography_lint.sh` is
+offline and runs in every `make smoke`: entry count, per-section counts against
+the prose (M259 -- eight milestones once incremented a hand-maintained count
+instead of recounting), a `Read it for:` line per entry, a dated marker per
+entry, no citation outrunning its marker, and the page linked from both indexes.
+`scripts/check-bibliography.sh` needs a route out and is therefore **not** in any
+gate: it re-probes all 33 URLs (all 2xx on 2026-09-16).
+
+**Both lints were caught being wrong before they were trusted, which is the
+point of the ritual.** `cppcheck_lint` check 1 keyed on a Makefile variable
+*name* and missed a second generated header called anything else; check 4's
+pattern matched the probe line, so deleting `-x c++` from the loop that compiles
+all 302 files left it green; and a `^\t` in an ERE is a plain `t`, which CLAUDE.md
+names by name. `bibliography_lint` check 5 used `\s` in an ERE and a line-oriented
+grep against a sentence that wraps, and reported "no count sentence found" for a
+sentence that was there and correct. `check-bibliography.sh` extracted with a
+greedy `sed` that dropped the first of any two citations on a line -- exactly the
+double-cited Zig and WG14 rows. Every check is now proved red under its own
+perturbation, separately: 6 of 6 and 6 of 6.
+
+**M636a, same session, at the operator's request: c-language.org.** The official
+C site -- WG14-affiliated, its FAQ approved by the committee -- indexing every
+revision from K&R to C23 with both the ISO/IEC numbers and the draft numbers
+practitioners actually cite (N3220, N1570), plus a resources page that is itself
+a bibliography. It is now the first entry in the C section, because it is the hub
+the other four standards entries hang off.
+
+**It should have been there already, and the reason it was not is this project's
+own named failure.** `docs/READING_THE_STANDARD.md` has linked it since M191. The
+C material in the bibliography was enumerated from what its author knew rather
+than from what this tree already cites -- "audit the universe, not the result",
+committed inside a page whose subject is checking claims. The second route, run
+afterwards, is cheap and worth keeping as a habit: extract every external URL
+from the four pages the bibliography claims to serve and diff against the
+bibliography. Population measured before deciding to build anything: **9 URLs in
+1 file** (READING_THE_STANDARD.md; C_STANDARDS, CPP_BUILD, ZIG_BUILD and
+READING_OPEN_SOURCE cite none), which is under the bar for a new smoke lint -- so
+it is recorded as a habit and a paragraph, not a gate. Running it once is what
+re-probed c-faq.com and produced the correction above.
+
+**M636b: two entries the operator supplied, and one caveat kept.** SICP now cites
+**MIT's own course PDF** (6.001/6.037) beside the HTML twin -- verified rather
+than assumed to be the same book: 7,416,886 bytes of application/pdf, 883 pages,
+CC BY-SA 4.0, the same Unofficial Texinfo typeset the HTML edition serves. It is
+the copy to take offline, which is the whole reason this page marks which works
+are downloadable. And **Cat Hicks, *The Psychology of Software Teams*** (CRC
+Press, ISBN 978-1-032-96338-9) joins the craft section: the counterweight to a
+tree whose design case is one learner alone -- Brooks measures what coordination
+costs a project, Hicks measures what the team does to the people in it. Its entry
+carries two caveats in its own text: it is the only work in that section not yet
+settled by time, and its "read it for" line was written from the publisher's
+description rather than from reading it -- true of every `[ISBN verified]` entry,
+but worth naming where the book is too new for that description to rest on
+anything else. Its date is recorded as 2026 (the catalogue's) over the publisher
+page's 2027, because the operator had read it by 2026-09-16.
+
+**M636c: the Rust section, closing the only graded-course-without-literature row.**
+9 entries (7 free), weighted two ways on purpose. Toward **ownership** -- the
+idea tasks 63-66 are really about -- where "Learn Rust With Entirely Too Many
+Linked Lists" is the best answer in print or out of it to *why won't Rust let me
+build the data structure I know how to build in C?*, and reads directly against
+Set D and the C course's growable array (task 52). And toward **the seam**: the
+Rustonomicon's FFI chapter, the Rust FFI Omnibus, and the bindgen guide, because
+`RUST_INTEROP.md` is the clean-boundary track and the seam is where a C
+programmer actually arrives. **Every language with a graded systems course now
+has literature behind it.**
+
+**Two guards were wrong, and both were caught by the addition rather than by
+review.** `bibliography_lint` check 5 counted each section between its heading
+and a hard-coded next one, with **no terminator for the last section** -- so Rust
+arriving as section 5 made Zig silently report 8+9=17 while the sum still equalled
+the total. A count that absorbs a new section without noticing is M259 wearing a
+different hat; it is now a general `sec()` and is proved red by renumbering the
+section. And check 4 refused the entry for *The Rust Programming Language*,
+correctly: it carried the announced 3rd edition's ISBN, which Open Library does
+not have and whose publisher page refuses automated requests. The number is now
+**deliberately not printed** -- an ISBN carrying only a publisher's word looks
+identical to 31 catalogue-resolved ones and means less, which is what the markers
+exist to prevent.
+
+**A third gap, found while fixing those, had been live for three commits:** the
+entry count is quoted in `docs/README.md`'s index line and `CURRICULUM.md`'s
+routing paragraph, and **nothing checked either** -- both still said 53 while the
+page had grown to 55 and then 64. Check 5 audits the page against itself, which
+is the single-route mistake `TEST_INTEGRITY.md` warns about, and the number a
+*reader* meets first is the index line. New check 7 covers both files; it needed
+no synthetic perturbation to prove red, because it went red against the real
+staleness the moment it was written. `CHANGELOG.md` is deliberately outside its
+universe: a changelog may freeze its numbers at the moment it describes.
+
+Counts now, all lint-enforced: **64 entries** (19 craft, 17 C, 11 C++, 8 Zig,
+9 Rust), 37 free to read, 44 URLs -- all 2xx on 2026-09-16 -- and 31 ISBNs.
+
+**M636d: two topics, asked directly -- does the curriculum teach files, and data
+structures?** Counted over the teaching universe (147 markdown files plus the
+fixture trees), word-bounded, and the anchoring matters: the first pass reported
+`trie` in 14 files (matching *en-trie-s*), `stack` in 25 (*stack trace*) and
+`ring` in 266 source files (*st-ring*). Every number below survived re-measuring.
+
+**File I/O is taught nowhere. 0 of 80 graded tasks, 0 of 16 reading-guide
+chapters** -- while jichi's own `src/` does it in 26 files, plus 17 with POSIX
+`read`/`write`, 5 with `stat`, 4 with an atomic `rename`. Five assignment files
+touch it and every one hands it to the learner as scaffolding: task 22's four
+benchmark candidates read a file because a benchmark needs input, task 25's
+`wordtool` reads one because the lesson is a Zig `export fn` linking behind an
+unchanged C header. No task asks anyone to open, read, write or close anything.
+This is the only gap in the whole review that is **not** defensible as a scope
+decision -- every program does it, the failure modes are precisely what beginners
+get wrong and a grader can check them all, and the material is already here,
+including a war story with a scar attached (ANECDOTES #1: a log file kept inside
+the rollback blast radius).
+
+**Data structures are taught narrowly, correctly, and silently.** Taught with a
+task behind each: a growable array (52, and `jc_vec`), a ring buffer (04), an
+arena (54, and `jc_mem`), an RPN stack (50, 62), the C++ containers (60-61).
+Never taught: linked list, hash table, tree, binary search, any sorting
+algorithm. The reason is architectural and it is a good one -- jichi has exactly
+**one** general container, `jc_vec`, and reaches for `qsort` (4 `.c` files) and
+`bsearch` (2) when it
+needs them, so a course that teaches by reading its own source cannot teach what
+the source does not contain.
+
+**What is wrong is the silence, not the boundary.** `CURRICULUM.md` states no
+scope limit at all -- zero matches for "does not teach", "out of scope", "not a
+course in" -- so a learner can finish four stages believing data structures were
+covered, especially since the page's own words are *"manual memory & **data
+structures** under AddressSanitizer"* for tasks 51-54. Those four are *The
+dangling pointer*, *The array that outgrew itself*, *Never call sprintf* and *The
+arena*: three are memory and string safety, and the plural rests on one task.
+Same species as M636's "modern" C++ finding, same cheap fix -- say the smaller
+true thing. Both are DEFERRED rows, not done: the file-I/O task is a milestone
+and the scope section is the operator's call about what this course is.
+
+**A lint nobody in this milestone wrote caught the Rust section.** `docs_flags`
+reads every `--flag` in `docs/` as a jichi flag and flagged `rustup doc --book`;
+it has a documented allowlist for foreign tools' flags, which already carried
+Rust's `--edition`, and `--book` joined it with its reason. Worth recording
+because the failure was found by the gate rather than by review -- which is the
+argument for having the gate.
+
+**M636e: the next milestone is planned, not started** --
+[plans/2026-09-files-and-structures.md](plans/2026-09-files-and-structures.md).
+Two reading docs (`FILE_HANDLING.md`, `DATA_STRUCTURES.md`) plus **five graded
+tasks, 76-80**, in a **new sibling course** rather than bolted onto 51-54. The
+operator asked for the extension inside the existing course; building it that way
+was examined and rejected in writing, because tasks run 00-75 contiguously with
+no gaps (55 is Zig), so insertion means renumbering 21 tasks across INDEX, the
+graders, the i18n trees and every cross-reference -- a large blast radius for
+contiguity nobody reads. The split also **earns** the claim M636d found
+overstated: "C: manual memory" (51-54) and "C: files & structures" (76-80) are
+both true, so the fix is deleting one word rather than editing a claim down.
+
+Its doctrine is the operator's sentence made mechanical -- every chapter and
+brief does three moves in order: what jichi does and why (with the milestone and
+the cost), **when that decision is wrong**, and what you would reach for instead,
+built or measured rather than named. The material carries it because jichi's own
+choices are arguable and two are admitted defects: **zero `fsync` in 97k lines**,
+and the path fence's **check-then-open window, still open** (HARDENING.md) -- a
+real unfixed TOCTOU in its own file handling, teachable as a live defect. Task 78
+is the keystone and is deliberately falsifiable: it has the learner *measure*
+linear scan against a hash table, and the grader checks that a measurement was
+made and reported, **not which way it came out** -- if the crossover lands below
+jichi's real N, the honest conclusion is that jichi should have a hash table.
+
+**Deferred, named.** The six other languages with tracks in this tree (Racket,
+Guile, Elixir, Haskell, Clojure, Python) have no literature section; a thin
+section per language is worse than an honest gap, and the page says so.
+
+**M636h: task 77, *Replace it without losing it* -- the writing half of file
+I/O.** `savestate.c` is nine lines and its first line is a data-loss bug:
+`fopen(path, "w")` truncates the old contents before the first new byte
+arrives. The learner rewrites it in the shape of `jc_write_file_atomic` -- a
+temp beside the target, `O_EXCL`, the mode at creation, `fclose` checked, the
+byte count compared, `rename` last, `remove` on every failure -- and the brief
+does the three moves: why jichi does this and the sinks that use it; when
+atomic replace is the WRONG promise (it replaces the inode, so links, symlinks
+and the original's mode go, which is why `jc_write_file` exists beside it); and
+the honest part, that jichi never calls `fsync`, why that is an accepted trade
+here and a bug in a database, with the learner asked to add it and time it.
+
+**How the crash is simulated, and the plan's fallback taken.** The plan named
+the `FAULT=1` tier and flagged it as the least certain piece; it is a build of
+jichi, not of the learner's file, so it cannot reach `savestate.c`. The grader
+compiles the learner's translation unit with `-include` of a header that renames
+`fopen`/`open`/`fwrite`/`write`/`fclose`/`rename`/`remove`/`unlink`/`fsync`/
+`mkstemp` to hooks (object-like macros, so no C99 variadics): the hooks call the
+real functions, record every path opened for writing -- the target itself is a
+failure, a directory other than the target's is a failure -- and, on command,
+make the first write fail with `EIO`. Then the probe reads the old file back byte
+for byte and counts the directory: one entry, or a temporary was left behind. The
+brief says this is coarser than killing the process (the error path still runs)
+and that durability is invisible to any grader, so `fsync` is asked for and not
+graded. The grader's own first dry run failed on all four fixtures with the same
+message, because it wrote the probe's stderr INTO the directory it counts;
+validated on scratch copies before it entered the tree, as M633's was.
+
+**Two-sided, with two traps.** Pristine: FAIL at "the target itself was opened
+for writing". Reference: PASS. Traps: a temp in `/tmp` (the hook sees the
+directory; `rename` across filesystems is not a rename) and a save that makes
+every check and forgets `remove(tmp)` on the failure path. A fourth variant --
+correct atomic save, `secret` ignored -- fails on the mode. Counts recounted:
+81 graded tasks, 62 traps; the universe, stage and guard lints refloored
+(81 / 81 / 54). Before the registration the lints were red in exactly the ways
+they exist for -- "spec shipped without a two-sided grader proof",
+"frontmatter-only left, INDEX-only right", counts 80 against 81 -- and
+DEFERRED's file-I/O row is closed by 76 + 77 together.
+
+**M636i: task 78, *The scan that was fast enough* -- the keystone, and it
+refuted the page.** `lookup.h` fixes one contract for two containers: `scan.c`
+(given, correct, `jc_tool_registry_find`'s shape) and `ht.c` (a stub, the
+learner's). The grader inserts 5,000 keys into a 64-bucket table so collisions
+are the normal case, checks overwrite keeps the count, checks the table owns a
+COPY of the key (it scribbles on the buffer it passed and asks again -- first,
+so a stored pointer fails with its own message rather than poisoning every later
+count), deletes every even key and expects every odd one found, re-inserts,
+and lets LeakSanitizer judge `ht_free`. Then `MEASURE.md`: a machine, a method,
+at least three rows of `| N | scan ns | hash ns |`, a crossover statement, a
+deletion position -- checked for shape, never for direction, as the plan
+required, because the task was built to be able to prove `DATA_STRUCTURES.md`
+wrong.
+
+**It did.** The reference measurement, taken for the e2e fixture on this bench
+(Ryzen 9 3900X, `-O2`, 300,000 present-key lookups, seven-byte shared-prefix
+keys, three runs): the chained table was never slower at any N from 8 upward --
+62 vs 70 ns at N = 8, inside the noise; 69 vs 104 at 32; 67 vs 142 at 64; 77 vs
+6,093 at the repo map's 4,096. The page's "crossover often in the hundreds" was
+a belief, and for keys that share a prefix -- names, the common case -- `strcmp`
+walks the prefix on every compare and the scan loses early. The paragraph is
+kept as written under a correction banner (ANECDOTES #75's norm); what still
+stands is narrower and true: at N = 17 the scan is *fast enough* (about 15 ns
+behind on a call that costs microseconds elsewhere), not *faster*, and at
+4,000 it is eighty times slower. That last number is the plan's own
+falsification clause landing: the honest conclusion is that the repo map
+is the one place jichi should have a table, and it is now written down as a
+finding rather than a hypothesis.
+
+**What the grader cannot see, said in the brief.** It cannot tell a hash table
+from a scan that keeps the contract; the bench can, and so can the learner,
+which is why the measurement is half the task. It does not time anything
+itself: a timing check in a grader is the flaky check nobody trusts.
+`bench.c`'s header says what it does and does not measure (present keys only,
+one key shape, no insertion or deletion, `-O2` not ASan), which is task 22's
+discipline reused rather than reinvented. The plan's "hollow hash table" trap
+is therefore not one of the three shipped -- it is not detectable honestly by
+correctness alone -- and the brief says so instead of pretending.
+
+**Two-sided, three traps.** Pristine (the stub): FAIL at `ht_put` returning -1.
+Reference: PASS. Traps: a table that stores the caller's pointer (fails on the
+ownership check, first); an overwrite that inserts a second node (the count
+grows); a correct table whose `MEASURE.md` has results and no `## Method`.
+Validated on scratch copies before entering the tree, where the first probe
+order let the pointer trap fail on the count instead of on its cause -- the
+ownership check moved to the front. Counts recounted: 82 graded tasks, 65
+traps; lints refloored (82 / 82 / 55). Tasks 79 and 80 remain planned, and the
+plan's own §7 says to decide after 76-78 whether they ship as graded tasks or as
+reading with something to do -- a decision for the operator, now that the
+material exists to decide it with.
+
+**M636j: task 79, *When a vector is wrong* -- the same fix, twice.** The
+recommendation the operator asked for came first, and this task is the case
+for it: its defect is a pointer held across a `realloc`, which is exactly what
+AddressSanitizer exists to see; reading cannot give a learner the experience
+of ASan naming the freed buffer, and a grader can require that BOTH fixes
+exist -- so graded, not reading. `team_vec.c` remembers the captain by
+address; the learner keeps the array and remembers *which* player (an index,
+looked up on every call), then builds `team_list.c` from a stub: nodes with
+stable addresses, order of adding, an O(1) `move` between teams that splices
+the SAME node (the probe holds its address across the move and reads the goals
+it wrote through it), removal while walking with `next` saved first, and a
+free LeakSanitizer judges. The brief does the three moves -- jichi holds
+indices and arena-allocated targets because for its shapes that is the cheaper
+discipline; a list earns its place for stable addresses, O(1) splice or
+intrusive membership, at the cost of a node per element and no locality -- and
+ends on the question no probe can answer: which of the two is *your* use-case
+buying.
+
+**Two-sided, three traps.** Pristine: ASan's `heap-use-after-free` in
+`strcmp` reading the captain after 200,000 adds. Reference: PASS. Traps: the
+vector "fixed" by a 4,096-element reserve with the pointer kept (correct for a
+while; the probe adds 200,000, and the array moves); a `move` that allocates a
+new node and copies the player (the data arrives, the address does not); a
+`team_list_free` that reads `next` through the node it just freed -- the
+classic, and ASan's report names `team_list_free`. Validated on scratch copies
+first, where the grader's own defect was three backticks inside double-quoted
+failure messages that the shell ran as commands (`to: not found`) -- the same
+class as M627's stray backtick, caught the same way. Counts recounted: 83
+graded tasks, 68 traps; lints refloored (83 / 83 / 56).
+
+**M636k: task 80, *The order you didn't sort* -- the last of the five, and
+why it is graded.** The operator asked whether 79 and 80 should be reading
+or graded; the answer given, and taken, is graded for both, with one scope
+decision here: **balancing is reading, not grading**. A grader can check
+that a balanced tree is a tree; it cannot check that it is balanced except by
+timing, and a shape-only check for the hardest part would be the hollow gate
+the curriculum warns against. So `ordered.h` fixes one contract -- put with
+overwrite, get, min, max, an inclusive ascending range walk -- and the
+learner builds it twice: `sorted.c` (a sorted array kept sorted on insert,
+jichi's `qsort` + `bsearch` grown up; the `memmove` is the cost) and `bst.c`
+(an unbalanced BST, allowed and enough). One probe compiled twice under
+ASan/LSan: 3,000 random keys from a 65,536-key space so duplicates arrive and
+must overwrite, every key found, absent keys absent, min and max, seven fixed
+ranges plus five whose bounds ARE keys (so an off-by-one at either end cannot
+pass on the luck of the draw -- the first cut's exclusive-`hi` trap passed
+exactly that way), then the same probe on 3,000 SORTED keys, because an
+unbalanced tree is still correct there, only slow, and a tree that breaks on
+it has a different bug. Deletion is left out of the contract on purpose --
+in a tree it is where the classic mistakes live and deserves its own probe --
+and the learner says what they would do about it in `MEASURE.md`.
+
+**The measurement gave three answers.** `bench.c` runs insert-heavy (random
+and sorted keys) and query-heavy (200,000 gets, 20,000 range walks) across N;
+the reference run on this bench: random inserts favour the tree from N =
+4,000 and by 27x at 64,000; sorted inserts favour the array outright while the
+tree degenerates to a list -- 324 ms for 16,000 keys, 200x its random case,
+and the bench's safety cap skips it at 64,000 because it would be O(n^2);
+point lookups are a wash and range walks favour the contiguous array 2x-9x at
+every N. So the page's choice holds for jichi's shapes (built, then queried)
+and fails for a set under random churn -- both recorded in the reference
+`MEASURE.md`, whose `## Finding` must name what sorted input did to the tree.
+The grader checks the shape of the measurement and never its direction.
+
+**The reference's own defect.** The first reference `bst_range` underflowed
+its explicit stack when every node on the path was below `lo` (walked right
+off the end, then popped from an empty stack); ASan's `heap-buffer-overflow`
+named the line in the scratch dry run, and the bench segfaulted on the same
+path. Fixed before either entered the tree -- the third time in five tasks
+that validating the grader on scratch copies caught a defect in the grader or
+its reference rather than in a learner's file, which is the argument for the
+practice.
+
+**Two-sided, three traps.** Pristine (two stubs): FAIL at `put` returning -1.
+Reference: PASS. Traps: a sorted array whose range excludes `hi`; a tree whose
+overwrite inserts a duplicate node (the count grows, the walk repeats); correct
+maps with a measurement that has every number and no `## Finding`. Counts
+recounted: **84 graded tasks, 71 traps**; lints refloored (84 / 84 / 57).
+The files-and-structures course is complete: 76-80 shipped as the plan named
+them, two of its five measurements went against the reading pages' own claims
+(78's crossover, 80's sorted rows), and both pages say so.
+
+### M637 -- the refute A/B, run; and the reach footer read in anger -- done
+
+Two DEFERRED rows from the argumentation program, closed by one real task.
+
+**The task.** Build `tests/bench/refute_ab/`, the harness the pre-registered
+refute A/B (M634) could not run without -- and build it THROUGH jichi, in
+plan mode and then `--auto`, so that the reach footer (M630) and the plan
+artifact (M631) were read for the first time by a person on a task they
+cared about. `jlu/qwen3-coder-next`, headless, from the repository root.
+
+**What the footer did** (`analysis/2026-09-17-reading-the-footer-in-anger.md`).
+The plan run wrote a good five-section plan and ended `11 tool calls, 4
+errors`: two probes for files that did not exist yet and two plan-mode fence
+refusals of `mkdir`, counted alike -- a `refused` count would have said so.
+The `--auto` run stopped on the tool-call fence at 80 calls, 7.9 million
+tokens of churn, verifier passing on the tree as it stood, and read:
+`checked: verify did not conclude · 80 tool calls, 23 errors · 0 test edits
+· plan: 3 of 5 predicted files touched · writes in scope / not checked: a
+shell command ran -- changes it made are not attributed to the run`. The 23
+sent the reader to the transcript before any file: the model had written the
+Python by fifty `echo >>` shell appends after one `write_file` failed on a
+missing directory, and a third of them failed on quoting. "3 of 5" was false
+on its face (all five files existed) and exact in the record: two were
+shell-written, which the next line explained -- the pair is the footer's
+best moment, and the two lines should be one. **The footer changed the order
+of reading and exposed an under-specified verifier. It could not see that
+the harness was wrong**: compile + `--help` + the priced-model lint passed on
+a script whose two model-driving subcommands used an option jichi does not
+have, whose control arm lacked its instruction, whose grading form had one
+row for two arms, and whose score was a grep where the pre-registration says
+a person -- plus a `planted.tsv` filled with twelve INVENTED plants, against
+the plan's own not-goals, and a here-doc terminator leaked into `files.txt`.
+The harness was corrected by hand; its docstring and the note say what was
+kept and what was replaced. Two footer changes are proposed (a `refused`
+count; the plan clause naming the shell in its own line) and neither made:
+one run is a proposal.
+
+**What the A/B found** (`analysis/2026-09-17-refute-ab.md`). Twelve first-seat
+reports produced once by a read-only map over `src/util/*.c`; one false claim
+planted by hand in each, of the three pre-registered kinds (4 invented
+functions, 4 wrong line numbers, 4 inverted conditions), listed in
+`planted.tsv` before the runs; 24 runs under opaque ids with the condition
+sealed; a per-arm form filled by a person; the verdict from the form alone.
+**Refute 12 of 12, control 1 of 12** -- the pre-registered verdict, "the
+frame did work the words did not", with room on both sides of the
+threshold. The mechanism is in the answers: the control read the report as
+the thing to improve and accepted its quoted code as the code (forty lines
+reasoning from a planted line it never checked); the frame's "do not agree
+with it" sent the same model to the source every time. M602's R2 survived
+contact where the craft A/B's prose instruction did not -- and the
+difference is the argumentation program's thesis: advice in the prompt
+against a frame the author cannot weaken.
+
+**Said plainly.** The blind was formal: a refute answer is legible as one
+from its first line, and the person who planted the claims graded them; the
+sealed mapping and the per-arm form stood between, and 12 to 1 is not a
+margin a biased reading makes. The false-attack rate was not assessed and
+the table says 0 for that reason rather than a number; the refute frame that
+names every plant also declared all eight of one report's claims false, and
+whether those were right is the next measurement. Three plant kinds, each
+checkable by reading one line; one model, that had read this code for
+months, on both arms. `refute` stays a stage an author adds.
+
+### M638 -- what the footer found, fixed: the fence that refused a directory, and the refused count -- done
+
+The two footer changes M637 proposed, made -- and the product defect under the
+cascade M637 described, which the footer could not name and the transcript did.
+
+**The defect.** `jc_path_resolve` canonicalized a path that did not exist yet
+by splitting off ONE component: realpath() the parent, re-append the leaf. A
+target whose parent did not exist either -- `tests/bench/refute_ab/refute_ab.py`
+before `tests/bench/refute_ab/` -- returned JC_ERR_NOTFOUND, `jc_app_path_denied`
+reads a resolver failure as "outside" (fail closed, correctly), and `write_file`
+answered `refused by safety fence (path outside workspace)` -- for a path inside
+the workspace, to a tool whose next line is `mkdir -p`. The fence was refusing
+what the tool would have done, with a false reason. The model believed it,
+switched to `echo >> ` through the shell for fifty calls, a third failed on
+quoting, and the shell's writes were the ones the plan clause could not
+attribute. Every entry in that cascade was the model behaving sensibly on a
+false premise the product handed it.
+
+**The fix.** The resolver walks UP to the deepest ancestor that exists
+(`lstat`, so a dangling symlink counts as existing and is then resolved
+THROUGH its target by the M607 branch), canonicalizes it, and re-appends the
+missing tail. The tail is re-appended verbatim, which is sound only if the
+kernel would walk it the same way: a `.` or `..` component in a path that does
+not exist yet is a name here and a step there, so any such tail fails closed
+(`<root>/nope/../../etc/x` is refused). A tail cannot hide a symlink, since
+none of it exists. Unit: `test_path.c` -- one, three missing levels resolve
+inside the root; `.`/`..` tails refused; a missing tail below a dangling
+out-link is outside, below a dangling in-link inside, below the escaping
+`sym_dir` link outside. Smoke: `pathfence_nested.sh` (5): the nested in-workspace
+write lands and the file exists; the same shape outside is refused and nothing
+is created; the tool results say so in that order; the turn completes.
+
+**The refused count.** `struct jc_app` gains `tool_refusals`, incremented at
+every fence: the agent loop's ten denial sites (agent fence, policy, constraint,
+privilege, kinetic, approval, user denial, strict scope, the LSP-edit block,
+edit scope) and `jc_tool_execute`'s own (read-only, main-agent-only, and any
+result a tool marked `policy_refusal` -- the path fence). Every refusal is also
+an error result the model was handed, so the footer prints both and the zero:
+`80 tool calls, 23 errors (4 refused by a fence)`; JSON `reach.tool_refused`.
+It is a counter at each fence, not a match on the denial strings in the sink.
+**The plan clause** says why it is short when the shell ran, on its own line:
+`plan: 3 of 5 predicted files touched (2 unaccounted for -- a shell command
+ran; its writes are not attributed)`, only when `shell_ran` and touched < named.
+Unit `test_reach.c` (the zero is a claim; the excuse absent when the shell did
+not run, and when every file was touched); `pathfence_nested.sh` check 5
+couples the two fixes (`2 tool calls, 1 error (1 refused by a fence)`);
+`fence_refusal.sh` 6 and `fence_write_tools.sh` 1b give the agent-fence and
+edit-scope increments teeth.
+
+**Teeth.** Eleven perturbations, each rebuilt (`make -j4 WERROR=1 jichi
+run_tests`) and each turning exactly its own checks red: the one-component
+resolver (6 unit failures + nested 1/3/5, whose footer then read `2 errors (2
+refused by a fence)` -- the count telling the truth about the wrong fence),
+`.` accepted, `..` accepted, `stat` for `lstat`, the footer text, the shell
+condition dropped, the clause never printed, the tool-side increment, the sink
+fill, and the two loop increments under test. Sources restored by reverse
+replacement and md5-verified against the pre-teeth tree.
+
+**Honest limits.** Two of the ten loop increments are under test; the other
+eight are the same one-line increment beside the same callback and were read,
+not fired. The write tools' refusal text still says "path outside workspace"
+whenever the resolver fails -- now only for a `.`/`..` tail or an unreadable
+link, but still a reason the fence guessed rather than knew. Nothing here
+re-reads the footer in anger: M637 proposed from one run and this entry makes,
+so the next reading is the measurement.
+
+### M639 -- the benches on a second machine: the Pi 400 rows -- done
+
+Tasks 78 and 80 (M636i, M636k) shipped reference `MEASURE.md` fixtures with one
+machine in them, a Ryzen 9 3900X, and `DATA_STRUCTURES.md`'s correction banner
+rested on that one machine. A measurement with n = 1 machines is a measurement
+of that machine. The Raspberry Pi 400 on the bench (4x Cortex-A72 at 1.8 GHz, 1
+MB shared L2, Debian 13, gcc 14.2) ran both benches three times back to back
+over ssh, `-O2`, `ondemand` at full clock, 40-46 C throughout, and the middle
+run of each is now the second table in each fixture.
+
+**Task 78, the scan against the hash table.** The same verdict, louder: the
+table was never slower at any N from 8 upward, everything 4x to 5x slower than
+the Ryzen (the scan at 8,192 by 5.5x, the table by 4x), the same shape. The one
+thing the Ryzen could not say, the Pi did: at N = 8 the gap was inside the
+run-to-run noise on the workstation and is 11% on the A72 -- 262 against 233 ns,
+with the hash column moving 0.3 ns between runs at that N. A smaller cache and a
+slower `strcmp` punish the scan earlier, not later. The banner in
+`DATA_STRUCTURES.md` gained the second machine.
+
+**Task 80, the sorted array against the tree.** Two of three answers kept, one
+changed. Random inserts: the tree wins from N = 4,000 again and by 50x at
+64,000. Sorted inserts: the same degeneration (876 ms against 2.3 at 16,000;
+skipped at 64,000). Query-heavy is where the machine spoke: the point-lookup
+"wash" of the Ryzen is not one on the A72 -- the array wins from N = 4,000 and by
+2.7x at 64,000, and range walks by 2.3x to 20x where the Ryzen said 2x to 9x. A
+pointer chase costs more behind 1 MB of L2 than behind 64 MB of L3. The
+reference Finding now says: the workload decides the structure, the machine
+decides where the lines cross, and the row that came out the same on both is
+the sorted one. Run-to-run on the Pi: the random-insert row at 64,000 moved 12%,
+every other row under 7%.
+
+**Checked.** The edited fixtures pass their own graders on a scratch copy
+(`jichi grade`, exit 0 for both) and the two shape traps (no `## Method`, no
+`## Finding`) still fail -- the graders read `## Results` up to the next `## `
+heading, so the two `### ` machine tables inside it both count. The bench
+sources on the Pi stay in `~/jichi-bench/` for a re-take.
+
+**Honest limits.** Two machines, both on this desk, both gcc 14 at `-O2`; no
+clang, no `-O3`, no laptop with a turbo clock that moves mid-run. The Pi's
+`ondemand` governor was at 1.8 GHz for every reading taken, but the bench does
+not pin it. Nothing here re-measures jichi's own N = 17 tool lookup; the finding
+is still "fast enough, not faster", on both machines.

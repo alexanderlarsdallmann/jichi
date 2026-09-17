@@ -7,7 +7,7 @@ cd "$(dirname "$0")" || exit 1
 trap 'rm -f lmtest lmaccept _accept.cpp' EXIT
 CXX=${CXX:-g++}
 command -v "$CXX" >/dev/null 2>&1 || CXX=clang++
-command -v "$CXX" >/dev/null 2>&1 || { echo "FAIL: no C++ compiler (g++/clang++) on PATH"; exit 1; }
+command -v "$CXX" >/dev/null 2>&1 || { echo "CANNOT RUN: no C++ compiler (g++/clang++) on PATH"; exit 77; }
 FLAGS="-std=c++17 -Wall -Wextra -fsanitize=address -fno-sanitize-recover=all"
 
 if [ ! -f test_list_max.cpp ]; then

@@ -1170,7 +1170,7 @@ architecture in general, using jichi as the worked example).*
   Config `assignments` (bool, default 0) gates an "Assignments mode" addendum in
   `jc_sysmsg_build`; the `assignments` scaffold pack ships `assignment-writer`/
   `solution-writer`/read-only `solution-checker` agents, `assignment-template`/
-  `grading-rubric` skills, and `/assign` `/solve` `/check` commands. Assignments
+  `grading-rubric` and `code-reading` skills, and `/assign` `/solve` `/check` commands. Assignments
   + reference solutions are written to `docs/assignments/` (not injected into the
   prompt); the `assignments` subcommand (`run_assignments` in `main.c`) lists
   them, flagging which have a `.solution.md` sibling. Inert until both opt-ins

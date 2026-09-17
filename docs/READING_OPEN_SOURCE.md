@@ -53,7 +53,12 @@ After task 24, practice on real trees, in ascending order of hostility:
    three arenas in `src/` and verify the lifetimes yourself
    (`docs/assignments/` set D is this, shrunk to fixtures). The repo map
    (`jichi map`), `@sym:`/`find_definition` (with an LSP configured), and
-   `codebase_search` are the survey tools.
+   `codebase_search` are the survey tools. **This rung is now graded too**
+   (M627): [`assignments/74-read-the-turn.md`](assignments/74-read-the-turn.md)
+   asks for five readings of one agent-loop turn — abstraction to concrete,
+   control flow, data flow, execution, review — written to
+   [`CODE_REVIEW.md`](CODE_REVIEW.md)'s rubric and checked, from the checkout,
+   against the very symbols you cite.
 2. **A small classic you already use** — a single-purpose tool of a few
    thousand lines from your distribution's source packages. Repeat the
    method; the goal is one ANALYSIS.md and one *candidate* test gap, not a

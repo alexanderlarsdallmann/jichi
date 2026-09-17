@@ -2,6 +2,7 @@
 title: The smallest change that works
 audience: student
 phase: implementation
+stage: shu
 difficulty: intro
 points: 1
 verify: "grep -q 'Welcome to the bench' docs/assignments/03-the-smallest-change/greet.c && ! grep -q 'Welcome to jichi' docs/assignments/03-the-smallest-change/greet.c && grep -q 'return 0' docs/assignments/03-the-smallest-change/greet.c"

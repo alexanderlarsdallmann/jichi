@@ -2,6 +2,7 @@
 title: Name what's wrong — and why it matters
 audience: student
 phase: implementation
+stage: ha
 difficulty: intermediate
 points: 2
 verify: "sh docs/assignments/11-name-whats-wrong/test.sh"

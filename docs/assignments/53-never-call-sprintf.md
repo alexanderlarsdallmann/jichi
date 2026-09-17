@@ -2,6 +2,7 @@
 title: Never call sprintf
 audience: student
 phase: implementation
+stage: c-systems
 difficulty: medium
 points: 3
 verify: "sh docs/assignments/53-never-call-sprintf/test.sh"

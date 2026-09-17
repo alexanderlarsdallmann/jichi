@@ -2,6 +2,7 @@
 title: Refactor without changing behaviour
 audience: student
 phase: implementation
+stage: ha
 difficulty: intermediate
 points: 3
 verify: "sh docs/assignments/12-refactor-without-change/test.sh"

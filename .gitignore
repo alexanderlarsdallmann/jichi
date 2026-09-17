@@ -58,6 +58,11 @@ __pycache__/
 # committed while a grading is still open.
 /tests/bench/craft_ab/results/
 /tests/bench/mentor_ab/results/
+# Refute A/B outputs: per-run workspaces, the blinded grading pack, and the
+# sealed A/B mapping. A graded session's durable record is a dated
+# docs/analysis/ note, not the raw pack -- and the mapping must never be
+# committed while a grading is still open.
+/tests/bench/refute_ab/results/
 /tests/bench/body.json
 /tests/bench/*.log
 

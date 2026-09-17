@@ -159,9 +159,16 @@ BODY
         elif grep -q '"name"' "$tmp/flat.json" && grep -q '"arguments"' "$tmp/flat.json"; then
             tools=prose
             note='call is in content, not tool_calls -- jichi cannot execute it'
+        elif grep -qE '"content"[[:space:]]*:[[:space:]]*(""|null)' "$tmp/one.json"; then
+            # M628: an EMPTY reply is not "no tool call attempted" -- that is a
+            # claim about the model, and nothing about the model was observed.
+            # The else-branch below is for an answer that made no call; this one
+            # is for no answer. CLAUDE.md: a classifier's fallback says unknown.
+            tools=unknown
+            note='empty reply -- nothing to classify; suspect the request or the server before the model'
         else
             tools=none
-            note='no tool call attempted'
+            note='answered, but attempted no tool call'
         fi
     fi
     printf '%-40s %-6s %-7s %5s  %s\n' "$(printf '%s' "$id" | cut -c1-40)" \

@@ -472,7 +472,8 @@ static const struct jc_tool STATUS_TOOL = {
     "Show the working-tree status (git status --short --branch): branch, and "
     "staged/unstaged/untracked files. Read-only.",
     status_schema, 1, status_run, NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 static const struct jc_tool DIFF_TOOL = {
@@ -480,7 +481,8 @@ static const struct jc_tool DIFF_TOOL = {
     "Show changes as a unified diff (git diff). Optionally limit to a 'path', "
     "or pass staged:true for the staged diff. Read-only.",
     diff_schema, 1, diff_run, NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 static const struct jc_tool LOG_TOOL = {
@@ -488,7 +490,8 @@ static const struct jc_tool LOG_TOOL = {
     "Show recent commit history one line each (git log --oneline). Optionally "
     "limit to a 'path' or set 'max' (default 20). Read-only.",
     log_schema, 1, log_run, NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 static const struct jc_tool BLAME_TOOL = {
@@ -496,7 +499,8 @@ static const struct jc_tool BLAME_TOOL = {
     "Show, for each line of a file, the commit that last changed it "
     "(git blame). Optionally restrict to a 'start'/'end' line range. Read-only.",
     blame_schema, 1, blame_run, NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 static const struct jc_tool ADD_TOOL = {
@@ -504,7 +508,8 @@ static const struct jc_tool ADD_TOOL = {
     "Stage files for the next commit (git add). Pass 'paths' (an array) or "
     "all:true to stage every change. Mutating.",
     add_schema, 0, add_run, NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 static const struct jc_tool COMMIT_TOOL = {
@@ -513,7 +518,8 @@ static const struct jc_tool COMMIT_TOOL = {
     "required; set all:true to also stage modified tracked files first. "
     "Returns the new commit's summary. Mutating.",
     commit_schema, 0, commit_run, NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 static const struct jc_tool BRANCH_TOOL = {
@@ -521,7 +527,8 @@ static const struct jc_tool BRANCH_TOOL = {
     "Switch branches, or create one with create:true (git checkout [-b] "
     "<name>). Mutating.",
     branch_schema, 0, branch_run, NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 static const struct jc_tool STASH_TOOL = {
@@ -529,7 +536,8 @@ static const struct jc_tool STASH_TOOL = {
     "Save the working tree to a stash, or restore it with pop:true "
     "(git stash push/pop). Mutating.",
     stash_schema, 0, stash_run, NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 const struct jc_tool *jc_tool_git_status(void) { return &STATUS_TOOL; }

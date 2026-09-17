@@ -4,7 +4,7 @@
 # a simple aggregate the declarative pipeline is the idiom. The refactor must
 # change HOW, not WHAT: behaviour identical, reached with combinators.
 cd "$(dirname "$0")" || exit 1
-runghc --version >/dev/null 2>&1 || { echo "FAIL: runghc (GHC) is not usable -- install GHC (or a version-manager shim with no version selected)"; exit 1; }
+runghc --version >/dev/null 2>&1 || { echo "CANNOT RUN: runghc (GHC) is not usable -- install GHC (or a version-manager shim with no version selected)"; exit 77; }
 runghc -i. TestSquares.hs >/dev/null 2>&1 || { echo "FAIL: the tests are not green"; exit 1; }
 # Mask '::' (type sigs) and strip -- comments, then look for a cons-pattern
 # equation like (x:xs) -- the fingerprint of hand-rolled list recursion.

@@ -87,8 +87,12 @@ both parties read and mutate.
   tasks, file-level first-wins merge, per-child watchdogs and budget
   slices ([PARALLEL.md](PARALLEL.md)).
 - `jichi workflow <spec.json>` — a *deterministic* multi-agent pipeline
-  (map → verify → synthesize) when the fan-out should be scripted rather
-  than model-chosen.
+  (map → verify → synthesize, and since M634 `refute`: a read-only second
+  seat that argues against the previous stage's output under a fixed
+  frame — Rebutting / Undercutting / Stands — with "nothing found"
+  permitted; measured M637: it named 12 of 12 planted false claims where
+  a "review critically" prompt named 1, one model, n = 12) when the fan-out
+  should be scripted rather than model-chosen.
 
 ## Supervising
 

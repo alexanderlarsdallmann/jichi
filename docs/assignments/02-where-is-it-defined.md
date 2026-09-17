@@ -2,6 +2,7 @@
 title: Which file defines it?
 audience: student
 phase: implementation
+stage: shu
 difficulty: easy
 points: 1
 verify: "grep -q 'src/beta.c' docs/assignments/02-where-is-it-defined/found.txt"

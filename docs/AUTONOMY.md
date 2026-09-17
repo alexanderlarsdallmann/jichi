@@ -487,7 +487,14 @@ all — defeating a `../../etc/passwd` argument or a symlink that climbs out of 
 tree. It canonicalizes each `read_file`/`write_file`/`edit_file`/`apply_patch`/
 `list_files` path with `realpath()` and refuses anything that resolves outside the
 canonical workspace root. A path that does not exist yet -- every fresh write -- is
-resolved by canonicalizing its parent; and since M607 a leaf that is a **symlink to a
+resolved by canonicalizing its **deepest existing ancestor** and re-appending the
+missing tail (M638; a tail with a `.` or `..` component fails closed, since a name
+here would be a step for the kernel). Until M638 only ONE missing component was
+tolerated: `write_file` into a directory that did not exist yet -- which the tool
+itself creates -- was refused as "path outside workspace", and the model that met
+that refusal built the file by fifty shell appends instead
+(`docs/analysis/2026-09-17-reading-the-footer-in-anger.md`;
+`tests/smoke/pathfence_nested.sh`). And since M607 a leaf that is a **symlink to a
 target that does not exist yet** is resolved to that *target* (relative targets
 against the link's own directory, at most 40 hops, a cycle fails closed). Before
 M607 such a dangling link was re-appended verbatim, judged inside, and `fopen`

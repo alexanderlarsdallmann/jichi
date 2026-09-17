@@ -2,6 +2,7 @@
 title: Grade the grader
 audience: student
 phase: testing
+stage: ha
 difficulty: advanced
 points: 4
 verify: "sh docs/assignments/09-grade-the-grader/test.sh"

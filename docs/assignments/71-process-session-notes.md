@@ -2,6 +2,7 @@
 title: Session notes — the record you'll thank yourself for
 audience: student
 phase: process
+stage: process
 difficulty: easy
 points: 2
 verify: "sh docs/assignments/71-process-session-notes/test.sh"

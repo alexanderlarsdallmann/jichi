@@ -2,6 +2,7 @@
 title: Write the test first (Guile)
 audience: student
 phase: testing
+stage: guile
 difficulty: easy
 points: 3
 verify: "sh docs/assignments/36-guile-test-first/test.sh"

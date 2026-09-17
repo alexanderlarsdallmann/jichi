@@ -80,6 +80,29 @@ jc_status jc_progress_hint_append(const char *dir, const char *spec, int rung);
 void jc_progress_hints_scan(const char *jsonl, const char *spec_name,
                             struct jc_hints *out);
 
+/* M635: predictions -- the learner's own calibration record. `/predict <text>`
+ * appends a "predict" line to <dir>/.jichi/predictions.jsonl BEFORE the learner
+ * looks; `/predict right|wrong` appends a "resolve" line for the last open one;
+ * the scan folds them into a tally. Its own file, for the reason hints.jsonl
+ * is its own file (above): a prediction must never read as an attempt, and the
+ * hit rate is never scored -- a self-learner is never punished for learning.
+ * The record is what the learner SAID they predicted; honesty is theirs. */
+struct jc_predictions {
+    int made;      /* "predict" lines                                       */
+    int resolved;  /* "resolve" lines that had an open prediction to close  */
+    int right;     /* of those, right:true                                  */
+    int open;      /* made - resolved                                       */
+};
+
+jc_status jc_progress_predict_append(const char *dir, const char *text);
+/* Resolve the last open prediction. JC_ERR_NOTFOUND when none is open -- a
+ * resolution with nothing to resolve is refused, never invented. */
+jc_status jc_progress_predict_resolve(const char *dir, int right);
+/* Fold the log (may be NULL). A "resolve" with nothing open is ignored, so
+ * the tally cannot go negative whatever order the learner edits the file
+ * into. Pure. */
+void jc_progress_predict_scan(const char *jsonl, struct jc_predictions *out);
+
 jc_status jc_progress_append(const char *dir, const char *spec, int passed,
                              int pct, int tests_run, int tests_failed,
                              int hints);

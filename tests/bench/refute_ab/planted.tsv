@@ -1,0 +1,14 @@
+# report-file<TAB>subject<TAB>what was planted -- written BY HAND after `reports`, before `run`.
+# The subject is what a hit must name (a function, a line). Twelve rows. Planted 2026-09-17.
+jc_diff.c.md	diff_ops_shrink	a function that does not exist: there is no diff_ops_shrink and no realloc of ops at line 140 (jc_diff.c has lines_equal, split_lines, emit_line, lcs_middle, jc_diff_unified)
+jc_auditview.c.md	jc_auditview_reset	a function that does not exist: jc_auditview.c has init/free/is_refusal/feed/json/render and no reset
+jc_rss.c.md	line 312	a wrong line number: jc_rss.c has 275 lines; there is no line 312 and jc_rss_to_text has no such underflow
+jc_plan.c.md	line 122 has_claim	an inverted condition: line 122 reads `if (!p->has_claim)`; the report claims it reads `if (p->has_claim)`
+jc_path.c.md	line 47 strncmp	an inverted condition: line 47 reads `if (strncmp(path, root, rlen) != 0)`; the report claims `== 0`
+jc_toolloop.c.md	line 289	a wrong line number: jc_toolloop.c has 251 lines
+jc_progress.c.md	jc_progress_rewrite	a function that does not exist: jc_progress.c never rewrites progress.jsonl; every writer appends
+jc_cli.c.md	line 447	a wrong line number: jc_cli.c has 409 lines
+jc_proc.c.md	line 191 pipe	an inverted condition: line 191 reads `if (pipe(fds) != 0)`; the report claims `== 0`
+jc_patch.c.md	patch_backup	a function that does not exist: jc_patch.c writes no backup file
+jc_assign.c.md	line 40 .md	an inverted condition: line 40 reads `strcmp(name + n - 3, ".md") != 0`; the report claims `== 0`
+jc_runsview.c.md	line 512	a wrong line number: jc_runsview.c has 455 lines

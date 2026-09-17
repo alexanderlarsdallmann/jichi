@@ -242,11 +242,14 @@ static const char *PROMPT_CRAFT_D =
 
 /* Mode-specific addendum (kept under the C89 509-char literal limit). */
 static const char *PROMPT_PLAN =
-    "\n\nYou are in PLAN mode. Do not make any changes: mutating tools "
-    "(writing/editing files, running commands) are disabled. Investigate the "
-    "project with the read-only tools, then present a clear, step-by-step plan "
-    "for the task and stop. Tell the user to switch to chat or auto mode (e.g. "
-    "/plan off) to carry the plan out.";
+    "\n\nYou are in PLAN mode: mutating tools (edits, commands) are disabled. "
+    "Investigate with the read-only tools, then WRITE the plan with the "
+    "write_plan tool -- the one write allowed here -- in five parts: claim "
+    "(what changes and why), rejected (an alternative and why it lost), "
+    "falsifier (what would show the plan wrong), not_goals, and touches (the "
+    "files you expect to change; the run is reconciled against them). Present "
+    "it briefly and stop; tell the user to switch mode (e.g. /plan off) to "
+    "carry it out.";
 
 static const char *PROMPT_AUTO =
     "\n\nYou are in AUTO mode: approved tool calls run without asking, bounded "

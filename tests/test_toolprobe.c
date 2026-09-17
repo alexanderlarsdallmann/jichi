@@ -28,9 +28,14 @@ static void test_classify(void)
     JC_CHECK(jc_toolprobe_classify(0, NULL,
         "```json\n{\"name\": \"JICHI_PROBE_ECHO\"}\n```") == JC_TOOLPROBE_TEXT);
 
-    /* Nothing useful at all -- the M166 signature. */
-    JC_CHECK(jc_toolprobe_classify(0, NULL, NULL) == JC_TOOLPROBE_NONE);
-    JC_CHECK(jc_toolprobe_classify(0, NULL, "") == JC_TOOLPROBE_NONE);
+    /* No answer at all -- the M166 signature. M628: UNKNOWN, not NONE. Nothing
+     * about the model's tool calling was observed; the request is the first
+     * suspect (the advice says so) and the doctor still FAILs under `native`
+     * because the loop cannot run on it -- but the verdict must not read as
+     * "this model calls no tools", which is a claim the evidence cannot carry. */
+    JC_CHECK(jc_toolprobe_classify(0, NULL, NULL) == JC_TOOLPROBE_UNKNOWN);
+    JC_CHECK(jc_toolprobe_classify(0, NULL, "") == JC_TOOLPROBE_UNKNOWN);
+    /* An ANSWER with no call and no prose about one IS a finding: NONE. */
     JC_CHECK(jc_toolprobe_classify(0, NULL, "Sure, how can I help?") ==
              JC_TOOLPROBE_NONE);
     /* A NULL call_name with ncalls>0 must not be read as native. */
@@ -40,6 +45,11 @@ static void test_classify(void)
                     "native") == 0);
     JC_CHECK(strcmp(jc_toolprobe_verdict_str(JC_TOOLPROBE_TEXT), "text") == 0);
     JC_CHECK(strcmp(jc_toolprobe_verdict_str(JC_TOOLPROBE_NONE), "none") == 0);
+    JC_CHECK(strcmp(jc_toolprobe_verdict_str(JC_TOOLPROBE_UNKNOWN),
+                    "unknown") == 0);
+    /* No evidence is no reason to change the default. */
+    JC_CHECK(strcmp(jc_toolprobe_suggested_setting(JC_TOOLPROBE_UNKNOWN),
+                    "native") == 0);
 
     /* There is no "text" setting today (the protocol is unbuilt), so a TEXT
      * observation maps to the "none" handling the M147 nudge already covers. */
@@ -59,8 +69,11 @@ static void test_advice_ordering(void)
 {
     const char *a;
 
-    a = jc_toolprobe_advice(JC_TOOLPROBE_NONE, "native");
+    /* M628: the "answered with NOTHING" advice belongs to UNKNOWN -- that is
+     * the empty reply it describes. */
+    a = jc_toolprobe_advice(JC_TOOLPROBE_UNKNOWN, "native");
     JC_CHECK(a != NULL);
+    JC_CHECK(strstr(a, "NOTHING") != NULL);
     /* Names the request as the first suspect... */
     JC_CHECK(strstr(a, "request") != NULL);
     /* ...tells the operator how to check it... */
@@ -69,8 +82,20 @@ static void test_advice_ordering(void)
     JC_CHECK(strstr(a, "hide a bug") != NULL);
 
     /* An unset toolCalling defaults to native, so it gets the same advice. */
-    JC_CHECK(strcmp(jc_toolprobe_advice(JC_TOOLPROBE_NONE, NULL), a) == 0);
-    JC_CHECK(strcmp(jc_toolprobe_advice(JC_TOOLPROBE_NONE, ""), a) == 0);
+    JC_CHECK(strcmp(jc_toolprobe_advice(JC_TOOLPROBE_UNKNOWN, NULL), a) == 0);
+    JC_CHECK(strcmp(jc_toolprobe_advice(JC_TOOLPROBE_UNKNOWN, ""), a) == 0);
+
+    /* NONE under native is a different fact -- an answer that ignored the
+     * tool -- and its advice must say so without repeating the empty-reply
+     * text, while still putting the request ahead of the setting. */
+    a = jc_toolprobe_advice(JC_TOOLPROBE_NONE, "native");
+    JC_CHECK(strstr(a, "answered") != NULL);
+    JC_CHECK(strstr(a, "NOTHING") == NULL);
+    JC_CHECK(strstr(a, "request") != NULL);
+
+    /* UNKNOWN under "none": not evidence either way, and says so. */
+    a = jc_toolprobe_advice(JC_TOOLPROBE_UNKNOWN, "none");
+    JC_CHECK(strstr(a, "not evidence") != NULL);
 
     /* Configured "none" and observed none is expected, not alarming. */
     a = jc_toolprobe_advice(JC_TOOLPROBE_NONE, "none");
@@ -99,6 +124,11 @@ static void test_failure_gate(void)
     JC_CHECK(jc_toolprobe_is_failure(JC_TOOLPROBE_NONE, NULL) == 1);
     JC_CHECK(jc_toolprobe_is_failure(JC_TOOLPROBE_NONE, "") == 1);
     JC_CHECK(jc_toolprobe_is_failure(JC_TOOLPROBE_NONE, "none") == 0);
+    /* M628: an empty reply under native is still a FAIL -- the loop cannot run
+     * on it -- the verdict word changes, the consequence does not. */
+    JC_CHECK(jc_toolprobe_is_failure(JC_TOOLPROBE_UNKNOWN, "native") == 1);
+    JC_CHECK(jc_toolprobe_is_failure(JC_TOOLPROBE_UNKNOWN, NULL) == 1);
+    JC_CHECK(jc_toolprobe_is_failure(JC_TOOLPROBE_UNKNOWN, "none") == 0);
     JC_CHECK(jc_toolprobe_is_failure(JC_TOOLPROBE_TEXT, "native") == 0);
     JC_CHECK(jc_toolprobe_is_failure(JC_TOOLPROBE_NATIVE, "native") == 0);
     JC_CHECK(jc_toolprobe_is_failure(JC_TOOLPROBE_NATIVE, "none") == 0);

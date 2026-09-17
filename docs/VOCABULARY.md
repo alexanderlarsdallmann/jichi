@@ -136,6 +136,10 @@ You need these to read the source-reading guides, the tests, or any analysis not
   the machine-checkable task; its `verify` line grades you.
 - **hint ladder** — a spec's graded nudges, one **rung** at a time via `/hint`.
   Free, recorded, never penalised.
+- **prediction** — what you said you expected *before* you looked, via
+  `/predict <text>`; resolved with `/predict right|wrong`; tallied by `/predict`.
+  Its own file (`.jichi/predictions.jsonl`), never scored (M635). The names for
+  the argument you are making while you work are in [ARGUMENT.md](ARGUMENT.md).
 - **grade** — run a spec's verifier and score it. **attempt** is the *agent*
   solving the spec instead of you — useful for comparison, not for credit.
 - **tier** (in a brief) — the audience framing: junior, student, senior, agent.

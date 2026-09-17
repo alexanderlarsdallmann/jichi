@@ -196,6 +196,14 @@ struct jc_app {
     int                      deg_unanswered;   /* ask_user with no delegate     */
     int                      deg_approval;     /* ASK verdict, nobody to ask    */
     int                      deg_privilege;    /* priv/kinetic gate, unattended */
+    /* M638: tool calls a FENCE stopped -- the agent loop's denials (agent
+     * fence, policy, constraint, privilege, kinetic, approval, strict scope,
+     * edit scope) and jc_tool_execute's own (read-only, main-agent-only, and
+     * any result a tool marked policy_refusal, e.g. the path fence). Every
+     * one is also a tool error; the reach footer prints this beside the
+     * error count so the number meant to worry the reader does not include
+     * the fences working (the footer-in-anger note, 2026-09-17). */
+    int                      tool_refusals;
     /* M322: the TOP-LEVEL turn hit its iteration cap. Distinct from
      * last_run_capped, which describes whichever run finished most recently --
      * including a subagent's. Because run_agent_loop clears last_run_capped only

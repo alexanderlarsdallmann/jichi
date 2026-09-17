@@ -252,7 +252,8 @@ static const struct jc_tool WEB_SEARCH_TOOL = {
     1, /* read-only */
     web_search_run,
     NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 const struct jc_tool *jc_tool_web_search(void)

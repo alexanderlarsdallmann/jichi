@@ -1,0 +1,12 @@
+src/util/jc_diff.c
+src/util/jc_auditview.c
+src/util/jc_rss.c
+src/util/jc_plan.c
+src/util/jc_path.c
+src/util/jc_toolloop.c
+src/util/jc_progress.c
+src/util/jc_cli.c
+src/util/jc_proc.c
+src/util/jc_patch.c
+src/util/jc_assign.c
+src/util/jc_runsview.c

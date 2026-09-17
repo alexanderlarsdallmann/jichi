@@ -269,10 +269,13 @@ void jc_insights_stale_review_ex(const char *memory,
     int cited = 0;
     int pinned = 0;
     int unresolved = 0;
+    int unchecked = 0;      /* M632: notes labelled [warrant: unchecked] */
     char examples[160];
+    char unchecked_ex[120]; /* M632: the first of them, by name          */
     char d[200];
 
     examples[0] = '\0';
+    unchecked_ex[0] = '\0';
     if (memory == NULL || out == NULL) {
         return;
     }
@@ -286,6 +289,23 @@ void jc_insights_stale_review_ex(const char *memory,
             }
             if (line_has(p + 2, ll - 2, "[pins:")) {
                 pinned++;
+            }
+            if (line_has(p + 2, ll - 2, "[warrant: unchecked]")) {
+                /* M632: the note text up to its first trailer, so the finding
+                 * NAMES what to review rather than counting it. */
+                unchecked++;
+                if (unchecked <= 2) {
+                    jc_size tl = 0;
+                    jc_size el = (jc_size)strlen(unchecked_ex);
+                    while (tl < ll - 2 && p[2 + tl] != '[' && tl < 44) {
+                        tl++;
+                    }
+                    while (tl > 0 && p[2 + tl - 1] == ' ') {
+                        tl--;
+                    }
+                    jc_snprintf(unchecked_ex + el, sizeof(unchecked_ex) - el,
+                                "%s\"%.*s\"", el > 0 ? ", " : "", (int)tl, p + 2);
+                }
             }
             if (exists != NULL) {
                 /* Walk the note's whitespace-separated tokens, stripping the
@@ -339,6 +359,16 @@ void jc_insights_stale_review_ex(const char *memory,
     }
     if (notes == 0) {
         return;
+    }
+    /* M632: pushed FIRST so the review starts where trust is thinnest. Only
+     * when there are any -- an absence is not a finding. */
+    if (unchecked > 0) {
+        jc_snprintf(d, sizeof(d),
+            "%d remembered note(s) are labelled [warrant: unchecked] -- noticed "
+            "once, never confirmed, and re-injected every turn regardless; "
+            "review these first: %s%s", unchecked, unchecked_ex,
+            unchecked > 2 ? ", ..." : "");
+        push(out, JC_INSIGHT_STALE_NOTE, "memory-unchecked", unchecked, d);
     }
     if (cited > 0) {
         jc_snprintf(d, sizeof(d),

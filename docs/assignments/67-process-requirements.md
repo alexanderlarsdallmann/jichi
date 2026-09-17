@@ -2,6 +2,7 @@
 title: Requirements — say what it must do, testably
 audience: student
 phase: planning
+stage: process
 difficulty: easy
 points: 2
 verify: "sh docs/assignments/67-process-requirements/test.sh"

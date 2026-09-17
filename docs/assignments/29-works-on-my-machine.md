@@ -2,6 +2,7 @@
 title: Works on my machine
 audience: student
 phase: implementation
+stage: extras
 difficulty: intermediate
 points: 3
 verify: "sh docs/assignments/29-works-on-my-machine/test.sh"

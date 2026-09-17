@@ -2,6 +2,7 @@
 title: Write the test first (Zig)
 audience: student
 phase: testing
+stage: zig
 difficulty: easy
 points: 3
 verify: "sh docs/assignments/56-zig-test-first/test.sh"

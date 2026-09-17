@@ -82,6 +82,9 @@
 #include "jc_learn.h"
 #include "jc_testparse.h"
 #include "jc_assign.h"
+#include "jc_assignlist.h"
+#include "jc_reach.h"
+#include "jc_plan.h"
 #include "jc_gradecore.h"
 #include "jc_progress.h"
 #include "jc_meminfo.h"
@@ -519,7 +522,9 @@ static void print_help(const char *argv0)
            "(.jichi/output-styles)\n");
     printf("  rules                  Print the resolved project rules "
            "(AGENTS.md chain)\n");
-    printf("  assignments            List assignments under docs/assignments/ "
+    printf("  assignments            List assignments under docs/assignments/, "
+           "grouped by stage\n"
+           "                         with point totals; --stage <name> filters "
            "(see `init assignments`)\n");
     printf("  sysmsg                 Print the resolved system prompt "
            "(debugging)\n");
@@ -693,6 +698,7 @@ struct cli_args {
     int         idle_dream;          /* --idle-dream <sec>: daemon idle reflection */
     int         improve_attempt;     /* --attempt: improve rehearses in worktrees */
     const char *attempt_agent;       /* --agent <profile> (attempt subcommand)  */
+    const char *stage;               /* --stage <slug> (assignments, M626)      */
     int         attempt_keep;        /* --keep: keep the attempt worktree for
                                       * review (M410 -- a TAINTED verdict is
                                       * unreviewable if the evidence is gone) */
@@ -1075,6 +1081,14 @@ static int parse_args(int argc, char **argv, struct cli_args *out)
                 return -1;
             }
             out->attempt_agent = argv[++i];
+        } else if (strcmp(a, "--stage") == 0) {
+            /* M626: `assignments --stage <slug>` filters the listing to one
+             * curriculum group. */
+            if (i + 1 >= argc) {
+                fprintf(stderr, "error: --stage requires a stage name\n");
+                return -1;
+            }
+            out->stage = argv[++i];
         } else if (strcmp(a, "--keep-worktree") == 0) {
             /* NOT `--keep`: prune owns that spelling and takes a value --
              * a bare `--keep` here would shadow `prune --keep N`. */
@@ -1544,6 +1558,7 @@ struct hl_ctx {
     double out_tok;      /* accumulated output tokens        */
     double cost_total;   /* accumulated estimated cost (USD)  */
     int    tool_calls;   /* count of tool invocations        */
+    int    tool_errors;  /* M630: results with is_error -- the reach footer's count */
     int    broken_pipe;  /* downstream stdout closed early   */
     /* M97: run economics for a driving agent (surfaced in the terminal result). */
     double peak_input;   /* largest single-call input tokens (the ramp signal) */
@@ -1751,6 +1766,12 @@ static void hl_tool_result(void *user, const char *name, const char *result,
                            int is_error, const char *id)
 {
     struct hl_ctx *c = (struct hl_ctx *)user;
+    /* M630: counted here, in the sink, so the reach footer can say "N errors"
+     * with or without an envelope -- tsuiseki-04's first check, "count the
+     * errors, not the calls", done for the reader by the run itself. */
+    if (is_error) {
+        c->tool_errors++;
+    }
     if (c->jsonl) {
         cJSON *o = jc_agentjson_event("tool_result");
         if (o != NULL) {
@@ -2107,6 +2128,68 @@ static void learn_on_stop(struct jc_app *app, struct jc_session *session,
     }
 }
 
+/* M630: the reach footer's facts, from the sink and the envelope -- never from
+ * the model. See jc_reach.h. */
+static void hl_reach_fill(const struct hl_ctx *c, struct jc_app *app,
+                          struct jc_reach *r)
+{
+    const struct jc_envelope *env = app->env;
+    memset(r, 0, sizeof *r);
+    r->tool_calls = c->tool_calls;
+    r->tool_errors = c->tool_errors;
+    r->tool_refused = app->tool_refusals; /* M638 */
+    /* M631: the plan artifact, if one exists, reconciled against what this run
+     * wrote (the envelope's `wrote`, root-relative). A plan is a prediction:
+     * drift is REPORTED here, never fenced -- --edit-scope is the fence. */
+    if (env != NULL) {
+        struct jc_plan plan;
+        if (jc_plan_load(app->root[0] != '\0' ? app->root : app->cwd, &plan,
+                         jc_app_scratch(app))) {
+            struct jc_vec drift;
+            jc_size i;
+            jc_vec_init(&drift, sizeof(char *));
+            r->plan_present = 1;
+            r->plan_named = (int)plan.touches.len;
+            r->plan_drift = jc_plan_drift(&plan, &env->wrote, &drift,
+                                          jc_app_scratch(app));
+            /* touched = written AND named; .jichi/ records are neither */
+            r->plan_touched = 0;
+            for (i = 0; i < env->wrote.len; i++) {
+                const char *w = *(char **)jc_vec_at((struct jc_vec *)&env->wrote, i);
+                if (w != NULL && strncmp(w, ".jichi/", 7) != 0) {
+                    r->plan_touched++;
+                }
+            }
+            r->plan_touched -= r->plan_drift;
+            if (drift.len > 0) {
+                struct jc_sb sb;
+                jc_sb_init(&sb);
+                for (i = 0; i < drift.len; i++) {
+                    if (i > 0) jc_sb_append(&sb, ", ");
+                    jc_sb_append(&sb, *(char **)jc_vec_at(&drift, i));
+                }
+                r->plan_drift_list = jc_arena_strdup(jc_app_scratch(app),
+                                                     sb.data != NULL ? sb.data : "");
+                jc_sb_free(&sb);
+            }
+            jc_vec_free(&drift);
+        }
+        jc_plan_free(&plan);
+    }
+    if (env == NULL) {
+        return;
+    }
+    r->envelope = 1;
+    r->verifier_armed = (env->verify_cmd != NULL && env->verify_cmd[0] != '\0');
+    r->verify_green = r->verifier_armed && env->outcome == JC_ENV_OK;
+    r->verify_red = (env->outcome == JC_ENV_VERIFY_FAILED);
+    r->rolled_back = env->rolled_back;
+    r->scope_armed = (env->edit_scope.len > 0);
+    r->scope_violations = env->out_of_scope_seen;
+    r->shell_ran = env->shell_ran;
+    r->test_edits = env->test_edits;
+}
+
 static int run_headless(struct jc_app *app, const char *prompt, int fmt)
 {
     struct jc_session session;
@@ -2372,6 +2455,18 @@ static int run_headless(struct jc_app *app, const char *prompt, int fmt)
             "fit. See `jichi doctor`.\n");
     }
 
+    /* M630: the reach footer. Two lines on stderr after the answer -- stdout
+     * stays the raw answer for scripts (the M73 rule) -- saying what the
+     * record checked and what it did not. Derived from counters, never from the
+     * model: the answer is the one artifact nothing checked (tsuiseki-04). */
+    if (!ctx.quiet && !ctx.json && !ctx.jsonl) {
+        struct jc_reach reach;
+        char line[1100];
+        hl_reach_fill(&ctx, app, &reach);
+        jc_reach_line(&reach, line, sizeof line);
+        fprintf(stderr, "\n[jichi] %s\n", line);
+    }
+
     /* Structured output: json => one object at the end; jsonl => the terminal
      * "done" event. Emitted for every terminal state (incl. errors) so an agent
      * always gets a machine-readable result with a precise stop_reason. */
@@ -2422,6 +2517,7 @@ static int run_headless(struct jc_app *app, const char *prompt, int fmt)
         {
             /* M97: run economics for a driving agent (0/""/false when no
              * envelope). budget_kind is a stable machine string. */
+            struct jc_reach reach;
             struct jc_agent_econ econ;
             const char *bkind = "";
             if (app->env != NULL) {
@@ -2448,13 +2544,17 @@ static int run_headless(struct jc_app *app, const char *prompt, int fmt)
             econ.deg_unanswered = app->deg_unanswered;
             econ.deg_approval = app->deg_approval;
             econ.deg_privilege = app->deg_privilege;
+            /* M630: the same facts the text footer prints, as the `reach`
+             * member -- handed to the emitter, which attaches it, so the
+             * contract lint sees it written where it reads `done`. */
+            hl_reach_fill(&ctx, app, &reach);
             root = jc_agentjson_result(ans, app->config.model.model,
                 app->no_session ? NULL : session.id,
                 (app->env != NULL) ? app->env->run_id : NULL,
                 ctx.in_tok, ctx.out_tok,
                 ctx.cost_total, ctx.tool_calls, aborted, stop,
                 (app->env == NULL) ? 1 : !app->env->rolled_back,
-                errc, errtype, errmsg, &econ);
+                errc, errtype, errmsg, &econ, jc_reach_json(&reach));
         }
         s = (root != NULL) ? jc_json_print(root) : NULL;
         if (s != NULL) {
@@ -6906,7 +7006,7 @@ static int run_describe(int json)
     describe_event(arr, "done",
         "v type text model stop_reason error session_id run cost tokens "
         "tool_calls aborted work_kept starved budget_kind budget "
-        "peak_input cache tools degraded",
+        "peak_input cache tools degraded reach",
         "the terminal event, also the whole --output json object; "
         "session_id, run, error, budget, budget_kind and degraded are "
         "conditional; `run` matches the run_start event and the "
@@ -8020,88 +8120,13 @@ static int run_output_styles(struct jc_app *app)
     return 0;
 }
 
-/* Sort a jc_vec of char* names so a numbered curriculum lists in order. */
-static int name_cmp(const void *a, const void *b)
-{
-    return strcmp(*(char * const *)a, *(char * const *)b);
-}
-
-/* M529: ONE discovery path for the assignment set.
- *
- * `assignments` renders it two ways (a text table and a JSON array) and the
- * daemon's `assignment.list` verb renders it a third, and all three have to
- * agree about what counts as an assignment -- which of `.md` files is a spec,
- * which is a solution sibling, that INDEX.md is a map and not a task. Those
- * rules lived inside the listing loop, so a second reader meant a second copy
- * of them. Collect once, render N times. */
-struct assign_row {
-    const char *name;                 /* bare filename, arena-owned  */
-    struct jc_assign_spec spec;       /* parsed frontmatter + body   */
-    int has_sol;                      /* a .solution.md sibling      */
-    struct jc_progress prog;          /* the learner's standing      */
-    struct jc_hints hints;            /* hint pulls, deepest rung    */
-};
-
-static void assignments_collect(struct jc_app *app, struct jc_vec *rows)
-{
-    struct jc_vec names;
-    char dir[1100];
-    char solp[1300];
-    char ppath[1160];
-    char *progress = NULL;
-    char *hintlog = NULL;
-    jc_size i;
-
-    jc_snprintf(dir, sizeof(dir), "%s/docs/assignments", app->cwd);
-    jc_snprintf(ppath, sizeof(ppath), "%s/.jichi/progress.jsonl", app->cwd);
-    if (jc_read_file(ppath, &progress, NULL, app->arena) != JC_OK) {
-        progress = NULL; /* no record yet -- every status renders "-" */
-    }
-    /* M502: the hint log is a separate sink, so it is read separately and can
-     * never be mistaken for an attempt. */
-    jc_snprintf(ppath, sizeof(ppath), "%s/.jichi/hints.jsonl", app->cwd);
-    if (jc_read_file(ppath, &hintlog, NULL, app->arena) != JC_OK) {
-        hintlog = NULL;
-    }
-    jc_vec_init(&names, sizeof(char *));
-    jc_list_dir(dir, &names, app->arena);
-    if (names.len > 1) {
-        qsort(names.data, (size_t)names.len, sizeof(char *), name_cmp);
-    }
-    for (i = 0; i < names.len; i++) {
-        const char *nm = *(char **)jc_vec_at(&names, i);
-        jc_size len = (jc_size)strlen(nm);
-        struct assign_row row;
-        char *text = NULL;
-
-        if (len < 4 || strcmp(nm + len - 3, ".md") != 0) {
-            continue; /* not a markdown file (fixture dirs are skipped too) */
-        }
-        if (len >= 12 && strcmp(nm + len - 12, ".solution.md") == 0) {
-            continue; /* the solution sibling is listed against its assignment */
-        }
-        if (strcmp(nm, "INDEX.md") == 0) {
-            continue; /* the set's map, not an assignment */
-        }
-        memset(&row, 0, sizeof(row));
-        row.name = nm;
-        jc_snprintf(solp, sizeof(solp), "%s/%.*s.solution.md", dir,
-                    (int)(len - 3), nm);
-        row.has_sol = jc_file_exists(solp);
-        jc_snprintf(solp, sizeof(solp), "%s/%s", dir, nm);
-        if (jc_read_file(solp, &text, NULL, app->arena) == JC_OK) {
-            jc_assign_parse(text, &row.spec, app->arena); /* tolerate failure */
-        }
-        jc_progress_scan(progress, nm, &row.prog);
-        jc_progress_hints_scan(hintlog, nm, &row.hints);
-        jc_vec_push(rows, &row);
-    }
-    jc_vec_free(&names);
-}
+/* M529: ONE discovery path for the assignment set -- since M626 it lives in
+ * jc_assignlist.c, so the TUI is a caller instead of a divergent copy (the
+ * M614 gradecore move, for the same reason: main.c statics don't link). */
 
 /* One row as the machine-readable object. Shared by `assignments --output json`
  * and the daemon verb for the same reason the collector is shared. */
-static cJSON *assign_row_json(const struct assign_row *r)
+static cJSON *assign_row_json(const struct jc_assign_row *r)
 {
     cJSON *o = cJSON_CreateObject();
     char rel[1200];
@@ -8123,6 +8148,12 @@ static cJSON *assign_row_json(const struct assign_row *r)
     if (r->spec.difficulty != NULL) {
         cJSON_AddStringToObject(o, "difficulty", r->spec.difficulty);
     }
+    if (r->spec.stage != NULL) {
+        /* M626: the curriculum group, for machine consumers grouping the way
+         * the text listing does. Conditional like title/phase (a string, so
+         * the M301 always-emit rule for numerics does not apply). */
+        cJSON_AddStringToObject(o, "stage", r->spec.stage);
+    }
     cJSON_AddNumberToObject(o, "points", (double)r->spec.points);
     cJSON_AddBoolToObject(o, "solution", r->has_sol);
     cJSON_AddNumberToObject(o, "attempts", (double)r->prog.attempts);
@@ -8139,20 +8170,61 @@ static cJSON *assign_row_json(const struct assign_row *r)
 /* `assignments` -> list assignment files under docs/assignments/ (M17), with
  * phase/points/status columns (C4/C5, M174): the spec's own frontmatter plus
  * the learner's standing from .jichi/progress.jsonl (written by
- * `grade --record` and the TUI /grade). No provider/network. */
-static int run_assignments(struct jc_app *app, int json)
+ * `grade --record` and the TUI /grade). No provider/network. M626: grouped by
+ * the specs' `stage:` with per-stage point totals -- an orientation, not a
+ * flat list -- and `--stage <slug>` filters to one group. Grouping activates
+ * only when some spec carries a stage, so every other workspace renders
+ * exactly as before. */
+static int run_assignments(struct jc_app *app, int json, const char *stage)
 {
     struct jc_vec rows;
     jc_size i;
 
-    jc_vec_init(&rows, sizeof(struct assign_row));
-    assignments_collect(app, &rows);
+    jc_vec_init(&rows, sizeof(struct jc_assign_row));
+    jc_assignlist_collect(app->cwd, app->arena, &rows);
 
+    /* An unmatched --stage is a refusal that names what exists, not an empty
+     * listing a learner would read as "nothing to do". */
+    if (stage != NULL) {
+        int known = 0;
+        for (i = 0; i < rows.len; i++) {
+            const struct jc_assign_row *r =
+                (const struct jc_assign_row *)jc_vec_at(&rows, i);
+            if (r->spec.stage != NULL && strcmp(r->spec.stage, stage) == 0) {
+                known = 1;
+                break;
+            }
+        }
+        if (!known) {
+            struct jc_vec totals;
+            fprintf(stderr, "assignments: no stage '%s' here. Stages:", stage);
+            jc_vec_init(&totals, sizeof(struct jc_stage_total));
+            jc_assignlist_totals(&rows, &totals);
+            for (i = 0; i < totals.len; i++) {
+                const struct jc_stage_total *t =
+                    (const struct jc_stage_total *)jc_vec_at(&totals, i);
+                if (t->stage != NULL) {
+                    fprintf(stderr, " %s", t->stage);
+                }
+            }
+            fprintf(stderr, "\n");
+            jc_vec_free(&totals);
+            jc_vec_free(&rows);
+            return 1;
+        }
+    }
     if (json) {
         cJSON *arr = cJSON_CreateArray();
         char *s;
         for (i = 0; i < rows.len && arr != NULL; i++) {
-            cJSON *o = assign_row_json((struct assign_row *)jc_vec_at(&rows, i));
+            const struct jc_assign_row *r =
+                (const struct jc_assign_row *)jc_vec_at(&rows, i);
+            cJSON *o;
+            if (stage != NULL && (r->spec.stage == NULL ||
+                                  strcmp(r->spec.stage, stage) != 0)) {
+                continue;
+            }
+            o = assign_row_json(r);
             if (o != NULL) {
                 cJSON_AddItemToArray(arr, o);
             }
@@ -8168,26 +8240,7 @@ static int run_assignments(struct jc_app *app, int json)
                "\"assignments\" in config and `init assignments`, then ask the "
                "agent to write one)\n");
     } else {
-        char row[512];
-        for (i = 0; i < rows.len; i++) {
-            const struct assign_row *r =
-                (const struct assign_row *)jc_vec_at(&rows, i);
-            if (i == 0) {
-                jc_progress_row_header(row, sizeof(row));
-                printf("  %s\n", row);
-            }
-            jc_progress_row(r->name, r->spec.phase, r->spec.points, r->has_sol,
-                            &r->prog, row, sizeof(row));
-            /* Appended rather than a column, so the pinned row layout (and the
-             * tests over it) is unchanged, and a learner who pulled no hints
-             * sees nothing extra. */
-            if (r->hints.pulls > 0) {
-                printf("  %s  hints %d (deepest rung %d)\n", row,
-                       r->hints.pulls, r->hints.max_rung);
-            } else {
-                printf("  %s\n", row);
-            }
-        }
+        jc_assignlist_print(&rows, stage, "", "");
     }
     jc_vec_free(&rows);
     return 0;
@@ -9190,6 +9243,22 @@ static int run_grade(struct cli_args *args, struct jc_arena *arena)
             "repository root).\n",
             g.prog, g.spec.verify);
         return 2;
+    case JC_GRADE_VERIFY_REFUSED:
+        /* M625: the verify itself said it cannot run (exit 77) -- a missing
+         * toolchain, not failed work. Also reached under --expect-fail, on
+         * purpose: a gate that cannot RUN proves nothing about being able to
+         * FAIL (M624's "green because it never ran", mirrored red). */
+        fprintf(stderr,
+            "grade: the verify command says it cannot run here (exit %d):\n"
+            "  %s\n"
+            "  verify: %s\n"
+            "This is NOT a grade. Install what the message names, or leave "
+            "this task, go forward, and come back later (the skip rule, "
+            "docs/assignments/INDEX.md).\n",
+            JC_VERIFY_CANNOT_RUN,
+            g.why[0] != '\0' ? g.why : "(the script printed no reason)",
+            g.spec.verify);
+        return 2;
     default:
         break;
     }
@@ -9453,9 +9522,11 @@ static void improve_attempt_turn(struct jc_app *app, const char *task)
     jc_history_free(&hist);
 }
 
-/* Run `verify` via /bin/sh in the current directory and score it: 1 pass,
- * 0 fail, -1 no command. */
-static int improve_run_verify(const char *verify)
+/* Run a spec's verify via /bin/sh in the current directory and score it: 1 pass, 0 fail,
+ * -1 no verify, -2 the verify DECLARED it cannot run here (exit 77, M625 --
+ * a refusal, never a grade). On -2 the first output line (the script's own
+ * reason) is copied into `why` when given. */
+static int improve_run_verify(const char *verify, char *why, jc_size whycap)
 {
     struct jc_sb out;
     struct jc_test_report rep;
@@ -9463,12 +9534,27 @@ static int improve_run_verify(const char *verify)
     char *argv[4];
     int rc;
 
+    if (why != NULL && whycap > 0) {
+        why[0] = '\0';
+    }
     if (verify == NULL || verify[0] == '\0') {
         return -1;
     }
     jc_sb_init(&out);
     argv[0] = (char *)jc_shell_path(); argv[1] = "-c"; argv[2] = (char *)verify; argv[3] = 0;
     rc = jc_proc_capture(argv, NULL, NULL, &out, 262144, 600, NULL);
+    if (rc == JC_VERIFY_CANNOT_RUN) {
+        if (why != NULL && whycap > 0 && out.data != NULL) {
+            jc_size i;
+            for (i = 0; out.data[i] != '\0' && out.data[i] != '\n' &&
+                 i + 1 < whycap; i++) {
+                why[i] = out.data[i];
+            }
+            why[i] = '\0';
+        }
+        jc_sb_free(&out);
+        return -2;
+    }
     jc_test_report_init(&rep);
     jc_testparse(out.data, &rep);
     jc_assign_score(&rep, rc == 0, &res);
@@ -9506,6 +9592,7 @@ static int run_improve_attempt(struct jc_app *app, const char *specs_dir)
     jc_size i;
     char idir[1024];
     char rpath[1200];
+    char vwhy[256]; /* M625: the cannot-run reason a refusing verify printed */
 
     jc_snapshot_manager_init(&m, app);
     if (!jc_snapshot_available(&m)) {
@@ -9562,7 +9649,20 @@ static int run_improve_attempt(struct jc_app *app, const char *specs_dir)
             spec.verify == NULL || spec.verify[0] == '\0') {
             continue;
         }
-        baseline = improve_run_verify(spec.verify); /* in the real tree (RO) */
+        baseline = improve_run_verify(spec.verify, vwhy, sizeof vwhy);
+        /* M625: a verify that declares it cannot run here (exit 77) is not a
+         * failing spec to attempt -- it is ungradeable on this machine, like
+         * the other refusals in improve_grade_one. Skipping it BEFORE the
+         * worktree and the model call is the point: a rehearsal whose grade
+         * can only be a refusal buys nothing with the tokens it spends. */
+        if (baseline == -2) {
+            fprintf(stderr, "improve: '%s' cannot run here (%s) -- "
+                    "not attempted, not counted\n", nm,
+                    vwhy[0] != '\0' ? vwhy : "the verify exited 77");
+            jc_sb_append_fmt(&doc, "- %s: cannot run here (not attempted, "
+                             "not counted)\n", nm);
+            continue;
+        }
         total++;
         if (baseline == 1) {
             base_passed++;
@@ -9645,7 +9745,7 @@ static int run_improve_attempt(struct jc_app *app, const char *specs_dir)
                 app->assignment = NULL;
                 app->assignment_spec = NULL;
                 app->assignment_dir[0] = '\0';
-                after = improve_run_verify(spec.verify); /* graded in the wt */
+                after = improve_run_verify(spec.verify, NULL, 0); /* in the wt */
             }
             /* Restore the process + app to the real workspace. */
             if (orig_cwd[0] != '\0' && chdir(orig_cwd) != 0) {
@@ -9670,6 +9770,11 @@ static int run_improve_attempt(struct jc_app *app, const char *specs_dir)
                 fixed++;
                 jc_sb_append_fmt(&doc, "- %s: FIXED by attempt (discarded)\n",
                                  nm);
+            } else if (after == -2) {
+                /* M625, defensively: the baseline ran, so this fires only if
+                 * the environment changed mid-run -- harness, not a grade. */
+                jc_sb_append_fmt(&doc, "- %s: cannot run in the worktree "
+                                 "(harness; not a FAIL)\n", nm);
             } else {
                 jc_sb_append_fmt(&doc, "- %s: still FAIL after attempt\n", nm);
             }
@@ -9774,6 +9879,7 @@ static int run_assignment_attempt(struct jc_app *app, struct cli_args *args)
     char saved_cwd[1024];
     char saved_root[4096];
     char vprog[512];
+    char vwhy[256]; /* M625: the cannot-run reason a refusing verify printed */
     int harness_broken = 0;
     const char *c0;
     struct jc_snapshot_mgr *saved_snap;
@@ -9794,6 +9900,7 @@ static int run_assignment_attempt(struct jc_app *app, struct cli_args *args)
         fprintf(stderr, "usage: attempt <spec.md> [--agent <profile>]\n");
         return 2;
     }
+    vwhy[0] = '\0';
     a = jc_arena_new(0);
     if (jc_read_file(spec_path, &text, NULL, a) != JC_OK ||
         jc_assign_parse(text, &spec, a) != JC_OK) {
@@ -9986,7 +10093,7 @@ static int run_assignment_attempt(struct jc_app *app, struct cli_args *args)
         app->assignment = NULL;
         app->assignment_spec = NULL;                     /* M536 */
         app->assignment_dir[0] = '\0';
-        after = improve_run_verify(spec.verify);
+        after = improve_run_verify(spec.verify, vwhy, sizeof vwhy);
     } else {
         /* M615: a worktree we could not enter is a HARNESS failure. after==-1
          * used to fall through to the verdict as a plain FAIL. */
@@ -10052,6 +10159,23 @@ static int run_assignment_attempt(struct jc_app *app, struct cli_args *args)
     if (harness_broken) {
         fprintf(stderr, "attempt: could not enter the worktree -- harness, "
                 "not a grade. This is NOT a grade (nothing was recorded).\n");
+        jc_sb_free(&files_sb);
+        jc_arena_free(a);
+        return 2;
+    }
+    if (after == -2) {
+        /* M625: the verify itself declared it cannot run (exit 77) -- a
+         * missing toolchain, not failed work. Refused in M502's words, exit 2,
+         * nothing recorded; the model turn already ran, but a spend does not
+         * buy the right to convert a refusal into a FAIL. */
+        fprintf(stderr,
+            "attempt: the verify command says it cannot run here (exit %d):\n"
+            "  %s\n"
+            "This is NOT a grade (nothing was recorded). Install what the "
+            "message names, or leave this task and come back later (the skip "
+            "rule, docs/assignments/INDEX.md).\n",
+            JC_VERIFY_CANNOT_RUN,
+            vwhy[0] != '\0' ? vwhy : "(the script printed no reason)");
         jc_sb_free(&files_sb);
         jc_arena_free(a);
         return 2;
@@ -10284,7 +10408,12 @@ static int run_workflow(struct jc_app *app, const char *spec_path)
             }
             jc_sb_init(&stage_out);
             if (s->readonly) {
-                /* Read-only fan-out on the live tree. */
+                /* Read-only fan-out on the live tree. M634: fenced by
+                 * app->readonly for the run, not only by leaving the mutating
+                 * tools off the menu -- a model can call a tool it was not
+                 * shown, and the refute driver's mock did. */
+                int prev_ro = app->readonly;
+                app->readonly = 1;
                 for (j = 0; j < s->nitems; j++) {
                     char *prompt;
                     struct jc_history sub;
@@ -10304,6 +10433,7 @@ static int run_workflow(struct jc_app *app, const char *spec_path)
                                      answer != NULL ? answer : "(no answer)");
                     jc_history_free(&sub);
                 }
+                app->readonly = prev_ro;
             } else if (!snap_ok) {
                 fprintf(stderr, "workflow: [stage %d] write map needs snapshots "
                         "(git + \"snapshots\": true); skipping.\n", si + 1);
@@ -10433,6 +10563,79 @@ static int run_workflow(struct jc_app *app, const char *spec_path)
             }
             jc_test_report_free(&rep);
             jc_sb_free(&vout);
+        } else if (s->type == JC_WF_REFUTE) {
+            /* M634: the second seat. A read-only subagent -- mutating tools off
+             * the menu (include_mutating 0) AND app->readonly set for the run,
+             * the gate that refuses a write the model calls anyway -- under the
+             * FIXED frame; the spec's prompt, if any, is extra context after it.
+             * The claim under review is the pipeline context so far, and it is
+             * KEPT above the refutation in the output: a human reads both and
+             * rules. */
+            struct jc_history sub;
+            struct jc_sb up;
+            struct jc_sb frame;
+            char *answer = NULL;
+            struct jc_provider *prov = app->provider;
+            struct jc_provider *tmpprov = NULL;
+            int prev_ro;
+            if (s->model != NULL && s->model[0] != '\0') {
+                int mi = jc_config_find_model(&app->config, s->model);
+                struct jc_model_cfg *mc = (mi >= 0)
+                    ? jc_config_model_at(&app->config, mi) : NULL;
+                if (mc != NULL) {
+                    tmpprov = jc_provider_create(mc);
+                    if (tmpprov != NULL) {
+                        prov = tmpprov;
+                    }
+                }
+            }
+            fprintf(stderr, "workflow: [stage %d] refute (read-only second "
+                    "seat)\n", si + 1);
+            jc_sb_init(&frame);
+            jc_sb_append(&frame, JC_WF_REFUTE_FRAME_A);
+            jc_sb_append(&frame, JC_WF_REFUTE_FRAME_B);
+            if (sysmsg != NULL && sysmsg[0] != '\0') {
+                jc_sb_append(&frame, "\n\n");
+                jc_sb_append(&frame, sysmsg);
+            }
+            jc_sb_init(&up);
+            if (s->prompt != NULL && s->prompt[0] != '\0') {
+                jc_sb_append(&up, s->prompt);
+                jc_sb_append(&up, "\n\n");
+            }
+            jc_sb_append(&up, "--- the claim under review ---\n");
+            jc_sb_append(&up, ctx.data != NULL ? ctx.data : "(empty)");
+            jc_history_init(&sub);
+            jc_history_add(&sub, JC_ROLE_USER, up.data != NULL ? up.data : "");
+            /* include_mutating 0 only keeps the mutating tools off the MENU;
+             * the gate that refuses a write the model calls anyway is
+             * app->readonly (jc_tool_execute). The driver's mock called
+             * write_file unadvertised and the first build let it through --
+             * "read-only by advertisement" is not read-only. */
+            prev_ro = app->readonly;
+            app->readonly = 1;
+            jc_agent_run_subagent(app, &sub, prov, frame.data, 0,
+                                  app->config.max_subagent_iters, NULL, NULL,
+                                  &answer);
+            app->readonly = prev_ro;
+            jc_sb_append(&ctx, "\n\n--- refutation (second seat) ---\n");
+            if (answer == NULL || answer[0] == '\0') {
+                fprintf(stderr, "workflow: [stage %d] refute produced no "
+                        "output; the claim stands UNEXAMINED, not confirmed.\n",
+                        si + 1);
+                jc_sb_append(&ctx, "(the second seat produced no output -- the "
+                             "claim above is unexamined, not confirmed)\n");
+            } else {
+                jc_sb_append(&ctx, answer);
+            }
+            /* `answer` is arena-owned (scratch) -- the runner strdup's it
+             * there; the first build free()d it and aborted in munmap. */
+            jc_history_free(&sub);
+            jc_sb_free(&up);
+            jc_sb_free(&frame);
+            if (tmpprov != NULL) {
+                tmpprov->vt->free(tmpprov);
+            }
         } else if (s->type == JC_WF_SYNTHESIZE) {
             struct jc_sb up;
             char *answer;
@@ -13110,11 +13313,11 @@ static int run_daemon(struct jc_app *app, struct cli_args *args)
             cJSON *o = cJSON_CreateObject();
             cJSON *arr = cJSON_CreateArray();
             jc_size k;
-            jc_vec_init(&rows, sizeof(struct assign_row));
-            assignments_collect(app, &rows);
+            jc_vec_init(&rows, sizeof(struct jc_assign_row));
+            jc_assignlist_collect(app->cwd, app->arena, &rows);
             for (k = 0; k < rows.len && arr != NULL; k++) {
                 cJSON *row = assign_row_json(
-                    (struct assign_row *)jc_vec_at(&rows, k));
+                    (struct jc_assign_row *)jc_vec_at(&rows, k));
                 if (row != NULL) {
                     cJSON_AddItemToArray(arr, row);
                 }
@@ -13215,6 +13418,14 @@ static int run_daemon(struct jc_app *app, struct cli_args *args)
                      * is a different fact from the work being wrong. */
                     daemon_write_err(connfd, "assignment.not_gradeable",
                         "the verify command cannot run from this workspace -- "
+                        "this is not a grade");
+                } else if (g.fail == JC_GRADE_VERIFY_REFUSED) {
+                    /* M625: same class, declared by the verify itself
+                     * (exit 77, a toolchain guard) -- a marking service must
+                     * see an ERROR here, never passed:false. */
+                    daemon_write_err(connfd, "assignment.not_gradeable",
+                        "the verify command says it cannot run here "
+                        "(exit 77, e.g. a missing toolchain) -- "
                         "this is not a grade");
                 } else if (g.fail != JC_GRADE_NONE) {
                     daemon_write_err(connfd, "assignment.unreadable",
@@ -15005,7 +15216,7 @@ int main(int argc, char **argv)
         return sub_code;
     }
     if (args.npos > 0 && strcmp(args.pos[0], "assignments") == 0) {
-        int sub_code = run_assignments(&app, args.output_json == 1);
+        int sub_code = run_assignments(&app, args.output_json == 1, args.stage);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;

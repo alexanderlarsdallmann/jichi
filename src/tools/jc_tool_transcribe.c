@@ -110,7 +110,8 @@ static const struct jc_tool TRANSCRIBE_TOOL = {
     1, /* read-only */
     transcribe_run,
     NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 const struct jc_tool *jc_tool_transcribe_audio(void)

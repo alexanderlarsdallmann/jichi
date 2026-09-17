@@ -2,6 +2,7 @@
 title: The Haskell capstone — a postfix calculator
 audience: student
 phase: implementation
+stage: haskell
 difficulty: medium
 points: 4
 verify: "sh docs/assignments/46-haskell-capstone/test.sh"

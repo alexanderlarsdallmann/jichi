@@ -2,6 +2,7 @@
 title: Finde die Antwort und schreibe sie auf
 audience: student
 phase: implementation
+stage: plain
 difficulty: plain
 points: 1
 verify: "grep -qx 'timeout = 30' docs/assignments/p2-find-the-answer/answer.txt && grep -q 'timeout = 30' docs/assignments/p2-find-the-answer/settings.txt"

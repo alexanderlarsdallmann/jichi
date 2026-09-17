@@ -2,6 +2,7 @@
 title: Write the test first (Elixir)
 audience: student
 phase: testing
+stage: elixir
 difficulty: easy
 points: 3
 verify: "sh docs/assignments/40-elixir-test-first/test.sh"

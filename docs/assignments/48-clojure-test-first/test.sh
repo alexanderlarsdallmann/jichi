@@ -4,7 +4,7 @@
 #   2. it actually tests something (>= 3 (is ...) checks -- not a hollow suite);
 #   3. an independent acceptance probe confirms the bug is really fixed.
 cd "$(dirname "$0")" || exit 1
-clojure -h >/dev/null 2>&1 || { echo "FAIL: clojure is not usable -- install Clojure (or a version-manager shim with no version selected)"; exit 1; }
+clojure -h >/dev/null 2>&1 || { echo "CANNOT RUN: clojure is not usable -- install Clojure (or a version-manager shim with no version selected)"; exit 77; }
 
 if [ ! -f test_list_max.clj ]; then
   echo "FAIL: write the failing test first -- test_list_max.clj is missing"; exit 1; fi

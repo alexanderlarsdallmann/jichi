@@ -2,6 +2,7 @@
 title: From an atom to a fold (Clojure)
 audience: student
 phase: implementation
+stage: clojure
 difficulty: medium
 points: 3
 verify: "sh docs/assignments/49-clojure-loops-to-folds/test.sh"

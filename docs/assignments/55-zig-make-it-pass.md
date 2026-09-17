@@ -2,6 +2,7 @@
 title: Make the failing test pass (Zig)
 audience: student
 phase: testing
+stage: zig
 difficulty: intro
 points: 2
 verify: "sh docs/assignments/55-zig-make-it-pass/test.sh"

@@ -2,6 +2,7 @@
 title: Own your memory (C++)
 audience: student
 phase: implementation
+stage: cpp
 difficulty: medium
 points: 3
 verify: "sh docs/assignments/61-cpp-own-your-memory/test.sh"

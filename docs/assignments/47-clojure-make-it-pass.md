@@ -2,6 +2,7 @@
 title: Make the failing test pass (Clojure)
 audience: student
 phase: testing
+stage: clojure
 difficulty: intro
 points: 2
 verify: "sh docs/assignments/47-clojure-make-it-pass/test.sh"

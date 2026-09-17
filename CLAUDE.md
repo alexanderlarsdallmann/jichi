@@ -251,7 +251,8 @@ tool, a different subject (M527) — and the doctrine in
   Hand-checks use `sh -c '…'` or an absolute path. And **a classifier's
   else-branch must not be a finding**: a probe whose `native` pattern could not
   cross a newline reported `prose` — a positive claim — for five capable models
-  (M519). Make the fallback say *unknown*.
+  (M519). Make the fallback say *unknown* — and since M628 the tool-calling
+  probe does: `JC_TOOLPROBE_UNKNOWN` for an empty reply, distinct from `none`.
 - **Run every command you publish**, in the form you publish it — including
   `< /dev/null` on a headless run, whose absence blocks forever (ANECDOTES #64).
 - **Classify an action by its EFFECT before choosing how to probe it.** An

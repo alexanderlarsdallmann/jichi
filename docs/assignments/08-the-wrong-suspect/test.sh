@@ -2,7 +2,7 @@
 # Runner for the wrong-suspect task: the fixed program must print the right
 # total AND the debugging record must exist with its four sections.
 cd "$(dirname "$0")" || exit 1
-cc --version >/dev/null 2>&1 || { echo "FAIL: a C compiler (cc) is is not usable -- install one (build-essential / gcc) (or a version-manager shim with no version selected)"; exit 1; }
+cc --version >/dev/null 2>&1 || { echo "CANNOT RUN: a C compiler (cc) is not usable -- install one (build-essential / gcc) (or a version-manager shim with no version selected)"; exit 77; }
 
 echo "1..5"
 cc -std=c89 -pedantic -Wall -Wextra -o csvsum main.c fields.c total.c || exit 1

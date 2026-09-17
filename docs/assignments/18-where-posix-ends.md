@@ -2,6 +2,7 @@
 title: Where POSIX ends — a porting survey
 audience: student
 phase: documentation
+stage: extras
 difficulty: advanced
 points: 4
 verify: "sh docs/assignments/18-where-posix-ends/test.sh"

@@ -2,6 +2,7 @@
 title: The Racket capstone — a postfix calculator
 audience: student
 phase: implementation
+stage: racket
 difficulty: medium
 points: 4
 verify: "sh docs/assignments/34-racket-capstone/test.sh"

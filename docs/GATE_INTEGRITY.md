@@ -129,6 +129,13 @@ costs tokens on every call — so it belongs in the cached prefix and should be 
 
 ### 5.3 STATE-THE-REACH — make the shell's reach visible before the run, not after
 
+> **Its run-end half shipped at M630: the reach footer.** After a headless answer the
+> envelope prints, on stderr, `checked: …` / `not checked: …` — the verifier's colour or
+> its absence, the tool-error count, test edits, writes inside or outside the scope, a
+> shell that ran — derived from counters, never from the model; the same facts land in
+> the `done` object as `reach`. Before the run this section makes the reach visible;
+> after it, the footer says how much of it was actually used to check the result.
+
 `--edit-scope` fences the file tools and the shell reaches past it. That is documented, and it
 still surprised the author of this page mid-experiment. `doctor` (or a line at run start) can
 state it plainly when an envelope is armed: *"edit scope covers the file tools; shell commands

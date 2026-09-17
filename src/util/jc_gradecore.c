@@ -109,6 +109,22 @@ void jc_grade_core(const char *path, struct jc_arena *arena,
     argv[0] = (char *)jc_shell_path(); argv[1] = "-c";
     argv[2] = (char *)o->spec.verify; argv[3] = 0;
     o->verify_exit = jc_proc_capture(argv, NULL, NULL, &out, 262144, 600, NULL);
+    /* M625: exit 77 is the verify DECLARING it cannot run here (a toolchain
+     * guard) -- a refusal, never a grade. Its first output line is kept so the
+     * caller can print the script's own reason; nothing is scored. */
+    if (o->verify_exit == JC_VERIFY_CANNOT_RUN) {
+        if (out.data != NULL) {
+            jc_size i;
+            for (i = 0; out.data[i] != '\0' && out.data[i] != '\n' &&
+                 i + 1 < sizeof o->why; i++) {
+                o->why[i] = out.data[i];
+            }
+            o->why[i] = '\0';
+        }
+        o->fail = JC_GRADE_VERIFY_REFUSED;
+        jc_sb_free(&out);
+        return;
+    }
     jc_test_report_init(&o->rep);
     o->have_rep = 1;
     jc_testparse(out.data, &o->rep);

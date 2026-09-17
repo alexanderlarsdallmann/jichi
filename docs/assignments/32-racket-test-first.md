@@ -2,6 +2,7 @@
 title: Write the test first (Racket)
 audience: student
 phase: testing
+stage: racket
 difficulty: easy
 points: 3
 verify: "sh docs/assignments/32-racket-test-first/test.sh"

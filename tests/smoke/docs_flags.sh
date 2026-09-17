@@ -50,6 +50,11 @@ cat > "$tmp/foreign" <<'EOF'
 --eval
 --test
 --edition
+# rustup's, from BIBLIOGRAPHY.md's Rust section (M636c): `rustup doc --book` is
+# how a reader puts The Rust Programming Language on a bench with no route out,
+# which is the load-bearing half of that entry for this project's offline-first
+# audience -- so the command cannot be reworded away either.
+--book
 --background
 --python
 --headless

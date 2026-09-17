@@ -4,7 +4,7 @@
 #   2. it actually tests something (>= 3 checks -- a hollow suite is not proof);
 #   3. an independent acceptance probe confirms the bug is really fixed.
 cd "$(dirname "$0")" || exit 1
-runghc --version >/dev/null 2>&1 || { echo "FAIL: runghc (GHC) is not usable -- install GHC (or a version-manager shim with no version selected)"; exit 1; }
+runghc --version >/dev/null 2>&1 || { echo "CANNOT RUN: runghc (GHC) is not usable -- install GHC (or a version-manager shim with no version selected)"; exit 77; }
 
 if [ ! -f TestListMax.hs ]; then
   echo "FAIL: write the failing test first -- TestListMax.hs is missing"; exit 1; fi

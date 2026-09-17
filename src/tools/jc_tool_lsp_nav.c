@@ -173,7 +173,8 @@ static const struct jc_tool DEF_TOOL = {
     "disambiguate, otherwise the whole project is searched. More precise than "
     "grep for jumping to a definition.",
     def_schema, 1, def_run, NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 static const struct jc_tool REFS_TOOL = {
@@ -182,7 +183,8 @@ static const struct jc_tool REFS_TOOL = {
     "symbol name; optionally the file where it appears. Use it to gauge the "
     "blast radius of a change.",
     refs_schema, 1, refs_run, NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 static const struct jc_tool SYM_TOOL = {
@@ -191,7 +193,8 @@ static const struct jc_tool SYM_TOOL = {
     "outline, via the language server. A fast way to understand a file's "
     "structure.",
     sym_schema, 1, sym_run, NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 static const struct jc_tool ACTIONS_TOOL = {
@@ -200,7 +203,8 @@ static const struct jc_tool ACTIONS_TOOL = {
     "(textDocument/codeAction): organize imports, add import, fix-its, refactors. "
     "Give 'path' and 'line' (1-based); apply one with apply_code_action.",
     actions_schema, 1, actions_run, NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 const struct jc_tool *jc_tool_find_definition(void) { return &DEF_TOOL; }

@@ -85,7 +85,8 @@ static const struct jc_tool READ_BG_TOOL = {
     1, /* read-only */
     read_bg_run,
     NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 static const struct jc_tool KILL_BG_TOOL = {
@@ -96,7 +97,8 @@ static const struct jc_tool KILL_BG_TOOL = {
     0, /* mutating */
     kill_bg_run,
     NULL, NULL, NULL,
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 const struct jc_tool *jc_tool_read_background(void)

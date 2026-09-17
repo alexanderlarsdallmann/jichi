@@ -4,7 +4,7 @@
 #   2. it actually tests something (>= 3 asserts -- a hollow suite is not proof);
 #   3. an independent acceptance probe confirms the bug is really fixed.
 cd "$(dirname "$0")" || exit 1
-elixir --version >/dev/null 2>&1 || { echo "FAIL: elixir is not usable -- install Elixir/OTP (or a version-manager shim with no version selected)"; exit 1; }
+elixir --version >/dev/null 2>&1 || { echo "CANNOT RUN: elixir is not usable -- install Elixir/OTP (or a version-manager shim with no version selected)"; exit 77; }
 
 if [ ! -f test_list_max.exs ]; then
   echo "FAIL: write the failing test first -- test_list_max.exs is missing"; exit 1; fi

@@ -2,6 +2,7 @@
 title: Write the test first (Haskell)
 audience: student
 phase: testing
+stage: haskell
 difficulty: easy
 points: 3
 verify: "sh docs/assignments/44-haskell-test-first/test.sh"

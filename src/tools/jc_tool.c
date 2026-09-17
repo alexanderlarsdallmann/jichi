@@ -594,6 +594,7 @@ void jc_tool_register_builtins(struct jc_tool_registry *r)
     jc_tool_registry_register(r, jc_tool_todoread());
     jc_tool_registry_register(r, jc_tool_remember());
     jc_tool_registry_register(r, jc_tool_ask_user());
+    jc_tool_registry_register(r, jc_tool_write_plan()); /* M631 */
 }
 
 cJSON *jc_tool_build_neutral(const struct jc_tool_registry *r,
@@ -771,6 +772,7 @@ static const char *const JC_ALL_TOOL_NAMES[] = {
     "todowrite",
     "transcribe_audio",
     "web_search",
+    "write_plan",
     "write_file"
 };
 
@@ -852,8 +854,8 @@ cJSON *jc_tool_build_neutral_ex(const struct jc_tool_registry *r,
         const struct jc_tool *t =
             *(const struct jc_tool **)jc_vec_at((struct jc_vec *)&r->tools, i);
         cJSON *entry;
-        if (!include_mutating && !t->readonly) {
-            continue;
+        if (!include_mutating && !t->readonly && !t->plan_allowed) {
+            continue; /* M631: write_plan is the one write plan mode advertises */
         }
         if (exclude_name != NULL && strcmp(t->name, exclude_name) == 0) {
             continue; /* e.g. spawn_subagent is hidden from subagents */
@@ -1006,7 +1008,16 @@ jc_status jc_tool_execute(const struct jc_tool_registry *r,
         set_error(out, buf);
         return JC_OK;
     }
-    if (!t->readonly && app->readonly) {
+    /* M631: plan mode sets app->readonly (jc_app_set_mode), so the one write
+     * plan mode exists to produce -- write_plan, `plan_allowed` -- must pass
+     * this fence too, and ONLY here: a read-only agent definition or a
+     * read-only subagent sets the same flag for a different reason, and for
+     * them the plan file is a write like any other. The permission verdict
+     * (jc_perm_for_tool) and the advertiser make the same exception; three
+     * places consult one field, which is the point of a field. */
+    if (!t->readonly && app->readonly &&
+        !(t->plan_allowed && app->mode == JC_MODE_PLAN)) {
+        app->tool_refusals++; /* M638 */
         set_error(out, "error: tool disabled in read-only mode -- this run "
                        "may only read and report; put your findings in your "
                        "final answer instead of editing");
@@ -1030,6 +1041,7 @@ jc_status jc_tool_execute(const struct jc_tool_registry *r,
                     "the agent that delegated this can act on it.",
                     (name != NULL) ? name : "this tool");
         out->policy_refusal = 1;
+        app->tool_refusals++; /* M638 */
         set_error(out, buf);
         return JC_OK;
     }
@@ -1216,6 +1228,12 @@ jc_status jc_tool_execute(const struct jc_tool_registry *r,
     cJSON_Delete(args);
     if (st != JC_OK && out->content == NULL) {
         set_error(out, "error: tool execution failed");
+    }
+    /* M638: a tool's own fence (tu_err_policy: the path fence, the write
+     * tools' scope checks) is a refusal too; counted where every tool's
+     * result passes. */
+    if (out->policy_refusal && app != NULL) {
+        app->tool_refusals++;
     }
     /* M353: a successful repair must not be silent to its author. The
      * unrepairable path teaches (the schema echo above); until now the

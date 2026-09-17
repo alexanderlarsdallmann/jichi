@@ -33,7 +33,7 @@ solo developer, a balanced team, and a junior solo developer.
 | Milestones | **M1 – M620** (602 `###` entries in `docs/ROADMAP.md`) |
 | First-party source (`src` + `include`) | **~106,700 lines** (316 `.c`/`.h` files) |
 | Tests | **~87,900 lines** (127 unit files + 281 POSIX-sh smoke drivers + 9 e2e modules + 21 fuzz targets incl. the path-fence property target), **13,177 unit checks**, smoke **1,608 checks** |
-| Documentation | **~132,800 lines**, 442 English markdown pages (493 incl. de/es/ja/ko/zh) — 42 design proposals, 69 dated analysis notes, 31 source-reading guides, **77 graded assignments** (55 trap cases) |
+| Documentation | **~132,800 lines**, 442 English markdown pages (493 incl. de/es/ja/ko/zh) — 42 design proposals, 69 dated analysis notes, 31 source-reading guides, **79 graded assignments** (57 trap cases) |
 | Subsystems | **20** (`src/*`) |
 | Third-party source | none — `src/json/cJSON.{c,h}` is original code (M171), ~1,100 lines |
 | Language / target | C89 / ANSI C; **four kernels** carry the full gate (Linux, FreeBSD, NetBSD, OpenBSD), 14 architectures cross-built under emulation, five libcs; libcurl the only dependency |
@@ -467,7 +467,7 @@ most of the difference.
 Two honest caveats on that ratio. First, `docs/ROADMAP.md` alone is **24,824 lines —
 24% of all documentation**: it is the per-milestone engineering record, so it grows
 with every milestone by construction. Second, "documentation" here counts the
-teaching artifact too — 77 graded assignments, 25 source-reading guides, the
+teaching artifact too — 79 graded assignments, 25 source-reading guides, the
 curriculum — which a normal C project would not carry at all.
 
 ---

@@ -2,6 +2,7 @@
 title: The Elixir capstone — a postfix calculator
 audience: student
 phase: implementation
+stage: elixir
 difficulty: medium
 points: 4
 verify: "sh docs/assignments/42-elixir-capstone/test.sh"

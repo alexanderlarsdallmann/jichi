@@ -2,6 +2,7 @@
 title: The array that outgrew itself
 audience: student
 phase: testing
+stage: c-systems
 difficulty: easy
 points: 3
 verify: "sh docs/assignments/52-the-array-that-outgrew-itself/test.sh"

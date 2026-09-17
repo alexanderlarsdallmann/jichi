@@ -41,11 +41,22 @@ extern "C" {
     "Call the tool `" JC_TOOLPROBE_TOOL "` with text set to \"ping\". " \
     "Reply with the tool call only."
 
-/* Ordered by capability, so a caller can compare observed vs configured. */
+/* Ordered by capability, so a caller can compare observed vs configured.
+ *
+ * M628: UNKNOWN is negative ON PURPOSE. NONE is a FINDING about an answer --
+ * the model replied and neither called the tool nor described a call. An
+ * EMPTY reply (no text, no calls) is not that finding: nothing about the
+ * model's tool calling was observed at all, and "a classifier's else-branch
+ * must not be a finding" (CLAUDE.md, M519). Callers compare observed against
+ * configured by ORDER, so UNKNOWN sits below the scale rather than on it, and
+ * every comparison site names it instead of ranking it. The doctor still FAILs
+ * on it under `native` -- the loop cannot run on an empty reply -- but the
+ * verdict word is "unknown", and the advice suspects the request first. */
 enum jc_toolprobe_verdict {
-    JC_TOOLPROBE_NONE   = 0, /* neither a call nor a description of one   */
-    JC_TOOLPROBE_TEXT   = 1, /* described the call in prose (M147 shape)  */
-    JC_TOOLPROBE_NATIVE = 2  /* emitted a native tool call               */
+    JC_TOOLPROBE_UNKNOWN = -1, /* no answer to classify: nothing observed   */
+    JC_TOOLPROBE_NONE    =  0, /* an answer, neither a call nor prose of one */
+    JC_TOOLPROBE_TEXT    =  1, /* described the call in prose (M147 shape)  */
+    JC_TOOLPROBE_NATIVE  =  2  /* emitted a native tool call               */
 };
 
 /* Classify one probe answer. Pure.
@@ -58,7 +69,7 @@ enum jc_toolprobe_verdict jc_toolprobe_classify(int ncalls,
                                                 const char *call_name,
                                                 const char *text);
 
-/* "native" | "text" | "none" for display. Pure. */
+/* "native" | "text" | "none" | "unknown" for display. Pure. */
 const char *jc_toolprobe_verdict_str(enum jc_toolprobe_verdict v);
 
 /* Map an observed verdict to a `toolCalling` config value ("native"/"none").

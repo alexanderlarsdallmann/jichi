@@ -192,6 +192,23 @@ static void test_stale_review(void)
     JC_CHECK(!has_kind(&f, JC_INSIGHT_STALE_NOTE, "memory-paths"));
     jc_vec_free(&f);
 
+    /* M632: unchecked notes are a finding of their own, pushed FIRST and
+     * naming the note; without any, no such finding (an absence is not one). */
+    jc_vec_init(&f, sizeof(struct jc_insight));
+    jc_insights_stale_review(
+        "- prefer small commits [warrant: judgement]\n"
+        "- the here-doc hang [evidence: once] [warrant: unchecked]\n", &f);
+    JC_CHECK(f.len == 3);
+    JC_CHECK(has_kind(&f, JC_INSIGHT_STALE_NOTE, "memory-unchecked"));
+    if (f.len == 3) {
+        const struct jc_insight *in0 = (const struct jc_insight *)jc_vec_at(&f, 0);
+        JC_CHECK(strcmp(in0->subject, "memory-unchecked") == 0);
+        JC_CHECK(in0->count == 1);
+        JC_CHECK(strstr(in0->detail, "\"the here-doc hang\"") != NULL);
+        JC_CHECK(strstr(in0->detail, "small commits") == NULL);
+    }
+    jc_vec_free(&f);
+
     /* No memory => no finding. */
     jc_vec_init(&f, sizeof(struct jc_insight));
     jc_insights_stale_review("", &f);

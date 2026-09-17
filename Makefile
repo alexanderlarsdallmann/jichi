@@ -59,7 +59,50 @@ PROBE_OUT = .jc_probe.$$$$.out
 STD_C89_OK := $(shell printf '\043include <netinet/in.h>\nint main(void){return 0;}\n' \
   | $(CC) -std=c89 -pedantic -D_POSIX_C_SOURCE=200112L -xc - -o $(PROBE_OUT) 2>/dev/null \
   && echo yes; rm -f $(PROBE_OUT) $(PROBE_OUT).exe)
-ifeq ($(STD_C89_OK),yes)
+#
+# IS $(CC) A C++ DRIVER? (M636) -- asked before the C89 verdict is trusted.
+# `make CC=g++` is a documented property check (docs/CPP_BUILD.md) and
+# `make CC=clang++` was simply broken: clang++ REFUSES -std=c89 outright
+# ("invalid argument '-std=c89' not allowed with 'C++'") where g++ merely warns,
+# so the build died on the first file. Worse, the C89 probe above answered
+# *yes* for g++ and *no* for clang++ and then blamed the platform --
+# "this platform's headers are not C89-parseable" -- which is a false statement
+# about the machine when the truth is a fact about the compiler. Its `-xc`
+# forces C on a driver that will not see `-xc` during the real build.
+#
+# So this probe asks the question the BUILD asks: given a file named .c and no
+# -x flag, does this driver compile it as C++? The body is C++-only (a member
+# function inside a struct), so gcc and clang reject it and g++ and clang++
+# accept it. Nothing here is inferred from the program's NAME: a driver called
+# `cc` that is a C++ compiler is classified correctly, and a cross-driver spelled
+# with a target prefix needs no pattern to match.
+#
+# It also settles a question the name would have got WRONG. `zig c++` is
+# classified as a C driver, and measuring says that is correct: given a file
+# named .c it compiles C, exactly as `zig cc` does (probe exit status 1 for
+# both, against 0 for g++ and clang++). So `make CC="zig c++"` builds the
+# ordinary C89 jichi -- it is not a third C++ build, and only
+# `make cpp-check CXX="zig c++"`, which passes -x c++, reaches zig's C++
+# front-end at all.
+PROBE_SRC = .jc_probe.$$$$.c
+CC_IS_CXX := $(shell printf 'struct S { S(){} };\nint main(){ S s; (void)s; return 0; }\n' \
+  > $(PROBE_SRC) 2>/dev/null; \
+  $(CC) -c $(PROBE_SRC) -o $(PROBE_OUT) 2>/dev/null && echo yes; \
+  rm -f $(PROBE_SRC) $(PROBE_OUT) $(PROBE_OUT).exe)
+ifeq ($(CC_IS_CXX),yes)
+  # C++17 for the same reason cpp-check uses it: it is the dialect the property
+  # is claimed in. -pedantic is dropped -- the tree is C89 read through a C++
+  # front-end, and pedantic C++ has opinions about C idioms that are not defects
+  # here (see docs/CPP_BUILD.md on the -Wwrite-strings residue, which stays
+  # visible because it is real).
+  #
+  # -x c++ is EXPLICIT, not implied. clang++ compiles a .c input as C++ only
+  # under a deprecation warning -- 180 of them, one per translation unit, which
+  # is noise today and a broken build the release that removes the behaviour.
+  # Naming the language costs nothing and says what is meant.
+  STD    = -x c++ -std=c++17
+  STD_DIALECT = c++17 (this driver compiles .c as C++; not the shipped build)
+else ifeq ($(STD_C89_OK),yes)
   STD    = -std=c89 -pedantic
   STD_DIALECT = c89 (strict)
 else
@@ -437,6 +480,16 @@ endif
 # -Os and therefore fortify.
 OPT ?=
 
+# Four of the warning flags above are C-only, and a C++ driver says so once per
+# translation unit: `make CC=g++` printed 913 warnings, of which 900 were five
+# such notices x 180 files and 13 were the real -Wwrite-strings residue. Dropping
+# the four that cannot apply is what makes the remaining 13 readable -- the whole
+# point of running a second front-end. (M636)
+ifeq ($(CC_IS_CXX),yes)
+  WARN := $(filter-out -Wstrict-prototypes -Wmissing-prototypes \
+                       -Wold-style-definition -Wjump-misses-init,$(WARN))
+endif
+
 CFLAGS    = $(STD) $(WARN) $(POSIX) $(INCLUDE) $(DEPFLAGS) $(SANFLAGS) $(SIZEFLAGS) $(FAULTFLAGS) $(OPT) $(HARDENFLAGS)
 
 LDLIBS   += $(SANFLAGS)
@@ -482,6 +535,9 @@ CORE_SRC = \
   src/util/jc_agentjson.c \
   src/util/jc_daemon_proto.c \
   src/util/jc_assign.c \
+  src/util/jc_assignlist.c \
+  src/util/jc_reach.c \
+  src/util/jc_plan.c \
   src/util/jc_progress.c \
   src/util/jc_meminfo.c \
   src/util/jc_memtrim.c \
@@ -614,17 +670,61 @@ all: $(BIN) $(CONVERT_BIN)
 # The sources stay C89; g++'s stricter type system is a free static check
 # (implicit void*/const conversions are errors there). Not part of `make ci`.
 # CXX is overridable so a SECOND C++ front-end can be run over the same tree:
-#   make cpp-check              # g++
-#   make cpp-check CXX=clang++  # a different set of opinions, for free
+#   make cpp-check                 # g++
+#   make cpp-check CXX=clang++     # a different set of opinions, for free
+#   make cpp-check CXX="zig c++"   # a third, bundled with its own libc++
+#
+# M636 repaired four defects, all found by running the published commands from a
+# CLEAN tree -- which is how CPP_BUILD.md publishes them, and how nobody had run
+# them for 154 commits:
+#
+#   1. $(STAMP) IS A PREREQUISITE. src/util/jc_buildrev.c includes the generated
+#      jc_buildrev_stamp.h (M495), and `make clean` deletes it (M593). This rule
+#      declared no dependency on it, so cpp-check was green only when some other
+#      build had already generated the header, and red when run as documented.
+#      A check whose result depends on what you did before it is not a check.
+#   2. -x c++ IS EXPLICIT. Every driver here dispatches on the .c extension and
+#      then meets -std=c++17: g++ tolerated it, clang++ warned -Wdeprecated, and
+#      `zig c++` refused outright ("invalid argument '-std=c++17' not allowed
+#      with 'C'"). Naming the language is what makes the target front-end-neutral
+#      rather than g++-shaped.
+#   3. $(firstword $(CXX)) IN THE PROBE. `command -v "zig c++"` looks up a
+#      command whose name contains a space, finds nothing, and reports the
+#      compiler missing -- a false NOT FOUND for any multi-word driver.
+#   4. -fsyntax-only IS PROBED, NOT ASSUMED. `zig c++` accepts the flag, injects
+#      its own -c behind it, and then fails every file with a bare
+#      "src/util/jc_str.c:1:1: error: FileNotFound" -- a message that names the
+#      source and says nothing true about it. The probe compiles a three-token
+#      program and reads the EXIT STATUS (measured: g++ 0, clang++ 0,
+#      `zig c++` 1), then falls back to `-c -o /dev/null`, which all three
+#      accept. Asking "does this driver accept the flag" would have answered
+#      yes for zig; asking "does it compile something with it" answers no.
+#
+# tests/smoke/cppcheck_lint.sh guards all four. It stays out of `make ci` (the
+# M188 decision holds: the C gate is the gate) -- the lint is what replaces the
+# gate slot, at no build-time cost.
 CXX ?= g++
-cpp-check:
-	@command -v $(CXX) >/dev/null || { echo "cpp-check: $(CXX) not found"; exit 1; }
-	@fails=0; log=$$(mktemp); for f in $(LIB_SRC) $(MAIN_OBJ:.o=.c) $(TEST_SRC); do \
-	  $(CXX) -std=c++17 -fsyntax-only $(POSIX) $(INCLUDE) \
+# The file list is overridable so the lint can exercise the RECIPE (its
+# prerequisite, its -x c++, its probe) against every installed front-end for the
+# price of one translation unit. A full three-front-end sweep is 6 s + 8 s + 41 s;
+# nothing that costs 55 s runs in the smoke tier, and a tier that is too slow to
+# run is the failure mode this milestone is about.
+CPPCHECK_SRC ?= $(LIB_SRC) $(MAIN_OBJ:.o=.c) $(TEST_SRC)
+cpp-check: $(STAMP)
+	@command -v $(firstword $(CXX)) >/dev/null || { echo "cpp-check: $(CXX) not found"; exit 1; }
+	@d=$$(mktemp -d); printf 'int main(){return 0;}\n' > $$d/probe.cc; \
+	if $(CXX) -x c++ -std=c++17 -fsyntax-only $$d/probe.cc >/dev/null 2>&1; then \
+	    mode="-fsyntax-only"; \
+	else \
+	    mode="-c -o /dev/null"; \
+	fi; rm -rf $$d; \
+	fails=0; n=0; log=$$(mktemp); for f in $(CPPCHECK_SRC); do \
+	  n=$$((n+1)); \
+	  $(CXX) -x c++ -std=c++17 $$mode $(POSIX) $(INCLUDE) \
 	      -DJC_HAVE_VSNPRINTF $(if $(HAVE_CURL),-DJC_HAVE_CURL $(CURL_CFLAGS)) \
 	      $$f 2>$$log || { echo "cpp-check FAIL: $$f"; sed 's/^/    /' $$log; fails=1; }; \
 	done; rm -f $$log; \
-	[ $$fails -eq 0 ] && echo "cpp-check: OK ($(CXX), whole tree parses as C++17)" || exit 1
+	[ $$fails -eq 0 ] && echo "cpp-check: OK ($(CXX) $$mode, $$n files parse as C++17)" || exit 1
 
 # The pre-rename `jlu_continue` / `jlu-convert` aliases were removed at M487.
 # They existed so wrappers in sibling projects could resolve
@@ -1058,7 +1158,7 @@ clean:
 	      $(FUZZ_BIN) $(FUZZ_OBJ) $(LF_BIN) $(LF_OBJ) \
 	      $(TT_BIN) $(TT_CORE_OBJ) tests/tools/xdrive \
 	      jlu_continue jlu-convert
-	rm -f .jc_probe.*.out .jc_probe.*.out.exe
+	rm -f .jc_probe.*.out .jc_probe.*.out.exe .jc_probe.*.c
 # M593: the stamp too. Its recipe replaces it only when the CONTENT changes, so
 # after a build under sudo it is the one file left root-owned by `make clean` --
 # the cleanup M586 points people at to undo exactly that damage.

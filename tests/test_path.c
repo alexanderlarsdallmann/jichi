@@ -57,14 +57,51 @@ static void test_resolve(void)
             }
         }
 
-        /* A non-existent parent must return JC_ERR_NOTFOUND. */
+        /* M638: a target whose PARENT does not exist yet resolves too -- the
+         * deepest existing ancestor is canonicalized and the missing tail
+         * re-appended. Until M638 this returned JC_ERR_NOTFOUND, the fence
+         * failed closed, and write_file into a fresh directory was refused
+         * as "path outside workspace" (the footer-in-anger note: the model
+         * then built a Python file by fifty shell appends). */
         {
             size_t cl = strlen(cwd);
             const char *bad_parent = "/no_such_dir_abc_123/file.txt";
             if (cl + strlen(bad_parent) + 1 < sizeof(target)) {
                 memcpy(target, cwd, cl);
                 memcpy(target + cl, bad_parent, strlen(bad_parent) + 1);
-                JC_CHECK(jc_path_resolve(target, out, sizeof(out)) == JC_ERR_NOTFOUND);
+                JC_CHECK(jc_path_resolve(target, out, sizeof(out)) == JC_OK);
+                JC_CHECK(jc_path_under_root(cwd, out) == 1);
+                JC_CHECK(strstr(out, "/no_such_dir_abc_123/file.txt") != NULL);
+            }
+        }
+        /* Three missing levels, the same way. */
+        {
+            size_t cl = strlen(cwd);
+            const char *deep = "/no_such_a_123/no_such_b/no_such_c/f.txt";
+            if (cl + strlen(deep) + 1 < sizeof(target)) {
+                memcpy(target, cwd, cl);
+                memcpy(target + cl, deep, strlen(deep) + 1);
+                JC_CHECK(jc_path_resolve(target, out, sizeof(out)) == JC_OK);
+                JC_CHECK(jc_path_under_root(cwd, out) == 1);
+                JC_CHECK(strstr(out, "/no_such_a_123/no_such_b/no_such_c/f.txt")
+                         != NULL);
+            }
+        }
+        /* But a missing tail is re-appended VERBATIM, so it may not carry a
+         * `..` (or `.`) -- that would let "<root>/nope/../../etc/x" read as
+         * inside the root while the kernel walked it out. Fail closed. */
+        {
+            size_t cl = strlen(cwd);
+            const char *climb = "/no_such_dir_abc_123/../../../../etc/x";
+            const char *dot = "/no_such_dir_abc_123/./x";
+            if (cl + strlen(climb) + 1 < sizeof(target)) {
+                memcpy(target, cwd, cl);
+                memcpy(target + cl, climb, strlen(climb) + 1);
+                JC_CHECK(jc_path_resolve(target, out, sizeof(out)) ==
+                         JC_ERR_NOTFOUND);
+                memcpy(target + cl, dot, strlen(dot) + 1);
+                JC_CHECK(jc_path_resolve(target, out, sizeof(out)) ==
+                         JC_ERR_NOTFOUND);
             }
         }
     }
@@ -184,6 +221,20 @@ static void test_symlink_escape(void)
 
     /* A path through the escaping symlink resolves to /tmp/foo -> NOT contained.*/
     JC_CHECK(jc_path_in_root(canon, via_link) == 0);
+    /* M638: nor when two missing levels follow the link. */
+    {
+        char deep[700];
+        size_t vl = strlen(via_link);
+        memcpy(deep, via_link, vl);
+        memcpy(deep + vl, "/nope/f.txt", 12);
+        JC_CHECK(jc_path_in_root(canon, deep) == 0);
+        /* and a missing tail under the symlinked INSIDE dir is inside */
+        vl = strlen(via_link) - 7 + 8; /* base + "/sym_dir" */
+        memcpy(deep, base, strlen(base));
+        memcpy(deep + strlen(base), "/sym_dir/nope/f.txt", 20);
+        JC_CHECK(jc_path_in_root(canon, deep) == 1);
+        (void)vl;
+    }
 
     /* M607: DANGLING links -- the leaf exists as a symlink, its target does not
      * exist yet. realpath() fails on such a leaf, and the resolver used to fall
@@ -217,6 +268,20 @@ static void test_symlink_escape(void)
             symlink("loop", loop) == 0) {
             JC_CHECK(jc_path_in_root(canon, dangle_out) == 0);   /* the escape */
             JC_CHECK(jc_path_in_root(canon, dangle_in) == 1);    /* still fine */
+            /* M638: a MISSING TAIL below a dangling out-link follows the link
+             * (the deepest existing ancestor is the link itself, and it is
+             * resolved through its target), so the verdict is outside. */
+            {
+                char below[700];
+                size_t dl = strlen(dangle_out);
+                memcpy(below, dangle_out, dl);
+                memcpy(below + dl, "/newdir/f.txt", 14);
+                JC_CHECK(jc_path_in_root(canon, below) == 0);
+                dl = strlen(dangle_in);
+                memcpy(below, dangle_in, dl);
+                memcpy(below + dl, "/newdir/f.txt", 14);
+                JC_CHECK(jc_path_in_root(canon, below) == 1);
+            }
             JC_CHECK(jc_path_resolve(dangle_in, probe, sizeof(probe)) == JC_OK);
             JC_CHECK(strstr(probe, "/inside/not_yet.txt") != NULL);
             JC_CHECK(jc_path_resolve(loop, probe, sizeof(probe)) ==

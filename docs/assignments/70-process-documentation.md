@@ -2,6 +2,7 @@
 title: Documentation — can a stranger use it?
 audience: student
 phase: documentation
+stage: process
 difficulty: easy
 points: 2
 verify: "sh docs/assignments/70-process-documentation/test.sh"

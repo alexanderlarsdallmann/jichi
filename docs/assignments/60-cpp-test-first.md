@@ -2,6 +2,7 @@
 title: Write the test first (C++)
 audience: student
 phase: testing
+stage: cpp
 difficulty: easy
 points: 3
 verify: "sh docs/assignments/60-cpp-test-first/test.sh"

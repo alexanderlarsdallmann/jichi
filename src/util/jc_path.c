@@ -240,41 +240,94 @@ static jc_status resolve_depth(const char *path, char *out, jc_size cap,
         }
     }
 
+    /* The target does not exist and is not a symlink. Until M638 this branch
+     * split ONE component off ("parent/leaf"), canonicalized the parent and
+     * re-appended the leaf -- so a write into a directory that did not exist
+     * yet returned JC_ERR_NOTFOUND, jc_app_path_denied read the failure as
+     * "outside", and write_file answered "refused by safety fence (path
+     * outside workspace)" for `tests/bench/refute_ab/refute_ab.py` in a
+     * workspace that had no tests/bench/refute_ab yet (the footer-in-anger
+     * note, 2026-09-17: the model then built the file by fifty shell appends,
+     * which the fence could not see at all). write_file's own ensure_parent()
+     * already does mkdir -p, so the fence was refusing what the tool would
+     * have done.
+     *
+     * M638: walk UP to the deepest ancestor that exists (lstat, so a dangling
+     * symlink counts as existing and is then resolved THROUGH its target by
+     * the recursion above), canonicalize it, and re-append the missing tail.
+     * The tail is re-appended VERBATIM, which is only sound if the kernel
+     * would walk it the same way: a `.` or `..` component in a path that does
+     * not exist yet would be judged here as a name and walked there as a
+     * step, so any such tail fails closed. A tail cannot contain a symlink,
+     * because none of it exists. */
     {
-        char *slash = strrchr(work, '/');
-        const char *parent;
-        const char *leaf;
+        char prefix[JC_RESOLVE_BUF];
+        const char *tail;
         size_t plen;
-        size_t llen;
+        size_t tlen;
+        struct stat st;
 
-        if (slash == NULL) {
-            /* Relative leaf, no directory part: parent is the cwd. */
-            parent = ".";
-            leaf = work;
-        } else if (slash == work) {
-            /* Path like "/foo": parent is "/". */
-            parent = "/";
-            leaf = work + 1;
-        } else {
+        memcpy(prefix, work, len + 1);
+        for (;;) {
+            char *slash = strrchr(prefix, '/');
+            if (slash == NULL) {
+                /* Relative, nothing existing in it: the ancestor is the cwd. */
+                prefix[0] = '.';
+                prefix[1] = '\0';
+                tail = work;
+                break;
+            }
+            if (slash == prefix) {
+                /* Down to "/x": the ancestor is the root directory. */
+                prefix[1] = '\0';
+                tail = work + 1;
+                break;
+            }
             *slash = '\0';
-            parent = work;
-            leaf = slash + 1;
+            if (lstat(prefix, &st) == 0) {
+                tail = work + (size_t)(slash - prefix) + 1;
+                break;
+            }
         }
 
-        if (realpath(parent, resolved) == NULL) {
-            return JC_ERR_NOTFOUND;
+        /* Refuse a tail with an empty, `.` or `..` component. */
+        {
+            const char *c = tail;
+            for (;;) {
+                const char *e = strchr(c, '/');
+                size_t cl = (e != NULL) ? (size_t)(e - c) : strlen(c);
+                if (cl == 0 || (cl == 1 && c[0] == '.') ||
+                    (cl == 2 && c[0] == '.' && c[1] == '.')) {
+                    return JC_ERR_NOTFOUND;
+                }
+                if (e == NULL) {
+                    break;
+                }
+                c = e + 1;
+            }
+        }
+
+        /* The ancestor exists: realpath() it, or -- if it is itself a
+         * dangling link, or otherwise resists realpath() -- let the resolver
+         * name it the way it names any existing path. */
+        if (realpath(prefix, resolved) == NULL) {
+            jc_status st2 = resolve_depth(prefix, resolved, sizeof(resolved),
+                                          depth + 1);
+            if (st2 != JC_OK) {
+                return st2;
+            }
         }
         plen = strlen(resolved);
-        llen = strlen(leaf);
-        /* parent + '/' + leaf + '\0' */
-        if (plen + 1 + llen + 1 > cap) {
+        tlen = strlen(tail);
+        /* ancestor + '/' + tail + '\0' */
+        if (plen + 1 + tlen + 1 > cap) {
             return JC_ERR_TOOBIG;
         }
         memcpy(out, resolved, plen);
         if (plen == 0 || out[plen - 1] != '/') {
             out[plen++] = '/';
         }
-        memcpy(out + plen, leaf, llen + 1);
+        memcpy(out + plen, tail, tlen + 1);
         return JC_OK;
     }
 }

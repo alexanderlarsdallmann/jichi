@@ -2,6 +2,7 @@
 title: Use-cases — who does what, and what if it fails
 audience: student
 phase: planning
+stage: process
 difficulty: easy
 points: 2
 verify: "sh docs/assignments/68-process-use-cases/test.sh"

@@ -2,6 +2,7 @@
 title: The wrong lifetime
 audience: student
 phase: implementation
+stage: memory
 difficulty: intermediate
 points: 3
 verify: "sh docs/assignments/20-the-wrong-lifetime/test.sh"

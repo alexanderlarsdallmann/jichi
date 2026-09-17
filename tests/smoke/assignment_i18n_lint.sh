@@ -58,7 +58,7 @@ for s in $specs; do
     base=$(basename "$s")
     en="$SMOKE_ROOT/docs/assignments/$base"
     [ -f "$en" ] || continue
-    for key in verify points difficulty phase audience; do
+    for key in verify points difficulty phase audience stage; do
         # the frontmatter line, first occurrence only (a body line quoting
         # the key would otherwise be compared against nothing)
         a=$(grep "^$key:" "$en" | head -1)
@@ -75,7 +75,7 @@ for s in $specs; do
     done
 done
 if [ ! -s "$tmp/drift" ]; then
-    t_ok "graded frontmatter (verify/points/difficulty/phase/audience) is byte-identical"
+    t_ok "graded frontmatter (verify/points/difficulty/phase/audience/stage) is byte-identical"
 else
     t_fail "translated assignment changes the grade:"
     sed 's/^/# /' "$tmp/drift" | head -30

@@ -2,6 +2,7 @@
 title: The ambiguous edit
 audience: student
 phase: implementation
+stage: shu
 difficulty: medium
 points: 2
 verify: "[ \"$(awk '$0==\"[cache]\"{s=1} $0==\"[uploads]\"{s=2} s==1 && /^size/{print $3}' docs/assignments/05-the-ambiguous-edit/settings.ini)\" = \"256\" ] && [ \"$(awk '$0==\"[cache]\"{s=1} $0==\"[uploads]\"{s=2} s==2 && /^size/{print $3}' docs/assignments/05-the-ambiguous-edit/settings.ini)\" = \"512\" ]"

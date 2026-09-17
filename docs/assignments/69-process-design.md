@@ -2,6 +2,7 @@
 title: Design — trace every requirement
 audience: student
 phase: planning
+stage: process
 difficulty: medium
 points: 3
 verify: "sh docs/assignments/69-process-design/test.sh"

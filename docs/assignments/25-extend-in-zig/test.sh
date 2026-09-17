@@ -6,8 +6,8 @@
 cd "$(dirname "$0")" || exit 1
 
 command -v zig >/dev/null 2>&1 || {
-    echo "FAIL: this extra needs zig on PATH (one download -- see ZIG_INTEROP.md)"
-    exit 1; }
+    echo "CANNOT RUN: this extra needs zig on PATH (one download -- see ZIG_INTEROP.md)"
+    exit 77; }
 
 sh build.sh || { echo "FAIL: build.sh failed"; exit 1; }
 

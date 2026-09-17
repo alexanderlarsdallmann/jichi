@@ -2,6 +2,7 @@
 title: Author an assignment for a peer
 audience: student
 phase: documentation
+stage: ri
 difficulty: advanced
 points: 4
 verify: "sh docs/assignments/16-teach-a-peer/test.sh"

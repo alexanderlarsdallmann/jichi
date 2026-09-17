@@ -2,6 +2,7 @@
 title: The dangling pointer
 audience: student
 phase: testing
+stage: c-systems
 difficulty: intro
 points: 2
 verify: "sh docs/assignments/51-the-dangling-pointer/test.sh"

@@ -2,6 +2,7 @@
 title: The third compiler — build jichi with zig cc
 audience: student
 phase: testing
+stage: extras
 difficulty: intermediate
 points: 3
 verify: "sh docs/assignments/19-the-third-compiler/test.sh"

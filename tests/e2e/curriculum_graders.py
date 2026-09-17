@@ -215,6 +215,17 @@ by `find`; an unwritable file is a plain error with the path in it.
 - `find` on a fresh checkout (no log file) prints nothing, exit 0.
 - A note containing the search word in different case is still found.
 - An unwritable log directory makes `add` fail with a nonzero exit.
+
+## Objections
+
+- Objection: /check says a single shared file will see a merge conflict on
+  every concurrent append, and the design waves this away with one bullet.
+  Reply: two appends land on different lines of a text file, which is the
+  trivial merge git resolves without a marker; the same-second, two-checkout
+  case is the order test in the plan, and it is the only one that matters.
+- Objection: the reviewer wants an `edit` command for typos.
+  Reply: declined as a non-goal on purpose -- history is the audit trail, and
+  a typo is corrected by a new note that says so.
 """
 
 REVIEW_11 = """\
@@ -1699,6 +1710,57 @@ PROC_DESIGN_PARTIAL = """\
 delete is not designed yet
 """
 
+PROC_DECISIONS = """\
+# Decisions -- note-taking API
+
+## D1 -- Storage: one JSON file, not a database (R1, R3)
+Chose: a single notes.json, read whole and rewritten whole on every change
+Rejected: SQLite -- a dependency, a schema and a migration story for four requirements
+Because: R3 lists ALL notes and nothing in R1-R4 asks for search, paging or two
+         writers; the criterion that decided this is zero dependencies, and the
+         file is the only option that meets it
+
+## D2 -- Ids: a counter, not a UUID (R1, R2)
+Chose: an integer counter persisted beside the notes, incremented on create
+Rejected: UUIDs -- unguessable, but R2 fetches BY id and a human will type it
+Because: R2 makes the id something a person hands back to the API; the criterion
+         is that a caller can read and type it, which a 36-character UUID fails
+
+## D3 -- Delete removes the row, it does not tombstone (R4)
+Chose: DELETE /notes/{id} removes the note; a second DELETE is 404
+Rejected: a deleted flag -- keeps history, but R3 would then have to filter it
+Because: R4 says delete, and no requirement asks for history or undo; the
+         criterion is the smallest state that satisfies R1-R4, and a tombstone
+         adds state every other endpoint must then know about
+"""
+# M633: a rebuttal with no stated objection -- the straw man's home. Same design,
+# same section, first entry is a Reply: to nothing the reader can weigh.
+DESIGN_10_STRAWMAN = DESIGN_10.replace(
+    "- Objection: /check says a single shared file will see a merge conflict on\n"
+    "  every concurrent append, and the design waves this away with one bullet.\n"
+    "  Reply: two appends",
+    "- Reply: the reviewer is wrong about merge conflicts; two appends")
+assert "Objection: /check" not in DESIGN_10_STRAWMAN
+assert "Reply: the reviewer is wrong" in DESIGN_10_STRAWMAN
+
+# Trap for 75: three reasoned rejections, no criterion -- the old discipline
+# (name what you rejected) without the new one (name the scale it lost on).
+PROC_DECISIONS_NOCRIT = """\
+# Decisions
+
+## D1 -- Storage: one JSON file (R1, R3)
+Chose: a single notes.json
+Rejected: SQLite -- a dependency for four requirements
+
+## D2 -- Ids: a counter (R1, R2)
+Chose: an integer counter
+Rejected: UUIDs -- a human cannot type one
+
+## D3 -- Delete removes the row (R4)
+Chose: hard delete
+Rejected: a deleted flag -- R3 would have to filter it
+"""
+
 PROC_README = """\
 # noteapp
 A tiny note-taking CLI.
@@ -2027,6 +2089,16 @@ def solve_28():
          "c++ -o wordtool main.o stats.o")
 
 
+
+def reading_74():
+    """The reference READING.md for 74-read-the-turn, extracted from the shipped
+    solution walkthrough between its <!-- READING.md --> markers -- ONE source of
+    truth for this driver, the smoke driver and the learner-facing solution, so
+    the three cannot drift (M627)."""
+    src = open(path("74-read-the-turn.solution.md")).read()
+    return src.split("<!-- READING.md -->")[1].split("<!-- /READING.md -->")[0]
+
+
 SOLUTIONS = [
     ("00-hello.md",
      lambda: write("00-hello/hello.txt", "hello from my bench\n")),
@@ -2094,6 +2166,12 @@ SOLUTIONS = [
               write("24-read-a-real-project/journal/test_trim.c",
                     TEST_TRIM_24),
               write("24-read-a-real-project/ANALYSIS.md", ANALYSIS_24))),
+    # M627: the reading-for-review task grades a WRITTEN reading of jichi's own
+    # source. In this copytree harness the real src/ is absent, so the grader's
+    # anchor-resolution gate is skipped and the two-sided proof rests on the
+    # structural floor -- which is exactly the part that runs everywhere.
+    ("74-read-the-turn.md",
+     lambda: write("74-read-the-turn/READING.md", reading_74())),
 ]
 
 # The zig-gated extras (25/26) prove two-sided only where zig exists --
@@ -2363,9 +2441,1137 @@ if HAVE_ASAN:
         ("54-the-arena.md",
          lambda: (write("54-the-arena/arena.c", ARENA_54_IMPL),
                   write("54-the-arena/DESIGN.md", ARENA_54_DESIGN))),
+        ("76-the-file-that-wasnt-there.md",
+         lambda: write("76-the-file-that-wasnt-there/loadcfg.c", LOADCFG_76_FIXED)),
+        ("77-replace-it-without-losing-it.md",
+         lambda: write("77-replace-it-without-losing-it/savestate.c", SAVESTATE_77_FIXED)),
+        ("78-the-scan-that-was-fast-enough.md",
+         lambda: (write("78-the-scan-that-was-fast-enough/ht.c", HT_78_FIXED),
+                  write("78-the-scan-that-was-fast-enough/MEASURE.md", MEASURE_78))),
+        ("79-when-a-vector-is-wrong.md",
+         lambda: (write("79-when-a-vector-is-wrong/team_vec.c", TEAM_VEC_79_FIXED),
+                  write("79-when-a-vector-is-wrong/team_list.c", TEAM_LIST_79_FIXED))),
+        ("80-the-order-you-didnt-sort.md",
+         lambda: (write("80-the-order-you-didnt-sort/sorted.c", SORTED_80_FIXED),
+                  write("80-the-order-you-didnt-sort/bst.c", BST_80_FIXED),
+                  write("80-the-order-you-didnt-sort/MEASURE.md", MEASURE_80))),
     ]
 else:
     print("ok - skipped the C systems course 51-54 (no ASan-capable compiler)")
+
+
+LOADCFG_76_FIXED = """\
+#include "loadcfg.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+int cfg_load(const char *path, char **out, long *len)
+{
+    FILE *f;
+    char *buf;
+    long  size;
+    size_t got;
+
+    *out = NULL;
+    *len = 0;
+
+    f = fopen(path, "rb");
+    if (f == NULL) {
+        fprintf(stderr, "cfg_load: cannot open %s\\n", path);
+        return CFG_ENOFILE;
+    }
+    if (fseek(f, 0L, SEEK_END) != 0 || (size = ftell(f)) < 0L ||
+        fseek(f, 0L, SEEK_SET) != 0) {
+        fprintf(stderr, "cfg_load: cannot size %s\\n", path);
+        fclose(f);
+        return CFG_EIO;
+    }
+    if (size > CFG_MAX_BYTES) {
+        fprintf(stderr, "cfg_load: %s is %ld bytes, over the limit\\n", path, size);
+        fclose(f);
+        return CFG_ETOOBIG;
+    }
+    buf = (char *)malloc((size_t)size + 1);
+    if (buf == NULL) {
+        fprintf(stderr, "cfg_load: out of memory for %s\\n", path);
+        fclose(f);
+        return CFG_EIO;
+    }
+    got = fread(buf, 1, (size_t)size, f);
+    if (got != (size_t)size) {
+        fprintf(stderr, "cfg_load: short read on %s\\n", path);
+        free(buf);
+        fclose(f);
+        return CFG_EIO;
+    }
+    buf[got] = '\\0';
+    fclose(f);
+    *out = buf;
+    *len = (long)got;
+    return CFG_OK;
+}
+"""
+
+# Half-fix: checks fopen and reports the real length, but never compares the
+# file's size against the cap -- so an oversized file is accepted and silently
+# truncated, which is the failure mode worse than refusing.
+LOADCFG_76_NO_CAP = LOADCFG_76_FIXED.replace(
+    """    if (size > CFG_MAX_BYTES) {
+        fprintf(stderr, "cfg_load: %s is %ld bytes, over the limit\\n", path, size);
+        fclose(f);
+        return CFG_ETOOBIG;
+    }
+""", "")
+
+# Half-fix: handles every case correctly but reports "cannot open file" with no
+# path, so a user cannot tell WHICH file was missing.
+LOADCFG_76_NAMELESS = LOADCFG_76_FIXED.replace(
+    'fprintf(stderr, "cfg_load: cannot open %s\\n", path);',
+    'fprintf(stderr, "cfg_load: cannot open file\\n");')
+
+# --- task 80 (M636k): the ordered map twice, its measurement, three traps ----------
+SORTED_80_FIXED = """\
+#include "ordered.h"
+#include <stdlib.h>
+#include <string.h>
+
+/* A sorted array of (key, value) pairs. get/min/max/range are a binary
+ * search plus a walk over contiguous memory; put is the binary search for
+ * the slot and then a memmove of everything above it -- O(n), and the cost
+ * this task measures. */
+struct sa_entry { long key; long value; };
+
+struct sa {
+    struct sa_entry *items;
+    size_t len;
+    size_t cap;
+};
+
+struct sa *sa_new(void)
+{
+    struct sa *m = (struct sa *)malloc(sizeof *m);
+    if (m == NULL) {
+        return NULL;
+    }
+    m->items = NULL;
+    m->len = 0;
+    m->cap = 0;
+    return m;
+}
+
+/* First index whose key is >= key (len when none). */
+static size_t lower_bound(const struct sa *m, long key)
+{
+    size_t lo = 0, hi = m->len;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (m->items[mid].key < key) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    return lo;
+}
+
+int sa_put(struct sa *m, long key, long value)
+{
+    size_t i = lower_bound(m, key);
+    if (i < m->len && m->items[i].key == key) {
+        m->items[i].value = value;      /* overwrite: count unchanged */
+        return 0;
+    }
+    if (m->len == m->cap) {
+        size_t ncap = m->cap ? m->cap * 2 : 16;
+        struct sa_entry *n = (struct sa_entry *)realloc(m->items, ncap * sizeof *n);
+        if (n == NULL) {
+            return -1;
+        }
+        m->items = n;
+        m->cap = ncap;
+    }
+    memmove(&m->items[i + 1], &m->items[i], (m->len - i) * sizeof m->items[0]);
+    m->items[i].key = key;
+    m->items[i].value = value;
+    m->len++;
+    return 0;
+}
+
+int sa_get(const struct sa *m, long key, long *out)
+{
+    size_t i = lower_bound(m, key);
+    if (i < m->len && m->items[i].key == key) {
+        *out = m->items[i].value;
+        return 1;
+    }
+    return 0;
+}
+
+size_t sa_range(const struct sa *m, long lo, long hi, om_visit_fn fn, void *ctx)
+{
+    size_t i, n = 0;
+    if (lo > hi) {
+        return 0;
+    }
+    for (i = lower_bound(m, lo); i < m->len && m->items[i].key <= hi; i++) {
+        fn(m->items[i].key, m->items[i].value, ctx);
+        n++;
+    }
+    return n;
+}
+
+int sa_min(const struct sa *m, long *out)
+{
+    if (m->len == 0) {
+        return 0;
+    }
+    *out = m->items[0].key;
+    return 1;
+}
+
+int sa_max(const struct sa *m, long *out)
+{
+    if (m->len == 0) {
+        return 0;
+    }
+    *out = m->items[m->len - 1].key;
+    return 1;
+}
+
+size_t sa_count(const struct sa *m)
+{
+    return m->len;
+}
+
+void sa_free(struct sa *m)
+{
+    if (m != NULL) {
+        free(m->items);
+        free(m);
+    }
+}
+"""
+
+BST_80_FIXED = """\
+#include "ordered.h"
+#include <stdlib.h>
+
+/* An unbalanced binary search tree. Correct on any input; on SORTED input it
+ * is a linked list N deep, which is why put and range walk ITERATIVELY here
+ * (a recursive walk would need a stack frame per level -- 3,000 on the
+ * grader's sorted run, 64,000 on the bench's) and why MEASURE.md must say
+ * what the sorted rows showed. Balancing is the reading, not this file. */
+struct bst_node {
+    struct bst_node *left, *right;
+    long key, value;
+};
+
+struct bst {
+    struct bst_node *root;
+    size_t count;
+};
+
+struct bst *bst_new(void)
+{
+    struct bst *m = (struct bst *)malloc(sizeof *m);
+    if (m == NULL) {
+        return NULL;
+    }
+    m->root = NULL;
+    m->count = 0;
+    return m;
+}
+
+int bst_put(struct bst *m, long key, long value)
+{
+    struct bst_node **link = &m->root;
+    struct bst_node *n;
+    while (*link != NULL) {
+        if (key == (*link)->key) {
+            (*link)->value = value;     /* overwrite: count unchanged */
+            return 0;
+        }
+        link = key < (*link)->key ? &(*link)->left : &(*link)->right;
+    }
+    n = (struct bst_node *)malloc(sizeof *n);
+    if (n == NULL) {
+        return -1;
+    }
+    n->left = n->right = NULL;
+    n->key = key;
+    n->value = value;
+    *link = n;
+    m->count++;
+    return 0;
+}
+
+int bst_get(const struct bst *m, long key, long *out)
+{
+    const struct bst_node *n = m->root;
+    while (n != NULL) {
+        if (key == n->key) {
+            *out = n->value;
+            return 1;
+        }
+        n = key < n->key ? n->left : n->right;
+    }
+    return 0;
+}
+
+/* In-order walk restricted to [lo, hi], iterative with an explicit stack.
+ * The stack holds at most the tree's height -- N on a degenerate tree, so it
+ * is allocated, not a fixed array. */
+size_t bst_range(const struct bst *m, long lo, long hi, om_visit_fn fn, void *ctx)
+{
+    struct bst_node **stack;
+    size_t sp = 0, cap = 64, visited = 0;
+    const struct bst_node *n = m->root;
+    if (lo > hi || n == NULL) {
+        return 0;
+    }
+    stack = (struct bst_node **)malloc(cap * sizeof *stack);
+    if (stack == NULL) {
+        return 0;
+    }
+    while (n != NULL || sp > 0) {
+        while (n != NULL) {
+            if (n->key < lo) {          /* everything left of here is < lo too */
+                n = n->right;
+                continue;
+            }
+            if (sp == cap) {
+                struct bst_node **g = (struct bst_node **)realloc(stack, cap * 2 * sizeof *g);
+                if (g == NULL) {
+                    free(stack);
+                    return visited;
+                }
+                stack = g;
+                cap *= 2;
+            }
+            stack[sp++] = (struct bst_node *)n;
+            n = n->left;
+        }
+        if (sp == 0) {
+            break;                      /* walked right off the end: nothing >= lo */
+        }
+        n = stack[--sp];
+        if (n->key > hi) {
+            break;                      /* in-order: nothing further is <= hi */
+        }
+        fn(n->key, n->value, ctx);
+        visited++;
+        n = n->right;
+    }
+    free(stack);
+    return visited;
+}
+
+int bst_min(const struct bst *m, long *out)
+{
+    const struct bst_node *n = m->root;
+    if (n == NULL) {
+        return 0;
+    }
+    while (n->left != NULL) {
+        n = n->left;
+    }
+    *out = n->key;
+    return 1;
+}
+
+int bst_max(const struct bst *m, long *out)
+{
+    const struct bst_node *n = m->root;
+    if (n == NULL) {
+        return 0;
+    }
+    while (n->right != NULL) {
+        n = n->right;
+    }
+    *out = n->key;
+    return 1;
+}
+
+size_t bst_count(const struct bst *m)
+{
+    return m->count;
+}
+
+/* Iterative free, for the same depth reason: rotate the left subtree onto
+ * the right spine until every node has no left child, then free down it. */
+void bst_free(struct bst *m)
+{
+    struct bst_node *n;
+    if (m == NULL) {
+        return;
+    }
+    n = m->root;
+    while (n != NULL) {
+        struct bst_node *next;
+        if (n->left != NULL) {
+            struct bst_node *l = n->left;
+            n->left = l->right;
+            l->right = n;
+            n = l;
+            continue;
+        }
+        next = n->right;
+        free(n);
+        n = next;
+    }
+    free(m);
+}
+"""
+
+# Trap: a range walk whose upper bound is exclusive -- off by one at hi.
+SORTED_80_HI_EXCLUSIVE = SORTED_80_FIXED.replace(
+    "    for (i = lower_bound(m, lo); i < m->len && m->items[i].key <= hi; i++) {",
+    "    for (i = lower_bound(m, lo); i < m->len && m->items[i].key < hi; i++) {")
+assert "key < hi; i++" in SORTED_80_HI_EXCLUSIVE
+
+# Trap: a tree whose overwrite inserts a duplicate node -- get still finds a
+# value (the first one), but the count grows and the range walk repeats keys.
+BST_80_DUP_ON_OVERWRITE = BST_80_FIXED.replace(
+    "        if (key == (*link)->key) {\n"
+    "            (*link)->value = value;     /* overwrite: count unchanged */\n"
+    "            return 0;\n"
+    "        }\n"
+    "        link = key < (*link)->key ? &(*link)->left : &(*link)->right;\n",
+    "        link = key < (*link)->key ? &(*link)->left : &(*link)->right;\n")
+assert "overwrite: count unchanged" not in BST_80_DUP_ON_OVERWRITE
+
+MEASURE_80 = """\
+# MEASURE.md -- sorted array against binary search tree, on two machines
+
+## Machine
+
+Two machines, because the reading says the answer depends on the workload, and
+a second machine is how you learn whether it also depends on the cache. One
+process, one thread, on both.
+
+1. AMD Ryzen 9 3900X (12 cores, 24 threads, 64 MB L3), Linux 6.8, gcc with
+   `-O2`, otherwise idle. Measured 2026-09-16.
+2. Raspberry Pi 400 (Broadcom BCM2711, 4x Cortex-A72 at 1.8 GHz, 1 MB shared L2,
+   4 GB), Debian 13, Linux 6.18, gcc 14.2 with `-O2`, `ondemand` governor at its
+   full clock throughout, 40-46 C before and after (no throttling), otherwise
+   idle, driven over ssh. Measured 2026-09-17.
+
+## Method
+
+`bench.c` as given, run three times; the middle run is recorded below and the
+other two moved no row by more than 5%. Two workloads per N: insert-heavy (N
+puts, random keys from a 24-bit space, then the same N as sorted keys 0..N-1)
+and query-heavy (after the random puts: 200,000 point lookups of keys from the
+same generator, and 20,000 range walks each spanning 1% of the keyspace). Times
+are wall-clock from `clock()` in milliseconds for the whole loop. The sorted
+array is `lower_bound` + `memmove`; the tree is unbalanced, iterative walk and
+free. What this does not measure: deletion (not in the contract), memory (the
+tree is a node per key, the array is 16 bytes per key), and mixed workloads
+where inserts interleave queries -- the case the reading says decides it. The
+Pi 400 was run the same way; its other two runs moved the random-insert row at
+64,000 by 12% (1,960 to 2,206 ms) and every other row by less than 7%.
+
+## Results
+
+### Ryzen 9 3900X
+
+| N | sa insert random ms | bst insert random ms | sa insert sorted ms | bst insert sorted ms | sa 200k gets ms | bst 200k gets ms | sa 20k ranges ms | bst 20k ranges ms |
+|---|---|---|---|---|---|---|---|---|
+| 1000 | 0.1 | 0.1 | 0.0 | 1.7 | 9.2 | 5.3 | 1.2 | 2.5 |
+| 4000 | 0.8 | 0.3 | 0.1 | 36.0 | 10.9 | 7.8 | 2.1 | 6.4 |
+| 16000 | 13.1 | 1.5 | 0.6 | 324.4 | 13.1 | 12.0 | 5.1 | 31.4 |
+| 64000 | 228.1 | 8.5 | 2.5 | skipped (cap 20000) | 17.2 | 18.3 | 16.7 | 147.7 |
+
+### Raspberry Pi 400
+
+| N | sa insert random ms | bst insert random ms | sa insert sorted ms | bst insert sorted ms | sa 200k gets ms | bst 200k gets ms | sa 20k ranges ms | bst 20k ranges ms |
+|---|---|---|---|---|---|---|---|---|
+| 1000 | 0.4 | 0.2 | 0.1 | 6.0 | 21.5 | 16.0 | 3.3 | 7.6 |
+| 4000 | 6.1 | 0.9 | 0.2 | 142.1 | 26.6 | 29.3 | 6.2 | 26.0 |
+| 16000 | 97.7 | 5.0 | 2.3 | 875.6 | 34.3 | 50.4 | 16.5 | 121.3 |
+| 64000 | 1993.4 | 39.4 | 21.0 | skipped (cap 20000) | 51.8 | 138.1 | 62.5 | 1245.5 |
+
+## Finding
+
+Three different answers, one per workload, which is the point. Random
+insert-heavy: the tree wins from N = 4,000 and by 27x at 64,000 -- the array's
+memmove is O(n) per insert and it shows. Sorted insert-heavy: the array wins
+outright (every insert is an append) and the unbalanced tree degenerates into a
+list -- 324 ms for 16,000 keys, 200x the random case, and skipped at 64,000
+because it would be O(n^2); sorted input is the common real-world case, so an
+unbalanced tree is not a shippable answer without the balancing this task leaves
+to the reading. Query-heavy: point lookups are a wash (the tree slightly ahead
+at small N, behind at 64,000), and range walks favour the contiguous array by
+2x to 9x at every N, because a range over a sorted array is a binary search and
+a sequential read while the tree chases a pointer per key. For jichi's shapes --
+built, then queried -- the page's choice holds; for a set under random churn it
+does not, and that is where a balanced tree earns its complexity.
+
+The Pi 400 keeps two of the three answers and changes the third. Random
+insert-heavy: the tree wins from N = 4,000 again, and by 50x at 64,000 (1,993
+against 39 ms) -- the array's memmove is a larger share of a slower machine's
+time. Sorted insert-heavy: the same degeneration, 876 ms against 2.3 at 16,000
+and skipped at 64,000. Query-heavy is where the machine spoke: the point-lookup
+wash is not a wash on a Cortex-A72. The array wins from N = 4,000 (26.6 against
+29.3 ms) and by 2.7x at 64,000 (52 against 138), and the range walks favour it
+by 2.3x to 20x (63 against 1,245 ms at 64,000) where the Ryzen said 2x to 9x. A
+pointer chase costs more on a core with 1 MB of shared L2 behind it than on one
+with 64 MB of L3, and the array's binary search touches log N cache lines that
+are mostly the same ones every time. So the workload decides which structure and
+the machine decides where the lines cross; the row that came out the same on
+both is the sorted one, which is the row that matters.
+
+## Balancing
+
+Unbalanced, on purpose, and acceptable here only because the grader and the
+bench are the whole workload. The sorted rows are the case against it: I would
+reach for a red-black tree (or a treap, which is far less code) the moment input
+order is not under my control, and for a B-tree if the keys ever touched a disk.
+
+## Deletion
+
+Out of this contract, and rightly: in the sorted array it is one memmove down;
+in the tree it is the two-child case -- replace the node's key with its in-order
+successor's and delete that successor instead -- which is the step every first
+attempt gets wrong, and deserves its own task with its own probe.
+"""
+
+# Trap: a measurement with every number and no finding -- a table nobody read.
+MEASURE_80_NO_FINDING = MEASURE_80.replace("## Finding", "## Notes", 1)
+assert "## Finding" not in MEASURE_80_NO_FINDING
+
+# --- task 79 (M636j): the vector kept honest, the list, three traps ---------------
+TEAM_VEC_79_FIXED = """\
+#include "team_vec.h"
+#include <stdlib.h>
+#include <string.h>
+
+/* The jichi way: remember WHICH player is captain, never WHERE they were.
+ * An index survives every realloc; a pointer survives none of them. */
+struct team_vec {
+    struct player *items;
+    size_t len;
+    size_t cap;
+    size_t captain;         /* index into items */
+    int    has_captain;
+};
+
+struct team_vec *team_vec_new(void)
+{
+    struct team_vec *t = (struct team_vec *)malloc(sizeof *t);
+    if (t == NULL) {
+        return NULL;
+    }
+    t->items = NULL;
+    t->len = 0;
+    t->cap = 0;
+    t->captain = 0;
+    t->has_captain = 0;
+    return t;
+}
+
+int team_vec_add(struct team_vec *t, const char *name)
+{
+    if (t->len == t->cap) {
+        size_t ncap = t->cap ? t->cap * 2 : 4;
+        struct player *n = (struct player *)realloc(t->items, ncap * sizeof *n);
+        if (n == NULL) {
+            return -1;
+        }
+        t->items = n;
+        t->cap = ncap;
+    }
+    strncpy(t->items[t->len].name, name, sizeof t->items[t->len].name - 1);
+    t->items[t->len].name[sizeof t->items[t->len].name - 1] = '\\0';
+    t->items[t->len].goals = 0;
+    t->len++;
+    return 0;
+}
+
+struct player *team_vec_at(struct team_vec *t, size_t i)
+{
+    return i < t->len ? &t->items[i] : NULL;
+}
+
+size_t team_vec_count(const struct team_vec *t)
+{
+    return t->len;
+}
+
+int team_vec_set_captain(struct team_vec *t, size_t i)
+{
+    if (i >= t->len) {
+        return -1;
+    }
+    t->captain = i;
+    t->has_captain = 1;
+    return 0;
+}
+
+struct player *team_vec_captain(struct team_vec *t)
+{
+    /* looked up on every call, from wherever the array lives now */
+    return t->has_captain ? &t->items[t->captain] : NULL;
+}
+
+void team_vec_free(struct team_vec *t)
+{
+    if (t != NULL) {
+        free(t->items);
+        free(t);
+    }
+}
+"""
+
+TEAM_LIST_79_FIXED = """\
+#include "team_list.h"
+#include <stdlib.h>
+#include <string.h>
+
+/* Doubly linked with a dummy head, so add, move and remove have no special
+ * case for "first" or "last"; each node records its owner so move and remove
+ * can refuse a node from another list in O(1). External links (the node wraps
+ * the player) rather than intrusive, because the player struct is shared with
+ * the vector version and must not know about lists. */
+struct team_node {
+    struct team_node *prev;
+    struct team_node *next;
+    struct team_list *owner;
+    struct player p;
+};
+
+struct team_list {
+    struct team_node head;     /* dummy: head.next is first, head.prev is last */
+    size_t count;
+};
+
+struct team_list *team_list_new(void)
+{
+    struct team_list *t = (struct team_list *)malloc(sizeof *t);
+    if (t == NULL) {
+        return NULL;
+    }
+    t->head.prev = &t->head;
+    t->head.next = &t->head;
+    t->head.owner = t;
+    t->count = 0;
+    return t;
+}
+
+static void link_before(struct team_node *pos, struct team_node *n)
+{
+    n->prev = pos->prev;
+    n->next = pos;
+    pos->prev->next = n;
+    pos->prev = n;
+}
+
+static void unlink_node(struct team_node *n)
+{
+    n->prev->next = n->next;
+    n->next->prev = n->prev;
+    n->prev = n->next = NULL;
+}
+
+struct team_node *team_list_add(struct team_list *t, const char *name)
+{
+    struct team_node *n = (struct team_node *)malloc(sizeof *n);
+    if (n == NULL) {
+        return NULL;
+    }
+    strncpy(n->p.name, name, sizeof n->p.name - 1);
+    n->p.name[sizeof n->p.name - 1] = '\\0';
+    n->p.goals = 0;
+    n->owner = t;
+    link_before(&t->head, n);      /* append: before the dummy head */
+    t->count++;
+    return n;
+}
+
+struct player *team_node_player(struct team_node *n)
+{
+    return &n->p;
+}
+
+struct team_node *team_list_first(struct team_list *t)
+{
+    return t->head.next == &t->head ? NULL : t->head.next;
+}
+
+struct team_node *team_node_next(struct team_node *n)
+{
+    return n->next == &n->owner->head ? NULL : n->next;
+}
+
+size_t team_list_count(const struct team_list *t)
+{
+    return t->count;
+}
+
+int team_list_move(struct team_list *from, struct team_list *to, struct team_node *n)
+{
+    if (n->owner != from) {
+        return -1;
+    }
+    unlink_node(n);                /* the same node: nothing is copied */
+    from->count--;
+    n->owner = to;
+    link_before(&to->head, n);
+    to->count++;
+    return 0;
+}
+
+int team_list_remove(struct team_list *t, struct team_node *n)
+{
+    if (n->owner != t) {
+        return -1;
+    }
+    unlink_node(n);
+    t->count--;
+    free(n);
+    return 0;
+}
+
+void team_list_free(struct team_list *t)
+{
+    struct team_node *n, *next;
+    if (t == NULL) {
+        return;
+    }
+    for (n = t->head.next; n != &t->head; n = next) {
+        next = n->next;            /* saved FIRST: the classic bug, avoided */
+        free(n);
+    }
+    free(t);
+}
+"""
+
+# Trap: the vector "fixed" by reserving a big array and keeping the pointer.
+# Correct for 4,000 adds, dangling at 200,000: the array moves eventually.
+TEAM_VEC_79_RESERVE = TEAM_VEC_79_FIXED.replace(
+    "    size_t captain;         /* index into items */\n    int    has_captain;\n",
+    "    struct player *captain; /* a pointer, kept alive by a big reserve */\n"
+).replace(
+    "    t->captain = 0;\n    t->has_captain = 0;\n", "    t->captain = NULL;\n"
+).replace(
+    "        size_t ncap = t->cap ? t->cap * 2 : 4;\n",
+    "        size_t ncap = t->cap ? t->cap * 2 : 4096;   /* 'big enough' */\n"
+).replace(
+    "    t->captain = i;\n    t->has_captain = 1;\n    return 0;\n",
+    "    t->captain = &t->items[i];\n    return 0;\n"
+).replace(
+    "    /* looked up on every call, from wherever the array lives now */\n"
+    "    return t->has_captain ? &t->items[t->captain] : NULL;\n",
+    "    return t->captain;\n")
+assert "has_captain" not in TEAM_VEC_79_RESERVE and "4096" in TEAM_VEC_79_RESERVE
+
+# Trap: a "move" that allocates a new node and copies the player -- the data
+# arrives, the address does not; every pointer the caller held is now stale.
+TEAM_LIST_79_COPY_ON_MOVE = TEAM_LIST_79_FIXED.replace(
+    "    unlink_node(n);                /* the same node: nothing is copied */\n"
+    "    from->count--;\n"
+    "    n->owner = to;\n"
+    "    link_before(&to->head, n);\n"
+    "    to->count++;\n"
+    "    return 0;\n",
+    "    {\n"
+    "        struct team_node *c = team_list_add(to, n->p.name);\n"
+    "        if (c == NULL) {\n"
+    "            return -1;\n"
+    "        }\n"
+    "        c->p.goals = n->p.goals;\n"
+    "        team_list_remove(from, n);       /* WRONG: a copy, not a splice */\n"
+    "    }\n"
+    "    return 0;\n")
+assert "a copy, not a splice" in TEAM_LIST_79_COPY_ON_MOVE
+
+# Trap: free_all reads `next` through the node it has just freed -- the classic.
+TEAM_LIST_79_UAF_FREE = TEAM_LIST_79_FIXED.replace(
+    "    for (n = t->head.next; n != &t->head; n = next) {\n"
+    "        next = n->next;            /* saved FIRST: the classic bug, avoided */\n"
+    "        free(n);\n"
+    "    }\n",
+    "    for (n = t->head.next; n != &t->head; n = n->next) {\n"
+    "        free(n);                   /* then reads n->next: use after free */\n"
+    "    }\n"
+    "    (void)next;\n")
+assert "use after free" in TEAM_LIST_79_UAF_FREE
+
+# --- task 78 (M636i): the hash table, its measurement, three traps -----------------
+HT_78_FIXED = """\
+#include "lookup.h"
+#include <stdlib.h>
+#include <string.h>
+
+/* Separate chaining with a copied key per node, FNV-1a over the bytes, and a
+ * rehash past load factor 0.75. Chaining because deletion is then an unlink,
+ * with no tombstone to reason about -- the trade is one allocation per insert
+ * and a pointer chase per probe, and MEASURE.md says what that cost here. */
+struct ht_node {
+    struct ht_node *next;
+    char *key;
+    long  value;
+};
+
+struct ht {
+    struct ht_node **buckets;
+    size_t nbuckets;
+    size_t count;
+};
+
+static unsigned long ht_hash(const char *s)
+{
+    /* FNV-1a, 32-bit, in an UNSIGNED accumulator: signed overflow is
+       undefined behaviour, not wrap-around (a real jichi defect, kept as a
+       trap in the curriculum's grader). */
+    unsigned long h = 2166136261UL;
+    while (*s) {
+        h ^= (unsigned char)*s++;
+        h *= 16777619UL;
+        h &= 0xffffffffUL;
+    }
+    return h;
+}
+
+struct ht *ht_new(size_t nbuckets)
+{
+    struct ht *t = (struct ht *)malloc(sizeof *t);
+    if (t == NULL) {
+        return NULL;
+    }
+    if (nbuckets == 0) {
+        nbuckets = 16;
+    }
+    t->buckets = (struct ht_node **)calloc(nbuckets, sizeof *t->buckets);
+    if (t->buckets == NULL) {
+        free(t);
+        return NULL;
+    }
+    t->nbuckets = nbuckets;
+    t->count = 0;
+    return t;
+}
+
+static struct ht_node *ht_find(const struct ht *t, const char *key)
+{
+    struct ht_node *n = t->buckets[ht_hash(key) % t->nbuckets];
+    while (n != NULL) {
+        if (strcmp(n->key, key) == 0) {
+            return n;
+        }
+        n = n->next;
+    }
+    return NULL;
+}
+
+static int ht_grow(struct ht *t)
+{
+    size_t nb = t->nbuckets * 2;
+    struct ht_node **nbk = (struct ht_node **)calloc(nb, sizeof *nbk);
+    size_t i;
+    if (nbk == NULL) {
+        return -1;
+    }
+    for (i = 0; i < t->nbuckets; i++) {
+        struct ht_node *n = t->buckets[i];
+        while (n != NULL) {
+            struct ht_node *next = n->next;
+            size_t b = ht_hash(n->key) % nb;
+            n->next = nbk[b];
+            nbk[b] = n;
+            n = next;
+        }
+    }
+    free(t->buckets);
+    t->buckets = nbk;
+    t->nbuckets = nb;
+    return 0;
+}
+
+int ht_put(struct ht *t, const char *key, long value)
+{
+    struct ht_node *n = ht_find(t, key);
+    size_t b;
+    if (n != NULL) {
+        n->value = value;          /* an overwrite is not an insert */
+        return 0;
+    }
+    if ((t->count + 1) * 4 > t->nbuckets * 3 && ht_grow(t) != 0) {
+        return -1;
+    }
+    n = (struct ht_node *)malloc(sizeof *n);
+    if (n == NULL) {
+        return -1;
+    }
+    n->key = (char *)malloc(strlen(key) + 1);
+    if (n->key == NULL) {
+        free(n);
+        return -1;
+    }
+    strcpy(n->key, key);           /* the table owns a COPY */
+    n->value = value;
+    b = ht_hash(key) % t->nbuckets;
+    n->next = t->buckets[b];
+    t->buckets[b] = n;
+    t->count++;
+    return 0;
+}
+
+int ht_get(const struct ht *t, const char *key, long *out)
+{
+    const struct ht_node *n = ht_find(t, key);
+    if (n == NULL) {
+        return 0;
+    }
+    *out = n->value;
+    return 1;
+}
+
+int ht_del(struct ht *t, const char *key)
+{
+    struct ht_node **link = &t->buckets[ht_hash(key) % t->nbuckets];
+    while (*link != NULL) {
+        struct ht_node *n = *link;
+        if (strcmp(n->key, key) == 0) {
+            *link = n->next;       /* unlink: no tombstone, no chain to mend */
+            free(n->key);
+            free(n);
+            t->count--;
+            return 1;
+        }
+        link = &n->next;
+    }
+    return 0;
+}
+
+size_t ht_count(const struct ht *t)
+{
+    return t->count;
+}
+
+void ht_free(struct ht *t)
+{
+    size_t i;
+    if (t == NULL) {
+        return;
+    }
+    for (i = 0; i < t->nbuckets; i++) {
+        struct ht_node *n = t->buckets[i];
+        while (n != NULL) {
+            struct ht_node *next = n->next;
+            free(n->key);
+            free(n);
+            n = next;
+        }
+    }
+    free(t->buckets);
+    free(t);
+}
+"""
+
+# Trap: the table keeps the caller's pointer instead of copying the key. Every
+# lookup after the caller reuses its buffer answers from memory the table does
+# not own -- the probe scribbles on the buffer and asks again.
+HT_78_STORES_POINTER = HT_78_FIXED.replace(
+    "    n->key = (char *)malloc(strlen(key) + 1);\n"
+    "    if (n->key == NULL) {\n"
+    "        free(n);\n"
+    "        return -1;\n"
+    "    }\n"
+    "    strcpy(n->key, key);           /* the table owns a COPY */\n",
+    "    n->key = (char *)key;          /* WRONG: the caller's buffer */\n"
+).replace("            free(n->key);\n", "")
+assert "the caller's buffer" in HT_78_STORES_POINTER
+assert "free(n->key)" not in HT_78_STORES_POINTER
+
+# Trap: an overwrite that inserts a second node -- values still read back,
+# and the count grows on every repeated put.
+HT_78_DUP_ON_OVERWRITE = HT_78_FIXED.replace(
+    "    struct ht_node *n = ht_find(t, key);\n"
+    "    size_t b;\n"
+    "    if (n != NULL) {\n"
+    "        n->value = value;          /* an overwrite is not an insert */\n"
+    "        return 0;\n"
+    "    }\n",
+    "    struct ht_node *n;\n"
+    "    size_t b;\n")
+assert "an overwrite is not an insert" not in HT_78_DUP_ON_OVERWRITE
+
+MEASURE_78 = """\
+# MEASURE.md -- scan against hash table, on two machines
+
+## Machine
+
+Two machines, so the crossover is not one machine's opinion. One process, one
+thread, warm cache, on both.
+
+1. AMD Ryzen 9 3900X (12 cores, 24 threads, 64 MB L3), Linux 6.8, gcc with
+   `-O2`, otherwise idle. Measured 2026-09-16.
+2. Raspberry Pi 400 (Broadcom BCM2711, 4x Cortex-A72 at 1.8 GHz, 1 MB shared L2,
+   4 GB), Debian 13, Linux 6.18, gcc 14.2 with `-O2`, `ondemand` governor at its
+   full clock throughout, 40-46 C before and after (no throttling), otherwise
+   idle, driven over ssh. Measured 2026-09-17.
+
+## Method
+
+`bench.c` as given: for each N it fills both containers with the keys
+`k000000`..`k(N-1)`, then does 300,000 lookups of keys that ARE present, chosen
+by a fixed LCG so both sides see the same sequence, and divides wall time from
+`clock()` by the lookup count. Run three times; the middle run is recorded below,
+and the other two moved every scan row by less than 12% and every hash row by
+less than 10%, which is smaller than the gap between the columns from N = 32 on.
+What this does not measure: absent keys (the scan walks the whole array for
+those, so it would look worse), keys of varying length or without a shared
+prefix (`strcmp` walks the shared `k` and the leading zeros on every compare,
+which is the scan's real cost here), insertion, deletion, or memory. The hash
+table is 64 buckets with chaining and a rehash past load 0.75; at N = 8 it is
+mostly empty. The Pi 400 was run the same way, three times back to back; its
+other two runs moved every scan row by less than 8% and every hash row by less
+than 17% (one run read 200 ns at N = 32-64 where the others read 240), again
+smaller than the gap between the columns from N = 32 on. The bench is one
+thread, so the Pi's four cores buy it nothing.
+
+## Results
+
+### Ryzen 9 3900X
+
+| N | scan ns/lookup | hash ns/lookup |
+|---|---|---|
+| 8 | 69.5 | 61.7 |
+| 16 | 82.5 | 64.6 |
+| 32 | 103.5 | 68.6 |
+| 64 | 142.3 | 66.9 |
+| 128 | 237.5 | 68.6 |
+| 256 | 390.6 | 71.7 |
+| 512 | 749.4 | 73.2 |
+| 1024 | 1494.6 | 73.0 |
+| 2048 | 3064.4 | 78.6 |
+| 4096 | 6092.9 | 76.8 |
+| 8192 | 11675.9 | 82.5 |
+
+### Raspberry Pi 400
+
+| N | scan ns/lookup | hash ns/lookup |
+|---|---|---|
+| 8 | 262.2 | 233.4 |
+| 16 | 308.0 | 236.2 |
+| 32 | 397.7 | 241.4 |
+| 64 | 571.7 | 240.4 |
+| 128 | 923.8 | 222.4 |
+| 256 | 1645.6 | 240.4 |
+| 512 | 3179.5 | 247.4 |
+| 1024 | 6612.7 | 257.6 |
+| 2048 | 13508.0 | 265.5 |
+| 4096 | 26811.6 | 263.2 |
+| 8192 | 63952.9 | 332.0 |
+
+## Crossover
+
+None observed: the hash table was never slower, at any N from 8 upward. At N = 8
+and 16 the gap (5-18 ns) is of the same size as the run-to-run movement, so the
+honest statement there is "no measurable difference"; from N = 32 the table wins
+by more than any noise explains, and the scan doubles per doubling of N as it
+must. For this key shape on this machine, DATA_STRUCTURES.md's "crossover often
+in the hundreds" did not survive its first measurement. At jichi's N = 17 the
+scan is fast enough -- about 15 ns behind, on a call that costs microseconds
+elsewhere -- but it is not faster, and at the repo map's 4,000 it is 80x slower.
+That is the finding; the grader did not ask which way it came out.
+
+The Pi 400 says the same and says it louder. The table was never slower there
+either, and the N = 8 gap that sat inside the noise on the Ryzen does not on the
+A72: 262 against 233 ns, 11%, with the hash column moving 0.3 ns between runs at
+that N. A smaller cache and a slower `strcmp` punish the scan earlier, not
+later. Everything is 4x to 5x slower on the Pi (the scan at 8,192 by 5.5x, the
+table by 4x) and the shape is the same: the scan doubles per doubling, the
+table drifts from 233 to 332 ns as the chains lengthen. What one machine's noise
+hid, the second machine measured.
+
+## Deletion
+
+Chaining: each bucket is a singly linked list of nodes, so deleting is an unlink
+with nothing to mend afterwards. The trade is one malloc per insert and a pointer
+chase per probe, which is part of the ~65 ns above; open addressing with tombstones
+would probe contiguous memory but needs a tombstone count to trigger rehash, and
+that is a second thing to get wrong before the first one is measured.
+"""
+
+# Trap: a measurement with numbers and no method -- a table nobody can re-take.
+MEASURE_78_NO_METHOD = MEASURE_78.replace("## Method", "## Notes", 1)
+assert "## Method" not in MEASURE_78_NO_METHOD
+
+# --- task 77 (M636h): the atomic save, its reference, and two traps ---------------
+SAVESTATE_77_FIXED = """\
+#include "savestate.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+
+/* The shape of jichi's jc_write_file_atomic (src/platform/jc_platform_posix.c):
+ * a temp beside the target, O_EXCL, the mode at creation, fclose checked, the
+ * byte count compared, rename last, remove on every failure. mkstemp is XSI,
+ * not strict POSIX-200112, so the name is built by hand. */
+int state_save(const char *path, const char *data, size_t len, int secret)
+{
+    char  tmp[1024];
+    int   fd;
+    FILE *f;
+    size_t put;
+    size_t plen;
+
+    if (path == NULL || (plen = strlen(path)) + 8 >= sizeof tmp) {
+        return SAVE_EARG;
+    }
+    memcpy(tmp, path, plen);
+    memcpy(tmp + plen, ".tmp", 5);      /* the NUL comes with it */
+
+    fd = open(tmp, O_CREAT | O_EXCL | O_WRONLY,
+              secret ? (S_IRUSR | S_IWUSR)
+                     : (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH));
+    if (fd < 0) {
+        remove(tmp);            /* a leftover from a crashed run: once */
+        fd = open(tmp, O_CREAT | O_EXCL | O_WRONLY,
+                  secret ? (S_IRUSR | S_IWUSR)
+                         : (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH));
+    }
+    if (fd < 0) {
+        return SAVE_EIO;
+    }
+    f = fdopen(fd, "wb");
+    if (f == NULL) {
+        close(fd);
+        remove(tmp);
+        return SAVE_EIO;
+    }
+    put = fwrite(data, 1, len, f);
+    if (fclose(f) != 0 || put != len) {
+        remove(tmp);
+        return SAVE_EIO;
+    }
+    if (rename(tmp, path) != 0) {
+        remove(tmp);
+        return SAVE_EIO;
+    }
+    return SAVE_OK;
+}
+"""
+
+# Trap: the temp lives in /tmp. rename() across filesystems is not a rename, and
+# the grader's hook sees a write-open outside the target's directory.
+SAVESTATE_77_TMPDIR = SAVESTATE_77_FIXED.replace(
+    "    memcpy(tmp, path, plen);\n    memcpy(tmp + plen, \".tmp\", 5);      /* the NUL comes with it */\n",
+    "    (void)plen;\n    memcpy(tmp, \"/tmp/savestate.tmp\", 19);\n")
+assert "/tmp/savestate.tmp" in SAVESTATE_77_TMPDIR
+
+# Trap: every check made, and the temp forgotten on the failure path -- a file
+# per failed save, forever.
+SAVESTATE_77_LEAVES_TMP = SAVESTATE_77_FIXED.replace(
+    "    if (fclose(f) != 0 || put != len) {\n        remove(tmp);\n        return SAVE_EIO;\n    }\n",
+    "    if (fclose(f) != 0 || put != len) {\n        return SAVE_EIO;\n    }\n")
+assert SAVESTATE_77_LEAVES_TMP.count("remove(tmp)") == SAVESTATE_77_FIXED.count("remove(tmp)") - 1
 
 
 # The graded Zig systems course (M249): Zig's own systems model, two-sided
@@ -2470,6 +3676,9 @@ SOLUTIONS += [
      lambda: write("68-process-use-cases/USE_CASES.md", PROC_USECASES)),
     ("69-process-design.md",
      lambda: write("69-process-design/DESIGN.md", PROC_DESIGN)),
+    # M629: the decision task -- a rejection without a criterion is a list.
+    ("75-process-decisions.md",
+     lambda: write("75-process-decisions/DECISIONS.md", PROC_DECISIONS)),
     ("70-process-documentation.md",
      lambda: write("70-process-documentation/README.md", PROC_README)),
     ("71-process-session-notes.md",
@@ -2599,6 +3808,14 @@ def main():
     write("24-read-a-real-project/ANALYSIS.md", ANALYSIS_24)
     grade("24-read-a-real-project.md", 1, "fix without the proof-test rejected")
 
+    # M627's trap: three of the five readings -- a review that never checks the
+    # reading against a recorded run is the fluent-but-unverified analysis the
+    # task exists to refuse. The compound grader must not be hollow.
+    fresh()
+    write("74-read-the-turn/READING.md",
+          reading_74().split("## Execution")[0])
+    grade("74-read-the-turn.md", 1, "three of five readings rejected")
+
     # The Racket course's traps (M238): a hollow test suite that passes but
     # leaves the bug unfixed (32), mutation disguised as a box (33), and a
     # working capstone whose design note names nothing (34).
@@ -2711,6 +3928,75 @@ def main():
         grade("53-never-call-sprintf.md", 1,
               "sprintf hidden behind a temp buffer rejected")
         fresh()
+        fresh()
+        write("76-the-file-that-wasnt-there/loadcfg.c", LOADCFG_76_NO_CAP)
+        grade("76-the-file-that-wasnt-there.md", 1,
+              "a loader that accepts a file over the cap -- silent truncation rejected")
+        fresh()
+        write("76-the-file-that-wasnt-there/loadcfg.c", LOADCFG_76_NAMELESS)
+        grade("76-the-file-that-wasnt-there.md", 1,
+              "an error message with no path in it -- rejected")
+        # M636h, task 77: two half-fixes the hooks see and a reader would not.
+        fresh()
+        write("77-replace-it-without-losing-it/savestate.c", SAVESTATE_77_TMPDIR)
+        grade("77-replace-it-without-losing-it.md", 1,
+              "an atomic save whose temp lives in /tmp, not beside the target -- rejected")
+        fresh()
+        write("77-replace-it-without-losing-it/savestate.c", SAVESTATE_77_LEAVES_TMP)
+        grade("77-replace-it-without-losing-it.md", 1,
+              "a save that leaves its temporary behind on a failed write -- rejected")
+        # M636i, task 78: the classic table defects, and a measurement with no method.
+        fresh()
+        write("78-the-scan-that-was-fast-enough/ht.c", HT_78_STORES_POINTER)
+        write("78-the-scan-that-was-fast-enough/MEASURE.md", MEASURE_78)
+        grade("78-the-scan-that-was-fast-enough.md", 1,
+              "a table that stores the caller's key pointer instead of a copy -- rejected")
+        fresh()
+        write("78-the-scan-that-was-fast-enough/ht.c", HT_78_DUP_ON_OVERWRITE)
+        write("78-the-scan-that-was-fast-enough/MEASURE.md", MEASURE_78)
+        grade("78-the-scan-that-was-fast-enough.md", 1,
+              "a table whose overwrite inserts a second node (the count grows) -- rejected")
+        fresh()
+        write("78-the-scan-that-was-fast-enough/ht.c", HT_78_FIXED)
+        write("78-the-scan-that-was-fast-enough/MEASURE.md", MEASURE_78_NO_METHOD)
+        grade("78-the-scan-that-was-fast-enough.md", 1,
+              "a correct table with a measurement that states no method -- rejected")
+        # M636j, task 79: the "big enough" reserve, the copying move, the classic free.
+        fresh()
+        write("79-when-a-vector-is-wrong/team_vec.c", TEAM_VEC_79_RESERVE)
+        write("79-when-a-vector-is-wrong/team_list.c", TEAM_LIST_79_FIXED)
+        grade("79-when-a-vector-is-wrong.md", 1,
+              "a vector that keeps the captain pointer behind a 4096 reserve -- rejected (the array still moves)")
+        fresh()
+        write("79-when-a-vector-is-wrong/team_vec.c", TEAM_VEC_79_FIXED)
+        write("79-when-a-vector-is-wrong/team_list.c", TEAM_LIST_79_COPY_ON_MOVE)
+        grade("79-when-a-vector-is-wrong.md", 1,
+              "a list whose move copies the node instead of splicing it -- rejected")
+        fresh()
+        write("79-when-a-vector-is-wrong/team_vec.c", TEAM_VEC_79_FIXED)
+        write("79-when-a-vector-is-wrong/team_list.c", TEAM_LIST_79_UAF_FREE)
+        grade("79-when-a-vector-is-wrong.md", 1,
+              "a list whose free reads next through the node it just freed -- rejected")
+        # M636k, task 80: an exclusive upper bound, an overwrite that inserts, a table without its finding.
+        fresh()
+        write("80-the-order-you-didnt-sort/sorted.c", SORTED_80_HI_EXCLUSIVE)
+        write("80-the-order-you-didnt-sort/bst.c", BST_80_FIXED)
+        write("80-the-order-you-didnt-sort/MEASURE.md", MEASURE_80)
+        grade("80-the-order-you-didnt-sort.md", 1,
+              "a sorted array whose range walk excludes hi -- rejected (bounds derived from real keys)")
+        fresh()
+        write("80-the-order-you-didnt-sort/sorted.c", SORTED_80_FIXED)
+        write("80-the-order-you-didnt-sort/bst.c", BST_80_DUP_ON_OVERWRITE)
+        write("80-the-order-you-didnt-sort/MEASURE.md", MEASURE_80)
+        grade("80-the-order-you-didnt-sort.md", 1,
+              "a tree whose overwrite inserts a duplicate node -- rejected")
+        fresh()
+        write("80-the-order-you-didnt-sort/sorted.c", SORTED_80_FIXED)
+        write("80-the-order-you-didnt-sort/bst.c", BST_80_FIXED)
+        write("80-the-order-you-didnt-sort/MEASURE.md", MEASURE_80_NO_FINDING)
+        grade("80-the-order-you-didnt-sort.md", 1,
+              "correct maps with a measurement that draws no finding -- rejected")
+        fresh()
         write("54-the-arena/arena.c", ARENA_54_IMPL)
         write("54-the-arena/DESIGN.md", "done.\n")
         grade("54-the-arena.md", 1,
@@ -2779,6 +4065,16 @@ def main():
     write("69-process-design/DESIGN.md", PROC_DESIGN_PARTIAL)
     grade("69-process-design.md", 1,
           "design that leaves a requirement untraced rejected")
+    fresh()
+    write("75-process-decisions/DECISIONS.md", PROC_DECISIONS_NOCRIT)
+    grade("75-process-decisions.md", 1,
+          "decisions with a rejection but no criterion rejected")
+    # M633: the steelman shape -- an ## Objections entry that answers an
+    # objection it never states is refused; the section itself stays optional.
+    fresh()
+    write("10-design-before-code/DESIGN.md", DESIGN_10_STRAWMAN)
+    grade("10-design-before-code.md", 1,
+          "a design whose Objections entry replies to an unstated objection rejected")
     fresh()
     write("70-process-documentation/README.md", PROC_README_NOEX)
     grade("70-process-documentation.md", 1,

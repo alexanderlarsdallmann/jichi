@@ -2,6 +2,7 @@
 title: Make the failing test pass (Rust)
 audience: student
 phase: testing
+stage: rust
 difficulty: intro
 points: 2
 verify: "sh docs/assignments/63-rust-make-it-pass/test.sh"

@@ -29,7 +29,7 @@ one that fits.
 |---|---|---|
 | Run **one** bounded task in CI | a single `jichi --auto … -p …` ([DEPLOYMENT.md §4c](DEPLOYMENT.md)) | No loop needed; the exit code drives the pipeline. |
 | Serve **many quick, ad-hoc** requests on a warm box | the [`daemon`](DAEMON.md) + `--connect` | Keeps config/index/LSP hot; a worker pool answers concurrently. |
-| Fan **one task** across a fixed set of inputs, deterministically | [`workflow <spec.json>`](WORKFLOWS.md) | `map`/`synthesize`/`verify` stages, one subagent per item. |
+| Fan **one task** across a fixed set of inputs, deterministically | [`workflow <spec.json>`](WORKFLOWS.md) | `map`/`synthesize`/`verify`/`refute` stages, one subagent per item. |
 | Work a **growing / open-ended queue** of independent tasks, unattended, over time | **this guide** (an external supervisor loop) | Tasks arrive and finish independently; each needs its own bounded run + retry policy. |
 
 ### Design decision — why the loop is *external*

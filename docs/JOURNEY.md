@@ -147,6 +147,14 @@ why; your record has entries where the root cause was *you*; your
 - Teach someone their first `/undo`. Watch their shoulders drop when
   they learn the mistake is survivable. That moment is the whole journey,
   handed on.
+- Learn what the discipline is called outside this tree, last of all:
+  [ARGUMENT.md](ARGUMENT.md) maps the house words — a rejected
+  alternative, `Because:`, `Revisit when`, "what is and is not checked" —
+  to design rationale, warrant, defeater and qualifier. The names come at
+  Ri on purpose: they are for recognising the same practice in a codebase
+  that calls it ADRs, and for arguing for it in a room that has read
+  Toulmin and not jichi. Naming a warrant does not make it sound; by now
+  you know that, which is why you can be trusted with the name.
 
 **Virtue trained:** humility in its final form — the willingness to be
 outgrown.

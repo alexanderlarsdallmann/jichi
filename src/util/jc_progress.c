@@ -6,6 +6,7 @@
  * one place that knows the line format `grade --record` introduced (M173b). */
 
 #include "jc_progress.h"
+#include "jc_mem.h"
 #include "jc_snprintf.h"
 #include "cJSON.h"
 
@@ -268,4 +269,127 @@ void jc_progress_hints_scan(const char *jsonl, const char *spec_name,
         }
         p = nl + 1;
     }
+}
+
+/* --- M635: predictions ----------------------------------------------------- */
+
+static jc_status predict_write(const char *dir, cJSON *o)
+{
+    char sub[1100];
+    char path[1160];
+    char *line;
+    FILE *f;
+
+    jc_snprintf(sub, sizeof(sub), "%s/.jichi", dir);
+    jc_mkdir_p(sub);
+    jc_snprintf(path, sizeof(path), "%s/predictions.jsonl", sub);
+    line = cJSON_PrintUnformatted(o);
+    cJSON_Delete(o);
+    if (line == NULL) {
+        return JC_ERR_OOM;
+    }
+    f = fopen(path, "a");
+    if (f == NULL) {
+        free(line);
+        return JC_ERR_IO;
+    }
+    fprintf(f, "%s\n", line);
+    free(line);
+    fclose(f);
+    return JC_OK;
+}
+
+jc_status jc_progress_predict_append(const char *dir, const char *text)
+{
+    cJSON *o;
+    if (dir == NULL || text == NULL || text[0] == '\0') {
+        return JC_ERR_INVALID;
+    }
+    o = cJSON_CreateObject();
+    if (o == NULL) {
+        return JC_ERR_OOM;
+    }
+    cJSON_AddNumberToObject(o, "ts", (double)(long)time(NULL));
+    cJSON_AddStringToObject(o, "kind", "predict");
+    cJSON_AddStringToObject(o, "text", text);
+    return predict_write(dir, o);
+}
+
+void jc_progress_predict_scan(const char *jsonl, struct jc_predictions *out)
+{
+    const char *p;
+
+    memset(out, 0, sizeof(*out));
+    if (jsonl == NULL) {
+        return;
+    }
+    for (p = jsonl; *p != '\0'; ) {
+        const char *nl = strchr(p, '\n');
+        jc_size len = (nl != NULL) ? (jc_size)(nl - p) : (jc_size)strlen(p);
+        if (len > 0 && len < 8192) {
+            char *buf = (char *)malloc(len + 1);
+            if (buf != NULL) {
+                cJSON *o;
+                memcpy(buf, p, len);
+                buf[len] = '\0';
+                o = cJSON_Parse(buf);   /* the learner owns the file; tolerate edits */
+                if (o != NULL) {
+                    cJSON *kind = cJSON_GetObjectItem(o, "kind");
+                    const char *k = (kind != NULL && kind->valuestring != NULL)
+                                    ? kind->valuestring : "";
+                    if (strcmp(k, "predict") == 0) {
+                        out->made++;
+                    } else if (strcmp(k, "resolve") == 0 &&
+                               out->made > out->resolved) {
+                        /* only a resolve with something open counts */
+                        out->resolved++;
+                        if (cJSON_IsTrue(cJSON_GetObjectItem(o, "right"))) {
+                            out->right++;
+                        }
+                    }
+                    cJSON_Delete(o);
+                }
+                free(buf);
+            }
+        }
+        if (nl == NULL) {
+            break;
+        }
+        p = nl + 1;
+    }
+    out->open = out->made - out->resolved;
+}
+
+jc_status jc_progress_predict_resolve(const char *dir, int right)
+{
+    char path[1200];
+    char *text = NULL;
+    struct jc_arena *a;
+    struct jc_predictions pr;
+    cJSON *o;
+
+    if (dir == NULL) {
+        return JC_ERR_INVALID;
+    }
+    a = jc_arena_new(0);
+    if (a == NULL) {
+        return JC_ERR_OOM;
+    }
+    jc_snprintf(path, sizeof(path), "%s/.jichi/predictions.jsonl", dir);
+    if (jc_read_file(path, &text, NULL, a) != JC_OK) {
+        text = NULL;
+    }
+    jc_progress_predict_scan(text, &pr);
+    jc_arena_free(a);
+    if (pr.open <= 0) {
+        return JC_ERR_NOTFOUND;
+    }
+    o = cJSON_CreateObject();
+    if (o == NULL) {
+        return JC_ERR_OOM;
+    }
+    cJSON_AddNumberToObject(o, "ts", (double)(long)time(NULL));
+    cJSON_AddStringToObject(o, "kind", "resolve");
+    cJSON_AddBoolToObject(o, "right", right ? 1 : 0);
+    return predict_write(dir, o);
 }

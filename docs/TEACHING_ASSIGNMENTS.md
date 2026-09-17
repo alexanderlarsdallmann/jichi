@@ -15,7 +15,7 @@ three formats, the verify cookbook, grading ops — is
 > scaffold the pack: `jichi init assignments`. That ships the
 > `assignment-writer` / `solution-writer` / read-only `solution-checker` agents,
 > the tiered `learner-junior|student|senior` profiles, the `assignment-template`
-> and `grading-rubric` skills, and the `/assign` `/solve` `/check` commands.
+> `grading-rubric` and `code-reading` skills, and the `/assign` `/solve` `/check` commands.
 
 > **A worked, real campaign to study first:** [`case-studies/`](case-studies/README.md)
 > holds complete artifact bundles from driving this machinery against a real
@@ -50,7 +50,7 @@ flowchart TD
 
 | | **Path A — mechanical floor** | **Path B — judgment layer** |
 |---|---|---|
-| Grades | any spec with a `verify:` line — all 77 shipped curriculum tasks | an assignment you authored with `/assign`, which carries a rubric |
+| Grades | any spec with a `verify:` line — all 79 shipped curriculum tasks | an assignment you authored with `/assign`, which carries a rubric |
 | Command | `jichi grade <spec>` | `jichi -p "/check <brief> <work>"` |
 | Needs a model? | **No.** Offline, deterministic, free | **Yes.** Costs tokens per submission |
 | Answers | "does it pass?" | "how good is it, against the rubric?" |
@@ -331,13 +331,16 @@ recorded in [DEFERRED.md](DEFERRED.md) or the review that found it
   `.jichi/progress.jsonl`, so a teacher with thirty students has thirty benches
   and no aggregate. Today's answer is a shell loop over submission directories
   collecting `--output json`; a real gradebook is out of scope for the binary.
-- **`jichi assignments` is a flat list, not an orientation.** It prints every task
-  in the directory, name-sorted, with no stage or module column and no totals — so
-  a learner on day one sees 77 rows including tracks they cannot run. Read it with
-  [`assignments/INDEX.md`](assignments/INDEX.md) beside you, which groups them.
-- **Points are not summed for you.** The stage gates are arithmetic you do by hand
-  against INDEX.md's tables. `--output json` has the numbers if you want to add
-  them mechanically.
+- **`jichi assignments` is an orientation since M626.** Tasks group by their
+  spec's `stage:` (shu/ha/ri, then the tracks), each group carries earned/available
+  points and passed counts, one `total:` line closes the listing, and
+  `--stage <name>` filters to the group you are working. The values mirror
+  [`assignments/INDEX.md`](assignments/INDEX.md)'s tables (a lint holds them
+  identical), which remains the page that explains the stages.
+- **Points are summed; gates are not judged.** The per-stage totals make the gate
+  arithmetic free, but the gates' non-point parts (the debugging record, task 09
+  among the passes, all four Stage-3 floors) are still yours to check against
+  INDEX.md — a "gate met" the binary printed from points alone would lie.
 - **`jichi attempt` is not a learner command.** It has *the agent* attempt a task
   in an isolated worktree — a measurement instrument for calibrating tasks and
   models, and the exact inversion of the course's premise if a learner runs it on

@@ -24,10 +24,10 @@ for f in "$SMOKE_ROOT"/docs/assignments/*.md; do
 done
 
 # --- 1: extraction floor ---------------------------------------------------------
-if [ "$n" -ge 77 ]; then
-    t_ok "enumerated $n shipped specs (floor 77 -- today's exact count)"
+if [ "$n" -ge 79 ]; then
+    t_ok "enumerated $n shipped specs (floor 84 -- today's exact count)"
 else
-    t_fail "enumerated only $n specs (floor 77) -- the glob or the layout broke"
+    t_fail "enumerated only $n specs (floor 84) -- the glob or the layout broke"
 fi
 
 # --- 2: every spec is named in the two-sided proof --------------------------------

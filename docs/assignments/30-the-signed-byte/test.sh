@@ -13,7 +13,7 @@
 #     AND print the correct byte-value sum (1023)     -> PASS
 # ACCOUNT.md must name the implementation-defined behaviour and the fix.
 cd "$(dirname "$0")" || exit 1
-cc --version >/dev/null 2>&1 || { echo "FAIL: a C compiler (cc) is is not usable -- install one (build-essential / gcc) (or a version-manager shim with no version selected)"; exit 1; }
+cc --version >/dev/null 2>&1 || { echo "CANNOT RUN: a C compiler (cc) is not usable -- install one (build-essential / gcc) (or a version-manager shim with no version selected)"; exit 77; }
 
 CC=${CC:-cc}
 FLAGS="-std=c89 -pedantic -Wall -Wextra -Werror"

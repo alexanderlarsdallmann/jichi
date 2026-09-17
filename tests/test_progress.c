@@ -97,6 +97,50 @@ static void test_row(void)
  * readable as graded attempts, because every reader of progress.jsonl counts a
  * line as one. These pin that a hint line is invisible to the progress scanner
  * and vice versa. */
+/* ---- M635: predictions ----------------------------------------------------
+ * The tally must be order-safe (a resolve with nothing open is ignored), and a
+ * prediction line must be invisible to the attempt scanner -- the same
+ * separation argument as the hint log, kept true by a different file. */
+static void test_predict_scan(void)
+{
+    static const char *P =
+        "{\"ts\":1,\"kind\":\"resolve\",\"right\":true}\n"  /* nothing open */
+        "{\"ts\":2,\"kind\":\"predict\",\"text\":\"CRLF fails\"}\n"
+        "{\"ts\":3,\"kind\":\"predict\",\"text\":\"second\"}\n"
+        "{\"ts\":4,\"kind\":\"resolve\",\"right\":false}\n"
+        "not json at all\n";
+    struct jc_predictions pr;
+    struct jc_progress p;
+
+    jc_progress_predict_scan(P, &pr);
+    JC_CHECK(pr.made == 2);
+    JC_CHECK(pr.resolved == 1);      /* the first resolve had nothing to close */
+    JC_CHECK(pr.right == 0);         /* ...so its right:true counts nowhere    */
+    JC_CHECK(pr.open == 1);
+
+    /* The other order: predict, then a right resolve. */
+    jc_progress_predict_scan(
+        "{\"kind\":\"predict\",\"text\":\"a\"}\n"
+        "{\"kind\":\"resolve\",\"right\":true}\n", &pr);
+    JC_CHECK(pr.made == 1 && pr.resolved == 1 && pr.right == 1 && pr.open == 0);
+
+    /* Two resolves for one prediction: the second is ignored. */
+    jc_progress_predict_scan(
+        "{\"kind\":\"predict\",\"text\":\"a\"}\n"
+        "{\"kind\":\"resolve\",\"right\":true}\n"
+        "{\"kind\":\"resolve\",\"right\":true}\n", &pr);
+    JC_CHECK(pr.made == 1 && pr.resolved == 1 && pr.right == 1);
+
+    jc_progress_predict_scan(NULL, &pr);
+    JC_CHECK(pr.made == 0 && pr.resolved == 0 && pr.right == 0 && pr.open == 0);
+
+    /* THE SEPARATION: fed to the attempt scanner, prediction lines are not
+     * attempts for any spec (no spec field) -- and the files are different
+     * anyway, which is what makes the promise true by construction. */
+    jc_progress_scan(P, "00-hello.md", &p);
+    JC_CHECK(p.attempts == 0);
+}
+
 static void test_hints_scan(void)
 {
     static const char *HINTS =
@@ -141,6 +185,7 @@ static void test_hints_scan(void)
 void test_progress(void)
 {
     test_hints_scan();
+    test_predict_scan(); /* M635 */
     test_base();
     test_scan();
     test_row();

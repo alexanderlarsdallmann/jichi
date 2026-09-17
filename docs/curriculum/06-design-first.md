@@ -46,7 +46,12 @@ stopping there is passing only a third of the assignment.
 `10-design-before-code` `passed`, **and** `/check` run on your document at
 least once with its feedback either applied or explicitly rebutted in the
 doc (an `## Objections` note is fine — disagreeing with the reviewer, with
-reasons, is Stage-2 behaviour).
+reasons, is Stage-2 behaviour). **Rebut the strongest version.** Since M633
+the grader asks each `## Objections` entry for an `Objection:` line before its
+`Reply:` — the reviewer's point stated so well that they would sign it, *then*
+your answer. Answering a weaker point than the one made is the straw man, the
+one fallacy this curriculum names; the script can see that you stated
+something, not that you stated it fairly. That second half is the habit.
 
 ## Reflection
 

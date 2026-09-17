@@ -2,6 +2,7 @@
 title: The Rust capstone — a postfix calculator
 audience: student
 phase: implementation
+stage: rust
 difficulty: medium
 points: 4
 verify: "sh docs/assignments/66-rust-capstone/test.sh"

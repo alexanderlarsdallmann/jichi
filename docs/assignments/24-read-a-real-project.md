@@ -2,6 +2,7 @@
 title: Read a real project
 audience: student
 phase: review
+stage: extras
 difficulty: advanced
 points: 4
 verify: "sh docs/assignments/24-read-a-real-project/test.sh"

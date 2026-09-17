@@ -174,3 +174,13 @@ it honest.
 
 See `docs/proposals/2026-07-C-design-doc-input.md` for the original proposal and
 `docs/AGENTS_GUIDE.md` for how a design pairs with `--auto` + a verify gate.
+
+## The output twin (M631)
+
+This page injects a human's design *into* a run. Plan mode now produces the
+mirror artifact *out of* one: `.jichi/PLAN.md`, written by the `write_plan` tool
+with a claim, the rejected alternatives and why, a falsifier, not-goals and the
+files it expects to touch — and reconciled against what the run then wrote (the
+reach footer's `plan:` clause). The two meet in the middle: a design you wrote is
+authoritative for planning; a plan the model wrote is a prediction the run is
+measured against. See [AGENT_MODES.md](AGENT_MODES.md) §Plan-then-execute.

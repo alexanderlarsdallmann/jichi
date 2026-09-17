@@ -2,6 +2,7 @@
 title: Design before code
 audience: student
 phase: design
+stage: ha
 difficulty: intermediate
 points: 3
 verify: "sh docs/assignments/10-design-before-code/test.sh"
@@ -42,6 +43,22 @@ quality, run `/check` on your document (rubric-keyed model feedback), and
 work in a session so you can ask the agent to attack your requirements
 ("what did I fail to specify?") — plan mode is ideal for this
 (see the module page).
+
+**If you rebut the reviewer, state the objection first.** An `## Objections`
+section is optional (the module's gate lets you disagree with `/check` in the
+document). When it is present, the grader asks one thing of every `- ` entry:
+an `Objection:` line that states the reviewer's point **in its strongest form**,
+then a `Reply:` line that answers *that*. A reply to an objection nobody can read
+is where straw men live — the reader cannot tell whether you answered the point
+or a weaker cousin of it. The script sees the two labels; whether the objection
+is stated fairly is your judgement, and the one `/check` will test.
+
+```markdown
+## Objections
+- Objection: a shared file will see a merge conflict on every concurrent append.
+  Reply: two appends land on different lines, the trivial merge git resolves;
+  the same-second case is the order test in the plan.
+```
 
 Grade with `jichi grade docs/assignments/10-design-before-code.md`.
 

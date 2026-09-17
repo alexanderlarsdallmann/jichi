@@ -131,6 +131,10 @@ int main(void)
     test_golden_request();
     printf("test_toolprobe\n");
     test_toolprobe();
+    printf("test_reach\n");
+    test_reach();
+    printf("test_plan\n");
+    test_plan();
     printf("test_promptcache\n");
     test_promptcache();
     printf("test_imagegen\n");

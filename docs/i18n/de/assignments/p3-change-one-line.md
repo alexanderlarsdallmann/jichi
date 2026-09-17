@@ -2,6 +2,7 @@
 title: Ändere eine Zeile und nichts anderes
 audience: student
 phase: implementation
+stage: plain
 difficulty: plain
 points: 2
 verify: "grep -qx 'The speed is 80 steps.' docs/assignments/p3-change-one-line/notes.txt && grep -qx 'Line one must not change.' docs/assignments/p3-change-one-line/notes.txt && grep -qx 'Line three must not change.' docs/assignments/p3-change-one-line/notes.txt && [ \"$(wc -l < docs/assignments/p3-change-one-line/notes.txt)\" = 3 ]"

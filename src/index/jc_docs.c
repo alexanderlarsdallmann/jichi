@@ -237,9 +237,14 @@ void jc_docs_html_to_text(const char *html, struct jc_sb *out)
         }
         if (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n' ||
             *p == '\f' || *p == '\v') {
-            if (*p == '\n') {
-                pending_nl = pending_nl || 0; /* keep block intent */
-            }
+            /* A literal newline in the SOURCE is inline whitespace, not a
+             * block boundary: only a block tag sets pending_nl (M51). It is
+             * also not cleared here -- a queued block boundary must survive the
+             * run of whitespace that follows the tag that queued it. Both facts
+             * are "do nothing", and until M636 they were written as the no-op
+             * `pending_nl = pending_nl || 0;`. clang++ was right to call that
+             * out: a statement that compiles to nothing is a comment that costs
+             * a warning, and a reader who trusts it will look for the effect. */
             pending_sp = 1;
             p++;
             continue;

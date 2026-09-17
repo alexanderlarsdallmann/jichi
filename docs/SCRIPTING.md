@@ -122,6 +122,13 @@ one — so raise it deliberately, and keep an outer bound.
   **Run economics (M97)** for a driving agent are also included:
   `starved` (bool — the M96 all-reads-no-synthesis read-heavy bust),
   `budget_kind` (which budget tripped: `tokens`/`deadline`/`toolcalls`, or absent),
+  `reach` (M630 -- what the run's RECORD checked and did not: `verify` green|red|none,
+  `tool_calls`, `tool_errors`, `tool_refused` (M638: of the errors, how many were a fence
+  stopping the call -- the loop's denials and the tools' own policy refusals; the footer
+  prints it as `(N refused by a fence)`), `test_edits`, `scope` clean|violated|none, `shell_ran`,
+  and the two footer sentences `checked` / `not_checked`; derived from counters, never
+  from the model -- the answer is the one artifact nothing checked; M631 adds
+  `plan_named`/`plan_touched`/`plan_drift`/`plan_drift_paths` when `.jichi/PLAN.md` exists),
   `budget:{used,limit}` (token budget), `peak_input` (largest single-call input
   tokens — the context-ramp signal), `cache:{read,write}` (cache tokens; 0 on a
   cacheless backend), and `tools:{read,write,shell,other}` (the per-run tool mix).

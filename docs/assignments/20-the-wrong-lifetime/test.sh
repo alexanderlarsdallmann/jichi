@@ -5,7 +5,7 @@
 # reset, plain malloc/free, a stack buffer) passes -- the check reads the
 # program's own gauge, not the strategy.
 cd "$(dirname "$0")" || exit 1
-cc --version >/dev/null 2>&1 || { echo "FAIL: a C compiler (cc) is is not usable -- install one (build-essential / gcc) (or a version-manager shim with no version selected)"; exit 1; }
+cc --version >/dev/null 2>&1 || { echo "CANNOT RUN: a C compiler (cc) is not usable -- install one (build-essential / gcc) (or a version-manager shim with no version selected)"; exit 77; }
 
 cc -std=c89 -pedantic -Wall -Wextra -Werror -o notekeeper \
     arena.c notekeeper.c || exit 1

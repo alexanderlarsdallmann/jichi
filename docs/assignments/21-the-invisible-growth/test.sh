@@ -6,7 +6,7 @@
 # passes; the checksum pins the OUTPUT, so a fix may change memory behavior
 # but never what the spooler produced.
 cd "$(dirname "$0")" || exit 1
-cc --version >/dev/null 2>&1 || { echo "FAIL: a C compiler (cc) is is not usable -- install one (build-essential / gcc) (or a version-manager shim with no version selected)"; exit 1; }
+cc --version >/dev/null 2>&1 || { echo "CANNOT RUN: a C compiler (cc) is not usable -- install one (build-essential / gcc) (or a version-manager shim with no version selected)"; exit 77; }
 
 cc -std=c89 -pedantic -Wall -Wextra -Werror -o spooler buf.c spooler.c \
     || exit 1

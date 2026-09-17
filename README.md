@@ -101,7 +101,7 @@ opencode, and Claude Code) configurations —
 
 **Never compiled from source before?** [`docs/PREPARE_AND_BUILD.md`](docs/PREPARE_AND_BUILD.md) walks you from an empty terminal to a working build on Linux, macOS, or Windows/WSL. Linux and **WSL2** are both verified paths — the WSL2 walkthrough has been executed end to end, by a non-root user, against pristine HEAD. **macOS is the one door nobody has opened**, and [`docs/PLATFORMS.md`](docs/PLATFORMS.md) is the one page that states, per platform, what was actually compiled and gate-run.
 
-Built incrementally in milestones — **620 of them**, 588 written up in full (the
+Built incrementally in milestones — **631 of them**, 599 written up in full (the
 gap is numbers merged, split or skipped) — each with its design and its failures
 recorded. **The documentation ships in full, on purpose** — the analyses, plans,
 dialogues and anecdotes, including every recorded failure, mis-diagnosis and dead
@@ -1066,7 +1066,7 @@ Use `--model <selector>` to override the role-default model for `embed`/`rerank`
 
 ## Roadmap
 
-**Where we stand: latest milestone M624.** The engineering loop is healthy; the
+**Where we stand: latest milestone M639.** The engineering loop is healthy; the
 **first public release shipped 2026-08-27**: **v0.9.0**, one curated commit,
 published to the HRZ GitLab (`jichi-public/jichi`) and to GitHub, tag `v0.9.0`
 on both ([`docs/plans/2026-08-public-snapshot.md`](docs/plans/2026-08-public-snapshot.md),
@@ -1076,7 +1076,7 @@ executed as written). The release checklist, as it landed:
   projects); the **curriculum**, complete and still growing (all four shu-ha-ri
   stages, the nine standalone language courses — five functional: Racket, Guile,
   Elixir, Haskell, Clojure; four systems: C, Zig, C++, Rust — and a toolchain-free
-  process track from requirements through scheduling, for **77 graded tasks and 55
+  process track from requirements through scheduling, for **84 graded tasks and 71
   trap cases**, every grader proven red-first in CI, plus the instructor guide);
   **versioning + a user-facing CHANGELOG** (0.9.0, with 1.0.0 reserved for the
   release); and the **platform verdict**, stated honestly

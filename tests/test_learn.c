@@ -83,18 +83,38 @@ static void test_apply_summary(void)
                  "/w/.jichi/lessons.draft.md.\n");
     jc_sb_free(&out);
 
-    /* Counts are reported, not just zeroes. */
+    /* Counts are reported, not just zeroes. M632: with notes added, the
+     * warrant line follows the pinned sentence on its own line. */
     memset(&st, 0, sizeof(st));
     st.sections = JC_LEARN_ALL;
     st.memory_added = 3;
+    st.warrant_measured = 1;
+    st.warrant_unchecked = 1;
+    st.warrant_untagged = 1;
     st.skills_added = 1;
     st.corrections_applied = 2;
     st.rules_added = 4;
     jc_sb_init(&out);
     jc_learn_apply_summary(&st, "d.md", &out);
     JC_CHECK_STR(out.data, "Applied 3 memory note(s), 1 skill(s), "
-                 "2 correction(s), and 4 rule(s) from d.md.\n");
+                 "2 correction(s), and 4 rule(s) from d.md.\n"
+                 "Warrants: 1 measured, 0 judgement, 1 unchecked (labelled -- "
+                 "check before trusting), 1 untagged.\n");
     jc_sb_free(&out);
+
+    /* M632: the trailer parse. Case-insensitive word, both spellings of
+     * judgement, an unknown word is untagged (never guessed), NULL is safe. */
+    JC_CHECK(jc_learn_warrant("x [evidence: r-1] [warrant: measured]") ==
+             JC_WARRANT_MEASURED);
+    JC_CHECK(jc_learn_warrant("x [warrant: Judgement]") == JC_WARRANT_JUDGEMENT);
+    JC_CHECK(jc_learn_warrant("x [warrant:judgment]") == JC_WARRANT_JUDGEMENT);
+    JC_CHECK(jc_learn_warrant("x [warrant: unchecked] [pins: t.sh]") ==
+             JC_WARRANT_UNCHECKED);
+    JC_CHECK(jc_learn_warrant("x [warrant: certain]") == JC_WARRANT_NONE);
+    JC_CHECK(jc_learn_warrant("x [evidence: warrant]") == JC_WARRANT_NONE);
+    JC_CHECK(jc_learn_warrant(NULL) == JC_WARRANT_NONE);
+    JC_CHECK(strcmp(jc_warrant_str(JC_WARRANT_UNCHECKED), "unchecked") == 0);
+    JC_CHECK(strcmp(jc_warrant_str(JC_WARRANT_NONE), "untagged") == 0);
 
     /* M602: checks appear as a fifth fragment ONLY when the draft had a Checks
      * section, so the four-fragment sentence learn.sh pins is unchanged; the two
@@ -177,11 +197,14 @@ static void test_apply_summary(void)
     memset(&st, 0, sizeof(st));
     st.sections = JC_LEARN_MEMORY | JC_LEARN_CORRECTIONS;
     st.memory_added = 1;
+    st.warrant_untagged = 1; /* M632: a committed note always has a class */
     st.corrections_applied = 1;
     jc_sb_init(&out);
     jc_learn_apply_summary(&st, "d.md", &out);
     JC_CHECK_STR(out.data, "Applied 1 memory note(s) and 1 correction(s) "
-                 "from d.md.\n");
+                 "from d.md.\n"
+                 "Warrants: 0 measured, 0 judgement, 0 unchecked (labelled -- "
+                 "check before trusting), 1 untagged.\n");
     jc_sb_free(&out);
 
     /* M294: a masked run is a PARTIAL apply, so it must say what it left. A user

@@ -2,6 +2,7 @@
 title: Delegate with a leash
 audience: student
 phase: implementation
+stage: ha
 difficulty: advanced
 points: 3
 verify: "sh docs/assignments/13-delegate-with-a-leash/test.sh"

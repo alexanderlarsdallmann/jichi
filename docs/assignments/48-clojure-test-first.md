@@ -2,6 +2,7 @@
 title: Write the test first (Clojure)
 audience: student
 phase: testing
+stage: clojure
 difficulty: easy
 points: 3
 verify: "sh docs/assignments/48-clojure-test-first/test.sh"

@@ -20,8 +20,8 @@ is simply where it was written down.
 **If the prose here is dense**, start with
 [PLAIN_LANGUAGE.md](PLAIN_LANGUAGE.md) and its three plain-register tasks
 (`p1`–`p3`), then come back. **If you have no compiler yet** — or do not want one
-today — the **process track** (tasks 67–73,
-[`assignments/INDEX.md`](assignments/INDEX.md)) is a complete 17-point graded path
+today — the **process track** (tasks 67–73 and 75,
+[`assignments/INDEX.md`](assignments/INDEX.md)) is a complete 20-point graded path
 that needs nothing but jichi and a text editor: requirements, use cases, design,
 documentation, session notes, kanban, scheduling. It is the one graded track you
 can start on your first day.
@@ -86,10 +86,10 @@ are in [`assignments/INDEX.md`](assignments/INDEX.md).
 (18 tasks, 47 points) plus **set D — memory & lifetimes** (3 tasks, born
 from this project's own 2026-08 hardening wave) and the extras and
 migration tracks below: [`docs/assignments/INDEX.md`](assignments/INDEX.md)
-— **77 graded tasks** in all, every grader two-sided (it provably rejects the
+— **84 graded tasks** in all, every grader two-sided (it provably rejects the
 untouched fixtures and accepts a reference solution;
 `tests/e2e/curriculum_graders.py` enforces this on every change, including
-**55 trap cases** — lazy checkers, half-fixes, hollow gates, leaky
+**71 trap cases** — lazy checkers, half-fixes, hollow gates, leaky
 journals, cost-free port tables, disguised mutation, hand-rolled recursion,
 a hidden `sprintf`, answer-only memory checkers, an untraced kanban card, and
 a schedule with no estimate-vs-actual retro must all still fail). Those two
@@ -97,7 +97,7 @@ numbers are **counted, not maintained by hand**: `tests/smoke/docs_counts_lint.s
 fails the build if they drift from the assignments and the grader, because they
 had drifted — each milestone incremented the previous claim instead of
 recounting (M259). The last
-seven tasks are the **process track** — requirements, use-cases, design,
+eight tasks are the **process track** — requirements, use-cases, design, decisions,
 docs, session notes, kanban, scheduling — the toolchain-free half of software
 development, graded on a structural floor.
 
@@ -113,7 +113,9 @@ really costs, with three graded assignments — the port down to C89, the
 undefined-behaviour trap a sanitizer catches, and the implementation-defined
 one a compile-both-ways diff catches),
 [READING_OPEN_SOURCE.md](READING_OPEN_SOURCE.md) (reading, analyzing,
-testing, and refining open-source C with jichi at your side),
+testing, and refining open-source C with jichi at your side — and, one rung up,
+[CODE_REVIEW.md](CODE_REVIEW.md), the five readings of a piece of code,
+graded on jichi's own source by task 74),
 [PYTHON_AND_C.md](PYTHON_AND_C.md) (**not** a Python course — a systems lens:
 CPython *is* C, Python reaches for C at the performance/system boundary, and
 jichi's own tests-were-Python-then-left history as a which-requirements-are-
@@ -150,14 +152,23 @@ two-sided, each teaching the same four skills in a language that shows one facet
 of the paradigm most clearly.
 
 The **systems** family has now started too, with all four languages graded: the
-**C systems course** (tasks 51–54) — manual memory & data structures under
+**C systems course** (tasks 51–54) — manual memory under
 **AddressSanitizer** (a use-after-free fix, a growable array, `sprintf`→
 `snprintf`, and a bump allocator, jichi's own `jc_mem` shape) — the **Zig
 systems course** (tasks 55–58: a compiler-built-in test runner, a leak-detecting
 allocator, `defer`, tagged/error unions), and the **C++ systems course** (tasks
 59–62: RAII/ownership, the standard containers, exceptions). Where Set D teaches
 you to *reason* about memory, these courses make you *build* the machinery.
-and the **Rust systems course** (tasks 63–66: the borrow checker as compile-time memory safety, `Result`/`Option`, sum types). **With Rust, the systems family is complete** — all four languages now have a standalone graded course, and both the functional and systems families are done.
+and the **Rust systems course** (tasks 63–66: the borrow checker as compile-time memory safety, `Result`/`Option`, sum types). **With Rust, the systems family is complete** — all four languages now have a standalone graded course, and both the functional and systems families are done. The C family then grew a sibling, **C: files & structures** (tasks 76–80, M636g–M636k): reading and atomically replacing a file, then a hash table, a linked list and an ordered map each built to a fixed contract under AddressSanitizer and *measured* against what jichi does instead — the three moves of [`FILE_HANDLING.md`](FILE_HANDLING.md) and [`DATA_STRUCTURES.md`](DATA_STRUCTURES.md): what jichi chose and why, when that is wrong, what to reach for. Two of those measurements went against the page's own claims and the page says so.
+
+**Reading outside this tree.** Everything above teaches from jichi's own source,
+which is the design and also a closed world.
+[BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) is the door out of it: 64 checked entries on
+the craft, C, C++, Zig and Rust, each saying which question in *these* pages it
+answers — 37 of them free to read, including complete books on C, Zig and Rust,
+SICP, and every language standard that matters here in draft. **Every language
+with a graded systems course now has literature behind it.** Nothing in the
+graded path requires any of it; every module is better for some of it.
 
 **Supplementary reading.** The source reading guides accompany every
 track: [案内（あんない）*Annai* — the guided tour](reading/ANNAI.md)
@@ -245,7 +256,8 @@ have everything):
 ```sh
 cd jichi                       # your clone, after `make`
 ./jichi setup --preset learner # config + the assignments pack, guided
-./jichi assignments            # the set A table: phase, points, status
+./jichi assignments            # the whole set, grouped by stage with totals
+./jichi assignments --stage shu  # just Set A while you work it
 ```
 
 **In your own directory** (installed jichi):
@@ -292,7 +304,10 @@ A self-learner gets floor + feedback, and that is a *complete* formative loop.
 Hints are **free**: climb the ladder (`/hint`) whenever you are stuck. Their
 use is recorded — visible in your progress file, never penalised. A hint asked
 for is knowledge; a solution peeked at is a debt
-([JOURNEY.md](JOURNEY.md) says the rest).
+([JOURNEY.md](JOURNEY.md) says the rest). Predictions are free too, and yours
+alone: `/predict <what you expect>` before you look, `/predict right|wrong`
+after, `/predict` for the tally — a calibration record no grader reads (M635;
+[ARGUMENT.md](ARGUMENT.md) says why it matters).
 
 Your standing lives in `.jichi/progress.jsonl` (yours: plain JSONL, appended
 by `/grade` and `grade --record`, editable, deletable). `jichi assignments`

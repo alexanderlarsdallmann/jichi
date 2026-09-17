@@ -2,6 +2,7 @@
 title: Find the setting the program actually uses
 audience: student
 phase: implementation
+stage: shu
 difficulty: intro
 points: 1
 verify: "grep -qx '9' docs/assignments/01-find-the-setting/answer.txt"

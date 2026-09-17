@@ -2220,7 +2220,12 @@ static const char *const FILE_MENTOR[] = {
     "## Memory notes\n",
     "- <one specific, one-line gotcha/fix> (add \"[evidence: ...]\" naming the\n",
     "  run or file it came from, and \"[pins: tests/...]\" when a test, lint or\n",
-    "  constraint holds it -- a lesson with no check to cite is visibly that)\n",
+    "  constraint holds it -- a lesson with no check to cite is visibly that).\n",
+    "  END EVERY NOTE with how you know it: \"[warrant: measured]\" (a number,\n",
+    "  a test run or a diff produced it), \"[warrant: judgement]\" (your reading\n",
+    "  of the code or the record) or \"[warrant: unchecked]\" (noticed once,\n",
+    "  not confirmed). State it honestly -- unchecked is allowed; it is what a\n",
+    "  note is for -- and it is reviewed first, so a mislabel costs the reader.\n",
     "\n",
     "## Skills\n",
     "### <slug>: <one-line description>\n",
@@ -3067,6 +3072,60 @@ static const struct jc_scaffold_file WEB_TS_FILES[] = {
  * (--global) via the special case in jc_scaffold_dest. Bounded well under the
  * JC_GLOSSARY_MAX tail-keep. */
 
+/* code-reading (M627): the coaching half of docs/CODE_REVIEW.md. The five
+ * readings, taught Socratically -- the model fetches, the learner reads, and
+ * every reveal is preceded by a prediction. Propose-only: it never writes the
+ * learner's READING.md, for the same reason the tutor stance never writes the
+ * solution. */
+static const char *const FILE_SK_CODE_READING[] = {
+    "---\n",
+    "name: code-reading\n",
+    "description: Coach a learner through the five readings of a piece of code (abstraction to concrete, control flow, data flow, execution, review) without doing the reading for them.\n",
+    "allowed-tools:\n",
+    "  - read_file\n",
+    "  - search_code\n",
+    "  - find_definition\n",
+    "  - find_references\n",
+    "  - list_symbols\n",
+    "---\n",
+    "You are coaching a reading, not performing one. The learner writes the\n",
+    "reading; you fetch, question, and check. Never write their READING.md or\n",
+    "any section of it, even if asked -- offer the next question instead.\n",
+    "\n",
+    "The five readings, in this order (docs/CODE_REVIEW.md):\n",
+    "\n",
+    "1. Abstraction to concrete -- ask: where does this call ACTUALLY go? Have\n",
+    "   the learner find the dispatch (a function pointer, a vtable, a handler\n",
+    "   table). Before you run find_references on it, ask them to PREDICT how\n",
+    "   many implementations fill the slot. Then show the count. A wrong guess is\n",
+    "   the lesson; do not soften it.\n",
+    "2. Control flow -- ask for the sequence of function names that run for ONE\n",
+    "   concrete input, in order. Then open the branch that decides (read_file)\n",
+    "   and ask which way it goes for that input. Where a retry re-enters is\n",
+    "   the question most readings skip; ask it.\n",
+    "3. Data flow -- make them pick ONE value and follow it: allocation, every\n",
+    "   handoff, the free. Ask who owns it at each step and which arena (or\n",
+    "   none) it lives in. If they say 'the arena' without naming which, ask\n",
+    "   which -- and who calls free.\n",
+    "4. Execution -- do not let them reason about what the code WOULD do. Point\n",
+    "   them at a recorded run (docs/reading/traces/, or --output jsonl) and ask\n",
+    "   them to match three events to the functions that emitted them. Where\n",
+    "   the record disagrees with their reading, the record wins; say so.\n",
+    "5. Review -- ask: which claim in your reading would you least like the\n",
+    "   record to contradict, and what did you do to check it? Then: one\n",
+    "   finding a reviewer would raise about the code, with the evidence.\n",
+    "\n",
+    "Rules of the coaching:\n",
+    "- Every claim gets an anchor: path/file.c:symbol. If they state something\n",
+    "  without one, ask where they read it.\n",
+    "- Predict before reveal. Ask what they expect, then fetch, then compare.\n",
+    "- One question at a time. A list of five questions is a lecture.\n",
+    "- When they are right, say so briefly and move on; when they are wrong,\n",
+    "  show the code that says so and let them rewrite the sentence.\n",
+    "- The grade is theirs to run: `jichi grade <spec>`. Do not predict it.\n",
+    NULL
+};
+
 static const struct jc_scaffold_file ASSIGNMENTS_FILES[] = {
     { "AGENTS.md",                            FILE_AGENTS_ASSIGN },
     { "glossary.md",                          FILE_GLOSSARY },
@@ -3080,6 +3139,7 @@ static const struct jc_scaffold_file ASSIGNMENTS_FILES[] = {
     { "agents/learner-agent.md",              FILE_LEARNER_AGENT },
     { "skills/assignment-template/SKILL.md",  FILE_SK_ASSIGN_TMPL },
     { "skills/grading-rubric/SKILL.md",       FILE_SK_RUBRIC },
+    { "skills/code-reading/SKILL.md",         FILE_SK_CODE_READING },
     { "commands/assign.md",                   FILE_CMD_ASSIGN },
     { "commands/solve.md",                    FILE_CMD_SOLVE },
     { "commands/check.md",                    FILE_CMD_CHECK },

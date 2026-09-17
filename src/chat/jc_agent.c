@@ -2293,6 +2293,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                 jc_history_add_tool_result(hist, call_id,
                     rf.data != NULL ? rf.data : "Tool not available.", 1);
                 jc_sb_free(&rf);
+                app->tool_refusals++; /* M638: a fence, counted apart */
                 if (cb != NULL && cb->on_tool_result != NULL) {
                     cb->on_tool_result(cb->user, name_copy,
                                        "denied (agent fence)", 1,
@@ -2302,7 +2303,9 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
             }
 
             verdict = jc_perm_for_tool((enum jc_agent_mode)app->mode,
-                tool != NULL ? tool->readonly : 0,
+                /* M631: plan_allowed passes plan mode's read-only rule -- one
+                 * declared write, not a read-only lie. */
+                tool != NULL ? (tool->readonly || tool->plan_allowed) : 0,
                 (jc_perm_name_in_allow(&app->config.permissions, name_copy) ||
                  jc_perm_name_in_allow(&app->config.permissions, gate_name)),
                 (jc_perm_name_in_deny(&app->config.permissions, name_copy) ||
@@ -2314,6 +2317,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     "Tool call denied by policy. It will not be approved in "
                     "this run; take a different approach with the tools you "
                     "have.", 1);
+                app->tool_refusals++; /* M638: a fence, counted apart */
                 if (cb != NULL && cb->on_tool_result != NULL) {
                     cb->on_tool_result(cb->user, name_copy,
                                        "denied (policy)", 1,
@@ -2426,6 +2430,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                 if (blocked) {
                     cJSON *o;
                     jc_history_add_tool_result(hist, call_id, creason, 1);
+                    app->tool_refusals++; /* M638: a fence, counted apart */
                     if (cb != NULL && cb->on_tool_result != NULL) {
                         cb->on_tool_result(cb->user, name_copy,
                                            "blocked (constraint)", 1,
@@ -2513,6 +2518,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     }
                     if (refuse) {
                         jc_history_add_tool_result(hist, call_id, reason, 1);
+                        app->tool_refusals++; /* M638: a fence, counted apart */
                         if (cb != NULL && cb->on_tool_result != NULL) {
                             cb->on_tool_result(cb->user, name_copy,
                                                "privileged: refused", 1,
@@ -2620,6 +2626,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     }
                     if (refuse) {
                         jc_history_add_tool_result(hist, call_id, reason, 1);
+                        app->tool_refusals++; /* M638: a fence, counted apart */
                         if (cb != NULL && cb->on_tool_result != NULL) {
                             cb->on_tool_result(cb->user, name_copy,
                                                "kinetic: refused", 1,
@@ -2751,6 +2758,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                                 name_copy, dcount);
                         }
                         jc_history_add_tool_result(hist, call_id, dtext, 1);
+                        app->tool_refusals++; /* M638: a fence, counted apart */
                         if (cb->on_tool_result != NULL) {
                             cb->on_tool_result(cb->user, name_copy,
                                                "denied", 1,
@@ -2809,6 +2817,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     jc_history_add_tool_result(hist, call_id,
                         "Tool requires approval, unavailable in headless mode; "
                         "re-run with --auto to allow it.", 1);
+                    app->tool_refusals++; /* M638: a fence, counted apart */
                     if (cb != NULL && cb->on_tool_result != NULL) {
                         cb->on_tool_result(cb->user, name_copy,
                                            "needs approval", 1,
@@ -2831,6 +2840,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     "edit-scope is active; edit files with edit_file/write_file "
                     "(within the scope) instead.", bmsg, sizeof(bmsg));
                 jc_history_add_tool_result(hist, call_id, bmsg, 1);
+                app->tool_refusals++; /* M638: a fence, counted apart */
                 if (cb != NULL && cb->on_tool_result != NULL) {
                     cb->on_tool_result(cb->user, name_copy,
                                        "denied (strict-scope)", 1,
@@ -2874,6 +2884,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     "without --edit-scope.",
                     bmsg, sizeof(bmsg));
                 jc_history_add_tool_result(hist, call_id, bmsg, 1);
+                app->tool_refusals++; /* M638: a fence, counted apart */
                 if (cb != NULL && cb->on_tool_result != NULL) {
                     cb->on_tool_result(cb->user, name_copy, bmsg, 1,
                                        (call_id != NULL) ? call_id : "");
@@ -2910,6 +2921,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                         }
                         jc_sb_free(&sm);
                     }
+                    app->tool_refusals++; /* M638: a fence, counted apart */
                     if (cb != NULL && cb->on_tool_result != NULL) {
                         cb->on_tool_result(cb->user, name_copy,
                                            "out of edit-scope", 1,

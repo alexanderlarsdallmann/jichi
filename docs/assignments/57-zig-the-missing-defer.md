@@ -2,6 +2,7 @@
 title: The missing defer (Zig)
 audience: student
 phase: implementation
+stage: zig
 difficulty: medium
 points: 3
 verify: "sh docs/assignments/57-zig-the-missing-defer/test.sh"

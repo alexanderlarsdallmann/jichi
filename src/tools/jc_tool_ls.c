@@ -259,7 +259,8 @@ static const struct jc_tool LS_TOOL = {
     1, /* readonly */
     ls_run,
     NULL, NULL, NULL, /* not a dynamic (MCP) tool */
-    0 /* main_agent_only (M436) */
+    0 /* main_agent_only (M436) */,
+    0  /* plan_allowed (M631): only write_plan sets this */
 };
 
 const struct jc_tool *jc_tool_ls(void)

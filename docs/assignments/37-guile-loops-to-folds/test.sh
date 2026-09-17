@@ -2,7 +2,7 @@
 # Passes iff BOTH: the tests are green, AND the mutation is gone.
 # The refactor must change HOW, not WHAT -- behaviour identical, smell removed.
 cd "$(dirname "$0")" || exit 1
-guile --version >/dev/null 2>&1 || { echo "FAIL: guile (GNU Guile) is not usable -- install it (guile-3.0) (or a version-manager shim with no version selected)"; exit 1; }
+guile --version >/dev/null 2>&1 || { echo "CANNOT RUN: guile (GNU Guile) is not usable -- install it (guile-3.0) (or a version-manager shim with no version selected)"; exit 77; }
 guile --no-auto-compile -L . test-squares.scm >/dev/null 2>&1
 rc=$?; rm -f *.log
 [ $rc -eq 0 ] || { echo "FAIL: the tests are not green"; exit 1; }
