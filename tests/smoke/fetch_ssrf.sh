@@ -140,7 +140,7 @@ if "$G" -q 'jc_net_host_is_blocked(host)' "$SMOKE_ROOT/src/tools/jc_tool_fetch.c
     t_ok "fetch_url extracts the host and consults the blocker"
 else
     t_fail "the fetch path no longer calls jc_url_host + jc_net_host_is_blocked: \
-$("$G" -n 'jc_net_host_is_blocked\|jc_url_host' \
+$("$G" -nE 'jc_net_host_is_blocked|jc_url_host' \
   "$SMOKE_ROOT/src/tools/jc_tool_fetch.c" | head -3 | tr '\n' ' ')"
 fi
 

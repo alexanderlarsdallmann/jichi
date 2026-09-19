@@ -21,11 +21,12 @@ needs the rest of this page first.
 
 **Two things worth knowing before you invest an hour:**
 
-- **Platforms.** **19 rows verified** — compiled *and* gate-run on each, with the
-  numbers kept per row. Linux across **14 architectures** and five libcs, down to a
+- **Platforms.** **20 rows Verified** — compiled *and* gate-run on each, with the
+  numbers kept per row — plus **3 Partly verified** (a named gap each) and
+  **1 Never compiled**. Linux across **14 architectures** and five libcs, down to a
   256 MB VM; **FreeBSD, NetBSD and OpenBSD** all run the full gate; **WSL2** runs
   the whole of `make ci`, Cygwin the unit and smoke tiers; Android both cross-built
-  and built on-device. **Never compiled: macOS and illumos** — there is no Mac on
+  and built on-device. **illumos is partly verified since M658** (OmniOS under KVM: clean build, 13,273 unit checks, 284 of 303 smoke drivers). **Never compiled: macOS** — there is no Mac on
   this project, and its one Darwin-specific line went months un-compilable because
   of it. [`docs/PLATFORMS.md`](docs/PLATFORMS.md) owns every verdict and says
   exactly what was measured, in Verified / Partly verified / Never compiled.
@@ -101,7 +102,7 @@ opencode, and Claude Code) configurations —
 
 **Never compiled from source before?** [`docs/PREPARE_AND_BUILD.md`](docs/PREPARE_AND_BUILD.md) walks you from an empty terminal to a working build on Linux, macOS, or Windows/WSL. Linux and **WSL2** are both verified paths — the WSL2 walkthrough has been executed end to end, by a non-root user, against pristine HEAD. **macOS is the one door nobody has opened**, and [`docs/PLATFORMS.md`](docs/PLATFORMS.md) is the one page that states, per platform, what was actually compiled and gate-run.
 
-Built incrementally in milestones — **655 of them**, 645 written up in full (the
+Built incrementally in milestones — **666 of them**, 656 written up in full (the
 gap is numbers merged, split or skipped) — each with its design and its failures
 recorded. **The documentation ships in full, on purpose** — the analyses, plans,
 dialogues and anecdotes, including every recorded failure, mis-diagnosis and dead
@@ -200,16 +201,17 @@ per the M307 rule), `make smoke` adds a **python-free** tier that makes
 `make check-target` a full gate on any POSIX box, and `make ci` additionally runs
 the suite under two compilers, AddressSanitizer + UndefinedBehaviorSanitizer,
 Valgrind, and a fuzzer. Green end to end at **M650** on the development box:
-**13,329 checks / 0 failures**, smoke **298 drivers / 1,736 checks**.
+**13,339 checks / 0 failures**, smoke **303 drivers / 1,759 checks**.
 
 Each verified platform is **kept as its own stamped datum** rather than
 overwritten, because "it passes on a small machine" and "it passes on that
-architecture" are different claims from "it passes here". Nineteen of them — a 256 MB
+architecture" are different claims from "it passes here". Twenty of them — a 256 MB
 one-core VM, a kernel 4.9 userland, two physical ARM boards (aarch64 *and* armhf),
 s390x big-endian, a static musl build, three BSD kernels, WSL2, a phone — with their
 check counts and passing timeout multipliers: **[`docs/PLATFORMS.md`](docs/PLATFORMS.md)**,
-which is also where the honest converse lives (**macOS and illumos have never been
-compiled**, and the page says so in those words).
+which is also where the honest converse lives (**macOS has never been compiled**,
+and the page says so in those words; **illumos joined the matrix at M658** and is
+*partly verified* — clean build, 13,273 unit checks, 284 of 303 smoke drivers).
 
 A live API key (or a local model) is required to exercise actual model calls. **What changed, per version, without
 parsing git history: [`CHANGELOG.md`](CHANGELOG.md)** (`jichi --version`
@@ -1066,14 +1068,19 @@ Use `--model <selector>` to override the role-default model for `embed`/`rerank`
 
 ## Roadmap
 
-**Where we stand: latest milestone M655.** The engineering loop is healthy; the
+**Where we stand: latest milestone M668.** The engineering loop is healthy; the
 **first public release shipped 2026-08-27**: **v0.9.0**, one curated commit,
 published to the HRZ GitLab (`jichi-public/jichi`) and to GitHub, tag `v0.9.0`
 on both ([`docs/plans/2026-08-public-snapshot.md`](docs/plans/2026-08-public-snapshot.md),
 executed as written); the public tree was **advanced to the M639 state on
 2026-09-17** (public commit `0790755`, hosted CI green on the first run; no new tag,
-so the **public** tree still reads 0.9.0). **This development tree is 0.9.1 since
-M653 (2026-09-17)**; the next snapshot carries it out. The release checklist, as it
+so it still read 0.9.0), and then **to the M655 state on 2026-09-17/18** — public
+commit `573ccce` = private `a64cc4b3`, 1,968 files compared byte for byte with 0
+differing, **tag `v0.9.1`** on both remotes, and both the branch push and the tag
+push green on the hosted runner. **The development tree reads 0.9.2** as of M668; **the public tree still reads
+0.9.1** until the next snapshot is cut, and saying which is which is the point
+of this sentence;
+the milestones after M655 ride out with the next curated state. The release checklist, as it
 landed:
 
 - **done** — the rename to jichi (name, binaries, paths, remote, dependent

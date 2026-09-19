@@ -47,6 +47,7 @@ cat > "$tmp/config.json" <<EOF
 {"toolProfile":"full","lowResource":false,"models":[{"name":"m","provider":"openai","model":"mock",
  "apiBase":"http://127.0.0.1:$MM_PORT/v1","apiKey":"x","roles":["chat"]}],
  "snapshots":false,"repoMap":false,"references":false,"maxRetries":0,
+ "maxParallelAgents":2,
  "parallelTaskTimeout":120,"timeouts":{"stall":120}}
 EOF
 
@@ -66,6 +67,22 @@ t1=$(date +%s)
 elapsed=$((t1 - t0))
 mm_stop
 
+# `maxParallelAgents: 2` IS PART OF THE FIXTURE, not tuning (2026-09-19).
+# Without it the pool sizes itself from jc_cpu_count(), and on FreeBSD and
+# NetBSD that is **1** -- not because the machine has one CPU (the guest has two
+# and `sysctl hw.ncpu` says 2) but because `_SC_NPROCESSORS_ONLN` is hidden
+# behind __BSD_VISIBLE while this tree compiles with -D_POSIX_C_SOURCE=200112L,
+# so the identifier is undeclared and jc_platform_posix.c's documented fallback
+# returns 1. Measured on the guest: the same source prints 2 under default flags
+# and "NOT DECLARED" under the tree's.
+#
+# So the pool ran ONE child, check 1 correctly reported one TASK_ request, and
+# this driver failed on two BSD kernels for a reason that has nothing to do with
+# abort or reaping -- which are its subject. Pinning the pool makes the driver
+# measure what its header claims on every platform instead of measuring
+# jc_cpu_count() by accident. The CPU-count degradation is real, is recorded in
+# src/platform/jc_platform_posix.c, and is not this driver's question.
+#
 # --- 1: there were two children to reap (the denominator) -------------------
 # Without this the checks below pass against a binary that never forked anything.
 # Two TASK_ requests reached the mock => spawn_parallel launched both subtasks and

@@ -278,8 +278,58 @@ ifeq ($(HAVE_CURL),yes)
   STD += -DJC_HAVE_CURL $(CURL_CFLAGS)
 endif
 
+# Solaris/illumos hide every interface that is not in POSIX when
+# _POSIX_C_SOURCE is defined -- and this build defines it globally -- unless
+# __EXTENSIONS__ is defined alongside it. The first casualty is the terminal's
+# column query: `struct winsize` and TIOCGWINSZ vanish, and src/tui/jc_term.c
+# fails with "storage size of 'ws' isn't known" (M657c, the first illumos row).
+# Probed rather than keyed on `uname`, because the probe asks the question the
+# compiler will ask; on glibc, musl and the BSDs the first form succeeds and the
+# macro is never defined. Minimal reproduction, run on the guest before this was
+# written: four lines including <sys/ioctl.h> and <termios.h>, failing under
+# -D_POSIX_C_SOURCE=200112L and compiling with -D__EXTENSIONS__ added.
+WINSZ_PROBE := \043include <sys/ioctl.h>\n\043include <termios.h>\nint main(void){struct winsize w;return ioctl(0,TIOCGWINSZ,&w);}\n
+HAVE_WINSZ := $(shell printf '$(WINSZ_PROBE)' \
+  | $(CC) -std=c89 -D_POSIX_C_SOURCE=200112L -xc - -o $(PROBE_OUT) 2>/dev/null && echo yes; rm -f $(PROBE_OUT) $(PROBE_OUT).exe)
+ifneq ($(HAVE_WINSZ),yes)
+  HAVE_WINSZ_EXT := $(shell printf '$(WINSZ_PROBE)' \
+    | $(CC) -std=c89 -D_POSIX_C_SOURCE=200112L -D__EXTENSIONS__ -xc - -o $(PROBE_OUT) 2>/dev/null && echo yes; rm -f $(PROBE_OUT) $(PROBE_OUT).exe)
+  ifeq ($(HAVE_WINSZ_EXT),yes)
+    STD += -D__EXTENSIONS__
+  endif
+endif
+
+# Sockets are not in libc everywhere. On illumos/Solaris accept(), listen() and
+# bind() live in libsocket and the name-service calls in libnsl; on Linux and
+# the BSDs they are in libc and -lsocket does not exist at all, so this cannot
+# be added unconditionally. The illumos link named its own cause --
+# "accept ... (symbol belongs to implicit dependency /lib/amd64/libsocket.so.1)"
+# -- and the probe asks exactly that question (M657c).
+SOCK_PROBE := \043include <sys/socket.h>\nint main(void){return socket(AF_INET,SOCK_STREAM,0)<0;}\n
+HAVE_SOCK := $(shell printf '$(SOCK_PROBE)' \
+  | $(CC) -std=c89 -D_POSIX_C_SOURCE=200112L -xc - -o $(PROBE_OUT) 2>/dev/null && echo yes; rm -f $(PROBE_OUT) $(PROBE_OUT).exe)
+ifneq ($(HAVE_SOCK),yes)
+  HAVE_SOCK_LIBS := $(shell printf '$(SOCK_PROBE)' \
+    | $(CC) -std=c89 -D_POSIX_C_SOURCE=200112L -xc - -o $(PROBE_OUT) -lsocket -lnsl 2>/dev/null && echo yes; rm -f $(PROBE_OUT) $(PROBE_OUT).exe)
+  ifeq ($(HAVE_SOCK_LIBS),yes)
+    SOCK_LIBS = -lsocket -lnsl
+  endif
+endif
+
+# STREAMS ptys. On illumos/Solaris a freshly opened pty slave is not a terminal
+# until ptem/ldterm are pushed onto the stream -- measured at M661: tcgetattr
+# fails and isatty returns 0 before the push, both succeed after. Only the test
+# pty driver needs this, and only where <stropts.h> and I_PUSH exist; the probe
+# asks that, rather than asking who shipped the kernel.
+STREAMS_PROBE := \043include <stropts.h>\n\043include <sys/ioctl.h>\nint main(void){return ioctl(0, I_PUSH, "ldterm");}\n
+HAVE_STREAMS_PTY := $(shell printf '$(STREAMS_PROBE)' \
+  | $(CC) -std=c89 -D_POSIX_C_SOURCE=200112L $(if $(filter yes,$(HAVE_WINSZ)),,-D__EXTENSIONS__) -xc - -o $(PROBE_OUT) 2>/dev/null && echo yes; rm -f $(PROBE_OUT) $(PROBE_OUT).exe)
+ifeq ($(HAVE_STREAMS_PTY),yes)
+  STD += -DJC_HAVE_STREAMS_PTY
+endif
+
 # libm for floor() in the JSON number printer.
-LDLIBS = -lm $(RT_LIBS) $(CURL_LIBS)
+LDLIBS = -lm $(RT_LIBS) $(CURL_LIBS) $(SOCK_LIBS)
 
 # -MMD -MP emits a .d file beside each .o recording its header prerequisites,
 # so a changed header forces a rebuild of every object that includes it (these
@@ -813,7 +863,15 @@ install:
 	   *) echo "install: $(BIN) is stamped '$$stamped'." ;; \
 	 esac
 	install -d $(BINDIR)
-	install -m755 $(BIN) $(CONVERT_BIN) $(BINDIR)
+# ONE FILE PER CALL, with an explicit destination path -- the form every other
+# install line here already uses, and the only portable one. `install SRC1 SRC2
+# DIR` is a GNU/BSD extension: illumos ships Sun's /usr/bin/install, which takes
+# a single file, so this line installed jichi, SILENTLY SKIPPED jichi-convert and
+# exited 0. Measured on OmniOS at M661 -- `make install` reported success and put
+# one of the two binaries in place, which is the failure mode M586 and M593 built
+# this target to avoid: an install that succeeds and is wrong.
+	install -m755 $(BIN) $(BINDIR)/$(BIN)
+	install -m755 $(CONVERT_BIN) $(BINDIR)/$(CONVERT_BIN)
 	install -d $(MANDIR)
 	install -m644 man/jichi.1 $(MANDIR)/jichi.1
 	install -d $(BASHCOMPDIR)
@@ -875,12 +933,12 @@ tests/tools/mockmodel: tests/tools/mockmodel.c tests/tools/mm_core.c \
                        src/json/cJSON.c src/platform/jc_snprintf.c
 	$(CC) $(TT_CFLAGS) tests/tools/mockmodel.c tests/tools/mm_core.c \
 	      tests/tools/tt_mult.c \
-	      src/json/cJSON.c src/platform/jc_snprintf.c -o $@ -lm
+	      src/json/cJSON.c src/platform/jc_snprintf.c -o $@ -lm $(SOCK_LIBS)
 
 tests/tools/ptydrive: tests/tools/ptydrive.c tests/tools/pd_core.c \
                       tests/tools/tt_mult.c src/platform/jc_snprintf.c
 	$(CC) $(TT_CFLAGS) tests/tools/ptydrive.c tests/tools/pd_core.c \
-	      tests/tools/tt_mult.c src/platform/jc_snprintf.c -o $@
+	      tests/tools/tt_mult.c src/platform/jc_snprintf.c -o $@ $(SOCK_LIBS)
 
 tests/tools/jsonq: tests/tools/jsonq.c tests/tools/jq_core.c \
                    src/json/cJSON.c src/platform/jc_snprintf.c
@@ -888,7 +946,7 @@ tests/tools/jsonq: tests/tools/jsonq.c tests/tools/jq_core.c \
 	      src/json/cJSON.c src/platform/jc_snprintf.c -o $@ -lm
 
 tests/tools/sockq: tests/tools/sockq.c tests/tools/tt_mult.c
-	$(CC) $(TT_CFLAGS) tests/tools/sockq.c tests/tools/tt_mult.c -o $@
+	$(CC) $(TT_CFLAGS) tests/tools/sockq.c tests/tools/tt_mult.c -o $@ $(SOCK_LIBS)
 
 .PHONY: smoke-tools smoke check-target
 smoke-tools: $(TT_BIN)
@@ -900,7 +958,15 @@ smoke: $(BIN) smoke-tools
 	sh tests/smoke/run.sh
 
 # On-target validation for boxes without python3 (docs/LOW_MEMORY.md).
-check-target: test smoke
+# `all`, not just test+smoke (M661). check-target is the documented on-target
+# validation entry point, and the smoke tier includes install_no_build, which
+# runs `make install` -- and install copies BOTH binaries while `smoke` builds
+# only $(BIN). So on every device row the driver failed for want of
+# jichi-convert: "install refused a CLEAN stamp (rc=2)", which reads as a defect
+# in the install target on that platform and is nothing of the kind. Measured on
+# the Pi 400 (M658) and reproduced on the host by moving one file aside (M661).
+# A documented target should provide what its own tier tests.
+check-target: all test smoke
 
 # Tier V row V6 (docs/plans/2026-07-hardware-testing.md): the X11 keystroke
 # injector behind scripts/tier-v-terminals.sh, which drives jichi inside REAL
@@ -1144,6 +1210,9 @@ info:
 	@echo "HAVE_CURL      = $(HAVE_CURL)"
 	@echo "HAVE_MALLOC_TRIM = $(HAVE_MALLOC_TRIM)"
 	@echo "CLOCK_GETTIME  = $(if $(filter yes,$(HAVE_CLOCK)),in libc,$(if $(RT_LIBS),needs -lrt,absent (coarse time() fallback)))"
+	@echo "WINSIZE        = $(if $(filter yes,$(HAVE_WINSZ)),visible under strict POSIX,$(if $(filter yes,$(HAVE_WINSZ_EXT)),needs -D__EXTENSIONS__ (illumos/Solaris),ABSENT))"
+	@echo "SOCKET_LIBS    = $(if $(filter yes,$(HAVE_SOCK)),in libc,$(if $(SOCK_LIBS),$(SOCK_LIBS),UNRESOLVED))"
+	@echo "STREAMS_PTY    = $(if $(filter yes,$(HAVE_STREAMS_PTY)),yes (pty slave needs ptem/ldterm pushed),no (a pty slave is a terminal already))"
 	@echo "SIZEFLAGS      = $(SIZEFLAGS)"
 	@echo "WARN_OPTIONAL  = $(if $(strip $(WARN_OPTIONAL)),$(WARN_OPTIONAL),(none: this compiler has no GCC-only warning flags))"
 	@echo "EMACS_OK       = $(if $(EMACS_OK),yes,no (elisp-compile/elisp-test will no-op))"

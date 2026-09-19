@@ -5028,3 +5028,163 @@ the *disagreements* it produces about unplanted claims are where the true
 positives hide, because a claim four readers cannot settle is a claim a test
 should settle. "Test this" beat "read it again" in under an hour, twice. The
 grading page now says which calls were tested and which were only read.
+
+## 81. Nine guesses, nine measurements already available (2026-09-18)
+
+**Symptom.** A Raspberry Pi Zero 2 W, re-flashed to 64-bit, did not appear on
+the network. Four round trips to the card reader and roughly an hour later it
+turned out the board had booted correctly on the first attempt, at 15:11, and
+every diagnosis in between had been wrong.
+
+**Dead ends, and this is the entry.** Nine claims were made from indirect
+signals while the direct evidence sat unread. Each is listed with what would
+have settled it, and what it cost:
+
+| Claim | What it actually was | The measurement available at the time |
+|---|---|---|
+| "the board is on a hotspot from this machine" | USB gadget ethernet | `nmcli con show` -- the profile names `enx…`, an 802-3 type, not wifi |
+| "a 7700 XT, and no ROCm" | a **7800 XT**, ROCm 7.2.2 installed | `lspci` was truncated at 100 chars mid-string; `rocminfo` was one command |
+| "`piper-*` is the piper TTS backend" | a **speech-recognition** backend | the gallery entry has a `backend:` FIELD; the prefix is not it |
+| "59% compression proves a real image" | true, but a proxy | opening the PNG -- one tool call |
+| "the Pi is not booting" | it had booted and resized | `lsblk` already showed rootfs 2.3G -> **14.3G** in the first listing |
+| "wifi is your fallback" | never written to the card | `grep -c wifi user-data` -> **0** |
+| "cloud-init is installing packages" | it had finished 10 minutes earlier | `cloud-init-output.log`, last line |
+| "roughly an hour for the rig run" | ~15 minutes | the armhf run that morning had the same multiplier of 13 |
+| "`tr` is the bottleneck in the flood" | **0.105 s** on that board | `time` the pipeline on the device |
+
+**Root cause.** Not haste, and not any one wrong inference. The pattern is
+uniform: **a signal that CORRELATES with the answer was treated as the answer.**
+`10.42.0.x` correlates with a shared connection, and a Zero 2 W has wifi, so the
+transport was filled in. A steady ACT LED correlates with "not reading the card".
+A `piper` prefix correlates with the piper backend. High compression correlates
+with image content. Every one of those is a reasonable prior and none of them is
+a measurement.
+
+The card was the instrument the whole time. It answered in under two minutes on
+each of four visits, and produced facts that contradicted the current theory
+every time: the resized partition, the cloud-init completion line, a rewritten
+PARTUUID, and `Fetched 1,681 kB in 1s` -- proof the link had been carrying
+traffic, NAT and DNS while I was reporting it dead.
+
+**The compounding failure.** One reading was worse than wrong, it was
+self-inflicted: `ARP INCOMPLETE`, "nothing alive on the link", reported as a
+symptom *while the operator was powering the board down at my own request*. The
+instrument was measuring the consequence of my own instruction.
+
+**Lesson.** This project already had the rule -- *"probe by effect, not
+execution"*, *"a number produced by an ad-hoc grep is not a measurement"*,
+*"audit the universe, not the result"*. What this session adds is the failure
+mode when the rule is known and not applied: **the cost of checking was under
+two minutes in every single case, and the cost of not checking was an hour and
+nine wrong statements to the operator.** A cheap measurement deferred is not a
+saving; it is a debt that compounds, because each unchecked claim becomes the
+premise of the next one.
+
+The operational form, and the one worth carrying: **when a claim can be checked
+in under two minutes, checking it is not optional, and "I am fairly sure" is the
+signal to check rather than a reason to skip.**
+
+## 82. The cap that worked, on a reader that could not reach it (2026-09-18)
+
+**Symptom.** `peer_line_cap` -- written the same day, green on the workstation,
+proven red by reverting its fix -- failed on a Raspberry Pi Zero 2 W:
+
+    not ok 2 - took 121s -- that is the deadline path; the cap did not fire
+    not ok 3 - the refusal does not name the cap: mcp: timed out waiting for response
+
+**Dead ends.** The obvious reading is that the driver is not portable: it floods
+9 MiB through `dd | tr` and asserts the cap fires promptly, and a Pi Zero is slow.
+I said so, and proposed to "fix" the driver by making the generator cheaper --
+the second time in one session I nearly corrected an instrument that was telling
+the truth.
+
+**The measurement that ended it took one command.** Timed on the board:
+
+    dd | tr (the "slow" generator)    real 0m0.105s
+    time jichi vs the mock            real 2m1.142s
+                                      user 2m0.973s   <-- 100% CPU, userspace
+                                      sys  0m0.123s
+
+jichi was not waiting for the flood. It was **computing** for two minutes.
+
+**Root cause.** `pop_line` in `src/mcp/jc_mcp_stdio.c` scanned the whole
+accumulated buffer from index 0, and `read_line` called it after **every 4 KB
+read**. Toward the 8 MiB peer cap that is 2,048 calls over an average 4 MiB --
+about **8.6 GB of byte-at-a-time scanning**. The reader is quadratic in the
+message size.
+
+On the workstation that cost a couple of seconds and hid inside a 13-second
+pass. On the Pi it consumed the reader's entire 120-second deadline, so the
+deadline fired **before the cap could**, and a correct cap looked broken.
+
+**The fix** is to remember how far the scan got: a byte already examined cannot
+become a newline later. With an offset, and `memchr` instead of a hand-rolled
+loop, the same driver on the same board goes from **121 s to 0.44 s** -- about
+275x -- and all four checks pass.
+
+**Swept as a family, per M475's rule.** The ACP reader had the same shape
+(`memchr` from index 0 every iteration, quadratic with a far better constant) and
+is fixed with it. The LSP framer rescans for `\r\n\r\n` the same way but is
+bounded by `JC_LSP_MAX_HEADER` at 64 KB -- about 512 KB of worst-case scanning --
+so it is left alone, and that reasoning is recorded rather than the code changed.
+
+**Lesson, and it is the argument for keeping a slow machine in the matrix.** The
+defect was real on every platform and invisible on the fast one. A 512 MB board
+did not create it; it removed the margin that was hiding it. The second lesson is
+the one from #81 wearing different clothes: **the driver was right and the
+product was wrong**, and the way to tell was to measure where the time actually
+went rather than to reason about which part looked slow.
+
+## 83. Four probes, four bugs, one of them convincing (2026-09-18)
+
+**Symptom.** The FreeBSD row failed `peer_reap_grace` with `took 50s`, and the
+driver's own message named the cause: *"that is what a blocking waitpid on a
+TERM-trapping child looks like"* — i.e. the M661b fix, broken on FreeBSD.
+
+**Dead ends, in order.** To confirm it I rebuilt the driver's fixture by hand.
+That probe showed jichi blocked in `select()` for 121 seconds with a real kernel
+stack to prove it, and a coherent story: *jichi hangs on FreeBSD waiting for an
+MCP response.* The story was false. Sourcing `tests/smoke/_smoke.sh` outside a
+driver leaves `$SMOKE_TOOLS` empty, so the mock I generated had
+`JQ="//tests/tools/jsonq"` and could not answer anything. **My fixture was the
+hang.** I then fed that same broken mock a request directly (same bug), exported
+`SMOKE_TOOLS` to fix it (`. _smoke.sh` overwrites the export, so nothing changed
+and the number stayed identical), and finally generated an instrumented driver
+whose `'"'"'` escape was written literally into the file — unbalanced quotes,
+syntax error. Four probes, four defects of mine.
+
+**Root cause.** Found only by instrumenting the **real** driver: jichi's own exit
+took **0 s**; `with_deadline` returned after **50 s** for the identical command.
+FreeBSD's `timeout(1)` acquires reaper status (`procctl(PROC_REAP_ACQUIRE)`), so
+the deaf mock's orphaned `sleep 120` is reparented **to `timeout`**, which then
+waits for it. The wrapper was timing the fixture's grandchild. `jc_worker_reap_grace`
+was correct on FreeBSD the entire time.
+
+**Lesson.** *Do not rebuild a failing test's fixture; instrument the failing test.*
+A fixture is a program, and one rewritten from memory during an investigation is
+unreviewed and untested — while the number it prints is indistinguishable from a
+real measurement. The tier's fixtures are proven by every other driver that uses
+them; a hand-built copy is proven by nothing. And a check must never print a cause
+it cannot observe: this one shipped its diagnosis as a string and was wrong on the
+first platform that read it.
+
+## 84. Two lints, written the same afternoon, blind to their own defect (2026-09-18)
+
+**Symptom.** Both new lints were green. Both were vacuous.
+
+`posix_utils_lint` check 20 bans `grep -r` aimed at a single named file (BSD grep's
+`-r` implies `-H`, so a count comes back `path:2` and a comparison against `2`
+fails on a healthy tree). Its predicate matched the literal word `grep`; both real
+call sites spell it `"$G"`. `portability_lint` check 14 pins README's
+never-compiled prose against `PLATFORMS.md` — but markdown is hard-wrapped, and the
+stale sentence had `never been` on one line and `compiled` on the next.
+
+**Root cause.** Both were floored at **0 violations**, and on a clean tree zero
+findings and a broken extraction are the same number. Nothing in the output could
+distinguish them.
+
+**Lesson.** A floor of zero cannot validate an extraction. The only instrument that
+works is the one `CLAUDE.md` already prescribes — **perturb per CHECK**: put the
+real defect back and watch the check fail to notice. Both were caught that way,
+within minutes of being written, by a step that takes one command. A lint written
+to make a fix durable is itself a test, and an untested test is a decoration.

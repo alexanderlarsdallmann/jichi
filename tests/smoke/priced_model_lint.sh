@@ -111,8 +111,11 @@ fi
 # id is a thing to look at, not to wave through. Fix the file or extend this list
 # with a reason -- never silently.
 known='tests/test_convert.c tests/test_jsonc.c tests/test_promptcache.c examples/opencode.jsonc'
-found=$("$G" -rlE "$PRICED" --include='*.c' --include='*.h' --include='*.jsonc' \
-        tests examples 2>/dev/null | sort | tr '\n' ' ')
+# NOT `--include`: a BSD grep ignores it and widens the scan to the whole tree.
+# This is the lint that enforces the no-priced-model rule, so a filter that only
+# works on Linux is the last place to leave one.
+found=$({ smoke_srcfiles tests c h jsonc; smoke_srcfiles examples c h jsonc; } \
+        | xargs "$G" -lE "$PRICED" /dev/null 2>/dev/null | sort | tr '\n' ' ')
 want=$(printf '%s\n' $known | sort | tr '\n' ' ')
 if [ "$found" = "$want" ]; then
     t_ok "the 4 fixture/predicate files naming priced models are unchanged"

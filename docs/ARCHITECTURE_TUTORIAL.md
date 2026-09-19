@@ -9,6 +9,11 @@ risk. The thesis: **architecture is the set of decisions that are expensive to
 change later; write those down, show the structure that follows from them, and
 record what you rejected.**
 
+> **Unfamiliar word?** [`VOCABULARY.md`](VOCABULARY.md) defines the terms this
+> project leans on before it uses them — including the English **idioms**
+> (*dogfooding*, *blast radius*, *born red*), which are figures of speech rather
+> than technical terms and do not survive a dictionary.
+
 ## 1. What "architecture" means here
 
 Not a job title and not a framework — the **load-bearing decisions**: the ones a

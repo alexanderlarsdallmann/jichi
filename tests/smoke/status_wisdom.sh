@@ -134,7 +134,7 @@ if $G -q 'input tokens' "$tmp/acc.txt" && ! $G -q 'in / ' "$tmp/acc.txt"; then
     t_ok "accessible /status: the token line is prose, with no slash form"
 else
     t_fail "the /status token line is not accessible prose. Saw: \
-$($G -o 'tokens:.*\|[0-9,]* input tokens.*' "$tmp/acc.txt" | head -2 \
+$($G -oE 'tokens:.*|[0-9,]* input tokens.*' "$tmp/acc.txt" | head -2 \
   | tr '\n' ' '). It should reuse JC_MSG_SESSION_TOKENS, which already has a \
 German translation."
 fi

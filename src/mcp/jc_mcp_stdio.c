@@ -18,6 +18,8 @@
 #include "jc_log.h"
 #include "jc_platform.h"
 #include "jc_proc.h"
+#include "jc_workerpool.h"
+#include "jc_peercap.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -163,29 +165,54 @@ static jc_status write_line(int fd, const char *line)
 }
 
 /* Pop the next complete line (without the newline) from `buf` into a malloc'd
- * string. Returns 1 if a line was available, else 0. */
-static int pop_line(struct jc_sb *buf, char **out)
+ * string. Returns 1 if a line was available, else 0.
+ *
+ * `*scanned` is how many leading bytes are already KNOWN to hold no newline, and
+ * it is what makes this linear instead of quadratic (M664). read_line calls this
+ * after every 4 KB read, and the original rescanned the whole buffer from index
+ * 0 each time: for a peer streaming up to JC_PEER_LINE_MAX (8 MiB) that is 2,048
+ * calls over an average 4 MiB, about 8.6 GB of scanning. On this project's
+ * workstation that hid inside a 13-second pass; on a Raspberry Pi Zero 2 W it
+ * burned the reader's ENTIRE 120-second deadline -- `user 2m0.973s`, 100% CPU,
+ * measured -- so the deadline fired before the 8 MiB cap could, and the M659 cap
+ * looked broken when it was merely never reached. A byte already examined cannot
+ * become a newline later, so rescanning it is pure waste.
+ *
+ * memchr rather than a hand-rolled loop for the same reason: it is the one the
+ * libc vectorises, and the original's byte-at-a-time comparison is what made the
+ * constant factor bad enough to notice. */
+static int pop_line(struct jc_sb *buf, jc_size *scanned, char **out)
 {
+    char *nl;
     jc_size i;
-    if (buf->data == NULL) {
+
+    if (buf->data == NULL || *scanned >= buf->len) {
+        if (buf->data != NULL) {
+            *scanned = buf->len;
+        }
         return 0;
     }
-    for (i = 0; i < buf->len; i++) {
-        if (buf->data[i] == '\n') {
-            char *line = (char *)malloc(i + 1);
-            if (line != NULL) {
-                memcpy(line, buf->data, i);
-                line[i] = '\0';
-            }
-            /* Shift the remainder down. */
-            memmove(buf->data, buf->data + i + 1, buf->len - i - 1);
-            buf->len -= i + 1;
-            buf->data[buf->len] = '\0';
-            *out = line;
-            return line != NULL;
-        }
+    nl = (char *)memchr(buf->data + *scanned, '\n', buf->len - *scanned);
+    if (nl == NULL) {
+        *scanned = buf->len;
+        return 0;
     }
-    return 0;
+    i = (jc_size)(nl - buf->data);
+    {
+        char *line = (char *)malloc(i + 1);
+        if (line != NULL) {
+            memcpy(line, buf->data, i);
+            line[i] = '\0';
+        }
+        /* Shift the remainder down. */
+        memmove(buf->data, buf->data + i + 1, buf->len - i - 1);
+        buf->len -= i + 1;
+        buf->data[buf->len] = '\0';
+        /* The shifted remainder has never been examined. */
+        *scanned = 0;
+        *out = line;
+        return line != NULL;
+    }
 }
 
 /* Block until a full line is available, returning it in *out (malloc'd).
@@ -194,9 +221,10 @@ static jc_status read_line(struct stdio_state *s, volatile int *abort,
                            char **out)
 {
     double deadline = jc_now_seconds() + MCP_IO_TIMEOUT_SECS;
+    jc_size scanned = 0;
 
     *out = NULL;
-    if (pop_line(&s->rbuf, out)) {
+    if (pop_line(&s->rbuf, &scanned, out)) {
         return JC_OK;
     }
     for (;;) {
@@ -239,7 +267,20 @@ static jc_status read_line(struct stdio_state *s, volatile int *abort,
                 return JC_ERR_IO; /* EOF: child exited */
             }
             jc_sb_append_n(&s->rbuf, chunk, (jc_size)n);
-            if (pop_line(&s->rbuf, out)) {
+            /* The bound, and it names itself (jc_peercap.h). Without this the
+             * builder grows for as long as the server withholds a newline --
+             * bounded only by the 120 s deadline above, which is a very long
+             * time at pipe speed. Refusing here takes the path a closed server
+             * already takes, so no caller learns a new failure mode. */
+            if ((long)s->rbuf.len > JC_PEER_LINE_MAX) {
+                jc_logf(JC_LOG_ERROR,
+                        "mcp: server sent %lu bytes with no newline (cap %lu) "
+                        "-- refusing the message",
+                        (unsigned long)s->rbuf.len,
+                        (unsigned long)JC_PEER_LINE_MAX);
+                return JC_ERR_IO;
+            }
+            if (pop_line(&s->rbuf, &scanned, out)) {
                 return JC_OK;
             }
         }
@@ -285,7 +326,6 @@ static jc_status stdio_notify(struct jc_mcp_conn *c, const char *line)
 static void stdio_close(struct jc_mcp_conn *c)
 {
     struct stdio_state *s = (struct stdio_state *)c->t;
-    int status;
     if (s == NULL) {
         return;
     }
@@ -298,7 +338,14 @@ static void stdio_close(struct jc_mcp_conn *c)
     if (s->pid > 0) {
         /* Closing stdin should prompt a clean exit; nudge then reap. */
         kill(s->pid, SIGTERM);
-        waitpid(s->pid, &status, 0);
+        /* jc_worker_reap_grace, not a blocking waitpid (M661b). A server that
+         * traps or ignores SIGTERM hung jichi's exit FOREVER here -- no journal
+         * finalisation, no lease release, and nothing on screen to say why. The
+         * helper is the one the parallel pool and the daemon already use:
+         * poll WNOHANG for the grace window, then SIGKILL and block-reap, so the
+         * parent cannot wait on a child that will not die. Found by the
+         * 2026-08-27 hardening survey, reported at M609, built now. */
+        jc_worker_reap_grace(s->pid, JC_WORKER_TERM_GRACE_MS);
     }
     jc_sb_free(&s->rbuf);
     free(s);
@@ -342,7 +389,7 @@ jc_status jc_mcp_stdio_open(struct jc_mcp_conn **out,
         close(s->in_fd);
         close(s->out_fd);
         kill(s->pid, SIGTERM);
-        waitpid(s->pid, NULL, 0);
+        jc_worker_reap_grace(s->pid, JC_WORKER_TERM_GRACE_MS);
         jc_sb_free(&s->rbuf);
         free(s);
         return JC_ERR_OOM;

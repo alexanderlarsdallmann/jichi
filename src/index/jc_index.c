@@ -26,6 +26,7 @@
 #include "jc_snprintf.h"
 #include "jc_log.h"
 #include "jc_pdf.h"
+#include "jc_docs.h" /* jc_docs_html_to_text -- as jc_rss.c uses it (M667) */
 
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -104,6 +105,49 @@ static int has_suffix(const char *s, const char *suf)
     jc_size ls = strlen(s);
     jc_size lf = strlen(suf);
     return ls >= lf && strcmp(s + ls - lf, suf) == 0;
+}
+
+/* True for a file this index should read as HTML rather than as source.
+ * Extension only, case-insensitively: sniffing content would have to decide
+ * what an .md file full of inline HTML is, and the answer to that is "markdown".
+ * The caller opts in (see jc_index_build's `with_html`); this only says which
+ * files the opt-in applies to. */
+static int suffix_ci(const char *s, const char *suf)
+{
+    jc_size ls;
+    jc_size lf;
+    jc_size i;
+    char a;
+    char b;
+
+    ls = strlen(s);
+    lf = strlen(suf);
+    if (ls < lf) {
+        return 0;
+    }
+    s += ls - lf;
+    for (i = 0; i < lf; i++) {
+        a = s[i];
+        b = suf[i];
+        if (a >= 'A' && a <= 'Z') {
+            a = (char)(a - 'A' + 'a');
+        }
+        if (b >= 'A' && b <= 'Z') {
+            b = (char)(b - 'A' + 'a');
+        }
+        if (a != b) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int looks_html(const char *path)
+{
+    /* Case-insensitive by hand, as jc_pdf_is_pdf is: a corpus downloaded from
+     * somebody else's build may carry .HTML, and this tree has no ctype
+     * dependency to lean on. */
+    return path != NULL && (suffix_ci(path, ".html") || suffix_ci(path, ".htm"));
 }
 
 /* Obvious binary/asset extensions to skip without reading. */
@@ -620,7 +664,8 @@ static void free_chunk_vec(struct jc_vec *chunks)
 }
 
 jc_status jc_index_build(const char *root, const struct jc_model_cfg *m,
-                         int reindex, const char *pdf_cmd, struct jc_index **out,
+                         int reindex, const char *pdf_cmd, int with_html,
+                         struct jc_index **out,
                          struct jc_index_stats *stats, volatile int *abort,
                          const struct jc_vec *ignore_dirs)
 {
@@ -755,7 +800,21 @@ jc_status jc_index_build(const char *root, const struct jc_model_cfg *m,
             if (looks_binary(text, len)) {
                 continue;
             }
-            produced = chunk_text(&chunks, path, text, len);
+            if (with_html && looks_html(path)) {
+                /* Reduce to prose before chunking, exactly as the PDF branch
+                 * above extracts before chunking -- and for the same reason:
+                 * what a reader of DOCUMENTATION wants indexed is the text, not
+                 * the container it arrived in. The PATH is kept, so a citation
+                 * still points at the real file the learner can open. */
+                struct jc_sb hx;
+                jc_sb_init(&hx);
+                jc_docs_html_to_text(text, &hx);
+                produced = chunk_text(&chunks, path,
+                                      hx.data != NULL ? hx.data : "", hx.len);
+                jc_sb_free(&hx);
+            } else {
+                produced = chunk_text(&chunks, path, text, len);
+            }
         }
         if (produced < 0) {
             st = JC_ERR_OOM;
@@ -864,7 +923,7 @@ jc_status jc_index_build(const char *root, const struct jc_model_cfg *m,
             jc_vec_free(&fmeta);
             jc_vec_free(&files);
             jc_arena_free(a);
-            return jc_index_build(root, m, 1, pdf_cmd, out, stats, abort,
+            return jc_index_build(root, m, 1, pdf_cmd, with_html, out, stats, abort,
                                   ignore_dirs);
         }
         dim = emb_dim;

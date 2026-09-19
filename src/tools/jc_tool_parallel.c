@@ -788,7 +788,7 @@ static jc_status parallel_run(const cJSON *args, struct jc_tool_result *out,
     {
         struct jc_model_cfg *em = jc_app_model_for_role(app, JC_ROLE_EMBED);
         if (em != NULL) {
-            jc_index_build(app->cwd, em, 0, NULL, &app->index, NULL,
+            jc_index_build(app->cwd, em, 0, NULL, 0, &app->index, NULL,
                            &app->abort_flag, &app->config.ignore_dirs);
         }
     }

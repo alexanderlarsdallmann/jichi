@@ -36,8 +36,34 @@
 #                   is stated rather than implied.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 9
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+
+# ${MAKE}, not `make` (M661). GNU make exports MAKE to every recipe shell, so a
+# driver run by `make smoke` gets the same make that is running it. It matters on
+# illumos, where `make` EXISTS and is Sun make: a driver that shells out to `make`
+# there runs a program that cannot parse this Makefile, and four checks here
+# failed with messages about refusals and DESTDIR that had nothing to do with
+# install. The tier has this assumption in several other drivers; the population
+# is counted in DEFERRED.md rather than swept blind.
+
+# PRECONDITION, NAMED RATHER THAN DISCOVERED (M661). `make install` copies BOTH
+# binaries, and `make smoke` builds only $(BIN) -- so in a tree where only the
+# smoke tier has run, checks 7-9 fail with "install refused a CLEAN stamp
+# (rc=2)", which reads as a defect in the install target on that platform and is
+# really a missing file. That is what EVERY device row reported, and the
+# harness's "retrying standalone to classify the failure" could not tell the
+# difference, because the file was still missing on the retry -- so it announced
+# "ALSO fails standalone -> a real defect", which was true and useless.
+# Reproduced on the host by moving one file aside. `check-target` builds `all`
+# since M661; this is the net under that, and it SAYS WHY rather than failing
+# the platform for it.
+if [ ! -x "$ROOT/jichi-convert" ]; then
+    t_skip "jichi-convert is not built, and \`make install\` installs both binaries -- \
+these checks would fail for a missing file rather than for anything about install. \
+Run \`make all\` (check-target does, since M661)."
+fi
+
+t_plan 9
 tmp=$(smoke_tmp)
 
 # M593 extends this driver. `install` now also refuses a binary stamped from a
@@ -75,7 +101,13 @@ esac
 # tier is using.
 mkdir -p "$tmp/tree"
 cp "$ROOT/Makefile" "$tmp/tree/Makefile"
-out=$(cd "$tmp/tree" && make install DESTDIR="$tmp/dest" 2>&1); rc=$?
+# smoke_make, not bare `make`. The header above says "${MAKE}, not make
+# (M661)" and this line was never converted -- so on FreeBSD (bmake) and illumos
+# (Sun make) it ran a make that cannot parse this Makefile, and five checks of
+# this driver reported a broken install target instead. A rule stated in a
+# header and applied at some sites is not a rule.
+_mk=$(smoke_make)
+out=$(cd "$tmp/tree" && $_mk install DESTDIR="$tmp/dest" 2>&1); rc=$?
 if [ "$rc" -ne 0 ]; then
     t_ok "with no binaries present, install refuses (exit $rc)"
 else
@@ -105,7 +137,7 @@ fi
 # The binaries the tier already built are reused; DESTDIR keeps it out of the
 # system. If this ever starts compiling, check 1 has been defeated some other way.
 if [ -x "$ROOT/jichi" ] && [ -x "$ROOT/jichi-convert" ]; then
-    iout=$(cd "$ROOT" && make install DESTDIR="$tmp/d2" $CLEAN_STAMP 2>&1)
+    iout=$(cd "$ROOT" && "$_mk" install DESTDIR="$tmp/d2" $CLEAN_STAMP 2>&1)
     ncc=$(printf '%s\n' "$iout" | grep -cE '^[[:space:]]*(cc|gcc|clang|\$\(CC\))[[:space:]]')
     if [ "$ncc" -eq 0 ]; then
         t_ok "a real install runs no compiler"
@@ -150,7 +182,7 @@ fi
 # The operator-facing defect. Every step of the sequence that produces it
 # succeeds -- build, gate, commit, install -- and the damage shows up later as a
 # `--version` nobody can check out.
-dout=$(cd "$ROOT" && make install DESTDIR="$tmp/d3" STAMP="$tmp/dirty_stamp.h" 2>&1)
+dout=$(cd "$ROOT" && "$_mk" install DESTDIR="$tmp/d3" STAMP="$tmp/dirty_stamp.h" 2>&1)
 drc=$?
 if [ "$drc" -ne 0 ] && [ ! -e "$tmp/d3/usr/local/bin/jichi" ]; then
     t_ok "a binary stamped from a dirty tree is refused, and nothing is copied"
@@ -175,7 +207,7 @@ fi
 
 # --- 9: CONTROL -- a clean stamp installs -------------------------------------
 # Without this, check 7 is satisfied by a target that refuses everything.
-cout=$(cd "$ROOT" && make install DESTDIR="$tmp/d4" STAMP="$tmp/clean_stamp.h" 2>&1)
+cout=$(cd "$ROOT" && "$_mk" install DESTDIR="$tmp/d4" STAMP="$tmp/clean_stamp.h" 2>&1)
 crc=$?
 if [ "$crc" -eq 0 ] && [ -x "$tmp/d4/usr/local/bin/jichi" ]; then
     t_ok "a binary stamped from a clean tree installs (the refusal is not blanket)"

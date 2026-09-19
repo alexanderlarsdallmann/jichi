@@ -201,6 +201,22 @@ void jc_docs_html_to_text(const char *html, struct jc_sb *out)
             else if (ci_prefix(e, "#39;")) { rep = "'"; e += 4; }
             else if (ci_prefix(e, "apos;")) { rep = "'"; e += 5; }
             else if (ci_prefix(e, "nbsp;")) { rep = " "; e += 5; }
+            /* The TYPOGRAPHIC named entities, added M667. Documentation is full
+             * of them -- Racket's Guide writes its quotation marks `&ldquo;`
+             * and its dashes `&mdash;` -- and left raw they reach a reader as
+             * `&ldquo;rest&rdquo;` inside a passage, and reach any exact-quote
+             * check as text the page does not contain. This is M524's finding
+             * (`&#167;3.6.2` out of the C standard) in its named spelling; the
+             * numeric path below already handled that one. Written as hex
+             * escapes rather than literal UTF-8 so the source stays ASCII. */
+            else if (ci_prefix(e, "ldquo;")) { rep = "\xE2\x80\x9C"; e += 6; }
+            else if (ci_prefix(e, "rdquo;")) { rep = "\xE2\x80\x9D"; e += 6; }
+            else if (ci_prefix(e, "lsquo;")) { rep = "\xE2\x80\x98"; e += 6; }
+            else if (ci_prefix(e, "rsquo;")) { rep = "\xE2\x80\x99"; e += 6; }
+            else if (ci_prefix(e, "mdash;")) { rep = "\xE2\x80\x94"; e += 6; }
+            else if (ci_prefix(e, "ndash;")) { rep = "\xE2\x80\x93"; e += 6; }
+            else if (ci_prefix(e, "hellip;")) { rep = "\xE2\x80\xA6"; e += 7; }
+            else if (ci_prefix(e, "sect;")) { rep = "\xC2\xA7"; e += 5; }
             if (rep == NULL && *e == '#') {
                 const char *q = e;
                 unsigned long cp = html_numeric_ref(&q);
@@ -489,7 +505,8 @@ jc_status jc_docs_run(struct jc_app *app, const struct jc_docs_cfg *src,
     /* Build (or incrementally reload) the index over the docs directory. PDF
      * sources are extracted to text (M42/M44); the codebase index does not. */
     st = jc_index_build(root, embed_model, 0,
-                        jc_pdf_command(app->config.pdf_command), &index, NULL,
+                        jc_pdf_command(app->config.pdf_command), 1,
+                        &index, NULL,
                         &app->abort_flag, &app->config.ignore_dirs);
     if (st != JC_OK) {
         *out_text = jc_strdup("error: failed to index the documentation source");

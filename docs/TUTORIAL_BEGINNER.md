@@ -4,6 +4,11 @@ This walks you from a fresh build to a working AI coding session in a few
 minutes. No prior jichi knowledge assumed. If a step doesn't work, jump to
 [If it doesn't work](#if-it-doesnt-work) at the bottom.
 
+> **Unfamiliar word?** [`VOCABULARY.md`](VOCABULARY.md) defines the terms this
+> project leans on before it uses them — including the English **idioms**
+> (*dogfooding*, *blast radius*, *born red*), which are figures of speech rather
+> than technical terms and do not survive a dictionary.
+
 > **You are the developer, not a spectator.** jichi does the typing; *you* do
 > the thinking — deciding what to ask for, reading every change before you
 > approve it, and checking that what it did is actually right. It is often

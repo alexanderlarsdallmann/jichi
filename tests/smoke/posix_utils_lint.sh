@@ -25,7 +25,7 @@
 # It bans a specific, checked list of flags -- not "all non-POSIX usage".
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 17
+t_plan 20
 tmp=$(smoke_tmp)
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 
@@ -292,16 +292,47 @@ tracked_files() {
 #
 # Matched together with the word `grep` on the same line, deliberately: tar's
 # --exclude is portable across GNU tar and bsdtar and is not this bug.
-_gf=$(tracked_files tests scripts | xargs -r grep -n -- \
-        "--include=\|--exclude=\|--exclude-dir=" 2>/dev/null \
-      | grep "grep" | grep -v '^[^:]*:[0-9]*: *#' \
-      | grep -v "posix_utils_lint.sh" | wc -l | tr -d '[:space:]')
-if [ "$_gf" -eq 0 ]; then
+#
+# AND WITH `$G`, WHICH IS WHY THIS CHECK MISSED ONE (2026-09-19).
+# ctx_estimate_lint ran `"$G" -rl ... src/ --include=*.c` and this check stayed
+# green, because that line never contains the literal word `grep`. OpenBSD found
+# it the way BSD grep always does -- silently, by ignoring the filter and walking
+# the BUILT tree, so the check reported `src/chat/jc_compact.o`, an object file,
+# as a source using the symbol. That is the THIRD check in two days whose
+# extraction matched the spelling `grep` while the real call sites spell it `$G`.
+# When a tier abstracts its own tool behind a variable, every pattern about that
+# tool must know the variable's name.
+# CONTINUATION LINES ARE JOINED FIRST (2026-09-19). A shell command wrapped
+# over two lines puts `$G` on one and `--include=` on the next, and a line-based
+# match sees neither together: doc_claims_lint carried exactly that shape and
+# this check stayed green while OpenBSD collapsed its extraction to zero. awk
+# joins any line ending in a backslash to the next before the patterns run, so
+# the unit matched is the COMMAND rather than the line. (Same error as the README
+# check, which was line-based against hard-wrapped markdown two days ago.)
+_gf=$(tracked_files tests scripts \
+      | while read -r _gf_f; do
+            awk -v F="$_gf_f" '
+              { line = $0
+                while (sub(/\\$/, "", line) && (getline nxt) > 0) { line = line nxt }
+                printf "%s:%d:%s\n", F, NR, line }' "$_gf_f" 2>/dev/null
+        done \
+      | grep -- "--include=\|--exclude=\|--exclude-dir=" 2>/dev/null \
+      | grep -E "grep|[$]G" | grep -v '^[^:]*:[0-9]*: *#' \
+      | grep -v "posix_utils_lint.sh")
+# ONE extraction, counted AND printed. The failure branch used to re-extract with
+# a plain `grep -rn`, which joined no continuation lines and swept in generated
+# bench output -- so the count said 1 and the evidence showed two unrelated
+# `events.jsonl` lines. A check whose evidence is not the thing it counted
+# cannot be acted on, and sends the next reader to the wrong file.
+_gfn=$(printf '%s' "$_gf" | grep -c . | tr -d '[:space:]')
+[ -n "$_gf" ] || _gfn=0
+if [ "${_gfn:-0}" -eq 0 ]; then
     t_ok "no GNU-only --include/--exclude file filters on grep"
 else
-    t_fail "$_gf grep file-filter flag(s) BSD grep silently ignores:
-$(grep -rn -- "--include=\|--exclude=\|--exclude-dir=" "$ROOT/tests" "$ROOT/scripts" 2>/dev/null | grep "grep" | grep -v '^[^:]*:[0-9]*: *#' | grep -v posix_utils_lint | head -n 5)
-use smoke_md_corpus, or find -name ... -exec grep"
+    t_fail "$_gfn grep file-filter flag(s) BSD grep silently ignores -- it reads
+the argument as a FILENAME and searches on WITHOUT the filter:
+$_gf
+use smoke_srcfiles (tests/smoke/_smoke.sh), or find -name ... | xargs grep"
 fi
 
 # ---- 9: no GNU BRE alternation ----------------------------------------------
@@ -320,15 +351,15 @@ fi
 # in this tier do exactly that and are right to.
 _bre=$({ tracked_files tests scripts | xargs -r grep -n '\\|' 2>/dev/null;
          grep -n '\\|' "$docs_sh" 2>/dev/null | sed 's/^[0-9]*://'; } \
-       | grep -E "grep |sed " \
-       | grep -vE "grep -[a-zA-Z]*E|sed -E" \
+       | grep -E "grep |sed |[$]G" \
+       | grep -vE "grep -[a-zA-Z]*E|sed -E|[$]G\" -[a-zA-Z]*E|[$]G -[a-zA-Z]*E" \
        | grep -v '^[^:]*:[0-9]*: *#' \
        | grep -v "posix_utils_lint.sh" | wc -l | tr -d '[:space:]')
 if [ "$_bre" -eq 0 ]; then
     t_ok "no GNU BRE alternation outside -E patterns"
 else
     t_fail "$_bre GNU-only \\| alternation(s) BSD tools read as a literal pipe:
-$({ tracked_files tests scripts | xargs -r grep -n '\\|' 2>/dev/null; grep -n '\\|' "$docs_sh" 2>/dev/null | sed 's/^[0-9]*://'; } | grep -E "grep |sed " | grep -vE "grep -[a-zA-Z]*E|sed -E" | grep -v '^[^:]*:[0-9]*: *#' | grep -v posix_utils_lint | head -n 5)
+$({ tracked_files tests scripts | xargs -r grep -n '\\|' 2>/dev/null; grep -n '\\|' "$docs_sh" 2>/dev/null | sed 's/^[0-9]*://'; } | grep -E "grep |sed |[$]G" | grep -vE "grep -[a-zA-Z]*E|sed -E|[$]G\" -[a-zA-Z]*E|[$]G -[a-zA-Z]*E" | grep -v '^[^:]*:[0-9]*: *#' | grep -v posix_utils_lint | head -n 5)
 use -E and (a|b)"
 fi
 
@@ -498,6 +529,146 @@ else
 $(grep -rnE "$_nul_pat" "$ROOT/tests" "$ROOT/scripts" 2>/dev/null | grep -v '^[^:]*:[0-9]*: *#' | grep -v posix_utils_lint | head -n 5)
 require a mandatory atom ([0-9][0-9]*), or extract in one pass with
 sed -n 's/.*prefix \([0-9][0-9]*\) suffix.*/\1/p'"
+fi
+
+# ---- 18: grep -a and grep -m are GNU-only -----------------------------------
+# MEASURED, not anticipated (M661). illumos's grep -- /usr/bin/grep and
+# /usr/xpg4/bin/grep alike -- rejects both outright:
+#
+#     grep: illegal option -- a
+#     usage:  grep [-E|-F] [-bchHilLnoqrRsvx] [-A num] [-B num] ...
+#
+# `grep -a` is what three pty drivers used to read a capture containing NUL
+# bytes, and on illumos it made them fail with an exit 2 that looks nothing like
+# the assertion they were making. `smoke_bgrep` in _smoke.sh does the same job
+# portably by stripping the NULs, which is the ONLY thing making grep treat such
+# a file as binary. -m (max-count) is in the same class and is banned with it.
+#
+# The universe is tests/ and scripts/: the product's own grep usage is check 11's
+# and check 12's business, and this driver's own text is excluded because it
+# quotes the forms it forbids.
+_ga_pat='grep -[A-Za-z]*[am][A-Za-z]*[ "]'
+_ga=$(grep -rnE "$_ga_pat" "$ROOT/tests" "$ROOT/scripts" 2>/dev/null \
+      | grep -v '^[^:]*:[0-9]*: *#' \
+      | grep -v 'posix_utils_lint.sh' \
+      | grep -vE 'grep -[A-Za-z]*(A|B)[A-Za-z]* ' | wc -l | tr -d '[:space:]')
+if [ "$_ga" -eq 0 ]; then
+    t_ok "no GNU-only \`grep -a\` / \`grep -m\` (illumos rejects both; use smoke_bgrep)"
+else
+    t_fail "$_ga use(s) of GNU-only \`grep -a\`/\`-m\`, which illumos rejects with
+\"illegal option\" and exit 2 -- a failure that looks nothing like the assertion:
+$(grep -rnE "$_ga_pat" "$ROOT/tests" "$ROOT/scripts" 2>/dev/null | grep -v '^[^:]*:[0-9]*: *#' | grep -v posix_utils_lint.sh | grep -vE 'grep -[A-Za-z]*(A|B)[A-Za-z]* ' | head -6)
+For a capture with NUL bytes use smoke_bgrep FILE [args] (tests/smoke/_smoke.sh)."
+fi
+
+# ---- 19: SIGTERM is never followed by a BLOCKING waitpid --------------------
+# THE DEFECT (M609, built M661b). MCP and LSP shutdown did
+#
+#     kill(pid, SIGTERM);
+#     waitpid(pid, &status, 0);     /* no timeout */
+#
+# so a server that traps or ignores SIGTERM hung jichi's exit forever: no journal
+# finalisation, no lease release, and nothing on screen saying why.
+# jc_worker_reap_grace is the answer and was already in the tree, used by the
+# parallel pool and the daemon.
+#
+# WHY A LINT AND NOT A SECOND DRIVER. `peer_reap_grace.sh` drives the MCP site
+# with a real deaf server, which is the honest proof that the HELPER works. The
+# LSP sites cannot be driven without a second mock speaking a second protocol
+# for one shared call -- and this check covers them, and every future site,
+# forever. It is also how the FOURTH site was found: M661b fixed three and
+# missed jc_lsp.c's alloc-failure path, which this check reported on its first
+# run. "When a hazard earns a documented fix, grep for its family" (M475).
+#
+# The window is six lines, which is what separates the pair at every site seen so
+# far; a `waitpid` further away than that is not obviously the same reap and a
+# lint should not guess.
+# Comment lines are skipped, and the SAME line is checked as well as the six
+# after it: both mattered on the first run. The comments explaining this very fix
+# say "waitpid" and were reported as violations, and the real fourth site put
+# `kill(pid, SIGTERM); waitpid(pid, NULL, 0);` on ONE line, which a
+# next-line-only window steps straight over.
+_rp=$(awk '
+    { line = $0; sub(/^[ \t]+/, "", line) }
+    line ~ /^[*]/ { next }
+    line ~ /^[/][*]/ { next }
+    {
+        hit = ($0 ~ /waitpid *[(]/ && $0 !~ /WNOHANG/)
+        if (armed > 0 && hit) { printf "%s:%d:%s\n", FILENAME, FNR, $0 }
+        if ($0 ~ /kill *[(].*SIGTERM/) {
+            if (hit) { printf "%s:%d:%s\n", FILENAME, FNR, $0 }
+            armed = 6
+        } else if (armed > 0) { armed-- }
+    }
+' $(find "$ROOT/src" -name '*.c' | sort) 2>/dev/null | head -8)
+if [ -z "$_rp" ]; then
+    t_ok "no blocking waitpid within six lines of a SIGTERM (use jc_worker_reap_grace)"
+else
+    t_fail "blocking waitpid after SIGTERM -- a child that traps or ignores the
+signal hangs the parent forever. Use jc_worker_reap_grace(pid, JC_WORKER_TERM_GRACE_MS):
+$_rp"
+fi
+
+# ---- 20: `grep -r` is never pointed at a single named FILE -------------------
+# MEASURED on FreeBSD 15.1, 2026-09-18, and it cost two checks of
+# ctx_estimate_lint.sh at once. Both did
+#
+#     n=$(grep -rc 'sym' src/chat/jc_compact.c | tr -d ' ')
+#     [ "$n" = "2" ] || fail
+#
+# The file is NAMED, so `-r` had nothing to recurse into and was pure noise on
+# GNU grep. On FreeBSD's grep it is not noise: **-r implies -H**, so the count
+# came back `src/chat/jc_compact.c:2`, the comparison against "2" failed, and the
+# driver reported that the source had drifted on a tree where nothing whatever
+# was wrong. `tr -d ' '` deletes spaces, not a path prefix.
+#
+# This is the same shape as check 18 (`grep -a`) and the illumos `grep -o`
+# family: a GNU-ism that is invisible here and only ever fires on a row that
+# costs a VM boot to reach. A lint is the cheap end of that trade -- and it is
+# the general form of the fix, not the instance, per CLAUDE.md "prefer a lint to
+# an audit".
+#
+# THE UNIVERSE is tests/ and scripts/, the same as check 18, and the RULE is
+# narrow on purpose: `-r` over a DIRECTORY is correct and common here (five call
+# sites parse the `file:count` prefix deliberately, with `awk -F:` or
+# `grep -v ':0$'`). What is flagged is only an -r whose operand is a path with a
+# file extension. Flagging the directory form would ban the idiom the tier is
+# built on.
+_rf=$(awk '
+    FILENAME ~ /posix_utils_lint\.sh$/ { next }
+    { line = $0; sub(/^[ \t]*/, "", line) }
+    line ~ /^#/ { next }
+    # `grep` OR the $G indirection. The first cut of this check matched only
+    # the literal word and was therefore VACUOUS against the two call sites it
+    # was written for, which spell it "$G" -- and floored at 0, a broken
+    # extraction reads exactly like a clean tree. The perturbation caught it;
+    # the count could not have.
+    line ~ /(grep|\$G|\$\{G\})[^|]*[ \t]-[A-Za-z]*r[A-Za-z]*[ \t]/ {
+        n = split($0, tok, /[ \t]/)
+        for (i = 1; i <= n; i++) {
+            t = tok[i]
+            if (t ~ /^-/) continue                     # --include=*.c is fine
+            if (t ~ /["'"'"'`()$]/) continue           # a pattern, not an operand
+            if (t ~ /^[A-Za-z0-9_.\/-]+\.(c|h|sh|md|py|json|txt|mk)$/) {
+                printf "%s:%d: %s\n", FILENAME, FNR, $0
+                next
+            }
+        }
+    }
+' $(find "$ROOT/tests" "$ROOT/scripts" -name '*.sh' -type f 2>/dev/null | sort))
+# `grep -c .` prints 0 AND exits 1 on empty input, so a `|| echo 0` fallback
+# appends a SECOND zero and `[ "0
+# 0" -eq 0 ]` is a syntax error, not a pass. wc -l, the idiom check 18 uses.
+_nrf=$(printf '%s' "$_rf" | grep -c . | tr -d '[:space:]')
+[ -n "$_rf" ] || _nrf=0
+if [ "${_nrf:-0}" -eq 0 ]; then
+    t_ok "no \`grep -r\` pointed at a single named file (BSD grep would prefix the filename)"
+else
+    t_fail "$_nrf \`grep -r\` invocation(s) whose operand is a FILE, not a directory.
+FreeBSD grep treats -r as -H, so the output gains a \"path:\" prefix that GNU grep
+does not add -- the comparison then fails on a healthy tree. Drop the -r; it does
+nothing on a named file:
+$_rf"
 fi
 
 t_done

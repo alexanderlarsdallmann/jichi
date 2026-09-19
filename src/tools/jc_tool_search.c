@@ -3,6 +3,7 @@
  * Author: Alexander-Lars Dallmann */
 /* jc_tool_search.c - the search_code tool (grep -rn under the hood). */
 
+
 #include "jc_toolcaps.h"
 #include "jc_proc.h"
 #include "tool_util.h"
@@ -13,6 +14,49 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/wait.h>
+
+/* -I IS NOT UNIVERSAL, and the fifth grep is the one that proved it (M658).
+ *
+ * The comment below records that `-rnI` was "checked against each usage string,
+ * not assumed" for GNU, FreeBSD, NetBSD and OpenBSD. illumos was not in that
+ * set, and its grep -- /usr/bin/grep and /usr/xpg4/bin/grep alike -- accepts
+ * -r and rejects -I: `usage: grep [-E|-F] [-bchHilLnoqrRsvx] ...`, exit 2. So
+ * every search_code call on illumos failed, which the unit suite caught as one
+ * check in test_tool.c. That is the SAME shape as the M461 --color defect, one
+ * platform later: a flag that four greps accept is not a flag every grep
+ * accepts, and the honest form of "portable" here is to ask.
+ *
+ * What -I buys is skipping binary files. Where it is unavailable the search
+ * still runs and binary files are no longer skipped; the existing output cap
+ * bounds what that can cost, and saying so is better than dropping the flag
+ * everywhere or keeping a tool that cannot run. */
+const char *jc_search_grep_prefix(int have_dash_i)
+{
+    return have_dash_i ? "GREP_OPTIONS= grep -rnI" : "GREP_OPTIONS= grep -rn";
+}
+
+/* Asked once per process, cached. The question is the one the linker-style
+ * probes in the Makefile ask: not "which platform is this" but "does the tool
+ * in front of me accept this flag". /dev/null is the cheapest possible subject
+ * and cannot match, so a 0 or 1 exit both mean the flag was understood. */
+static int grep_has_dash_i(void)
+{
+    static int cached = -1;
+    FILE *p;
+    int st;
+
+    if (cached >= 0) {
+        return cached;
+    }
+    p = jc_proc_popen("GREP_OPTIONS= grep -I -e x /dev/null >/dev/null 2>&1", "r");
+    if (p == NULL) {
+        cached = 1;          /* cannot probe: keep the historical behaviour */
+        return cached;
+    }
+    st = pclose(p);
+    cached = (st != -1 && WIFEXITED(st) && WEXITSTATUS(st) < 2) ? 1 : 0;
+    return cached;
+}
 
 
 static cJSON *search_schema(void)
@@ -94,7 +138,7 @@ static jc_status search_run(const cJSON *args, struct jc_tool_result *out,
      * job in a way every grep understands. `-rnI -e -C<n>` are all accepted by
      * GNU, FreeBSD, NetBSD and OpenBSD greps -- checked against each usage
      * string, not assumed. */
-    jc_sb_append(&cmd, "GREP_OPTIONS= grep -rnI");
+    jc_sb_append(&cmd, jc_search_grep_prefix(grep_has_dash_i()));
     if (context > 0) {
         char copt[24];
         jc_snprintf(copt, sizeof(copt), " -C%d", context);

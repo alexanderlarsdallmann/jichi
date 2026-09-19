@@ -79,8 +79,18 @@ struct jc_index_stats {
  * skipped) are included and their text extracted via that command (e.g.
  * "pdftotext"). NULL keeps the prior behaviour (PDFs skipped) — the codebase
  * index passes NULL; docs sources pass the configured extractor (M42/M44). */
+/* `with_html`: reduce .html/.htm to plain text before chunking (M667).
+ *
+ * OPT-IN, and the opt-in is the decision. A DOCS source wants the prose --
+ * indexing Racket's Scribble pages as source embedded `<span class="RktSym">`
+ * and href URLs along with the sentences, which cost 72 s where an equivalent
+ * text corpus cost 4. A CODEBASE index wants the opposite: in a web project the
+ * markup IS the code, and silently stripping it would make a file unsearchable
+ * by the thing the author was looking for. So the caller says which it is,
+ * exactly as `pdf_cmd` already distinguishes them for PDFs. */
 jc_status jc_index_build(const char *root, const struct jc_model_cfg *m,
-                         int reindex, const char *pdf_cmd, struct jc_index **out,
+                         int reindex, const char *pdf_cmd, int with_html,
+                         struct jc_index **out,
                          struct jc_index_stats *stats, volatile int *abort,
                          const struct jc_vec *ignore_dirs);
 

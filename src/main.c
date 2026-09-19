@@ -3485,7 +3485,7 @@ static int run_index(struct jc_app *app, int reindex, const char *override)
     }
     memset(&stats, 0, sizeof(stats));
     fprintf(stderr, "Indexing %s ...\n", app->cwd);
-    st = jc_index_build(app->cwd, m, reindex, NULL, &idx, &stats,
+    st = jc_index_build(app->cwd, m, reindex, NULL, 0, &idx, &stats,
                         &app->abort_flag, &app->config.ignore_dirs);
     if (st != JC_OK) {
         fprintf(stderr, "error: index build failed (%s)\n", jc_status_str(st));
@@ -12764,7 +12764,8 @@ static int run_docs(struct jc_app *app, struct cli_args *args)
             }
             memset(&st, 0, sizeof(st));
             s = jc_index_build(root, embed, 1,
-                               jc_pdf_command(app->config.pdf_command), &idx,
+                               jc_pdf_command(app->config.pdf_command), 1,
+                               &idx,
                                &st, &app->abort_flag,
                                &app->config.ignore_dirs);
             if (s != JC_OK) {

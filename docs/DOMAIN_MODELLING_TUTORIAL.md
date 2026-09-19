@@ -7,6 +7,11 @@ domain model is the set of nouns your system is responsible for, plus the rules
 that must always hold about them; get the nouns and the rules right and the code
 follows, get them wrong and no amount of clean code saves you.**
 
+> **Unfamiliar word?** [`VOCABULARY.md`](VOCABULARY.md) defines the terms this
+> project leans on before it uses them — including the English **idioms**
+> (*dogfooding*, *blast radius*, *born red*), which are figures of speech rather
+> than technical terms and do not survive a dictionary.
+
 ## 1. What a domain model is, and why it comes first
 
 A domain is the slice of the real world your software serves — ordering, payroll,

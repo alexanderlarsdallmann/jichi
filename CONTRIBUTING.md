@@ -225,7 +225,7 @@ Since the M209–M217 port, the smoke tier carries the bulk of what was the
 Python e2e suite: the headless round trip, `--output json/jsonl`, stall/signal
 exit codes, sessions, the media/embeddings/routing/posture surfaces, the
 AF_UNIX daemon + control channel, the MCP + ACP stdio protocols, the PTY line
-editor, and the `spawn_parallel` fork pool — 298 drivers, all Python-free. What
+editor, and the `spawn_parallel` fork pool — 305 drivers, all Python-free. What
 remains under `make e2e` is a small permanently-Python residual (see the table
 above), so **`make check-target` (= `test` + `smoke`) is now a full build gate
 on any POSIX box**, and `make e2e` is optional (it skips loudly without

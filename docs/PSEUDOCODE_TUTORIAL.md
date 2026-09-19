@@ -7,6 +7,11 @@ one algorithm you cannot hold in your head, written to be read once and thrown
 away — not a language, not a deliverable, not documentation that outlives the
 code it described.**
 
+> **Unfamiliar word?** [`VOCABULARY.md`](VOCABULARY.md) defines the terms this
+> project leans on before it uses them — including the English **idioms**
+> (*dogfooding*, *blast radius*, *born red*), which are figures of speech rather
+> than technical terms and do not survive a dictionary.
+
 ## 1. What pseudocode is for, and is not
 
 It is for **the genuinely tricky part**: the loop with three interacting indices,

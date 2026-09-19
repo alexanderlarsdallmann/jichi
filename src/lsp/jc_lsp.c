@@ -17,6 +17,7 @@
 #include "jc_str.h"
 #include "jc_snprintf.h"
 #include "jc_log.h"
+#include "jc_workerpool.h"
 #include "jc_platform.h"
 
 #include <stdlib.h>
@@ -432,7 +433,12 @@ static struct jc_lsp_conn *get_conn(struct jc_lsp_manager *m,
     c = (struct jc_lsp_conn *)calloc(1, sizeof(*c));
     if (c == NULL) {
         close(in_fd); close(out_fd);
-        kill(pid, SIGTERM); waitpid(pid, NULL, 0);
+        /* The FOURTH site of this pair, and the one M661b missed: found by
+         * posix_utils_lint check 19 rather than by reading. Same reasoning as
+         * close_conn below -- a server that traps SIGTERM must not be able to
+         * hang us, least of all on an allocation-failure path. */
+        kill(pid, SIGTERM);
+        jc_worker_reap_grace(pid, JC_WORKER_TERM_GRACE_MS);
         return NULL;
     }
     c->cfg = cfg;
@@ -1179,7 +1185,6 @@ jc_status jc_lsp_execute_command(struct jc_lsp_manager *m, const char *path,
 static void close_conn(struct jc_lsp_conn *c)
 {
     jc_size i;
-    int status;
     if (!c->dead && c->initialized) {
         long id = c->next_id++;
         send_request(c, id, "shutdown", NULL);
@@ -1193,7 +1198,14 @@ static void close_conn(struct jc_lsp_conn *c)
     }
     if (c->pid > 0) {
         kill(c->pid, SIGTERM);
-        waitpid(c->pid, &status, 0);
+        /* jc_worker_reap_grace, not a blocking waitpid (M661b). A server that
+         * traps or ignores SIGTERM hung jichi's exit FOREVER here -- no journal
+         * finalisation, no lease release, and nothing on screen to say why. The
+         * helper is the one the parallel pool and the daemon already use:
+         * poll WNOHANG for the grace window, then SIGKILL and block-reap, so the
+         * parent cannot wait on a child that will not die. Found by the
+         * 2026-08-27 hardening survey, reported at M609, built now. */
+        jc_worker_reap_grace(c->pid, JC_WORKER_TERM_GRACE_MS);
     }
     for (i = 0; i < c->opened.len; i++) {
         free(*(char **)jc_vec_at(&c->opened, i));

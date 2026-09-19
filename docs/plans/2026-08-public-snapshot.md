@@ -265,10 +265,11 @@ they are the operator's and the cap is not yet binding.
 
 ### Applying it
 
-The seven additions were **not applied**: the maintenance token available here
-returns `403 Resource not accessible by personal access token` for the topics
-endpoint, which needs repository-administration scope. To apply them, run this
-with a token that has it:
+**Applied by the operator on 2026-09-17; the repository carries all twenty
+topics, confirmed against the API.** They were not applied from this bench: the
+maintenance token here returns `403 Resource not accessible by personal access
+token` for the topics endpoint, which needs repository-administration scope.
+Kept because it is the route for the next change, with a token that has it:
 
 ```sh
 T=<token with repo administration scope>
@@ -347,8 +348,10 @@ instead of looking current. That is the M391 stamp rule applied to a website.
 
 ### The homepage URL, resolved (M655)
 
-The twenty topics of §8 were applied by the operator on 2026-09-17. The homepage
-field is the remaining half, and the value to put in it is:
+**Both halves are now done.** The twenty topics of §8 were applied on
+2026-09-17 and the homepage field on 2026-09-18, both by the operator and both
+confirmed against the API — `homepage` reads the URL below, which answers
+HTTP 200. The value, kept here because this is where the reasoning for it lives:
 
 ```
 https://github.com/alexanderlarsdallmann/jichi/blob/master/docs/README.md
@@ -394,4 +397,13 @@ documentation site is ever published, this field is the thing to repoint, and
 that is a one-line change rather than a migration.
 
 **Enabling Pages remains a repository setting rather than a file**, so it is not
-in reach from the tree either way.
+in reach from the tree either way — and §8a argues it should stay unset for now.
+
+**What is still open, and it is a decision rather than work.** `has_issues` is
+**false** and Discussions are off, so a reader who finds a defect has no route
+to report it while `CONTRIBUTING.md` invites contribution. The operator has
+deferred this deliberately (2026-09-18): an unanswered issue tracker is worse
+than none for a single maintainer, and enabling one is a commitment to answer
+it. Until it is enabled, the honest repair is a **contact route named in the
+README** — which is a file, and therefore is in reach from the tree whenever
+that is wanted.

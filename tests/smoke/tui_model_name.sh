@@ -68,16 +68,16 @@ fi
 # green with the header reverted to the tier only -- because /status, run later in
 # the same session, prints that pair too. A PTY transcript holds every command's
 # output, so an unanchored grep tests the transcript, not the surface.
-if grep -aq "fast (jlu/qwen3-coder-next) - chat" "$tmp/hdr.log"; then
+if smoke_bgrep "$tmp/hdr.log" -q "fast (jlu/qwen3-coder-next) - chat"; then
     t_ok "the reply header names the tier AND the model id"
 else
     t_fail "reply header missing the model id"
-    grep -a " - chat - " "$tmp/hdr.log" | head -5 | sed 's/^/    | /'
+    smoke_bgrep "$tmp/hdr.log" " - chat - " | head -5 | sed 's/^/    | /'
 fi
 
 # The id must be the FULL id. A short form would make two vendors' models with the
 # same trailing segment indistinguishable -- the precision bug M296 also fixed.
-if ! grep -aq "fast (qwen3-coder-next) - chat" "$tmp/hdr.log"; then
+if ! smoke_bgrep "$tmp/hdr.log" -q "fast (qwen3-coder-next) - chat"; then
     t_ok "the id half is not shortened (vendor prefix kept)"
 else
     t_fail "the vendor prefix was stripped from the header's id"
@@ -85,23 +85,23 @@ fi
 
 # The prompt keeps the tier and does NOT gain the id: it is drawn before the turn
 # runs, so once routing is live its model segment cannot be authoritative.
-if grep -aq "chat:fast:" "$tmp/hdr.log"; then
+if smoke_bgrep "$tmp/hdr.log" -q "chat:fast:"; then
     t_ok "the prompt still shows the tier name"
 else
     t_fail "the prompt lost its model segment"
 fi
-if ! grep -aq "chat:jlu/qwen3-coder-next" "$tmp/hdr.log"; then
+if ! smoke_bgrep "$tmp/hdr.log" -q "chat:jlu/qwen3-coder-next"; then
     t_ok "the prompt did NOT gain the wire id (deliberate)"
 else
     t_fail "the prompt gained the wire id; M296 excluded it on purpose"
 fi
 
 # /status is the format the other surfaces adopted, so it must still read that way.
-if grep -aq "model: *fast (jlu/qwen3-coder-next)" "$tmp/hdr.log"; then
+if smoke_bgrep "$tmp/hdr.log" -q "model: *fast (jlu/qwen3-coder-next)"; then
     t_ok "/status shows name and id"
 else
     t_fail "/status line changed shape"
-    grep -a "model:" "$tmp/hdr.log" | sed 's/^/    | /'
+    smoke_bgrep "$tmp/hdr.log" "model:" | sed 's/^/    | /'
 fi
 
 mm_stop

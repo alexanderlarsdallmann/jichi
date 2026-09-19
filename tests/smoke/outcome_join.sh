@@ -134,7 +134,7 @@ fi
 # hand-written pairs that happen to agree today; what keeps them agreeing is
 # that only stamp_outcome() writes either name. Floor: 2 lines inside the helper,
 # and zero anywhere else in the file.
-inside=$("$G" -c 'cJSON_AddBoolToObject(o, "ok"\|cJSON_AddBoolToObject(o, "error"' \
+inside=$("$G" -cE 'cJSON_AddBoolToObject\(o, "ok"|cJSON_AddBoolToObject\(o, "error"' \
          src/chat/jc_agent.c | tr -d ' ')
 calls=$("$G" -c 'stamp_outcome(' src/chat/jc_agent.c | tr -d ' ')
 if [ "$inside" = "2" ] && [ "$calls" -ge 5 ]; then

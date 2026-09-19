@@ -65,6 +65,30 @@ localization is **phased**:
 3. **Contributions welcome.** To add or extend a translation, mirror `en/` into
    your language's directory and note, at the top of each file, the **source
    commit** it tracks (so reviewers can diff what changed upstream).
+4. **Register is a decision, stated rather than defaulted into (M657).** The
+   Japanese pages are written in **formal written Japanese** — the register a
+   translator reaches for, and one nobody here ever argued for. It was noticed by
+   the first native reader this project has had: *"it reads formal, and not
+   casual"* (2026-09-18, a first impression; the review is not finished). It is
+   recorded here so the reviewer has a stated position to agree or disagree with,
+   rather than an unexamined habit.
+
+   **The tension is real, and it is about substance rather than sound.** jichi's
+   English voice is deliberately direct and plain — short sentences, second
+   person, no hedging — and a formal Japanese rendering reads stiffer than the
+   original, which changes what the page *is*. **For formal:** it is the
+   convention of Japanese technical writing, the publisher is an institution, and
+   the register does not have to assume anything about the reader's age or
+   relationship to the author. **For casual:** the learner-facing pages
+   (`GETTING_STARTED`, `JOURNEY`, `PHILOSOPHY`) are addressed to one person alone
+   with a terminal, and formality puts a desk between them.
+
+   **The open question belongs to the reviewer, not to us:** whether the split
+   should be *per genre* — reference and policy formal, learner-facing closer to
+   the English's directness — or uniform across the set. Nobody here can judge
+   Japanese register, and a local model least of all: M651 measured five of them
+   failing this page set in **meaning**, before style was even in question. So
+   this is a stated decision awaiting a native verdict, not a change already made.
 
 ## Translation status & provenance
 

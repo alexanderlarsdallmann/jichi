@@ -274,7 +274,7 @@ fi
 # One keypress at the first prompt. This is the deterministic escape the
 # operator did not have: Ctrl-C used to DENY, so the model asked again and the
 # next Ctrl-C answered that -- it could never reach the input line.
-if [ "$nprompt_c" -le 1 ] && $G -q 'this run is stopping\|denied' "$tmp/c.log"
+if [ "$nprompt_c" -le 1 ] && $G -qE 'this run is stopping|denied' "$tmp/c.log"
 then
     t_ok "Ctrl-C at the prompt ends the run at once ($nprompt_c prompt)"
 else

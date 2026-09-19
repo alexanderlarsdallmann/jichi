@@ -402,6 +402,12 @@ struct jc_model_cfg *jc_subagent_resolve_model(struct jc_config *cfg,
                                                const char *selector,
                                                int *found);
 
+/* The grep command prefix search_code runs, given whether this platform's grep
+ * accepts -I (skip binary files). illumos's does not -- the fifth grep in the
+ * matrix and the one that refuted "every grep understands these flags" (M658).
+ * Pure, and exposed so both branches can be tested where only one can occur. */
+const char *jc_search_grep_prefix(int have_dash_i);
+
 #ifdef __cplusplus
 }
 #endif

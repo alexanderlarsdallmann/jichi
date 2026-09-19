@@ -58,9 +58,12 @@ SPOKEN='Press y .*no\.'
 # ---- 1: the universe is the one measured, and the pattern can fire --------
 # Both floors. A pattern that matched nothing would make checks 2-4 vacuous, and
 # so would a file list that had drifted to empty.
-files=$("$G" -rlE "$BRACKET" src --include='*.c' --include='*.h' 2>/dev/null \
+# smoke_srcfiles, not `--include`: a BSD grep ignores the filter and widens the
+# scan to the built tree, which makes BOTH floors below read a universe that is
+# not the one they name. (2026-09-19, OpenBSD.)
+files=$(smoke_srcfiles src c h | xargs "$G" -lE "$BRACKET" /dev/null 2>/dev/null \
         | sort | tr '\n' ' ')
-nlines=$("$G" -rhcE "$BRACKET" src --include='*.c' --include='*.h' 2>/dev/null \
+nlines=$(smoke_srcfiles src c h | xargs "$G" -hcE "$BRACKET" /dev/null 2>/dev/null \
          | awk '{s+=$1} END {print s+0}')
 nfiles=$(printf '%s\n' $files | "$G" -c . || true)
 if [ "$nlines" -ge 3 ] && [ "$nfiles" -eq 2 ]; then

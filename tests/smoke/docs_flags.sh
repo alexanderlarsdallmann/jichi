@@ -179,6 +179,26 @@ cat > "$tmp/foreign" <<'EOF'
 # the next session to commit a fix untested.
 --ref-secs
 --dirty
+# The rigs' --live-port / --live-model (M667), named in PLATFORMS.md's FreeBSD
+# row as the command that reproduces a DRIVEN row. They are rig flags, not jichi
+# flags. Documented because a row that claims the agent loop ran on a kernel has
+# to say how to re-run it -- "driven" without a reproducible command is the kind
+# of claim the Driven verdict exists to stop.
+--live-port
+--live-model
+# tests/bench/craft_ab/craft_ab.py --pairs, documented in CRAFT_AB_TUTORIAL.md
+# (M665). The harness's own flag, not jichi's. The tutorial has to show the
+# exact invocation because `--pairs` is the knob that decides what a session
+# COSTS -- roughly 600k input tokens per pair -- and a page that tells a learner
+# to run an experiment without showing how to run a small one first is how a
+# 5-6M-token session gets started by accident.
+--pairs
+# man-db's `man --warnings`, named in PLATFORMS.md's FreeBSD section (M665) as
+# the option that does NOT exist there: FreeBSD's man is mandoc-based and answers
+# "Illegal option --", which is why man_page_lint now selects a renderer. Naming
+# the flag is the point of the sentence -- a reader who hits the same wall needs
+# to know which option was the problem. Not a jichi flag.
+--warnings
 # M478, JUPYTERHUB.md: the Jupyter/pip/apt toolchain a hub operator is told to
 # run. `--to` and `--execute` are nbconvert's, `--set-formats` is jupytext's,
 # `--python-version` is pip's (it builds the cp311 wheelhouse for a Debian 12

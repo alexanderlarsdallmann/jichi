@@ -26,8 +26,8 @@
  *
  * Versions 0.1.0-0.8.0 are retrospective labels over the milestone bands
  * (never tagged at the time); 0.9.0 is the first version stamped when it
- * was current, and 0.9.1 (M653, 2026-09-17) the second. See CHANGELOG.md's
- * honesty note.
+ * was current, 0.9.1 (M653, 2026-09-17) the second, and 0.9.2 (M668,
+ * 2026-09-19) the third. See CHANGELOG.md's honesty note.
  */
 #ifndef JC_VERSION_H
 #define JC_VERSION_H
@@ -36,7 +36,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define JC_VERSION "0.9.1"
+#define JC_VERSION "0.9.2"
 
 #ifdef __cplusplus
 }

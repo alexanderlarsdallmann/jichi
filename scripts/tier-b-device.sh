@@ -58,7 +58,9 @@
 #   --out DIR        results dir (default ./.tier-b-results)
 #   --remote DIR     work dir on the device (default ~/jichi-tier-b)
 #   --rev REV        git revision to ship (default HEAD)
-#   --live URL       also run step 5 against this OpenAI-compatible base
+#   --live URL       also run steps 5 and 5b against this OpenAI-compatible base
+#   --live-model ID  the model id that endpoint serves (default "local"); an
+#                    OpenAI-compatible server rejects an id it does not have
 #   --keep           leave the remote work dir in place
 #   --dry-run        print what would run, touch nothing
 #
@@ -76,6 +78,9 @@ OUT="./.tier-b-results"
 REMOTE_DIR="jichi-tier-b"
 REV="HEAD"
 LIVE=""
+# The model id the endpoint serves. An OpenAI-compatible server rejects an id it
+# does not have, and the id is not derivable from the URL, so it is an option.
+LIVE_MODEL="local"
 KEEP=0
 DRY=0
 TARGET=""
@@ -90,6 +95,7 @@ while [ $# -gt 0 ]; do
         --remote)   REMOTE_DIR="$2"; shift ;;
         --rev)      REV="$2";      shift ;;
         --live)     LIVE="$2";     shift ;;
+        --live-model) LIVE_MODEL="$2"; shift ;;
         --keep)     KEEP=1 ;;
         --dry-run)  DRY=1 ;;
         -h|--help)  awk 'NR>1 && !/^#/{exit} NR>1' "$0"; exit 0 ;;
@@ -238,9 +244,30 @@ dev 'make clean >/dev/null 2>&1; make info' > "$OUT/info.txt" 2>&1 \
 # turned that into JC_SMOKE_TIMEOUT_MULT=1. On the SLOWEST board in the fleet.
 # A missing tool produced the tightest possible deadlines and a plausible-looking
 # number instead of an error. awk is POSIX and present everywhere the gate runs.
-dev 'S=$(date +%s.%N); make WERROR=1 >/dev/null 2>build.err; RC=$?; E=$(date +%s.%N); \
-     echo "rc=$RC"; echo "secs=$(awk -v a="$E" -v b="$S" "BEGIN{printf \"%.2f\", a-b}" 2>/dev/null)"; \
-     tail -5 build.err' > "$OUT/build.txt" 2>&1 || true
+#
+# LC_ALL=C, and it is load-bearing (M657c). awk's printf "%.2f" formats through
+# LC_NUMERIC, so on a device with a German locale the elapsed seconds came back
+# as "30,45" -- not numeric to the shell guard below, so `jc_rig_mult` refused
+# it and the whole Pi 400 row was abandoned after a clean build. The refusal was
+# right; the number should never have had a comma in it. A figure produced for a
+# machine is formatted in the C locale, wherever the machine happens to live.
+# Every device row before this one happened to be an English-locale image, which
+# is why a rig that cannot measure a German board shipped and passed.
+#
+# build.err goes to /var/tmp, spelled literally, for the same reason the results
+# file lives outside the tree -- and the FIRST attempt wrote "$HOME/..." which
+# did not survive the trip through the rig's quoting and ssh: what arrived was
+# relative, so the capture landed at `<shipped tree>/.home/jichi-tb-build.err`
+# and snapshot_lint check 14 reported it as an untracked file. Twice, in two
+# different steps of this same edit. The check caught both; I caught neither.
+# The reason: the rig makes the shipped tree a git repository so the git-tool checks
+# run, and `snapshot_lint` check 14 then correctly reports the rig's own stderr
+# capture as an untracked file and fails the gate. "A rig should not be able to
+# dirty the tree it tests" -- this was the fourth instance in this project, and
+# the first one caught by a check rather than by a person.
+dev 'S=$(date +%s.%N); LC_ALL=C make WERROR=1 >/dev/null 2>/var/tmp/jichi-tb-build.err; RC=$?; E=$(date +%s.%N); \
+     echo "rc=$RC"; echo "secs=$(LC_ALL=C awk -v a="$E" -v b="$S" "BEGIN{printf \"%.2f\", a-b}" 2>/dev/null)"; \
+     tail -5 /var/tmp/jichi-tb-build.err' > "$OUT/build.txt" 2>&1 || true
 
 BUILD_RC=$(sed -n 's/^rc=//p' "$OUT/build.txt" | head -1)
 DEV_SECS=$(sed -n 's/^secs=//p' "$OUT/build.txt" | head -1)
@@ -282,18 +309,61 @@ note ""
 # ---------------------------------------------------------------- step 2 gate
 say "step 2 -- the portable gate (JC_SMOKE_TIMEOUT_MULT=$MULT)"
 note "## step 2 -- make check-target (mult $MULT)"
-dev "make clean >/dev/null 2>&1; JC_SMOKE_TIMEOUT_MULT=$MULT make check-target" \
+# TMPDIR on DISK, not /tmp (M657c). On the Pi Zero 2 W /tmp is a 213 MB tmpfs --
+# half of the board's 425 MB of RAM -- and the smoke tier's own fixtures fill it
+# to 100%. The failure does not read like a full disk: drivers report
+# `printf: I/O error` and "cannot open .../files", and six checks announce that
+# their own matcher is "meaningless", which reads as a defect in jichi. It is an
+# environment limit, and the rig is what should know about it. M457 routed every
+# fixture path through TMPDIR for exactly this; the rig simply never set one.
+# /var/tmp, spelled literally. The first version of this line wrote
+# TMPDIR=\$HOME/... and the escaping did not survive the trip through the rig's
+# own double quotes and ssh: what arrived was RELATIVE, so the tier built its
+# fixtures at `<shipped tree>/.home/jichi-tb-tmp/` -- inside the repository --
+# and `make-snapshot` refused with "refusing a destination inside the
+# repository". A rig that dirties the tree it tests, again, in the very edit
+# that was fixing a rig that dirties the tree it tests. Caught by snapshot_lint
+# rather than by me. /var/tmp needs no expansion, is disk-backed on every target
+# in this fleet (only /tmp is tmpfs), and is POSIX's place for temporary files
+# that may be large.
+dev "make clean >/dev/null 2>&1; \
+     TMPDIR=/var/tmp LC_ALL=C JC_SMOKE_TIMEOUT_MULT=$MULT JC_SMOKE_KEEP_GOING=1 \
+     make check-target" \
     > "$OUT/gate.txt" 2>&1 || true
 
 # Positive markers only: the counts must be present and zero-failure.
 UNITS=$(grep -oE '[0-9]+ checks, 0 failures' "$OUT/gate.txt" | tail -1 || true)
-SMOKE=$(grep -oE 'smoke: OK \([0-9]+ drivers, [0-9]+ checks\)' "$OUT/gate.txt" | tail -1 || true)
+# JC_SMOKE_KEEP_GOING=1 above is what makes a count EXIST on a failing row, and
+# it is the root cause of the gap this page and PLATFORM_RETEST.md both record.
+# Without it the tier stops at the first failing driver and never prints its
+# summary, so the rig had nothing to extract -- the Pi 400 was filed for months
+# as "green without a driver count" and the Pi Zero produced neither shape of the
+# marker today. The BSD rig has set it since M466 ("report EVERY failing driver
+# in this one boot") and the device rig never did. Matching both shapes below is
+# necessary and was not sufficient.
+#
+# BOTH SHAPES, because a row that FAILS is the one whose denominator a reader
+# wants (2026-09-18). This matched only `smoke: OK (N drivers, M checks)`, so a
+# partly-green device came back with **no driver count at all** and its coverage
+# debt was not a large number, it was not a number -- which is exactly what
+# PLATFORM_RETEST.md records for the Pi 400 and why that row sat uncomputable.
+# The same gap was found and fixed in tier-v-bsd.sh the same day; this is the
+# sibling that page said had not been checked.
+SMOKE=$(grep -oE 'smoke: OK \([0-9]+ drivers, [0-9]+ checks\)|smoke: \([0-9]+ of [0-9]+ drivers passed, [0-9]+ checks\)' \
+        "$OUT/gate.txt" | tail -1 || true)
 
 if [ -n "$UNITS" ]; then ok "unit suite: $UNITS"; note "    $UNITS"
 else bad "unit suite: no '<N> checks, 0 failures' marker in the output"; fi
 
-if [ -n "$SMOKE" ]; then ok "smoke tier: $SMOKE"; note "    $SMOKE"
-else bad "smoke tier: no 'smoke: OK (...)' marker in the output"; fi
+# A count that is not "OK" is still a RESULT, and is recorded as one: the row
+# says how much of the tier ran, and the failing drivers are named below.
+case "$SMOKE" in
+    "smoke: OK"*) ok "smoke tier: $SMOKE"; note "    $SMOKE" ;;
+    "smoke: ("*)  bad "smoke tier did not fully pass -- $SMOKE"; note "    $SMOKE"
+                  grep 'FAILED (in suite)' "$OUT/gate.txt" 2>/dev/null \
+                      | sed 's/^/      /' >> "$OUT/results.txt" || true ;;
+    *)            bad "smoke tier: no driver-count marker of EITHER shape in the output" ;;
+esac
 
 if [ -z "$UNITS" ] || [ -z "$SMOKE" ]; then
     note "    (last 20 lines of the gate output)"
@@ -359,13 +429,101 @@ if [ -z "$LIVE" ]; then
     skip "live turn not attempted (no --live); steps 0-4 need no model"
     note "    not attempted -- no endpoint given"
 else
-    if dev "JICHI_API_BASE='$LIVE' ./jichi -p 'reply with OK' --output json" \
+    # A REAL CONFIG, because JICHI_API_BASE IS NOT A THING (2026-09-18).
+    # This step used to run `JICHI_API_BASE='$LIVE' ./jichi -p 'reply with OK'`.
+    # That variable appears nowhere in jichi -- not in src/, not in docs/, only
+    # here -- so it was never read, and the step has NEVER driven the endpoint it
+    # was given. With no config jichi fell back to its default provider, and the
+    # Pi 400 row on 2026-09-18 failed with:
+    #
+    #     provider returned HTTP 401: "x-api-key header is required"
+    #     request_id: req_011CfBUd7k7R8G3nh89j2Q37
+    #
+    # i.e. the "local live turn" sent a request to **Anthropic**. It 401'd, so
+    # nothing was spent -- but on a device with ANTHROPIC_API_KEY exported,
+    # `--live http://127.0.0.1:1234/v1` would have quietly billed a priced model
+    # for a run the operator believed was local. CLAUDE.md's spending rule exists
+    # for exactly this, and a rig that can violate it by accident is a fence with
+    # a hole in it.
+    #
+    # The fix is the pattern scripts/fleet-run.sh already proves: write a config
+    # naming the provider, the apiBase and a dummy key, and pass --config. An
+    # unreachable endpoint then fails as a connection error, which is a true
+    # negative, instead of silently addressing someone else's paid API.
+    # A RELATIVE path. `dev` runs `cd $HOME/$REMOTE_DIR && HOME=$HOME/$REMOTE_DIR/.home`,
+    # so $HOME INSIDE it is the nested .home directory -- `$HOME/$REMOTE_DIR/live.json`
+    # resolved to a path that does not exist, the write failed, and jichi then
+    # reported `config file not found: live.json`. Measured on the device:
+    # `HOME=/tmp/rt/.home sh -lc 'echo $HOME'` prints /tmp/rt/.home. dev already
+    # cds into the run directory, so the file belongs there under its bare name.
+    dev "cat > live.json" <<LIVECFG 2>/dev/null || true
+{"models":[{"name":"live","provider":"openai","model":"$LIVE_MODEL",
+ "apiBase":"$LIVE","apiKey":"unused","roles":["chat"]}],
+ "snapshots":false,"repoMap":false,"maxRetries":1,"lowResource":false}
+LIVECFG
+    # --prompt-b64, NOT -p 'quoted text'. `dev` wraps its argument in
+    # `sh -lc '...'`, so a single-quoted prompt INSIDE it closes the outer quote:
+    # jichi received `-p reply` and swallowed `--output json` as prompt text.
+    # Measured on the Pi 400 -- the model answered "How can I help you today?"
+    # and the output was prose, so the check failed against a turn that had
+    # actually worked (tokens in=11.311 out=252). jichi ships --prompt-b64 for
+    # exactly this ("multiline/quote-safe"), so the prompt crosses two shells
+    # with no quoting at all.
+    _p_live=$(printf '%s' 'reply with OK' | base64 | tr -d '\n')
+    if dev "./jichi --config live.json --prompt-b64 $_p_live --output json" \
         > "$OUT/live.txt" 2>&1 && grep -q '"text"' "$OUT/live.txt"; then
         ok "live turn answered against $LIVE"
         sed 's/^/    /' "$OUT/live.txt" | head -5 >> "$OUT/results.txt"
     else
         bad "live turn did not produce a JSON answer against $LIVE"
         tail -10 "$OUT/live.txt" | sed 's/^/    /' >> "$OUT/results.txt"
+    fi
+
+    # ------------------------------------------------ step 5b: the AGENT LOOP
+    # WHY A SECOND TURN, AND WHY THIS ONE (2026-09-18). The turn above proves
+    # the wire: provider, request, SSE framing, an answer. It proves NOTHING
+    # about the agent loop -- no tool is chosen, none is executed, and no second
+    # turn consumes a result. Every documented failure in this area lives past
+    # that point: a model that DESCRIBES tool calls instead of invoking them
+    # terminates perfectly cleanly, `stop_reason: done`, tokens spent, empty
+    # workspace (AUTONOMOUS_LOOPS.md, "done is not a success verdict"). A row
+    # green on the text turn alone can be a row where jichi executes nothing.
+    #
+    # THE ASSERTION IS A PHRASE, NOT A SENTENCE. Measured the same day: a model
+    # asked to quote three passages gave two verbatim and dropped an article
+    # from the third. A quoted sentence is not a reliable oracle; a nonsense
+    # token the model can only have obtained BY READING THE FILE is.
+    #
+    # AND IT IS NOT AN EXIT CODE. A dead ssh and a refused task both exit
+    # non-zero, which is why every fleet verdict in this repo comes from a
+    # positive marker in the output rather than from $?.
+    _phrase="TIER-B-$(od -An -N3 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' \
+             | tr 'a-f' 'A-F')"
+    [ -n "${_phrase#TIER-B-}" ] || _phrase="TIER-B-FALLBACK"
+    _p_tool=$(printf '%s' 'Use the read_file tool to read note.txt in this \
+directory, then report the pass phrase.' | base64 | tr -d '\n')
+    say "step 5b -- agentic turn (a tool the model must actually run)"
+    note "## step 5b -- agentic turn"
+    # The fixture goes over STDIN, not through a quoted printf. The first
+    # version wrote it with `printf 'The pass phrase is %s.\n' '$_phrase'`
+    # inside dev's `sh -lc '...'` -- the same quote collision as the prompt one
+    # line below, so the file was never created and the model answered, quite
+    # honestly, "I could not find a file named note.txt". The check then blamed
+    # the model for describing a tool call it had in fact tried to make.
+    dev "mkdir -p ws" >/dev/null 2>&1 || true
+    dev "cat > ws/note.txt" <<NOTEFIX 2>/dev/null || true
+The pass phrase is $_phrase.
+NOTEFIX
+    if dev "cd ws && ../jichi --config ../live.json --auto -q --prompt-b64 $_p_tool \
+< /dev/null" > "$OUT/live-tool.txt" 2>&1 \
+       && grep -q "$_phrase" "$OUT/live-tool.txt"; then
+        ok "agentic turn: the model called a tool and reported $_phrase"
+        note "    phrase $_phrase returned -- the tool ran and its result was used"
+    else
+        bad "agentic turn did NOT return the phrase -- the model may have \
+described the tool call instead of invoking it (doctor --live classifies this \
+as \`text\`), or the loop does not execute tools on this platform"
+        tail -12 "$OUT/live-tool.txt" 2>/dev/null | sed 's/^/    /' >> "$OUT/results.txt"
     fi
 fi
 note ""

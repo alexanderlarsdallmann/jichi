@@ -199,6 +199,8 @@ The curriculum, the reading guides, and the craft tutorials.
 - [`ASSIGNMENTS.md`](ASSIGNMENTS.md) — Assignments — practising the whole software lifecycle
 - [`BENCH_LOCAL_GPU.md`](BENCH_LOCAL_GPU.md) — The local-GPU bench: measuring jichi against a small model on your own hardware
 - [`BIBLIOGRAPHY.md`](BIBLIOGRAPHY.md) — The reading jichi's documentation points at — 78 checked entries on the craft, C, C++, Zig and Rust (M636, M650)
+- [`LANGUAGE_COURSE.md`](LANGUAGE_COURSE.md) — Learning a language with jichi, from its official tutorial
+- [`CRAFT_AB_TUTORIAL.md`](CRAFT_AB_TUTORIAL.md) — Grading a craft A/B — a step-by-step tutorial
 - [`CURRICULUM.md`](CURRICULUM.md) — The curriculum — learning software development with an agent at your side
 - [`DATA_STRUCTURES.md`](DATA_STRUCTURES.md) — Choosing a data structure — jichi has one, and that is an argument (M636f)
 - [`FILE_HANDLING.md`](FILE_HANDLING.md) — Handling files — what jichi does, where it is wrong, and what else there is (M636f)

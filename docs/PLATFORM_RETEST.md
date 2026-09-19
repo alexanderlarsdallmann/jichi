@@ -65,15 +65,34 @@ JSON parsing is worth less here than one that tests signals. What it has going
 for it is that **it is computable without re-running anything**, it cannot be
 argued with, and it goes in one direction.
 
-Worked, at M647 with **298 drivers** in the tree:
+Worked, at M664 with **303 drivers** in the tree (298 at M647, 300 at M658 —
+the figure moves with every driver added, which is the point of it):
 
 | Row | Drivers it ran | Debt | What that means |
 |---|--:|--:|---|
-| FreeBSD 15.1 (M465) | 201 | **97** | Verified, and 97 drivers have never run on this kernel since |
-| NetBSD 10.1 (M480) | 209 | **89** | 88 drivers unexercised on a BSD that ships GNU userland tools |
-| OpenBSD 7.9 (M481) | 209 | **89** | 88 drivers unexercised under ksh as `/bin/sh` — the axis nothing else in the matrix covers |
-| Windows 11 + WSL2 (M475) | 209 | **89** | same, and this row also carries T5 (the `/mnt/c` translation layer) |
-| Raspberry Pi Zero 2 W (M272) | 94 | **204** | the aarch64 row speaks for under a third of today's tier |
+| FreeBSD 15.1 (**M665**) | 302 | **1** | re-run 2026-09-18; was 201 drivers and debt 102, past the threshold. Six drivers failed and **five were harness defects, not platform ones** — the row's value was finding them. `parallel_abort` remains, measured and not diagnosed |
+| NetBSD 10.1 (M480) | 209 | **94** | 94 drivers unexercised on a BSD that ships GNU userland tools |
+| OpenBSD 7.9 (M481) | 209 | **94** | 94 drivers unexercised under ksh as `/bin/sh` — the axis nothing else in the matrix covers |
+| Windows 11 + WSL2 (M475) | 209 | **94** | same, and this row also carries T5 (the `/mnt/c` translation layer) |
+| Raspberry Pi Zero 2 W aarch64 (**2026-09-18**) | 302 | **1** | re-run with the rig's gate fixed to report a count at all; the one failing driver is `lite_context_cap`, undiagnosed. Also **Driven**: text and agentic turns, 17 s each, on a 512 MB board |
+| Raspberry Pi Zero 2 W armhf (**M658**) | 297 | **6** | re-run 2026-09-18; was 194 at M454, debt 106 |
+| Raspberry Pi 400 aarch64 (**2026-09-18**) | 303 | **0** | the whole tier, 0 failures, reproduced three times. The row read *n/a* for months because `tier-b-device.sh` ran the gate **without `JC_SMOKE_KEEP_GOING=1`**, so the tier stopped at the first failing driver and never printed a summary — the missing denominator was a rig defect, not a device one |
+
+> **A rig that fails must still report its denominator (M665).**
+> `scripts/tier-v-bsd.sh` captured `smoke: OK (N drivers, M checks)` only when the
+> tier PASSED; on failure it captured the failing checks and nothing else. So a
+> partly-green row came back with **no driver count**, and its debt stayed
+> uncomputable — the same gap this page records for the Pi 400, met again. The
+> count is free at the time and unrecoverable afterwards, and a row that failed is
+> precisely the one whose denominator a reader wants.
+>
+> **The device rig was then checked, and its cause was different and worse
+> (2026-09-18).** `tier-b-device.sh` did not merely fail to *extract* a count — it
+> ran the gate **without `JC_SMOKE_KEEP_GOING=1`**, so the tier stopped at the
+> first failing driver and never *printed* one. Nothing could have been extracted.
+> That is why the Pi 400 stood at **n/a** here for months; with the variable set it
+> reports `smoke: OK (303 drivers, 1,761 checks)`, debt **0**. The BSD rig has set
+> it since M466. **The illumos rig still has not been checked for either shape.**
 
 **The thresholds, and they are conventions rather than discoveries:**
 
@@ -84,6 +103,19 @@ Worked, at M647 with **298 drivers** in the tree:
 - **Debt > 100** — the row has become a *historical* datum. It stays in the
   matrix, because deleting measurements is how a project forgets what it
   learned, but a claim resting on it needs a new run first.
+
+**Debt is computable for seven of eighteen Verified rows, and the table above
+works five of them (counted 2026-09-18, M657; the M658 re-runs add one computable
+row and confirm the gap on another).** The other eleven — the **Pi
+400's M451 full `check-target`** among them — record *green* without recording
+*how much of the tier ran*, so their debt is not a large number, it is not a
+number. `platform_retest_lint` check 2 asks that a row be **datable**, which is
+strictly weaker than **debt-computable**, and the gap is invisible from the table
+because a table can only show the rows that carry the figure. It matters in one
+concrete way today: M451 is four months newer than M272 and cannot be weighed
+against it, so the freshest aarch64 evidence sits in the blind spot while the
+oldest sets the debt. **The fix costs nothing at the time and is unrecoverable
+afterwards:** state the driver count in the row, on the next re-run of any row.
 
 A threshold in drivers rather than milestones is on purpose: milestones vary
 enormously in how much test surface they add, and the thing that actually went
@@ -142,7 +174,7 @@ has read.
 
 From `PLATFORMS.md` and `LOW_MEMORY.md`, in order of value per hour:
 
-1. **illumos** (OpenIndiana or OmniOS) — **the cheapest remaining row**, and the
+1. ~~**illumos**~~ — **RUN, M658–M662.** It was the cheapest remaining row and it proved it: one session from a cloud image, three defects in jichi and six in the rigs. Now *partly verified* and reproducible in one command (`scripts/tier-v-illumos.sh`); what remains is 19 smoke drivers, mostly the `grep -o` first-match-per-line difference. The original reasoning is kept because it is why this row was picked: it was the cheapest remaining row, and the
    operator's separate question. Free, ISO-installable under KVM, and
    `scripts/tier-v-openbsd.sh` is the pattern to copy. Its hazards are already
    identified *from the source rather than guessed* (`PLATFORMS.md` §"Solaris /
@@ -158,8 +190,24 @@ From `PLATFORMS.md` and `LOW_MEMORY.md`, in order of value per hour:
    `fopen` succeeds there, that the `pstatus_t` has this shape, and that
    `jc_meminfo_self`'s `fread` path behaves the same. `/bin/sh` is ksh93
    on Solaris 11, which makes T3 above load-bearing.
+
+   **Checked on this machine 2026-09-18 (M657), because "blocked" is the kind of
+   factual claim the M326b rule says to go and look at:** `/dev/kvm` exists, the
+   account is in group `kvm`, `qemu-system-x86_64` and `qemu-img` are installed,
+   24 threads report virtualisation extensions, and 137 GB is free. **This row is
+   therefore not blocked on access** — which separates it sharply from macOS
+   below. It costs a session, not a resource, and that is the whole difference
+   between the two never-compiled rows.
 2. **macOS** — the only never-compiled row with a known Darwin-specific code
-   path (T2, M400). Blocked on hardware, not on work.
+   path (T2, M400). Blocked on hardware, not on work — and unlike illumos, no
+   amount of willingness here changes that.
+
+   Between the two sits a third category, which is neither: **the ARM bench
+   rows**. The Pi Zero 2 W's verdict is still M272's, at debt 205, the only
+   full-gate row past the 100 threshold — and on 2026-09-18 the Pi Zero, the Pi
+   400 and the UNO Q all failed to answer, so re-running it is blocked on
+   somebody switching a board on. Worth naming separately: not a resource gap,
+   not a design question, just hardware that is off.
 3. **Oracle Solaris 11.4** — needs an Oracle account, and its licence terms are
    the operator's decision rather than a technical one. A green *illumos* row
    would still leave Oracle Solaris unmeasured, and the matrix will say so.

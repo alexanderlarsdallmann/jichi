@@ -55,7 +55,7 @@ fi
 
 # The report is the SHARED renderer's, so the outcome line must be there too --
 # it is the one that stops the mentor drafting "budget stop = failure" lessons.
-if grep -aq "Autonomy outcomes" "$tmp/pty.log"; then
+if smoke_bgrep "$tmp/pty.log" -q "Autonomy outcomes"; then
     t_ok "the shared report's outcome line reaches the TUI"
 else
     t_fail "the shared report's outcome line reaches the TUI"
@@ -63,7 +63,7 @@ fi
 
 # It says WHICH log it read: an unlabelled report invites being read as covering
 # something else (the M286/M290 lesson, applied to this surface).
-if grep -aq "analysed $tmp/tel.jsonl" "$tmp/pty.log"; then
+if smoke_bgrep "$tmp/pty.log" -q "analysed $tmp/tel.jsonl"; then
     t_ok "the TUI names the log it analysed"
 else
     t_fail "the TUI names the log it analysed"

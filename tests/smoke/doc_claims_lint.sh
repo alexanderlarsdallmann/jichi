@@ -65,8 +65,25 @@ cd "$SMOKE_ROOT" || exit 1
 # extraction used one and was rejected on its first run, which is that lint doing
 # exactly its job. (Its check greps for the interpreter's NAME anywhere in the
 # file, so even a comment explaining the rule trips it -- hence this wording.)
-$G -rno '`\(tests/smoke/\)\?[a-z_0-9]*\.sh`[^`]\{0,40\}check [0-9][0-9]*' \
-    "$SMOKE_ROOT"/docs --include='*.md' 2>/dev/null \
+# -E, NOT a BRE with `\?` (2026-09-19, OpenBSD). `\(...\)\?` is a GNU BRE
+# extension. OpenBSD's grep does not merely fail to match it, it REFUSES:
+#
+#     grep: invalid backreference number
+#
+# so the extraction produced nothing and check 1 reported "citation extraction
+# collapsed" -- an error in the pattern wearing the costume of an empty corpus.
+# In an ERE `?` is standard, and the same expression is both portable and easier
+# to read. posix_utils_lint check 9 bans GNU BRE alternation `\|` for the same
+# reason; `\?` and `\+` are the same family.
+#
+# find | xargs, NOT `grep -r --include` (2026-09-19, OpenBSD). BSD grep does not
+# reject --include: it reads the argument as a FILENAME and searches on WITHOUT
+# the filter, so this extraction collapsed to 0 and check 1 reported "citation
+# extraction collapsed" on a tree whose citations were all fine. The flag was
+# also written AFTER the operand, which only GNU grep permutes.
+find "$SMOKE_ROOT"/docs -type f -name '*.md' 2>/dev/null \
+  | xargs $G -nEo '`(tests/smoke/)?[a-z_0-9]*\.sh`[^`]{0,40}check [0-9]+' \
+    /dev/null 2>/dev/null \
   | sed 's|`tests/smoke/|`|' \
   | sed 's|^\([^:]*\):\([0-9]*\):`\([a-z_0-9]*\)\.sh`.*check \([0-9][0-9]*\)$|\1:\2:\3:\4|' \
   > "$tmp/cites"

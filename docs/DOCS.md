@@ -30,7 +30,35 @@ directory to index:
 - **`path`** — a local directory of text/markdown (relative paths resolve
   against the working directory). Markdown, plain text, and source files are
   indexed; binary/asset files are skipped (the same negative filter codebase
-  indexing uses). **PDFs are indexed too** (M45): a `.pdf` in a docs source is
+  indexing uses). **HTML is reduced to prose too** (M667): an `.html`/`.htm`
+  file in a docs source is passed through the same reducer a `url` source uses —
+  tags dropped, `<script>`/`<style>` skipped, block tags becoming line breaks,
+  entities decoded — *before* it is chunked and embedded. **The file path is
+  kept**, so a citation still points at the real page a learner can open in a
+  browser; only what gets indexed changes.
+
+  *Why this is opt-in rather than automatic.* `jc_index_build` takes a
+  `with_html` flag, and the **codebase** index passes 0 while the **docs** index
+  passes 1. In a web project the markup *is* the code, and stripping it would
+  make a file unsearchable by the very thing its author was looking for; in a
+  documentation corpus the markup is packaging. One flag, stated by the caller,
+  exactly as `pdf_cmd` already distinguishes the two for PDFs.
+  `tests/smoke/docs_html_scope_lint.sh` holds every call site to that rule, and
+  `tests/smoke/docs_html.sh` drives the docs half against a real index.
+
+  *What it was worth, measured on Racket's Guide* (151 Scribble pages, the case
+  that prompted it — docs.racket-lang.org publishes no text archive, so a learner
+  indexes HTML or nothing):
+
+  | | before | after |
+  |---|---|---|
+  | first `docs search` (cold index) | **72 s** | **7 s** |
+  | what a retrieved passage contained | `<span class="RktSym">`, href URLs, `&ldquo;` | the prose, with real quotation marks |
+
+  Same first hit either way (`lambda.html`, §4.4.2 *Declaring Optional
+  Arguments*) — retrieval was never wrong, it was paying to embed markup.
+
+  **PDFs are indexed too** (M45): a `.pdf` in a docs source is
   extracted to text via the M42 extractor (`pdftotext`, or config `pdfCommand`)
   and chunked like any document — so specs/papers/manuals are retrievable, not
   just readable by path. (The *codebase* index still skips PDFs; this is opt-in

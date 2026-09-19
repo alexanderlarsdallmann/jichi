@@ -91,7 +91,7 @@ jc_status jc_search_run(struct jc_app *app, const char *query, int top_k,
 
     /* Build/load the index once per process. */
     if (app->index == NULL) {
-        st = jc_index_build(app->cwd, embed_model, 0, NULL, &app->index, NULL,
+        st = jc_index_build(app->cwd, embed_model, 0, NULL, 0, &app->index, NULL,
                             &app->abort_flag, &app->config.ignore_dirs);
         if (st != JC_OK) {
             *out_text = jc_strdup("error: failed to build the codebase index");

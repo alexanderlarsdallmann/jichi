@@ -5,6 +5,11 @@
 > hand-editing the config for several servers, routing, and bounded autonomy. If
 > you just want a first chat, stay in the beginner tutorial and come back later.
 
+> **Unfamiliar word?** [`VOCABULARY.md`](VOCABULARY.md) defines the terms this
+> project leans on before it uses them — including the English **idioms**
+> (*dogfooding*, *blast radius*, *born red*), which are figures of speech rather
+> than technical terms and do not survive a dictionary.
+
 A hands-on walk through configuring jichi: where the config lives, **how to hold
 your API key in an environment variable instead of a file**, how to make that
 permanent in your shell, how to write a per-project launcher script, and then the

@@ -9,7 +9,172 @@ both (M620, the plan executed as written; M621 mended what the first hosted CI r
 found). The loop keeps running -- **design, test, develop, dogfood, harden**. The
 checklist, with what remains:
 
-> **Where we stand** — updated **2026-09-17**, latest milestone **M655**:
+> **Where we stand** — updated **2026-09-19**, latest milestone **M668**:
+> **jichi is 0.9.2.** The constant and the CHANGELOG retitle moved in one commit,
+> which is the rule `include/jc_version.h` states about itself, and it goes last
+> because the section has to contain everything that ships. The band is
+> **M654–M668**, measured against the public `v0.9.1` tag: three BSD rows and two
+> Raspberry Pis driven with a real model for the first time, a platform page whose
+> counts can be checked, HTML documentation indexed as prose, and a great many
+> lints that turned out to be reading the wrong thing. **Fixes and prose, which is
+> what a PATCH is for** — no interface changed.
+>
+> **Previously — M667:**
+> **Counting the platforms before a release found four rows that were not
+> rendering as rows, and HTML documentation is now indexed as prose.** Trying to
+> verify README's *"19 rows verified"* found three different answers to one
+> question — and, underneath, that NetBSD, OpenBSD, Cygwin and MSYS2 sat after
+> prose paragraphs with no table header above them, so markdown rendered them as
+> literal text on the public site. The real count is **20 Verified, 3 Partly
+> verified, 1 Never compiled**, now pinned by a lint in both directions, and the
+> **Driven** register lists all 24 rows rather than only the driven ones —
+> because a register of the eight that *are* driven makes absence ambiguous,
+> which is the defect the word was invented to remove. Separately,
+> `jc_index_build` gained an opt-in `with_html`: a **docs** index reduces
+> `.html` to prose before embedding, a **codebase** index does not (in a web
+> project the markup *is* the code). Racket's Guide, the corpus that prompted it:
+> **72 s → 7 s** cold, the passage now readable prose with real quotation marks,
+> the same first hit both times.
+>
+> **Previously — M665:**
+> **FreeBSD's coverage debt is retired, and five of its six failures were
+> defects in the harness, not the platform.** The row last recorded 201 drivers
+> on 2026-08-17 against 303 in the tree — debt **102**, past the threshold. It
+> now runs the tier. `ctx_estimate_lint` compared a count against `2` while BSD
+> grep returned `path:2`; `cppcheck_lint` enumerated its universe with
+> `git ls-files` on a shipped tree that carries no `.git` — which had been
+> failing it on FreeBSD, illumos **and both Pi rows at once** — and ran bare
+> `make` where `make` is bmake; `man_page_lint` passed man-db's `--warnings` to
+> a mandoc-based `man` and reported a defect in a page it had never read.
+> **`peer_reap_grace` accused the fix it exists to defend**: it timed
+> `with_deadline`, and FreeBSD's `timeout(1)` acquires reaper status, so the
+> mock's orphaned `sleep 120` reparented to it. jichi's own exit took **0 s**.
+> mandoc then found two real roff defects GNU man had accepted in silence.
+> **Four probes I hand-built to diagnose that were all broken**, the most
+> convincing producing a real kernel stack for a hang that was my own fixture:
+> [`analysis/2026-09-18-freebsd-and-the-probes-i-built.md`](analysis/2026-09-18-freebsd-and-the-probes-i-built.md).
+>
+> **Previously — M664:**
+> **The Pi Zero's aarch64 row is measured — and it found a quadratic reader.**
+> M272's row (debt 206, the last above the 100 threshold) is retired: clean
+> `WERROR=1` build, **13,332 unit checks / 0 failures**, multiplier 13. On the
+> way, `peer_line_cap` failed there and the driver was **right**: `pop_line`
+> rescanned the whole buffer after every 4 KB read — ~8.6 GB of scanning toward
+> the 8 MiB cap — so the 120 s deadline fired before the cap could. `user
+> 2m0.973s` said it in one command. Fixed with a scan offset and `memchr`:
+> **121 s → 0.44 s** on the same board. The ACP reader had the same shape and is
+> fixed with it; the LSP framer is bounded at 64 KB and deliberately left.
+>
+> **Earlier — M663:**
+> **jichi made its first live model call on illumos, and speech and image
+> generation now run locally.** SunOS 5.11, `ILLUMOS LIVE OK` in 16.4 s over an
+> ssh reverse tunnel so LM Studio stayed loopback-bound; the matrix diagram and
+> four other pages that still read *never compiled* are swept. Locally,
+> `generate_audio` and `generate_image` produce real WAVE and PNG through
+> LocalAI on loopback — **9.2 s warm for 512×512**, which is the GPU answer taken
+> from the clock rather than the filename. Eight corrections on the way, four of
+> them mine, all found by running something.
+>
+> **Previously — M662:**
+> **`--strict-green` was measured again and the answer reversed.** M343 found 0
+> downgrades in 21 runs; on today's corpus it is **16 of 35 — 46%** — and 85% of
+> what it flags is the work's own output: downloaded PDFs, `*.o`, `test_0.tmp`,
+> jichi's own `.jichi/` state. So the default is **not** flipped and M657's
+> recommendation is withdrawn in place. The rule cannot tell "an incidental
+> shell-written file" from "the gate edited through the shell", which is the
+> finding rather than the rate; the sharp line is **tracked vs untracked** and
+> the journal does not record it yet. Also: `posix_utils_lint` check 19 found a
+> **fourth** blocking `waitpid` after SIGTERM that I had missed by eye.
+>
+> **Previously — M661b:**
+> **The M609 family is complete, and the illumos lint cluster has a measured
+> cause.** The last row — MCP/LSP blocking forever in `waitpid` after SIGTERM —
+> is closed with the helper the row itself named, proven red at **45 s against
+> 0 s**; all three rows in that family had been blocked on a claim about their
+> test, and all three claims were wrong. And `grep -o` returns only the **first
+> match per line** on illumos where GNU returns all — **199 against 1** — which
+> is why a set of lints reported their own extraction as broken. No gate for it:
+> 27 drivers flatten-then-`grep -o`, and a 27-entry allowlist is not a gate.
+>
+> **Previously — M661:**
+> **The illumos pty cluster was one cause, and it is closed: 19 of 19.** A pty
+> slave on a STREAMS system is not a terminal until `ptem`/`ldterm` are pushed --
+> measured, `isatty` 0 before and 1 after -- so jichi was handed a non-tty and
+> correctly behaved as if it were. Guarded by a probe, not by `__sun`. The last
+> three drivers had a second cause, `grep -a`, now refused tier-wide.
+> **238 → 249 → 279 of 301.** The ACP cap has its driver. And
+> `install_no_build` was **not** the order dependence I recorded: `check-target`
+> never built `jichi-convert`. Chasing that found a real product defect --
+> `install SRC1 SRC2 DIR` is a GNU/BSD extension, so `make install` on illumos
+> installed **jichi only, and exited 0**.
+>
+> **Previously — M660:**
+> **The illumos rig was run until it ran clean — four times — and every failure
+> was in the rig or in how it was invoked, never in jichi.** `doctor` read by its
+> exit code instead of a positive marker; a cloud-init sshd restart reported as
+> *"the procfs shape is not what PLATFORMS.md predicts"*; and a frozen-copy fix
+> for "never edit a running script" colliding with "the rig must run from the
+> tree". Installing git took the row from **238 of 300** to **249 of 301**: ten
+> drivers had been counted as illumos failures for want of a repository to run
+> against. Three defects in jichi, six in its instruments — which is what a new
+> platform is for.
+>
+> **Previously — M659:**
+> **Two unbounded peer buffers are bounded, and the bound says so.** The M609
+> rows had been blocked for fifty milestones on "a born-red test needs a
+> memory-pressure harness"; M657 refuted that and this built it. Measured both
+> ways: refused in **13 s** with the cap, **75 s** and an indistinguishable
+> "server closed the connection" without it. One number, one convention —
+> *a cap that says nothing is a cap nobody can test* — which also answers the
+> tool-output row's revisit condition from M326w. The ACP side's red is owed and
+> the row says so.
+>
+> **Previously — M658:**
+> **illumos is compiled.** OmniOS r151058 under KVM, ssh in 30 seconds from a
+> cloud image: `WERROR=1` clean, **13,273 unit checks / 0 failures**, smoke **238
+> of 300 drivers** — *Partly verified*, which is the honest word. The M469 procfs
+> prediction is measured rather than reasoned: `/proc/self/status` is a binary
+> `pstatus_t` with **zero** `VmRSS:` in it, so jichi reports *no data* rather than
+> *wrong data*. Three defects, none wanting a platform conditional:
+> `-D__EXTENSIONS__`, `-lsocket -lnsl` (both now Makefile probes) and
+> `search_code`'s `grep -rnI`, which illumos's grep rejects — the M461 `--color`
+> defect one platform later. The device rig could not measure a **German-locale**
+> board (`awk` printed `30,45`), and my two fixes for that dirtied the tree twice;
+> `snapshot_lint` caught both.
+>
+> **Previously — M657b:**
+> **A reader arrived, and the glossary was reachable from none of the tutorials.**
+> The first native Japanese-speaking reviewer asked for the English idioms to be
+> explained — *dogfooding* is defined, its metaphor was not — and for the
+> tutorials to point at `VOCABULARY.md`. Measured: **0 of 10** did, while
+> `self_learner_lint` had held the page to *defining* 24 words since M499 and was
+> green throughout. Nine idioms glossed (49 → 58 terms), ten pointers added,
+> `docs_locators_lint` check 8 pins them. Her third finding — the Japanese pages
+> *"read formal, not casual"* — is recorded as a **stated decision** with both
+> arguments and the question left to her, not changed on a first impression.
+>
+> **Previously — M657:**
+> **The deferred register was walked end to end, and the worst row on it had
+> already shipped** — *"the licence, and the public repository"* still read
+> *waiting on a rights answer*, with *"no `LICENSE` file exists"* as its evidence,
+> three weeks after v0.9.0 went public. 26 open sections, 58 open rows; twelve
+> claims re-checked by hand, two false and two expired; and the ~46 that were not
+> re-checked said so. Three hand-audits of one invariant (M463, M492, this one)
+> bought a lint: `deferred_register_lint.sh`, whose cross-register check
+> enumerates the never-compiled platforms from `PLATFORMS.md` and found **illumos
+> missing from the register entirely**. *Blocked* is now three different things:
+> macOS on **access**, illumos on **a session** (KVM and QEMU are on this machine,
+> checked), the ARM rows on **a power switch**.
+>
+> **Previously — M656:**
+> **The discoverability record was describing a state the repository had left** —
+> twenty topics and the homepage field are applied, and the page still called them
+> pending. Corrected against the API, not assumed. Issues stay off as a stated
+> decision rather than a gap: for one maintainer an unanswered tracker is worse
+> than none, and the alternative in reach from the tree is a contact route in the
+> README. **v0.9.1 is published** on both mirrors, hosted CI green.
+>
+> **Previously — M655:**
 > **The homepage URL is resolved and written down**, with all three candidates
 > probed and the default branch confirmed against the API rather than assumed —
 > the `blob` form, because the `tree` form buries the routing table under 157
@@ -37283,3 +37448,990 @@ itself to the past.
 **No lint added.** The same measurement as M645 and M650 applies: a gate over
 prose counts fires overwhelmingly on correct history in this tree, and this is
 the fourth time a reader has found what a classifier would have drowned.
+
+---
+
+### M656 -- the discoverability record made true -- done
+
+Small, and the reason it exists is the session it closes. `plans/2026-08-public-snapshot.md`
+§8 still said the seven topic additions were **"not applied"** and §8a still
+framed the homepage as *"the remaining half"*. Both were applied by the operator
+-- the twenty topics on 2026-09-17, the homepage field on 2026-09-18 -- so the
+page was describing a state the repository had left.
+
+**That is the exact defect M645 through M655 were about**, and leaving it in
+would have been this band's own claim outliving its verification, in the page
+that recommended the change. Both passages now record the applied state with its
+date, **confirmed against the API rather than assumed**: `homepage` reads
+`https://github.com/alexanderlarsdallmann/jichi/blob/master/docs/README.md`,
+which answers HTTP 200, and the topics count is 20. The `curl` routes are kept
+rather than deleted, because they are how the *next* change is made and the
+`403` they work around has not gone away.
+
+**What is still open is named as a decision, not a gap.** `has_issues` is
+false and Discussions are off, while `CONTRIBUTING.md` invites contribution, so
+a reader who finds a defect has no route to report it. The operator has deferred
+this deliberately: for a single maintainer an unanswered tracker is worse than
+none, and enabling one is a commitment to answer it. The page now says that in
+those terms, and names the alternative that **is** in reach from the tree -- a
+contact route in the README, which is a file rather than a repository setting.
+
+**Pages stays unset**, as §8a argued at M654: a published site is a second copy
+of a claim, and this band spent eleven milestones on claims that were correct in
+one place and stale in another.
+
+### M657 -- the deferred register, walked: what had already shipped, what is not blocked, and a lint for the shape -- done
+
+The operator asked for a walk of `DEFERRED.md` -- revise it, reevaluate which
+decisions can *and should* be made, and say so honestly -- naming the illumos
+test and the other platform retests as still open.
+
+**The population first, because "the deferred register" needs a number to refer
+to:** 26 open sections, 58 open rows. Then the structure was audited
+mechanically rather than by eye, and the reasons by hand, one claim at a time.
+
+**The worst row on the page was one that had already shipped.** Under **Open --
+externally blocked**, *"The licence, and the public repository"* still read
+*"Waiting on a JLU rights answer"*, with its M326b evidence recorded as *"no
+`LICENSE` or `COPYING` file exists, so 'the first public commit needs it'
+holds."* `LICENSE` and `NOTICE` have been in the tree since **2026-08-27**;
+the public repository was published that day and re-cut as **v0.9.1** on
+2026-09-17, on two remotes, with a tag and two green hosted runs. So a register
+whose entire purpose is answering *"why isn't this done?"* went on answering
+*blocked on a rights question* about the single thing the project had most
+visibly finished -- and nothing could correct it, because nothing read the page.
+
+That is the M492 failure in its most expensive form. M492 was about four rows
+whose closure was appended *behind* a reason still in the present tense; here no
+closure was appended at all.
+
+**Three hand-audits of one invariant is past the threshold for a lint.** M463
+retitled two `## Open` sections whose rows had all closed. M492 moved four closed
+rows out from under an open heading and wrote the rule down: *"A closed row under
+an Open heading is not [fine]."* This walk found **six struck-through rows under
+three `## Open` headings**, **one `## Open` heading with no rows at all**, and
+**illumos missing from the register entirely**.
+`tests/smoke/deferred_register_lint.sh`, 5 checks, born red on exactly those
+three findings. It is deliberately structural, and says so in its header: **it
+could not have caught the licence row**, which was well-formed and simply untrue.
+What it catches is the class of defect that kept the untrue row invisible.
+
+Check 4 is the one worth reading. It does not check this page against itself: it
+enumerates the never-compiled platform set from `PLATFORMS.md`, which *owns*
+platform verdicts, and requires each to be findable here. That is the M508/M510/
+M511 lesson -- enumerate the universe a second way, by a different route -- and
+it is what would have caught illumos, since the row existed in `PLATFORMS.md`,
+`LOW_MEMORY.md` *and* `PLATFORM_RETEST.md` §6 as "the cheapest remaining row"
+while the findability register had never heard of it. **Its first version was
+vacuous** and its own tooth caught it: bounded to the *section* rather than to the
+section's *rows*, it stayed green with the illumos row deleted, because the
+section's prose explains why illumos had been missing. A check that reads its
+subject's explanation instead of its subject is the shape this project keeps
+paying for.
+
+**"Blocked" is a factual claim, so it was checked like one.** The three
+platform rows differ in what actually stands in the way, and filing them under one
+"platform work" backlog is how illumos sat behind macOS for months although only
+one of them was ever blocked:
+
+- **macOS -- blocked on access.** No Mac here; no willingness changes that.
+- **illumos -- blocked on a session.** Checked on this machine 2026-09-18:
+  `/dev/kvm` exists, the account is in group `kvm`, `qemu-system-x86_64` and
+  `qemu-img` are installed, 24 threads report virtualisation extensions, 137 GB
+  is free. An ISO install under KVM with `scripts/tier-v-openbsd.sh` copied as the
+  rig pattern. Its hazards are already reasoned from the source, and **the
+  parsing half is already measured** (M647) because it reduced to a pure function
+  over bytes -- which promotes nothing: the row stays NEVER COMPILED until a
+  kernel runs it.
+- **The ARM bench rows -- blocked on a power switch.** The Pi Zero 2 W's verdict
+  is still M272's at debt **205**, the only full-gate row past the 100 threshold,
+  and README makes present-tense physical-ARM claims that rest partly on it. On
+  2026-09-18 the Pi Zero, the Pi 400 and the UNO Q all failed to answer.
+
+**And the debt table has a blind spot it cannot show.** Debt is computable for
+**7 of 18** Verified rows; the table works five of them. For the other eleven --
+including the **Pi 400's M451 full `check-target`**, four months newer than the
+Pi Zero's -- the row records *green* without recording *how much of the tier
+ran*, so its debt is not a large number, it is not a number. `platform_retest_lint`
+check 2 asks a row to be **datable**, which is strictly weaker than
+**debt-computable**. The fix is free at the time and unrecoverable afterwards:
+state the count on the next re-run of any row.
+
+**Two rows were re-scoped because their stated blocker was wrong about itself.**
+
+The three **M609 peer-transport** rows each said the fix was one line and the
+block was a born-red test needing *"a memory-pressure harness the smoke tier does
+not have."* RSS was never the property. Each fix makes the bound **observable**:
+the MCP reader returns `JC_ERR_IO` past the ceiling, the ACP reader sets `eof`,
+the reap returns inside `jc_worker_reap_grace`. A mock streaming past the ceiling
+without a newline therefore produces a *behavioural* difference -- pre-fix the MCP
+reader blocks to its 120-second deadline, post-fix it errors in under a second and
+names the bound. M438 taught this in almost the same words: its first liveness
+test asserted that `status` ANSWERED and passed with the fix reverted, because the
+property was latency. One of the three genuinely has no observable -- ACP has no
+deadline -- and the answer there is a **design decision rather than a harness**:
+*a cap that says nothing is a cap nobody can test, and nobody can debug either.*
+Every bound jichi enforces on somebody else's bytes should name itself when it
+fires -- which also answers, in the same sentence, the standing revisit condition
+on the **tool-output cost** row ("a way to make the adaptation visible at the
+point it happens"). Two rows, one convention. What remains is one milestone with
+three one-line fixes and three mocks, not a new tier; and the honest reason it is
+still deferred is that no peer here has ever misbehaved this way.
+
+**`--strict-green` got a recommendation instead of another year of "the
+operator's call."** The row has carried that phrase since M343, and a question
+nobody is asked has not been deferred, it has been dropped. The recommendation:
+do **not** flip the global default -- the objection stands (it changes a
+currently-zero exit code on a stable-tier contract) and 0/23 is a small
+denominator that would get cited as a large one. Flip it **under `--unattended`
+only**, joining M158b's escalation set alongside `privilegedAudit: false` and the
+M503 private-files probe, for exactly their reason: an unattended run has nobody
+to read a warning and its exit code is the whole interface. The operator's
+decision either way, but now with a proposal in front of it.
+
+**What was re-checked by hand, and what was not.** Twelve claims were checked;
+two were false (the licence row's missing `LICENSE`, and the unit-runner row's
+"146 hand-written pairs" -- **174** today, which makes that row's own argument
+stronger). Two more had expired rather than been wrong: the logo row's *"before
+release"* condition, outlived by two releases, and illumos's blocked-ness. The
+other ~46 rows' factual claims are **as old as their last sweep and were not
+re-verified**, which the page now says in those words -- because a walk claiming
+to have verified fifty-eight rows in one sitting would be the overclaim this
+register exists to prevent. The M449 closure is the standing warning: its
+unblocking condition had been met for some time and nobody had looked.
+
+Also: one empty `## Open` heading deleted, six struck rows moved to `## Closed`
+sections or to the one-line closed list, the stray empty table header under
+*externally blocked* removed, and the coverage-debt figures restated at 299
+drivers.
+
+Decisions: three rows in `DECISIONS.md` (the register's structure is a lint and
+its reasons are not; a cap that says nothing cannot be tested; "blocked" is a
+factual claim and gets checked like one).
+
+### M657b -- a reader arrived, and the glossary was reachable from none of the tutorials -- done
+
+Three pieces of operator feedback landed mid-milestone, all of them from **the
+first native Japanese-speaking reviewer this project has had**. Her review is not
+finished and this records a first impression as a first impression.
+
+**1. "Terms like *dogfooding* need explanation, as well."** The term *is* defined
+in `VOCABULARY.md`. What is not explained is the **metaphor**, and that is the
+part a reader whose first language is not English cannot recover: you can look up
+every word of *eating your own dog food* and still not know what it means to do
+it. Nine idioms are now glossed with their literal image where the image is what
+makes them stick -- dogfooding, blast radius, teeth, born red, flaky, footgun,
+happy path, paper over, and `shu-ha-ri` (守破離), which is listed precisely
+because the English pages use it untranslated: obvious to one reader, opaque to
+the next, which is the section's whole subject. 49 → 58 terms.
+
+**2. "VOCABULARY.md must be pointed at from the tutorials."** Measured before
+acting: **0 of 10** tutorial pages linked it, and **0 of 14** curriculum module
+pages. Meanwhile `self_learner_lint` check 4 had held the page to **defining** 24
+required words since M499 and was green the whole time. Defining a word and
+putting a reader in front of the definition are different guarantees, and only
+the first had ever been checked -- *a policy nobody is routed to is a policy
+nobody applies* (M510), which this project wrote about a platform-retest page and
+never applied to its own glossary. All ten tutorials now carry the pointer, and
+`docs_locators_lint` **check 8** holds it, proven red two ways (a tutorial with
+the pointer removed, and a broken extraction that reads nine pages instead of
+ten). The fourteen module pages are a **second** population with a second
+navigation convention (the prev/map/next footer check 6 pins); they are measured
+and named here rather than folded into one check reporting on two universes.
+
+**3. "It reads formal, and not casual."** A register observation about the
+Japanese pages, and the honest answer is that **nobody ever decided it** -- formal
+written Japanese is what a translator reaches for. It is now a stated decision in
+`i18n/README.md` §Policy item 4, with both arguments: for formal, the convention
+of Japanese technical writing and an institutional publisher; for casual, that the
+learner-facing pages address one person alone with a terminal and formality puts a
+desk between them. **The question is left to her**, including whether the split
+should be per genre rather than uniform -- because nobody here can judge Japanese
+register, and a local model least of all (M651 measured five failing this page set
+in *meaning*, before style was in question). Nothing was changed on a first
+impression.
+
+**What is still owed to Japanese specifically, and is now findable:** there is
+**no `docs/i18n/ja/VOCABULARY.md`**, so a reader of the Japanese pages meets the
+English jargon with the glossary in the other language. That is a translation, and
+it waits on the same reviewer. The M582 native-review row records all of it.
+
+The smoke tier caught one defect in this milestone's own driver, which is what it
+is for: `posix_utils_lint` check 12 flagged `\|` inside the register lint's awk
+patterns -- an escaped literal pipe in GNU awk, an alternation that BSD tools read
+differently -- and the patterns are bracket expressions now.
+
+### M658 -- illumos, compiled: three defects, and a rig that could not measure a German board -- done
+
+The operator connected the Pi Zero 2 W and the Pi 400 and asked for the
+recommended steps to run through the night. This is what they produced.
+
+**illumos exists now, and it took a session rather than a resource.** M657 had
+checked what *blocked* meant and found KVM, QEMU and 137 GB free on this machine;
+the route turned out to be an **OmniOS CE r151058 cloud image** with a cloud-init
+seed -- ssh in **30 seconds**, no graphical console step, which is precisely the
+five minutes that made the Guix image expensive at M468. gcc 14.3.0, GNU Make
+4.4.1, `/bin/sh` = ksh93.
+
+Result: `gmake WERROR=1 CC=gcc` **zero diagnostics**, unit suite **13,273 checks /
+0 failures**, smoke **238 of 300 drivers, 1,299 checks**. Recorded as **Partly
+verified**, which is the honest word for a green build over a tier with 62
+failing drivers. The failures fall into two clusters -- ~19 pty-driven (`tui_*`,
+`typeahead*`, `paste*`) and most of the rest text-tool lints against illumos's
+legacy `grep`/`sed`/`awk` -- and `PLATFORMS.md` says that neither has been
+diagnosed line by line, because naming a cluster is not explaining it.
+
+**The M469 procfs prediction, reasoned from the source since 2026-08-17, is now
+measured.** `/proc/self/stat` and `/proc/self/exe` absent (`/proc/self/path/a.out`
+is the equivalent); `/proc/self/status` present as a **1,136-byte binary
+`pstatus_t`** with **zero** occurrences of `VmRSS:`. So `jc_meminfo_parse` reports
+*no data* rather than *wrong data* -- the right failure, predicted exactly. M647
+had already reduced the parsing half to a pure function because it needed no box;
+what needed the box was that `fopen` succeeds, that the struct has this shape,
+and that the `fread` path behaves. All three now hold.
+
+**Three defects, and not one wanted a platform conditional** -- the M460/M461
+pattern holding for a fifth platform:
+
+1. **`-D__EXTENSIONS__`.** Solaris hides every non-POSIX interface when
+   `_POSIX_C_SOURCE` is defined, and `struct winsize`/`TIOCGWINSZ` go with it, so
+   `src/tui/jc_term.c` failed with "storage size of 'ws' isn't known". Confirmed
+   with a four-line reproduction on the guest before anything was written.
+2. **`-lsocket -lnsl`.** `accept`, `listen` and `bind` are not in illumos's libc;
+   the linker named its own cause. The helper binaries link by their own rules and
+   needed it too, which is why the first fix looked complete and was not.
+3. **`search_code`'s `grep -rnI`.** illumos's grep accepts `-r` and **rejects
+   `-I`**, exit 2 with a usage line -- so every search on that platform failed,
+   which the unit suite caught as one check. The comment above that line recorded
+   the flags as *"checked against each usage string, not assumed"* for GNU,
+   FreeBSD, NetBSD and OpenBSD. The fifth grep refutes the generalisation, and it
+   is the M461 `--color` defect one platform later.
+
+Both build facts are Makefile **probes** in the existing `HAVE_CLOCK` idiom and
+appear in `make info` (`WINSIZE`, `SOCKET_LIBS`); on Linux the first form succeeds
+and nothing is added. The grep fix is a one-shot capability probe, and because its
+fallback branch cannot occur on any machine here, `tests/smoke/search_grep_dash_i.sh`
+exercises it with a shim grep that rejects `-I`. That driver **caught its own
+vacuity**: checks 2 and 3 first asserted on the search *pattern*, which also
+appears in the tool CALL, so they passed while the search was returning an error.
+Check 4 -- "the fallback actually ran" -- is what exposed it. The evidence is now
+grep's own `x.c:1:` prefix.
+
+**The ARM rows, and a word-size distinction that matters.** The Pi Zero 2 W is
+running **armhf**, not the aarch64 of the debt-206 row, so re-running it does
+**not** retire that row -- it retires M454's, which was at debt 106 and is now at
+3 (297 of 299 drivers, 13,329 unit checks). Retiring the aarch64 row needs the
+board re-flashed: a human with an SD card, not a session. The Pi 400 re-ran with a
+green unit suite and stopped at one smoke driver.
+
+**Its /tmp is 213 MB of tmpfs on a 425 MB board, and the tier fills it.** The
+failure does not read like a full disk: drivers report `printf: I/O error` and six
+checks announce that their own matcher is "meaningless", which reads as a defect
+in jichi. M457 routed every fixture through `TMPDIR` for exactly this; the rig
+simply never set one.
+
+**The rig had three defects of its own and two were mine, which is the part worth
+recording.** The Pi 400 runs a **German locale**, so `awk`'s `printf "%.2f"`
+formatted the elapsed build as `30,45`; `jc_rig_mult` refused it and abandoned the
+whole row after a clean build. The refusal was right -- the number should never
+have had a comma in it, and a figure produced for a machine is formatted in the C
+locale wherever the machine lives. Every device row before this one happened to be
+an English-locale image, which is how a rig that cannot measure a German board
+shipped and passed. Then, fixing it, I wrote `$HOME` twice into strings that do
+not survive the rig's quoting and ssh, and both the stderr capture and the smoke
+`TMPDIR` landed **inside the shipped tree** -- `<tree>/.home/...`. `snapshot_lint`
+check 14 caught both; I caught neither. "A rig should not be able to dirty the
+tree it tests" is now on its fourth and fifth instance, and the first two found by
+a check rather than a person.
+
+**One finding is left open and named rather than guessed at.** `install_no_build`
+fails inside a full `check-target` on the Pi 400 and **passes standalone in a
+freshly shipped tree on the same board** -- so it is an in-suite order dependence,
+and the rig's "retrying standalone to classify the failure" step inherits the
+suite's state and reports it as "a real defect". That classifier assumes standalone
+means clean. It is the M201 shape, and the deferred row for the unit suite's
+version of it (the M201 re-ask) is still open.
+
+**A dogfooding run, on zigodot, driven headless.** `jlu/qwen3-coder-next`, free,
+fenced to `--edit-scope 'src/gdscript/**'`, journalled, with `zig build test` as
+the verifier: the parse-time cast check listed as open in that project's own
+session-3 notes. It ended **budget_exhausted on tokens at 33 of 160 tool calls**,
+leaving 259 lines in one file, inside the fence, that do not compile. Three things
+it measured about jichi rather than about Zig: the edit scope **held**; the **token**
+budget bound rather than the call cap, at roughly 91k tokens per call, which is
+M595's `B / t < C` with a large `t`; and the verifier **ran for the record** at the
+budget exit (M506) instead of leaving a stopped run with no gate verdict. The work
+is committed on a branch in that repository, labelled as not working -- the
+session-3 lesson, where an agent's green work was destroyed because it was
+uncommitted.
+
+### M659 -- two unbounded peer buffers, and a cap that says so -- done
+
+M657 walked the register and refuted this family's stated blocker; this is the
+work that followed from it, and it is the first test of whether that walk was
+worth anything.
+
+**The rows had said, since M609, that the fix was one line and the block was "a
+born-red test, which needs to feed >cap bytes and assert bounded RSS" -- a
+memory-pressure harness the smoke tier does not have.** RSS was never the
+property. The MCP reader now returns `JC_ERR_IO` past a ceiling, which is the
+path a closed server already takes, so crossing the bound has a **behavioural**
+signature. Measured, both ways, on the same fixture: with the cap the runaway
+server is refused in **13 s**; without it the reader blocks to its 120-second
+deadline and the driver's own 90 s guard cuts it at **75 s**, reporting *"mcp:
+server closed the connection"* -- a message indistinguishable from a network
+stall. That is M438's lesson in the same words: the property was latency.
+
+**One number and one convention**, in `include/jc_peercap.h`: `JC_PEER_LINE_MAX`
+at 8 MiB, shared by both readers because a reader asking "how big may a peer's
+line be?" should find one answer, and **the cap names itself when it fires**.
+That second half is the part worth stating as a rule. A cap that says nothing is
+a cap nobody can test, and nobody can debug either -- and it answers, with the
+same sentence, the standing revisit condition on the tool-output row since M326w
+("a way to make the adaptation visible at the point it happens -- the truncation
+notice naming the reason, not just the byte count").
+
+**The ACP side discards rather than flushes.** Its loop hands a final
+unterminated line to the caller on EOF, which is right for a client that went
+away mid-line and wrong for one that never intended to send a newline: flushing
+would pass on the very megabytes the cap refuses.
+
+**And its red is owed, which the row says rather than glosses.** The ACP path has
+no deadline, so the MCP fixture's argument does not transfer and the only
+observable is the message -- which is exactly why the cap speaks. The driver that
+reads it is small and is not written. Saying so is cheaper than a branch nobody
+has watched work.
+
+**`tests/smoke/peer_line_cap.sh`, 4 checks**, and two of them exist because the
+first cut was wrong in ways the checks caught: the fixture check reported 8,192
+bytes (a `head_bytes` buffer limit, not the mock), and the happy-path check
+failed against a hand-written mock that did not echo the request id -- the
+tier's shared `smoke_write_mock_mcp` does, and is used now. The third row of the
+M609 family, the `waitpid` reap, is untouched and stays open; its test really is
+the fiddly one.
+
+**A note on this milestone's own instruments.** `deferred_register_lint`, shipped
+at M657, failed on M659's first draft for exactly the thing it was built to catch
+-- two struck-through rows left under an `## Open` heading. And two of its three
+floors had to become **bounds** rather than equalities within a day of being
+written, because the population they measure moves in both directions: a closed
+row lowers it, and M658 promoting illumos lowered another. The job of those
+floors is to notice a broken extraction, which yields something near zero, not to
+pin a census.
+
+### M660 -- the illumos rig, run four times, and what each failure turned out to be -- done
+
+M658 wrote `scripts/tier-v-illumos.sh` after driving the row by hand, on the rule
+`DEFERRED.md` set for the Guix rig: an untested rig for a platform nobody can run
+is a never-executed artifact. This milestone is that rule taken seriously -- the
+script was run until it ran clean, and **every failure across four runs was in
+the rig or in how it was invoked, never in jichi on illumos.** The program's
+verdict has not moved since the first hand-driven row.
+
+**Run 1 -- two defects, both mine, both in what the rig READS.**
+
+*`doctor` was read by its exit code.* It exits non-zero when it **finds**
+something, and on a guest without git it correctly reports `snapshots enabled but
+git is not on PATH`. The rig called that "offline: doctor failed". The rule was
+already written in the sibling rig's own header -- *"Verdicts are read from
+POSITIVE MARKERS in the output, never from an exit code"*, with M368 attached --
+and it was broken in a new rig on the night it was being quoted elsewhere. doctor
+is now read by its summary line, and its findings go into the results file as a
+**record of the platform** rather than a gate on it.
+
+*git was never installed.* The device rig installs it and git-inits the shipped
+tree for a stated reason: without a repository the tree runs four checks fewer
+than a host run, and *"an unexplained delta in a comparison table is the thing
+this whole rig exists to prevent"*. The illumos rig did neither, so its row was
+both short and carrying a spurious problem. Both now happen.
+
+**Run 2 -- a transport race reported as a platform verdict.** sshd on this image
+answers and is then restarted by cloud-init, so commands that had worked seconds
+earlier returned `kex_exchange_identification: read: Connection reset by peer`.
+The rig announced *"the procfs shape is not what PLATFORMS.md predicts"* -- a
+dropped connection dressed as a finding about illumos, which is exactly what
+M470's env probe exists to prevent (*"a row that blames the program for its
+emulator's gap is worse than no row"*). Run 1 had only looked clean because it
+got luckier timing; run 2 was slower because `make ci` was using the CPU.
+
+Fixed twice over: readiness now needs **two consecutive** successful probes,
+because one success proves the port was open once and not that it is settled; and
+`g()` retries once on **ssh exit 255 only** -- "I could not talk to the host". A
+real non-zero from the remote command is an *answer* and passes through
+untouched, because widening that retry would start hiding the findings the rig
+exists to collect.
+
+**Run 3 -- two safety rules colliding, which is worth recording as its own
+lesson.** Run 1 had ended with a spurious syntax error at the last line, because
+the script was **edited while it was running** -- a shell reads a script
+incrementally, so the edit shifted the byte offsets under the live interpreter.
+The obvious remedy, running a frozen copy from a scratch directory, broke the
+other end: `REPO` is derived from `$(dirname "$0")/..`, so `git archive` found no
+repository and the tree shipped empty. **A `JICHI_REPO` override was considered
+and rejected** -- it would exist only to make a discipline optional, and the
+discipline is the one `make ci` already has: run it from the tree, and do not
+edit the tree while it runs. The constraint is now a comment in the script naming
+both hazards, rather than a knob that lets the next person meet them again.
+
+**Run 4 -- clean, and both fixes paid.** 16 checks ok, 1 failed, and the one
+failure is the smoke tier, which is a *result*: exit 1 is this tier's contract for
+"the row ran and something failed", against exit 2 for "the rig failed".
+
+`doctor` now reads **23 ok, 8 warnings, 0 problems** -- the problem is gone
+because git is installed, which confirms the diagnosis rather than suppressing
+the symptom. Its findings are recorded, and the one worth reading is
+`! host platform not recognised`: the generic non-Linux note doing precisely the
+job M503 *declined* a per-platform doctor line in favour of.
+
+And the git fix paid more than it promised. The smoke tier went from **238 of
+300** to **249 of 301** -- ten drivers that had been counted as illumos failures
+were the git-tool checks having no repository to run against. Ten "platform
+findings" that were never about the platform, which is the whole reason the
+device rig makes the shipped tree a repository.
+
+**The honest ratio.** The illumos work has produced **three defects in jichi**
+(M658) and **six in its own instruments** (the locale multiplier, two `$HOME`
+escapes, the exit-code verdict, the transport race, and a backtick inside a
+double-quoted string that ran `make` on the host and pasted its output into a
+check line). That is not an embarrassing ratio; it is what a genuinely new
+platform is for. It asks the harness questions nobody has asked it, and the
+harness had five wrong answers ready.
+
+### M661 -- the pty cluster was one cause, and install_no_build was not what I said it was -- done
+
+Three items the operator asked for after the fresh install: the illumos pty
+cluster, the ACP cap's owed driver, and the `install_no_build` order dependence.
+All three are done, and two of them found something better than the fix.
+
+**The pty cluster was ONE cause, and it is closed: 19 of 19.** On a STREAMS
+system a freshly opened pty slave is **not a terminal** until the line-discipline
+modules are pushed onto it. Measured directly on the guest before writing
+anything: `tcgetattr` returns -1 and `isatty` returns **0**; after
+`I_PUSH ptem` + `I_PUSH ldterm` both succeed. So `ptydrive` handed jichi a
+non-tty, jichi correctly took its non-interactive path, and nineteen drivers
+failed while the pty itself "worked" -- the most convincing kind of wrong.
+
+The push is guarded twice, and neither guard is `defined(__sun)`: a **Makefile
+probe** asks whether `<stropts.h>` and `I_PUSH` exist, which is the question the
+compiler will ask (M658's rule), and at runtime it happens only `if (!isatty())`
+-- because the slave is not a terminal, not because of who shipped the kernel.
+`make info` reports the verdict as `STREAMS_PTY`. Sixteen drivers recovered
+immediately. **The last three had a second cause**: `grep -a`, which illumos
+rejects outright (`illegal option -- a`, exit 2). `smoke_bgrep` in `_smoke.sh`
+strips the NUL bytes that are the only reason grep calls a pty capture binary,
+and `posix_utils_lint` **check 18** now refuses `grep -a`/`-m` tier-wide, proven
+red by planting one. Result: **238 → 249 → 279 of 301 drivers**.
+
+**The ACP cap has the driver M659 shipped without.** That path has no deadline,
+so its sibling's latency argument does not transfer and the only observable is
+the message -- which is exactly the convention M659 recorded as a decision, and
+this is where it gets paid for. Proven red: with the cap reverted, the operator
+gets an unrelated API-key warning instead of a reason.
+
+**And `install_no_build` was not an order dependence. I said it was, and that was
+wrong.** M658 recorded it as in-suite state and went on to accuse the harness's
+"retry standalone to classify" step of inheriting that state. Neither was true.
+`make install` copies both binaries; `smoke: $(BIN) smoke-tools` builds only
+`jichi`; `check-target: test smoke` therefore never built `jichi-convert`.
+Reproduced on the host in one command by moving that file aside -- the same two
+checks, the same two messages. **The classifier was right**; it simply could not
+say which defect. `check-target` builds `all` now, and the driver states the
+precondition rather than discovering it.
+
+**Chasing that produced a real product defect, which is the best argument for
+the whole tier.** With `jichi-convert` present, four checks still failed on
+illumos -- because they shell out to `make`, and illumos **has** a `make` which
+is Sun's. Fixed with `${MAKE:-make}` (GNU make exports `MAKE` to every recipe
+shell). And underneath it:
+
+> `install -m755 $(BIN) $(CONVERT_BIN) $(BINDIR)` installed **jichi only** on
+> illumos and **exited 0**. Multiple sources followed by a directory is a
+> GNU/BSD extension; Sun's `/usr/bin/install` takes one file. So `make install`
+> reported success and put half of jichi in place.
+
+That is precisely the failure mode M586 and M593 built this target to prevent --
+an install that succeeds and is wrong -- and no amount of reading the Makefile on
+Linux would have found it. One file per call with an explicit destination, the
+form every other line in that rule already used.
+
+**Not swept, and counted rather than guessed:** the tier invokes `make` by name
+in other drivers (`make install` 15, `make clean` 11, `make test` 9, `make ci` 7,
+`make info` 6, `make smoke` 4), but most of the 57 files matching `make ` match
+it in prose, so a regex sweep would rewrite comments and grepped strings. It is a
+row in `DEFERRED.md` with that population as its floor.
+
+### M661b -- the last M609 row, and why grep -o made a cluster of lints vacuous on illumos -- done
+
+Two threads, both from the illumos row.
+
+**THE M609 FAMILY IS COMPLETE.** The third row -- MCP and LSP blocking forever in
+`waitpid` after SIGTERM -- is closed with `jc_worker_reap_grace`, the helper the
+parallel pool and the daemon already used and which the row itself named as the
+drop-in. `tests/smoke/peer_reap_grace.sh`, proven red at **45 s against 0 s**.
+
+The pattern across all three is one sentence, and it is the argument for M657
+having walked the register at all: **every one was blocked on a claim about its
+test, and every claim was wrong.** Two said "this needs a memory-pressure
+harness" (M659); this one said "deterministic but fiddly in POSIX sh" -- fair
+about the difficulty, wrong about the obstacle.
+
+**The fixture took three attempts and the first two measured nothing.** A
+hand-rolled mock deadlocked the *request* path -- jichi in `select()`, the mock
+in `read()` -- while the driver reported 45 s as though it had measured shutdown.
+A second version was defeated by a lingering `sleep` holding jichi's pipe open,
+so the wait was for EOF rather than for the child; `/proc/<pid>/wchan` said
+`do_select`, not `waitpid`, which is what settled it. The working mock is
+**derived from the tier's own `smoke_write_mock_mcp`** with exactly two changes,
+because the protocol half was already proven by three other drivers. I had made
+this same mistake earlier in the night and its driver's own check 4 caught it;
+here nothing caught it but the clock.
+
+**AND THE ILLUMOS TEXT-TOOL CLUSTER HAS A CAUSE, MEASURED.** `grep -o` prints
+only the **first match per line** on illumos, where GNU prints every match:
+**199 against 1**, on `src/config/jc_config.c` flattened to a single 66 KB line.
+Lints that flatten a file and extract many items therefore collapse to one and
+report *"the extraction broke, so this lint is vacuous"* -- their floors working
+exactly as designed, on an extraction that really had broken.
+
+**No gate, and the count is the reason.** 69 drivers use `grep -o`; **27 flatten
+first**. A lint would be born red on 27 and need a 27-entry allowlist, which is
+the "collects exceptions until it means nothing" shape this project refuses. It
+is a row in `DEFERRED.md` with 27 as the sweep's floor. Distinct from
+`posix_utils_lint` check 17, which is about a pattern that can match *empty*;
+this is a pattern that matches *repeatedly*.
+
+**A note on this milestone's own lint.** `deferred_register_lint`'s anchor floor
+tripped for the third time in two days -- because closing a row removes its
+`path:line` anchor, correctly, since a closed row's line number rots. A floor on
+a set that only shrinks as work gets done is the wrong instrument. The floor now
+sits on **every file citation** on the page (41, stable, collapses to zero if the
+spelling changes) while the verified subset -- those carrying a line number -- is
+free to be empty. That is the distinction the first two versions could not draw,
+and both halves are proven red.
+
+### M661c -- the fourth site, found by the lint rather than by reading -- done
+
+M661b closed the M609 shutdown row and I checked the family by eye. The eye
+missed one. `posix_utils_lint` **check 19** -- no blocking `waitpid` within six
+lines of a `kill(..., SIGTERM)` -- was written *before* the fix, and on its first
+run it reported `src/lsp/jc_lsp.c:436`: the allocation-failure path of
+`lsp_connect`, where the pair sits on a SINGLE line and a next-line-only reading
+steps straight over it. That is M475's rule earning its place again -- *"when a
+hazard earns a documented fix, grep for its family"* -- with the grep written as
+a lint so the family stays swept.
+
+Two false starts in the check itself, both recorded in it: the first version
+reported the **comments explaining the fix**, which say "waitpid"; and it read
+only the lines AFTER the kill, which is exactly where the real defect was not.
+Comment lines are skipped and the same line is checked now.
+
+**Why a lint instead of a second driver.** `peer_reap_grace.sh` drives the MCP
+site with a real deaf server, which is the honest proof that the *helper* works.
+The LSP sites cannot be driven without a second mock speaking a second protocol
+for one shared call. The lint covers those, and every future site, forever --
+and it has already earned that by finding one.
+
+### M662 -- strict-green, measured again, and the answer reversed -- done
+
+The operator asked for data rather than more guessing: *"design, implement, run
+the tests, gather the data."* The data refutes the design, which is the most
+useful thing it could have done.
+
+**M343 measured 0 downgrades in 21 scoped green runs; M459 added 0 of 2.** On
+that evidence M657 recommended enabling `--strict-green` under `--unattended`.
+Re-measured on the corpus as it now stands -- 91 journals, 63 completed runs, 42
+with an edit scope, **35 ending `ok`** -- it would downgrade **16 of 35: 46%**.
+
+**The classification is the finding, not the rate.** Of 1,158 flagged paths (663
+distinct):
+
+    downloaded or generated binary   408   35.2%   .papers/cs_AI/*.pdf
+    build artifact / temp            348   30.1%   *.o *.so *.beam test_0.tmp
+    source or other -- READ THESE    170   14.7%
+    jichi's own state                122   10.5%   .jichi/agents/*.md
+    an ignore file the run wrote      54    4.7%   .papers/.gitignore
+
+**85% is the work's own output.** M332's own words name the plausible false
+positive as *"an incidental shell-written file (a lock file, a generated
+artifact)"* and the genuine one as *"the gate edited through the shell"* --
+and strict-green cannot tell them apart.
+
+**Why 0/21 looked safe:** that corpus was this project's own tidy gates, and
+M459's two additions were single-file documentation edits. The moment jichi
+drives real work on another repository, the build writes files.
+
+**Two things are therefore NOT built.** The default flip, and the
+`doctor --unattended` escalation -- the second additionally wrong on its own
+terms, because `--unattended` is a **doctor** flag, so the escalation would have
+meant doctor *demanding* a setting that fails 46% of real runs. M657's
+recommendation is withdrawn in `DEFERRED.md` and left visible, per M406/M407's
+rule that a withdrawn recommendation leaving no trace gets re-proposed.
+
+**What was built** is the classifier, in `tests/measure/strict_green_fp.py`. The
+script had told its reader to *"read the flagged runs' paths before calling one a
+false positive"*; on this corpus that meant reading 663 distinct paths, an
+instruction nobody executes. It is a table now, and it says in its own output
+that the shape-based split is approximate and what would replace it.
+
+**What the data asks for next:** the sharp line is **tracked vs untracked** -- a
+gate file is in version control, a downloaded PDF is not. The journal does not
+record trackedness, so that field is the next step, and it now has a motivating
+number instead of a hunch.
+
+**illumos, meanwhile:** 284 of 303 drivers, up from 279 of 301 at M661b and 238
+of 300 when the row was first measured by hand.
+
+### M663 -- a local speech and image stack, and the first live model turn on illumos -- done
+
+Two operator questions in one sitting: *does jichi compile and run on illumos
+now?* and *can speech and image generation run locally instead of on a gateway?*
+Both are answered, and the write-up is
+[analysis/2026-09-18-local-media-and-the-illumos-live-turn.md](analysis/2026-09-18-local-media-and-the-illumos-live-turn.md)
+because the interesting part is not the answers -- it is that **eight things went
+wrong on the way, four of them mine, and every one was found by running something
+rather than by reasoning about it.**
+
+**THE ILLUMOS ROW HAS A LIVE TURN.** Until now every check there was offline:
+build, unit suite, smoke, `--version`, `doctor`, `describe`, `context`. LM Studio
+binds loopback-only and the guest is behind QEMU's NAT, so rather than exposing
+it on the LAN the host opens an **ssh reverse tunnel** into the guest. On
+SunOS 5.11: `ILLUMOS LIVE OK`, 16.4 s. The matrix diagram, `PLATFORMS.md`'s
+summary, `LOW_MEMORY.md`, `README.md` and `PLATFORM_RETEST.md` §6 all said
+"never compiled" and all now say what was measured -- swept, not fixed where I
+was pointed.
+
+**The first attempt failed and the failure was a lie:** jichi printed
+`error: provider error`; `curl` from the guest printed
+`Failed to load model`. VRAM contention, three models resident from M651.
+Writing that up as an illumos defect would have been effortless.
+
+**LOCAL MEDIA, VERIFIED THROUGH JICHI'S OWN TOOLS.** LocalAI was chosen for one
+reason: `generate_image`, `generate_audio` and `transcribe` already speak the
+OpenAI-compatible API, so it drops in with **no jichi changes** and the install
+can be proven through the product rather than through `curl`.
+
+    spoken.wav       83,244 bytes   RIFF WAVE 16-bit mono 16 kHz
+    lighthouse.png  461,583 bytes   PNG 512x512 RGB    17.7 s cold
+    boat.png        346,530 bytes   PNG 512x512 RGB     9.2 s warm
+
+**The GPU claim is from the clock, not the filename** -- SD 1.5 at 512x512 is a
+minute or more on CPU. Confirmed independently by the backend registry aliasing
+`stablediffusion-ggml -> rocm-stablediffusion-ggml`. Everything lives in
+`~/development/localai/` with a `start.sh` that binds loopback only, verified by
+`ss` rather than by intent.
+
+**A GAP IN WHAT JICHI CAN SEE, recorded rather than fixed.** `jlu/tts-1-hd`
+declares `input_cost_per_token: 0.0` **and** `input_cost_per_character: 3e-05` --
+free by every signal this project checks, and billed per character. Pointing the
+other way, all 81 `openai/*` image models publish `input_cost_per_token: 0`
+because image models bill per image. So the field the free-namespace rule reads
+cannot answer the question in either direction. `DEFERRED.md` carries it; the fix
+is a judgement about whether jichi should track a gateway's billing schema, and
+the operator is asking HRZ what that model actually costs.
+
+**The corrections, because they are the content.** A TTS model prefixed `piper`
+that was a speech-*recognition* model; an **empty `backends/piper` stub** that
+shadowed the alias to `cpu-piper`; `pkill -f` matching my own shell wrapper and
+killing the service with it (this project has a note titled exactly that); a
+model emitting tool calls as **markdown text** rather than natively, diagnosed by
+jichi's own `doctor --live` probe instead of by guessing; and a truncated `lspci`
+line that made me report the wrong GPU and miss that ROCm was already installed.
+Three were names that lied, two were my shortcuts, one was a capability
+difference dressed as a failure, one was infrastructure dressed as a verdict.
+
+### M664 -- the aarch64 row, and the quadratic reader a 512 MB board made visible -- done
+
+The operator re-flashed the Pi Zero 2 W to 64-bit, which made M272's row --
+**debt 206, the last above the 100 threshold** -- reachable for the first time
+since the board went armhf. The row is measured. On the way it found a real
+defect in jichi that every platform has been paying and only this one exposed.
+
+**THE ROW.** `Linux 6.18.50+rpt-rpi-v8 aarch64`, gcc 14.2.0, glibc 2.41 -- the
+same toolchain generation as the Pi 400, so the two aarch64 rows are comparable.
+`WERROR=1` build clean in **80.41 s**, multiplier **13**, unit suite **13,332
+checks / 0 failures**, all four offline surfaces green.
+
+**THE DEFECT, and the driver was right.** `peer_line_cap` (M659) failed there:
+
+    not ok 2 - took 121s -- that is the deadline path; the cap did not fire
+
+The obvious reading is an unportable driver -- it floods 9 MiB and a Pi Zero is
+slow -- and that is what I proposed to "fix". One command refuted it:
+
+    dd | tr  (the "slow" generator)   real 0m0.105s
+    jichi vs the mock                 real 2m1.142s
+                                      user 2m0.973s   <-- 100% CPU, userspace
+                                      sys  0m0.123s
+
+jichi was not waiting for bytes. It was **computing** for two minutes.
+`pop_line` scanned the whole accumulated buffer from index 0, and `read_line`
+called it after **every 4 KB read**: toward the 8 MiB peer cap that is 2,048
+calls over an average 4 MiB, about **8.6 GB of byte-at-a-time scanning**. The
+reader is quadratic in the message size.
+
+On the workstation that hid inside a 13-second pass. On the Pi it consumed the
+reader's whole 120-second deadline, so the deadline fired **before the cap
+could**, and a correct cap looked broken.
+
+**The fix** remembers how far the scan reached -- a byte already examined cannot
+become a newline later -- and uses `memchr` rather than a hand-rolled loop. Same
+driver, same board: **121 s -> 0.44 s**, about 275x, four checks green.
+
+**Swept as a family (M475's rule).** The ACP reader had the identical shape
+(`memchr` from index 0 every iteration: same asymptotics, far better constant)
+and is fixed with it. The LSP framer rescans for `\r\n\r\n` the same way but is
+bounded by `JC_LSP_MAX_HEADER` at 64 KB -- about 512 KB worst case -- so it is
+**left alone and the reasoning recorded** rather than the code churned.
+
+**And retiring it exposed the next one, which is what a computable debt is for.**
+Restating the table at today's **303 drivers** moves FreeBSD from 99 to **102** --
+past the 100 threshold, so it is now the row that cannot be cited in the present
+tense. I said before this run that it would put every row under threshold; that
+was wrong, because the tree grew while the row sat. The debt is arithmetic on two
+numbers and it only moves one way; the answer is to re-run FreeBSD, not to round
+the number down.
+
+**What this says about the matrix.** The defect was real on every platform and
+invisible on the fast one. A 512 MB board did not create it; it removed the
+margin that was hiding it. That is the return on keeping slow hardware in the
+fleet, and it is the second time in one session that a device row found a defect
+the development box could not (the first was `install_no_build`, M661).
+
+**AND THE SESSION'S OTHER LESSON, recorded because the operator had to say it.**
+Getting that board onto the network took four card-reader round trips and an
+hour, and the board had booted correctly on the first attempt. Nine claims were
+made from proxies while the direct evidence sat unread -- a subnet read as a
+transport, a truncated `lspci` line read as a device name, a steady LED read as a
+failed boot, a `piper` prefix read as a backend, a compression ratio read as
+image content. The operator's reply was *"we had already established to measure
+before guessing."* ANECDOTES **#81** carries the full tally with the measurement
+that was available for each, and **#82** carries this milestone's own instance:
+the driver was right and the product was wrong, and `time` said so in one
+command. The transferable rule is in the note for other agents: **when a claim
+can be checked in under two minutes, checking it is not optional, and "I am
+fairly sure" is the signal to check rather than a reason to skip.**
+
+### M665 -- the FreeBSD row, and four probes I built that were broken -- done
+
+The row was re-run because retiring the Pi Zero row left **FreeBSD at coverage
+debt 102** -- 201 drivers recorded on 2026-08-17 against 303 in the tree today,
+past the threshold `PLATFORM_RETEST.md` sets. It came back with six failing
+drivers. **Five were harness defects with nothing to do with the platform**, and
+each is now fixed and verified on the guest. The row ends at **302 of 303 drivers, 1,727 checks** — coverage debt **102 -> 1**.
+
+**THE RIG COULD NOT REPORT ITS OWN DENOMINATOR.** The first run failed and the
+log carried no driver count: `scripts/tier-v-bsd.sh` captured
+`smoke: OK (N drivers, M checks)` on the success branch and, on failure, only the
+failing checks. A row that *failed* therefore came back with no denominator and
+its debt stayed uncomputable -- the exact gap `PLATFORM_RETEST.md` already names
+for the Pi 400. One line, and it is what turned this session's result from
+"FreeBSD still fails" into a measured row.
+
+**THE FIVE HARNESS DEFECTS.**
+
+- `ctx_estimate_lint` -- `grep -rc` on a **single named file**. BSD grep's `-r`
+  implies `-H`, so the count returned `src/chat/jc_compact.c:2` and the
+  comparison against `2` failed on a healthy tree. `-r` did nothing on GNU grep.
+  Two checks, same shape. Now `posix_utils_lint` check 20 forbids it tier-wide.
+- `cppcheck_lint` check 1 -- its universe is enumerated with `git ls-files`, and
+  `scripts/_rig_ship.sh` ships a tar that **deliberately excludes `.git`**. Every
+  header looked untracked. This had been failing on FreeBSD, illumos and both Pi
+  rows simultaneously. It now SKIPS off a checkout and says why.
+- `cppcheck_lint` check 3 -- bare `make`, and FreeBSD's `make` is **bmake**. It
+  reported `rc=2` for a target that prints `cpp-check: OK` under `gmake`. New
+  `smoke_make` helper; `install_no_build` converted with it and now passes there
+  too, which also closes its illumos failure.
+- `man_page_lint` check 7 -- `man --warnings` is man-db's; FreeBSD's man is
+  mandoc-based and answers `Illegal option --`. The check reported a defect in
+  the man page **having never read it**. It now selects a renderer.
+- `peer_reap_grace` check 2 -- below.
+
+**THE DRIVER ACCUSED THE FIX IT EXISTS TO DEFEND.** It failed with
+`took 50s -- that is what a blocking waitpid on a TERM-trapping child looks
+like`: a *cause*, printed from a *duration*. Measured with the tier's own
+fixture:
+
+    # INSTRUMENT: jichi own exit took 0s
+    # INSTRUMENT: with_deadline returned after 50s      <- same command
+
+FreeBSD's `timeout(1)` acquires **reaper** status (`procctl(PROC_REAP_ACQUIRE)`),
+so when jichi reaps the deaf MCP server the server's own `sleep 120` reparents to
+**`timeout`**, which waits for it. `jc_worker_reap_grace` was correct throughout.
+The check now runs jichi as its own child and polls; the message no longer names
+a location it cannot observe. Re-proven red at 45 s with the reap reverted.
+
+**AND THE SAME BUG ONE LEVEL UP.** With that fixed the driver still failed
+in-suite while its captured output showed `1..3` and three `ok` lines -- because
+the smoke runner wraps **every** driver in `timeout`, and the mock's orphaned
+`sleep` held *that* open to the per-driver limit. A green driver reported red by
+a grandchild it left behind. The mock now lingers on a fifo read inside its own
+shell, forking nothing: **3 s, rc=0** under the runner's own wrapper.
+
+**WHAT MANDOC FOUND THAT GNU MAN HID.** Switching renderers paid for itself
+immediately: `.B \\ (trailing backslash)` -- roff needs `\e`, and `\\` was an
+undefined escape printed literally -- and a `.TH` date written `2026\-08\-22`,
+whose escaped hyphens make it unparseable. Both real, both fixed, both silently
+accepted by GNU man. The third time a non-Linux row has been the second opinion.
+
+**FOUR HAND-BUILT PROBES, FOUR BROKEN.** Diagnosing the above I wrote four
+throwaway probes and every one was wrong. The dangerous one produced a coherent
+story -- *jichi hangs in `select()` for 121 s on FreeBSD* -- with a real kernel
+stack behind it; the hang was my own mock, because sourcing `_smoke.sh` outside a
+driver leaves `$SMOKE_TOOLS` empty and the generated mock could not answer
+anything. Exporting `SMOKE_TOOLS` did not help: sourcing `_smoke.sh` overwrites
+it. **The rule earned: do not rebuild a failing test's fixture -- instrument the
+failing test.** Both valid measurements came from the real driver, one sampled
+with `ps`/`procstat` and one an instrumented copy. ANECDOTES #83.
+
+**TWO LINTS WRITTEN THE SAME AFTERNOON, BOTH VACUOUS.** `posix_utils_lint`
+check 20 matched the literal word `grep` while both real call sites spell it
+`"$G"`; `portability_lint` check 14 matched line by line while the stale markdown
+sentence wrapped `never been` / `compiled` across two lines. Both green, both
+blind, both floored at **0 violations** -- where a broken extraction and a clean
+tree print the same number. Only perturbation caught them. ANECDOTES #84.
+
+**THE OPERATOR FOUND A STALE CLAIM BY READING.** `README.md` still said
+*"macOS and illumos have never been compiled"* the day after illumos passed 284
+of 303 drivers. M486 pinned the **binary's** verdict list against `PLATFORMS.md`
+after `doctor` told FreeBSD users the same kind of thing for months; the README's
+prose was pinned to nothing. `portability_lint` check 14 now pins it both ways.
+
+**AND A THIRD REAL DEFECT, from the driver that was left.** `setup_keyfile`
+check 22 holds wizard output to **76 columns**. The pre-prompt discard notice in
+`src/tui/jc_term.c` is a single **~150-column** line and always has been; the
+check had never fired because that flush path is not reached in that driver on
+Linux. FreeBSD reached it and it went red immediately. Wrapped, and the driver
+passes on both. Three product defects from this row, all of them platform-neutral
+and none of them visible here.
+
+**MEASURED AND NOT DIAGNOSED**, stated separately because naming a cluster is not
+naming a cause: `parallel_abort` check 1 fails there, and the delta is exact --
+the mock records the parent's turn plus **one** `TASK_` request where Linux
+records **two**, so one child of the fork pool does not reach it. Why is not
+established, and checks 2-3 of that driver therefore pass vacuously on FreeBSD.
+
+Full account, including what each probe would have "shown":
+[`analysis/2026-09-18-freebsd-and-the-probes-i-built.md`](analysis/2026-09-18-freebsd-and-the-probes-i-built.md).
+Also shipped: **`docs/CRAFT_AB_TUTORIAL.md`**, the step-by-step grading tutorial
+for a learner handed a craft A/B pack.
+### M667 -- counting the platforms, and HTML that is documentation rather than source -- done
+
+The operator asked what should happen **before** a public 0.9.2. This is the
+answer to the first four items of that list, and the most useful thing in it is
+that **three of the defects were only visible to someone trying to count**.
+
+**"19 ROWS VERIFIED" HAD THREE DIFFERENT ANSWERS.** README's headline said 19.
+The first check I ran said 14/5/2, because it counted bold verdict words anywhere
+in the file and those words appear in prose as often as in a verdict cell. A
+second route -- table rows under each `### ` heading -- said 27/3/1, because
+`### Verified` also contains a **six-row compiler front-end table** that is about
+gcc and clang rather than about platforms. Only a third route, *rows of a table
+whose first column header is `Platform`*, is the universe the claim is about. It
+says **20 Verified, 3 Partly verified, 1 Never compiled**. A public number that
+three honest attempts disagree about is a number nothing was pinning, and
+`posix_utils_lint` check 15 now pins it in both directions, floored above zero so
+a broken parse cannot pass as agreement.
+
+**FOUR ROWS WERE NOT RENDERING AS ROWS.** While enumerating them, four table rows
+turned out to sit *after prose paragraphs* with no header and no separator above
+them -- NetBSD and OpenBSD in the Verified section, Windows+Cygwin and
+Windows+MSYS2 in Partly verified. One of them was on the line immediately
+following the paragraph, which markdown treats as a **lazy continuation**: it
+renders as text appended to that paragraph. So four rows -- two of them freshly
+Driven, two of them the only Windows entries -- were showing on the public site as
+literal pipe-delimited text. Nothing errored. Nothing could have caught it except
+counting, and check 16 now refuses the shape.
+
+**THE DRIVEN REGISTER IS COMPLETE, AND THAT IS THE POINT.** M665 added the word
+`Driven` and a table of the eight rows that had it. That reintroduced the very
+defect the word was invented to remove: a row's absence meant either *not driven*
+or *nobody updated this*, and a reader could not tell. The register now lists all
+**24** rows, with the reason where the reason is structural -- the fourteen
+`qemu-user` architecture rows link `HAVE_CURL=` and **cannot** be driven as built,
+and "not driven" without that reads as neglect. WSL2's row now says Driven too; it
+always was, and only a prose section said so. Check 17 holds register and page at
+the same row count.
+
+**HTML DOCUMENTATION IS INDEXED AS PROSE NOW (the operator's item 4).**
+`docs/DOCS.md` had always said a `url` docs source is reduced to text before
+indexing. A **`path`** source was not -- and whole projects ship their
+documentation as HTML and publish no text archive, so a learner following
+`LANGUAGE_COURSE.md` with Racket indexed markup or nothing. Measured on
+`/usr/racket/doc/guide`, 151 Scribble pages:
+
+    first cold `docs search`    72 s  ->  7 s
+    a returned passage          <span class="RktSym"> ... &ldquo;rest&rdquo;
+                                ->  the prose, with real quotation marks
+    the first hit               lambda.html 4.4.2 -- the SAME, both times
+
+Retrieval was never wrong; it was paying to embed markup. `jc_index_build` gained
+`with_html`, **opt-in**, because the codebase index wants the opposite: in a web
+project the markup *is* the code, and stripping it would make a file unsearchable
+by the thing its author was looking for. The file **path is kept**, so a citation
+still points at the real page a learner can open. `docs_html.sh` drives the docs
+half through a mock embedder -- prose present, no tags, no class names or
+`<script>`/`<style>` bodies -- and `docs_html_scope_lint.sh` parses every
+`jc_index_build` call site and holds codebase calls at 0 and docs calls at 1. Both
+were proven red first.
+
+**AND THE ENTITIES, which the corpus surfaced.** The reducer decoded `&amp;`,
+`&lt;`, `&gt;`, `&quot;`, `&apos;`, `&nbsp;` and numeric references, but not the
+**named typographic** ones -- so a learner read `&ldquo;rest&rdquo;` inside a
+passage. That is M524's finding (`&#167;3.6.2` out of the C standard) in its named
+spelling. `ldquo rdquo lsquo rsquo mdash ndash hellip sect` are decoded now, and
+`docs_html.sh` check 6 was red before they were.
+
+**THREE THINGS THIS MILESTONE GOT WRONG ON THE WAY**, recorded because the
+pattern is the same every time and the record is the only thing that shortens it:
+
+1. My first platform count was the one that *reads* easiest (`grep` for the bold
+   word), not the one that *is* the universe. Two routes disagreeing is what
+   caught it -- which is `CLAUDE.md`'s "audit the universe, not the result",
+   applied to a number rather than to a test.
+2. The new `docs_html.sh` used GNU `\|` alternation in six places -- the exact
+   GNU-ism this tier spent the previous day removing -- and `posix_utils_lint`
+   check 12 caught it. A lint written yesterday caught its author today.
+3. The scope lint was named `docs_html_scope.sh` and `smoke_lint` refused it: a
+   driver that never runs `$BIN` must be named `*_lint.sh`. Renamed rather than
+   exempted -- the convention was right and the file was wrong.
+
+Also: `CHANGELOG.md`'s `[Unreleased]` had **duplicate `### Changed` and
+`### Fixed` headings**, two of each, merged into one section per type with the
+bullet count and an order-independent hash verified identical before and after (31
+bullets, same bytes) so the merge could not have dropped an entry.
+### M668 -- 0.9.2 -- done
+
+The operator asked what should happen before a public 0.9.2. This is the commit
+that makes it one, and like M653 it is **last on purpose**: `include/jc_version.h`
+states the rule about itself -- *a release = bump this constant + retitle the
+CHANGELOG's `[Unreleased]` section, in the same commit* -- and a section retitled
+before the work lands is a section that does not describe the release.
+
+**The band is M654-M668**, measured against the public `v0.9.1` tag rather than
+against the section heading, and it is a **PATCH**: nothing in it changes an
+interface. What it contains, for a reader deciding whether to take it:
+
+- **Five platform rows ran a real model for the first time.** FreeBSD, NetBSD and
+  OpenBSD each drove a text turn *and* an agentic turn whose tool the model had to
+  actually execute; so did both Raspberry Pis, including a **512 MB** Pi Zero 2 W
+  in 17 s. `PLATFORMS.md` gained a fourth verdict word, **Driven**, because the
+  other three are earned by gates that are all offline -- a row could hold every
+  one of them on a machine where jichi had never called a model.
+- **The platform page can be counted now**, which it could not before: four rows
+  were rendering as prose, and the public "19 rows verified" was wrong in a way
+  three separate attempts disagreed about.
+- **HTML documentation is indexed as prose**, so a corpus that ships as HTML --
+  which is most of them outside Python -- is usable rather than a pile of markup.
+- **A great many lints were reading the wrong thing.** The recurring shape: an
+  extraction that matched the literal word `grep` while this tier spells it `$G`,
+  which made *four* checks in three days silently vacuous; a `sed` replacement
+  using `\n` on a BSD; a pattern using GNU BRE `\?` that OpenBSD's grep refuses
+  outright. Each was found by a platform row rather than by reading.
+
+**What a reader should NOT expect from it.** The language course ships its corpus
+route and its tutorial, and **not** its graded assignments -- `LANGUAGE_COURSE.md`
+says so in those words rather than implying otherwise. macOS is still never
+compiled. `preprompt_discard` is still red on OpenBSD, with its most plausible
+explanation tested and **refuted** so the next reader does not spend that hour.
+
+

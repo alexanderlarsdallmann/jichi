@@ -1,0 +1,26 @@
+# Python — the official documentation, as the project itself publishes it.
+#
+# WHY AN ARCHIVE AND NOT A CRAWL. docs.python.org publishes a downloadable text
+# build of the whole documentation set. A crawl would be impolite, unversioned,
+# and would produce a different corpus every time it ran; the archive is the
+# same bytes for everyone on the same version, which is what makes a learner's
+# course reproducible and a citation checkable.
+name=python
+title=Python
+# The page that NAMES the current version. It is read rather than assumed: the
+# first attempt at this guessed `python-3.13-docs-text.tar.bz2` from the version
+# the author expected and got HTTP 404 -- the published version was 3.14.
+index_url=https://docs.python.org/3/download.html
+# How to find the archive link on that page. The version is whatever it says.
+archive_re=archives/python-3\.[0-9]+-docs-text\.tar\.bz2
+archive_base=https://docs.python.org/3/
+# Strip the archive's own top-level directory.
+strip=1
+# The two sources a course configures. The tutorial is what a learner walks; the
+# reference is large and opt-in. Measured 2026-09-18: tutorial 17 files, whole
+# set 537 files / 16 MB -- embedding the second to answer a question about the
+# first is the difference between a course someone starts and one they abandon.
+tutorial_dir=tutorial
+reference_dir=library
+licence=PSF-2.0
+licence_url=https://docs.python.org/3/license.html

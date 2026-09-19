@@ -42,6 +42,31 @@ import json
 import os
 
 
+# Deliberately shape-based and deliberately crude. A precise answer needs to know
+# whether the path is TRACKED in the project's VCS -- a gate file is tracked, a
+# downloaded PDF is not -- and the journal does not record that today. Recording
+# it is the next step this measurement asks for; until then the shape is what
+# there is, and calling it approximate in the output is better than implying it
+# is not.
+def classify_path(p):
+    import re as _re
+    if _re.search(r"\.(o|a|so|beam|class|pyc|tmp|dump|log|lock)$", p):
+        return "build artifact / temp"
+    if p.startswith(".jichi/"):
+        return "jichi's own state"
+    if _re.search(r"^(output|build|zig-out|target|dist|node_modules)/", p):
+        return "build / output directory"
+    if _re.search(r"\.(pdf|png|jpg|jpeg|wav|mp3|bin)$", p):
+        return "downloaded or generated binary"
+    if p == ".gitignore" or _re.search(r"(^|/)\.gitignore$", p):
+        return "an ignore file the run wrote"
+    if p.startswith("."):
+        return "other dotfile"
+    if _re.search(r"\.(md|txt|rst)$", p):
+        return "documentation / text output"
+    return "source or other -- READ THESE"
+
+
 def scan(paths):
     rows = []
     for p in paths:
@@ -132,6 +157,36 @@ def main():
             print("  READ THIS ONE: %-40s paths=%s"
                   % (r["file"], e.get("paths")))
     flagged_nonok = [r for r in scoped if r["outcome"] != "ok" and r["oos"]]
+    # M662: CLASSIFY, do not just list. The script told its reader to "read the
+    # flagged runs' paths before calling one a false positive", and on the
+    # 2026-09-18 corpus that meant reading 663 distinct paths -- an instruction
+    # nobody executes. The breakdown is the number that decides the question,
+    # because M332's own words say the plausible false positive is "an
+    # incidental shell-written file (a lock file, a generated artifact)" and the
+    # genuine one is "the gate edited through the shell". Those are separable by
+    # shape, imperfectly but usefully, and an imperfect split that gets read
+    # beats a perfect list that does not.
+    if downgrades:
+        buckets = {}
+        seen = []
+        for _r in downgrades:
+            for _e in _r["oos"]:
+                for _p in (_e.get("paths") or []):
+                    seen.append(_p)
+                    _k = classify_path(_p)
+                    buckets[_k] = buckets.get(_k, 0) + 1
+        if seen:
+            print("")
+            print("what those paths ARE (n=%d, %d distinct):"
+                  % (len(seen), len(set(seen))))
+            for _k in sorted(buckets, key=lambda k: -buckets[k]):
+                print("   %-28s %5d  %5.1f%%"
+                      % (_k, buckets[_k], 100.0 * buckets[_k] / len(seen)))
+            print("   (a path jichi's own build or the task's own output wrote is")
+            print("    NOT the gate being edited through the shell; strict-green")
+            print("    cannot tell them apart, and that is the finding, M662)")
+            print("")
+
     print("flagged runs that ended non-ok anyway (untouched by strict-green): %d"
           % len(flagged_nonok))
     if live:

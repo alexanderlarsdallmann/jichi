@@ -960,10 +960,19 @@ jc_read_result jc_term_readline(struct jc_term *t, const char *prompt,
          * input back in. Written with \r\n because OPOST is off in raw mode. */
         t->flushed_pending = 0;
         {
+            /* WRAPPED AT 76 COLUMNS, and it was not (M665). As one line this
+             * ran to ~150 columns -- the project's own wizard-output rule is
+             * 76, and `setup_keyfile` check 22 enforces it. It had never
+             * fired, because the pre-prompt flush is not reached in that
+             * driver on Linux; the FreeBSD row reached it and the check went
+             * red at once. The defect was on every platform and visible on
+             * one, which is the whole argument for a non-Linux row. */
             static const char msg[] =
                 "\r\nnote: input typed before this prompt was discarded (it "
-                "could otherwise have answered a prompt you had not read yet) "
-                "-- please retype it.\r\n";
+                "could\r\n"
+                "otherwise have answered a prompt you had not read yet) -- "
+                "please\r\n"
+                "retype it.\r\n";
             ssize_t w = write(t->out_fd, msg, sizeof(msg) - 1);
             (void)w;
         }

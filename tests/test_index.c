@@ -258,7 +258,7 @@ static void test_cached_load(void)
         memset(&m, 0, sizeof(m));
         m.model = (char *)"test-embed";
         idx = NULL;
-        JC_CHECK(jc_index_build(ws, &m, 0, NULL, &idx, &st, NULL,
+        JC_CHECK(jc_index_build(ws, &m, 0, NULL, 0, &idx, &st, NULL,
                                 NULL) == JC_OK);
         JC_CHECK(idx != NULL);
         JC_CHECK(st.embedded == 0);  /* fully served from the cache */

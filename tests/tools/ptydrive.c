@@ -46,6 +46,9 @@
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <termios.h>
+#ifdef JC_HAVE_STREAMS_PTY
+#include <stropts.h>
+#endif
 #include <time.h>
 #include <unistd.h>
 
@@ -254,6 +257,27 @@ static int pt_spawn(char **child_argv, int rows, int cols, int *master_out,
         slave = open(slave_name, O_RDWR);   /* becomes the controlling tty */
         if (slave < 0)
             _exit(127);
+#ifdef JC_HAVE_STREAMS_PTY
+        /* On a STREAMS system (illumos/Solaris) a freshly opened pty slave is
+         * NOT a terminal: measured on OmniOS r151058 at M661, `tcgetattr` fails
+         * and `isatty` returns 0 until the line-discipline modules are pushed
+         * onto the stream. Everything downstream then behaves correctly and
+         * wrongly -- jichi sees a non-tty and takes its non-interactive path, so
+         * all nineteen pty-driven smoke drivers failed while the pty itself
+         * "worked". The whole cluster was one cause.
+         *
+         * Guarded by the PROBE, not by `defined(__sun)`: the Makefile asks
+         * whether <stropts.h> and I_PUSH exist, which is the question the
+         * compiler will ask (M658). And guarded again at RUNTIME by isatty, so
+         * a system that hands out terminals directly is left alone -- the push
+         * happens because the slave is not a terminal, not because of who
+         * shipped the kernel. */
+        if (!isatty(slave)) {
+            (void)ioctl(slave, I_PUSH, "ptem");
+            (void)ioctl(slave, I_PUSH, "ldterm");
+            (void)ioctl(slave, I_PUSH, "ttcompat");
+        }
+#endif
 #ifdef TIOCSCTTY
         ioctl(slave, TIOCSCTTY, 0);         /* be explicit; may be a no-op */
 #endif

@@ -27,6 +27,263 @@ the `describe` interface contract.
 
 Nothing yet. The next user-visible change opens this section.
 
+## [0.9.2] — 2026-09-19 — the platform page you can count, and documentation
+jichi can read
+
+> **This section's span is M654–M668, and for once that is exactly the version
+> step.** `[0.9.1]` was cut at M653 and opened a fresh `[Unreleased]` in the same
+> commit, so nothing accumulated across a boundary this time — the bookkeeping gap
+> that made the previous section run from M327 is closed. The step is a **PATCH**
+> and that is the right class: no interface changed. What is in it is five
+> platform rows that ran a real model for the first time, a platform page whose
+> counts can be checked, HTML documentation indexed as prose rather than markup,
+> and a run of lints that turned out to have been reading the wrong thing.
+
+### Added
+
+- **HTML documentation sources are indexed as prose, not as markup** (M667).
+  `docs/DOCS.md` had always promised this for a `url` source; a **`path`** source
+  got it too now. It matters because whole projects ship documentation as HTML
+  and publish no text archive — Racket is one — so a learner following
+  [`docs/LANGUAGE_COURSE.md`](docs/LANGUAGE_COURSE.md) indexed markup or nothing.
+  Measured on Racket's Guide (151 Scribble pages): the first cold `docs search`
+  went **72 s → 7 s**, a retrieved passage went from `<span class="RktSym">` and
+  `&ldquo;rest&rdquo;` to readable prose with real quotation marks, and **the
+  same first hit came back both times** — retrieval was never wrong, it was
+  paying to embed markup. *For advanced readers:* `jc_index_build` takes a
+  `with_html` flag and it is **opt-in on purpose** — a codebase index passes 0,
+  because in a web project the markup *is* the code and stripping it would make a
+  file unsearchable by the thing its author was looking for. The file **path is
+  kept**, so a citation still points at the real page you can open.
+- Named typographic entities (`&ldquo;`, `&rdquo;`, `&lsquo;`, `&rsquo;`,
+  `&mdash;`, `&ndash;`, `&hellip;`, `&sect;`) are decoded by the HTML reducer,
+  which also improves RSS sources. The numeric forms were already handled — M524
+  added those after a reader got `&#167;3.6.2` out of the C standard — and this
+  is the same defect in its named spelling.
+- `tests/smoke/docs_html.sh` and `tests/smoke/docs_html_scope_lint.sh`: the first
+  drives a real HTML index through a mock embedder (prose present, no tags, no
+  class names or `<script>`/`<style>` bodies, entities decoded); the second parses
+  every `jc_index_build` call site and holds codebase calls at 0, docs calls at 1.
+- `posix_utils_lint` checks 15–17: the README's platform counts are pinned to
+  `docs/PLATFORMS.md` in both directions, orphaned table rows are refused, and the
+  **Driven** register must cover every platform row.
+
+- **`docs/CRAFT_AB_TUTORIAL.md`** — a step-by-step tutorial for a learner or
+  junior developer handed a craft A/B grading pack: what the experiment measures,
+  the order to read a pair in, what each of the seven questions is actually
+  asking (`overreach` is a **cost**, and it is the one people fill in backwards),
+  why not to deduce which arm is which, and — the part most likely to be got
+  wrong in a write-up — what may and may not be claimed from an n this small.
+- `tests/smoke/posix_utils_lint.sh` check 20 — `grep -r` is never pointed at a
+  single named **file**. FreeBSD's grep treats `-r` as `-H`, so a count comes
+  back `path:2` and a comparison against `2` fails on a healthy tree; `-r` does
+  nothing on a named file in the first place. Two checks of `ctx_estimate_lint`
+  had this shape.
+- `tests/smoke/portability_lint.sh` check 14 — README's never-compiled prose is
+  pinned to `docs/PLATFORMS.md` both ways. M486 pinned the *binary's* verdict
+  list after `doctor` told FreeBSD users the platform had never been compiled;
+  the README's prose was pinned to nothing, and said illumos had never been
+  compiled the day after illumos passed 284 of 303 smoke drivers.
+- `smoke_make` in `tests/smoke/_smoke.sh` — resolves GNU make's name (`$MAKE`,
+  else `gmake`, else `make`) for a driver that shells out to a make target.
+  FreeBSD's `make` is bmake, which made `cppcheck_lint` report `rc=2` for a
+  target that passes there.
+
+- `tests/smoke/deferred_register_lint.sh` — the deferred register's *structure*
+  is now checked on every build: no closed row under an `## Open` heading, no
+  open heading with no rows, every `path:line` anchor resolves, and every
+  platform `docs/PLATFORMS.md` files as *Never compiled* has a row in
+  `docs/DEFERRED.md`. That last check found **illumos missing from the register
+  entirely** (M657).
+
+### Changed
+
+- `docs/DEFERRED.md` walked end to end (M657): the licence and public-repository
+  row **closed** — it had read *"waiting on a JLU rights answer"* and *"no
+  `LICENSE` file exists"* for three weeks after v0.9.0 was published; an illumos
+  row and two coverage-debt rows added; the three peer-transport rows and the
+  logo row re-scoped; `--strict-green` given a recommendation (`--unattended`
+  only, joining M158b's escalation set) instead of a standing open question.
+- `README.md` records the **v0.9.1 public re-cut** (2026-09-17/18, public
+  `573ccce`, tag on both remotes); it had still said the public tree read 0.9.0.
+- `docs/VOCABULARY.md` gains **nine English idioms** with their literal image —
+  *dogfooding*, *blast radius*, *teeth*, *born red*, *flaky*, *footgun*, *happy
+  path*, *paper over*, *shu-ha-ri* — after a native Japanese-speaking reviewer
+  pointed out that a metaphor a reader cannot decode is not explained by defining
+  its usage (49 → 58 terms, M657b).
+- **All ten tutorials now link `VOCABULARY.md`**; none of them did. Held by
+  `docs_locators_lint` check 8.
+- `docs/i18n/README.md` states the **Japanese register** (formal written
+  Japanese) as a decision, with the argument on both sides — it had never been
+  argued, only defaulted into.
+
+- `tests/measure/strict_green_fp.py` classifies the paths a `--strict-green`
+  flip would refuse, instead of printing them for a reader to sort by hand
+  (M662). On the current corpus the rate is **16 of 35 scoped green runs**, and
+  **85% of the flagged paths are the work's own output** — so the default stays
+  opt-in and the earlier recommendation to enable it is withdrawn.
+
+### Fixed
+
+- **Four rows of `docs/PLATFORMS.md` were not rendering as table rows** (M667).
+  NetBSD, OpenBSD, Windows + Cygwin and Windows + MSYS2 sat after prose
+  paragraphs with no table header above them — and one of them on the line
+  immediately following the paragraph, which markdown treats as a lazy
+  continuation of that paragraph. On the published page they appeared as literal
+  pipe-delimited text. Nothing errored; it was invisible until something tried to
+  **count** the platforms.
+- **The public platform count was wrong, and so was the first correction.**
+  README said *"19 rows verified"*; the page has **20 Verified, 3 Partly
+  verified, 1 Never compiled**. An intermediate attempt said 14/5/2 because it
+  counted bold verdict words anywhere in the file, and another said 27/3/1
+  because `### Verified` also holds a six-row **compiler front-end** table. Three
+  honest attempts disagreeing is what an unpinned public number looks like.
+- The **Driven** register now lists all 24 platform rows rather than only the
+  eight that are driven — a register of the driven ones makes absence ambiguous
+  (*not driven* or *not updated*?), which is the defect the word was added to
+  remove. WSL2's row says Driven now; it always was, and only a prose section
+  said so.
+- `CHANGELOG.md`'s `[Unreleased]` had **duplicate `### Changed` and `### Fixed`
+  headings**, two of each, merged into one section per type.
+
+- **The FreeBSD row's six failing drivers, four of them harness defects that had
+  nothing to do with the platform** (M665). `ctx_estimate_lint` compared a count
+  against `2` while BSD grep returned `src/chat/jc_compact.c:2`; `cppcheck_lint`
+  enumerated its universe with `git ls-files` on a shipped tree that carries no
+  `.git` (which failed it on FreeBSD, illumos **and both Pi rows at once**) and
+  ran bare `make` where `make` is bmake; `man_page_lint` passed man-db's
+  `--warnings` to a mandoc-based `man` and reported a defect in the page having
+  never read it. **`peer_reap_grace` accused the fix it exists to defend**: it
+  timed `with_deadline` rather than jichi, and FreeBSD's `timeout(1)` acquires
+  reaper status, so the mock's orphaned `sleep 120` reparented to it and held it
+  open for the full 45 s. jichi's own exit took **0 s**; `jc_worker_reap_grace`
+  was correct throughout. The check now times its own child and no longer prints
+  a cause it cannot observe.
+- **OpenBSD is at 301 of 303 drivers, and `parallel_abort` is diagnosed**
+  (2026-09-19). The BSD row went `290 → 294 → 301` as its own findings were
+  fixed: **thirteen** GNU BRE alternations `\|` that a lint written to ban them
+  could not see (it matched the literal word `grep` while the tier spells it
+  `$G` — the fourth check in three days with that exact vacuity), a BRE
+  `\(…\)\?` that OpenBSD grep **refuses** outright, a `grep … -` reading stdin
+  which it also rejects, and `--include` filters it silently ignores.
+  `describe_names_lint` is the one to read: it reported *"the binary does not
+  report unknown options"* while printing the error that proves it does.
+  **`parallel_abort`** turned out not to be an abort defect at all — instrumenting
+  the real driver showed the second child was never forked, because
+  `jc_cpu_count()` returns **1** on FreeBSD and NetBSD (the BSDs hide
+  `_SC_NPROCESSORS_ONLN` behind `__BSD_VISIBLE`, and this tree compiles
+  `-D_POSIX_C_SOURCE=200112L`). `jc_platform_posix.c` had predicted that exact
+  consequence in a comment since M459. The driver now pins `maxParallelAgents`
+  so it measures abort and reaping rather than the CPU count.
+- **OpenBSD and NetBSD are now *Driven*, and the OpenBSD row found eight GNU-isms
+  a lint had been written to ban** (2026-09-19). Both BSD rigs gained live turns —
+  a text turn *and* an agentic turn whose tool the model must actually run — with
+  the guest reaching a loopback LM Studio over a reverse forward carried on the
+  connection that runs the turn. **NetBSD passed both first try** and stands at
+  `302 of 303 drivers, 1,735 checks`, the cleanest non-Linux row in the matrix;
+  **OpenBSD** passed both twice and moved `290 → 294 of 303` as its findings were
+  fixed. What it found: `grep -r --include=` is a GNU extension **BSD grep does
+  not reject** — it reads the argument as a filename and searches on *without the
+  filter* — so `ctx_estimate_lint` reported an **object file** as a source using a
+  symbol. `posix_utils_lint` check 8 bans that flag and had missed **eight** sites
+  because it matched the literal word `grep` while the call sites spell it `$G`,
+  **`priced_model_lint` among them**. Also fixed: `cppcheck_lint` passed an option
+  *after* its operand (only GNU grep permutes that), and `portability_lint`'s own
+  check 14 split text with `sed 's/…/\n/'`, which BSD sed renders as a literal
+  `n`. **`parallel_abort` fails identically on FreeBSD and NetBSD** — one child of
+  the fork pool does not reach the mock — which makes it a behaviour to diagnose
+  rather than one row's quirk.
+- **Both Raspberry Pi rows are now complete and driven, and the device rig had
+  four defects that had been hiding it** (2026-09-18). The **Pi 400** reports
+  `smoke: OK (303 drivers, 1,761 checks)`, 0 failures — the whole tier, and a row
+  of `17 ok, 0 failed` including an agentic turn where the model chose
+  `read_file`, the tool executed and the second turn reported the run's random
+  phrase. It had stood at *green without a driver count* since M451. The
+  **Pi Zero 2 W** reports `smoke: (302 of 303 drivers passed, 1,743 checks)` —
+  its first denominator ever — and drove both a text turn and a `read_file` tool
+  call in **17 s each on a 512 MB board**, the smallest thing in the matrix to
+  have run the agent loop. The rig defects, each found by running it: `--live`
+  set **`JICHI_API_BASE`, a variable that exists nowhere in jichi**, so it never
+  drove the endpoint it was given and fell back to a **priced provider**; the
+  gate ran without `JC_SMOKE_KEEP_GOING=1`, so the tier stopped at the first
+  failing driver and **never printed a count** (the root cause of the Pi 400's
+  missing denominator); the live config was written under a reassigned `HOME`;
+  and both the prompt and the fixture lost their quotes crossing `sh -lc`, so the
+  agentic check blamed the model for a file the harness had not written.
+- **FreeBSD is now *Driven*** — the first live model call on that kernel, and a
+  real tool call with it (`google/gemma-4-12b` over an ssh reverse tunnel to a
+  loopback-bound LM Studio): a text turn in **4 s**, and an agentic turn that
+  chose `read_file`, executed it and used the result, in **7 s**. `PLATFORMS.md`
+  gains a fourth verdict word for this, because the other three describe gates
+  that are **all offline** — a row can be *Verified* on a kernel where jichi has
+  never called a model. Raised by the operator — who then corrected the first
+  count published with it: *"3 of 19"* counted what `PLATFORMS.md` **records**,
+  not what has run. The M459 fleet push had driven a Pi, an Android tablet and a
+  proot guest with a model over ssh in 2026-08, executing tools and writing
+  files. The real gap is that the matrix does not carry driven-ness, and that is
+  what `DEFERRED.md` now tracks.
+- **A ~150-column line in the pre-prompt discard notice** (`src/tui/jc_term.c`),
+  against the project's own 76-column rule for wizard output. `setup_keyfile`
+  check 22 had enforced that rule all along and had never fired, because the
+  flush path is not reached in that driver on Linux. FreeBSD reached it. The
+  defect was on every platform and visible on one.
+- `man/jichi.1` — a literal backslash written `\\` (undefined escape; roff needs
+  `\e`) and a `.TH` date whose hyphens were roff-escaped and therefore
+  unparseable. **Both were found by mandoc on FreeBSD and accepted silently by
+  GNU man** — the third time a non-Linux row has been the second opinion.
+- `README.md` no longer says illumos has never been compiled. It has been
+  *partly verified* since M658.
+- `scripts/tier-v-bsd.sh` records the smoke driver count on the **failing**
+  branch too. It only ever captured it when the tier passed, so a partly-green
+  row came back with no denominator and its coverage debt stayed uncomputable —
+  the gap `docs/PLATFORM_RETEST.md` already names for the Pi 400.
+
+- **The MCP and ACP readers were quadratic in message size** (M664). Each
+  rescanned the whole accumulated buffer for a newline after every 4 KB read —
+  about 8.6 GB of scanning for a message approaching the 8 MiB peer cap. A large
+  MCP message was slow on every platform; on a Raspberry Pi Zero 2 W it consumed
+  the reader's entire 120-second deadline, so the deadline fired before the cap
+  could. Measured 121 s → 0.44 s on that board.
+- A fourth blocking `waitpid` after `SIGTERM`, on the LSP connect path's
+  allocation-failure branch — found by `posix_utils_lint` check 19, which now
+  keeps the whole family swept (M661c).
+- **A peer that ignores `SIGTERM` can no longer hang jichi's exit** (M661b). MCP
+  and LSP shutdown blocked in `waitpid` with no timeout; both now use the
+  SIGTERM→grace→SIGKILL reap the parallel pool and the daemon already used.
+  Held by `tests/smoke/peer_reap_grace.sh`.
+- **`make install` installed only one of the two binaries on illumos, and exited
+  0** (M661). `install SRC1 SRC2 DIR` is a GNU/BSD extension; Sun's `install`
+  takes a single file. Each binary is now installed by its own call with an
+  explicit destination.
+- `make check-target` builds `all`, so the on-target tier has both binaries to
+  test `make install` with (M661).
+- The pty-driven smoke drivers work on illumos: a pty slave on a STREAMS system
+  needs `ptem`/`ldterm` pushed before it is a terminal, behind a Makefile probe
+  and a runtime `isatty` guard (M661).
+- `scripts/tier-v-illumos.sh` reads `doctor` by its summary line rather than its
+  exit code (it exits non-zero when it *finds* something), installs git and
+  git-inits the shipped tree so the row compares to a host run, and survives
+  cloud-init restarting sshd under it (M660).
+- **A peer cannot exhaust memory with an endless line** (M659). The MCP stdio
+  reader and the ACP stdin reader both accumulated an inbound message with no
+  byte bound; both are now capped at `JC_PEER_LINE_MAX` (8 MiB), and **the
+  refusal names the cap in bytes** rather than looking like a network stall.
+  Held by `tests/smoke/peer_line_cap.sh`.
+- **jichi builds on illumos/Solaris** (M658). Two Makefile probes, reported by
+  `make info`: `-D__EXTENSIONS__` where a platform hides `struct winsize` and
+  `TIOCGWINSZ` under strict POSIX, and `-lsocket -lnsl` where sockets are not in
+  libc. Neither is added on Linux or the BSDs, where the first probe succeeds.
+- **`search_code` no longer fails outright where grep rejects `-I`** (M658).
+  illumos's grep accepts `-r` and rejects `-I`, so every search exited 2 and the
+  tool was dead there. A one-shot capability probe now selects the flags; on the
+  fallback branch binary files are no longer skipped, which the code states at
+  the probe. Held by `tests/smoke/search_grep_dash_i.sh`.
+- `scripts/tier-b-device.sh` could not measure a device in a non-English locale:
+  `awk`'s `%.2f` printed a comma and the timeout multiplier was unparseable, so
+  the row was abandoned. It also wrote its stderr capture into the shipped tree,
+  and ran the gate against `/tmp`, which is a 213 MB tmpfs on the smallest board
+  in the fleet (M658).
+
 ## [0.9.1] — 2026-09-17 — the drift sweep, the licence, and the first snapshot
 
 > **What this section's span actually is, because it is wider than the version

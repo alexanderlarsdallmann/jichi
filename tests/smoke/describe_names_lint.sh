@@ -115,7 +115,7 @@ missing=""
 for c in $("$JQ" '.subcommands' "$tmp/d.json" 2>/dev/null \
            | "$G" -o '"name":"[a-z][a-z-]*"' \
            | sed 's/.*"\([a-z][a-z-]*\)"/\1/' | sort -u); do
-    if "$G" -q "^  $c\( \|$\)" "$tmp/help.txt"; then
+    if "$G" -qE "^  $c( |$)" "$tmp/help.txt"; then
         continue
     fi
     missing="$missing $c"
@@ -135,7 +135,7 @@ badflag=""
 for f in $("$JQ" '.key_flags' "$tmp/d.json" 2>/dev/null \
            | "$G" -o '"--[a-z-]*"' | sed 's/"//g' | sort -u); do
     err=$(with_deadline 20 "$BIN" "$f" --help < /dev/null 2>&1 \
-          | "$G" -ci 'unknown option\|unrecognized' || true)
+          | "$G" -ciE 'unknown option|unrecognized' || true)
     [ "$err" = "0" ] || badflag="$badflag $f"
 done
 if [ -z "$badflag" ]; then
@@ -150,7 +150,7 @@ fi
 # fifth-plus time in this project that a check needed proof it could fail; see
 # docs/analysis/2026-08-22-learning-from-errors.md.
 if with_deadline 20 "$BIN" --definitely-not-a-flag < /dev/null 2>&1 \
-   | "$G" -qi 'unknown option\|unrecognized'; then
+   | "$G" -qiE 'unknown option|unrecognized'; then
     t_ok "an invented flag IS rejected, so check 4's probe can fail"
 else
     t_fail "the binary does not report unknown options, so check 4 proves \

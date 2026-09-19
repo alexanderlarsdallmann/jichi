@@ -20,7 +20,7 @@
 # Compiles nothing and runs no jichi (hence *_lint.sh).
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 13
+t_plan 17
 
 mk="$SMOKE_ROOT/Makefile"
 plat="$SMOKE_ROOT/src/platform/jc_platform_posix.c"
@@ -455,6 +455,223 @@ if [ "$_flag_probes" -le 1 ]; then
 else
     t_fail "$_flag_probes flag probes: one question, one probe -- the M479 defect \
 was a second probe forty lines below a correct one"
+fi
+
+# --- 7d: README's never-compiled prose matches PLATFORMS.md ------------------
+# THE DEFECT, found by the operator reading the page on 2026-09-18. README.md
+# said "**macOS and illumos have never been compiled**, and the page says so in
+# those words" -- while PLATFORMS.md said, in those words, "Never compiled:
+# macOS", illumos having been partly verified since M658 the previous night
+# (13,273 unit checks, 284 of 303 smoke drivers). The README's OWN summary five
+# paragraphs earlier already carried the new verdict; only the sentence
+# asserting what the other page says was stale.
+#
+# This is M486 in a second costume. There the BINARY told a FreeBSD user "jichi
+# has never been compiled on this platform" for months after FreeBSD passed
+# 1,068 smoke checks, and check 7c now pins the C's list against this page both
+# ways. The prose in README.md was never pinned to anything -- and a
+# never-compiled claim is the one kind of platform statement a reader acts on
+# immediately, by not trying.
+#
+# THE RULE is narrow and two-sided. From PLATFORMS.md's "### Never compiled"
+# table, take the platform names. Then every README line that makes a
+# never-compiled CLAIM may name only those. The extraction is floored at both
+# ends -- an empty never-set or zero claim lines means the check stopped
+# reading, not that the tree is clean, which is the failure mode that hid the
+# `grep -r` lint's own vacuity earlier the same day.
+_readme="$SMOKE_ROOT/README.md"
+_plat_md="$SMOKE_ROOT/docs/PLATFORMS.md"
+_names='macOS Darwin illumos Solaris FreeBSD OpenBSD NetBSD WSL Android Guix Haiku'
+_never=$(awk '/^### Never compiled/{f=1; next} /^### /{f=0} f' "$_plat_md" \
+         | sed -n 's/^| *\*\*\([^*]*\)\*\*.*/\1/p')
+_nnever=$(printf '%s' "$_never" | grep -c . | tr -d '[:space:]')
+[ -n "$_never" ] || _nnever=0
+# SENTENCE granularity, not line. A README line legitimately carries BOTH a
+# never-compiled claim and a verdict for another platform -- line 28 says
+# "illumos is partly verified ... Never compiled: macOS" and is correct. A
+# line-wide rule called that a contradiction on its first run. Split on
+# sentence and clause boundaries and keep only the fragments that make the
+# claim; the platform must be named inside the claim itself.
+# PARAGRAPH mode, then clause. Markdown prose is hard-wrapped, so the claim
+# this check exists for -- "**macOS and illumos have never been\ncompiled**" --
+# had "never" on one line and "compiled" on the next, and a line-based grep
+# could not see it. The perturbation caught that; the count could not, because
+# zero contradictions is also what a clean tree looks like. Second time in one
+# session an extraction was narrower than the thing it extracted (see
+# posix_utils_lint check 20), which is why the floors below are not optional.
+#
+# So: join each paragraph onto one line, split into clauses, keep the ones that
+# make a never-compiled claim. Line numbers are lost and the clause text is
+# printed instead, which is what a reader needs to fix it anyway.
+#
+# The em dash in the sed below is a LITERAL character, not \xe2\x80\x94.
+# The escape is what I wrote first, and check 12 of posix_utils_lint --
+# this tier's own ban on GNU hex escapes, which match nothing on a BSD --
+# failed on FreeBSD and told me so. Do not 'fix' it back.
+# THE SPLIT IS awk, NOT sed, AND THAT IS THE WHOLE POINT (2026-09-19).
+# BSD sed does not interpret `\n` in a REPLACEMENT -- it emits a literal `n`.
+# On OpenBSD this check therefore never split the paragraph at all: the text came
+# back as `**19 rows verified**ncompiled ...`, one enormous clause, and every
+# platform named anywhere in it was reported as contradicted. A check about
+# portability, failing on the second platform that read it, for a GNU-ism in its
+# own implementation. awk's gsub inserts a real newline everywhere.
+_claims=$(awk 'BEGIN{RS=""} {gsub(/\n/, " "); print}' "$_readme" \
+          | awk '{ gsub(/\. /, "\n"); gsub(/; /, "\n"); gsub(/[()]/, "\n");
+                   gsub(/ — /, "\n"); print }' \
+          | grep -i 'never' | grep -i 'compiled' \
+          | grep -vi 'never compiled from source before')
+_nclaims=$(printf '%s' "$_claims" | grep -c . | tr -d '[:space:]')
+[ -n "$_claims" ] || _nclaims=0
+_bad=''
+for _n in $_names; do
+    if printf '%s\n' "$_never" | grep -qi "$_n"; then continue; fi
+    _hit=$(printf '%s\n' "$_claims" | grep -i "$_n" || true)
+    [ -n "$_hit" ] && _bad="$_bad
+$_n: $_hit"
+done
+if [ "${_nnever:-0}" -ge 1 ] && [ "${_nclaims:-0}" -ge 1 ] && [ -z "$_bad" ]; then
+    t_ok "README's $_nclaims never-compiled claim(s) name only what PLATFORMS.md lists ($(printf '%s' "$_never" | tr '\n' ' '))"
+else
+    t_fail "README.md asserts a platform is never compiled that PLATFORMS.md verifies.
+  PLATFORMS.md '### Never compiled' names ($_nnever): ${_never:-NOTHING EXTRACTED}
+  README never-compiled claim lines: $_nclaims
+  contradicted:${_bad:- none}
+A never-compiled claim is the one platform statement a reader acts on by not
+trying. Fix README.md, or move the row on PLATFORMS.md -- but they must agree.
+If either count above is 0 the extraction broke and this check read nothing."
+fi
+
+# --- 15: README's platform COUNTS are the ones PLATFORMS.md actually has -----
+# THE DEFECT, found by trying to count before a public release (2026-09-19).
+# README.md's headline said "**19 rows verified** -- compiled *and* gate-run on
+# each", and a second paragraph said "Nineteen of them". The page had **20**
+# Verified rows. Worse, the first count I took was 14/5/2, because I counted
+# BOLD VERDICT WORDS anywhere in the file -- and those words appear in prose as
+# often as in a verdict cell. Three different numbers for one question is what an
+# unpinned public claim looks like.
+#
+# THE UNIVERSE IS DEFINED, not guessed: rows of a table whose first column header
+# is "Platform", inside one of the three `### ` verdict sections. That excludes
+# the front-end table (gcc/clang/zig), which sits inside `### Verified` and is
+# about compilers rather than platforms -- it is six rows, and counting it is how
+# a plausible wrong answer is produced.
+#
+# FLOORED ABOVE ZERO on purpose. A floor of zero cannot tell a clean tree from a
+# broken extraction, which this tier learned twice in one week; if the parse
+# breaks, the counts collapse and the check says so instead of passing.
+_pcounts=$(awk '
+    { line[NR] = $0 }
+    END {
+        sec = ""
+        for (i = 1; i <= NR; i++) {
+            l = line[i]
+            if (l ~ /^### Verified[ \t]*$/)             { sec = "V"; continue }
+            if (l ~ /^### Partly verified[ \t]*$/)      { sec = "P"; continue }
+            if (l ~ /^### Never compiled[ \t]*$/)       { sec = "N"; continue }
+            if (l ~ /^### / || l ~ /^## /)              { sec = "";  continue }
+            # a table header is a | line whose NEXT line is the separator
+            if (sec != "" && substr(l,1,1) == "|" && line[i+1] ~ /^\|[ :|-]+\|?[ :|-]*$/) {
+                split(l, c, "|")
+                hdr = c[2]; gsub(/^[ \t]+|[ \t]+$/, "", hdr)
+                j = i + 2; n = 0
+                while (j <= NR && substr(line[j],1,1) == "|" && line[j] ~ /[^ \t|]/) {
+                    n++; j++
+                }
+                if (hdr ~ /^Platform/) { cnt[sec] += n }
+                i = j - 1
+            }
+        }
+        printf "%d %d %d\n", cnt["V"] + 0, cnt["P"] + 0, cnt["N"] + 0
+    }' "$SMOKE_ROOT/docs/PLATFORMS.md")
+_pv=$(echo "$_pcounts" | awk '{print $1}')
+_pp=$(echo "$_pcounts" | awk '{print $2}')
+_pn=$(echo "$_pcounts" | awk '{print $3}')
+# The README states them as "<n> rows Verified", "<n> Partly verified",
+# "<n> Never compiled". Read as words too, because the prose paragraph spells it.
+_rv=$(sed -n 's/.*\*\*\([0-9][0-9]*\) rows Verified\*\*.*/\1/p' "$SMOKE_ROOT/README.md" | head -1)
+_rp=$(sed -n 's/.*\*\*\([0-9][0-9]*\) Partly verified\*\*.*/\1/p' "$SMOKE_ROOT/README.md" | head -1)
+_rn=$(sed -n 's/.*\*\*\([0-9][0-9]*\) Never compiled\*\*.*/\1/p' "$SMOKE_ROOT/README.md" | head -1)
+if [ "${_pv:-0}" -ge 15 ] && [ "${_pn:-0}" -ge 1 ] && \
+   [ "$_pv" = "${_rv:-}" ] && [ "$_pp" = "${_rp:-}" ] && [ "$_pn" = "${_rn:-}" ]; then
+    t_ok "README's platform counts match the page: $_pv Verified, $_pp Partly verified, $_pn Never compiled"
+else
+    t_fail "README and PLATFORMS.md disagree about how many platforms there are.
+  PLATFORMS.md 'Platform' table rows : Verified=$_pv  Partly=$_pp  Never=$_pn
+  README.md says                     : Verified=${_rv:-<none found>}  Partly=${_rp:-<none found>}  Never=${_rn:-<none found>}
+The README's is the number a reader meets first and the one a release is judged
+on. If the extraction reads 0 the parse broke -- fix that before the prose."
+fi
+
+# --- 16: no ORPHANED table rows in PLATFORMS.md ------------------------------
+# THE DEFECT, and it was invisible until something tried to count (2026-09-19).
+# The NetBSD and OpenBSD rows sat AFTER a prose paragraph with no header and no
+# separator above them -- one of them on the line immediately following the
+# prose, which markdown treats as a lazy continuation of that paragraph. So two
+# of the most substantive rows on the page, both freshly Driven, were rendering
+# as literal pipe-delimited text rather than as table rows. Windows + Cygwin and
+# Windows + MSYS2 were stranded the same way in the section below.
+#
+# Nothing rendered an error; the page simply showed rows as prose. That is the
+# shape of defect a public snapshot carries to readers who never see the source.
+_orph=$(awk '
+    { line[NR] = $0 }
+    END {
+        n = 0
+        for (i = 1; i <= NR; i++) {
+            l = line[i]
+            if (substr(l,1,2) != "| ") continue
+            if (l ~ /^\|[ :|-]+\|?[ :|-]*$/) continue          # a separator
+            if (substr(line[i-1],1,1) == "|") continue          # part of a table
+            if (line[i+1] ~ /^\|[ :|-]+\|?[ :|-]*$/) continue   # it is a header
+            n++
+            printf "  line %d: %.60s\n", i, l
+        }
+        exit (n > 0 ? 1 : 0)
+    }' "$SMOKE_ROOT/docs/PLATFORMS.md") || true
+if [ -z "$_orph" ]; then
+    t_ok "no orphaned table rows in PLATFORMS.md (a row after prose renders as prose)"
+else
+    t_fail "table row(s) in PLATFORMS.md with no header or separator above them.
+Markdown renders these as ordinary text, so the row is invisible as a row:
+$_orph
+Move them into the table they belong to, and keep a blank line before a heading."
+fi
+
+# --- 17: the Driven register covers EVERY platform row ----------------------
+# WHY THIS IS A CHECK AND NOT A CONVENTION. The `Driven` verdict was added
+# because evidence that a platform had run the agent loop existed in analysis
+# pages and **not on the matrix**, so no reader could answer "has it ever run
+# here?" without a search -- and the first count published with the word was
+# wrong for exactly that reason. The register fixes it only while it stays
+# complete: a register listing the eight rows that ARE driven reintroduces the
+# same defect one level down, because a row's absence then means either "not
+# driven" or "nobody updated this", and a reader cannot tell which.
+#
+# So the property is completeness, checked by count. Names are not compared:
+# the register's labels are short by design and the table cells are long, and a
+# name-matching check would fail on formatting rather than on substance. A count
+# mismatch says precisely the thing worth saying -- a row was added or removed
+# somewhere and the other table did not move.
+_reg=$(awk '
+    { line[NR] = $0 }
+    END {
+        for (i = 1; i <= NR; i++) {
+            if (line[i] ~ /^\| Row \| Driven\?/ && line[i+1] ~ /^\|[ :|-]+\|?[ :|-]*$/) {
+                j = i + 2; n = 0
+                while (j <= NR && substr(line[j],1,1) == "|" && line[j] ~ /[^ \t|]/) { n++; j++ }
+                printf "%d\n", n; exit
+            }
+        }
+        print 0
+    }' "$SMOKE_ROOT/docs/PLATFORMS.md")
+_plat=$((${_pv:-0} + ${_pp:-0} + ${_pn:-0}))
+if [ "${_reg:-0}" -ge 15 ] && [ "${_reg:-0}" -eq "$_plat" ]; then
+    t_ok "the Driven register covers all $_plat platform rows"
+else
+    t_fail "the Driven register has ${_reg:-0} row(s) for $_plat platform row(s).
+Every row on this page must appear there, driven or not: a register that lists
+only the driven ones makes absence ambiguous, which is the defect the Driven
+verdict was introduced to remove. (A register of 0 means the parse broke.)"
 fi
 
 t_done

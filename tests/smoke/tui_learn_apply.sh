@@ -137,12 +137,11 @@ fi
 
 # The shared summary renderer's line, so the TUI reports the same numbers the CLI
 # does rather than counting for itself.
-if grep -aq "Applied 1 memory note(s), 1 skill(s), 1 correction(s), and 0 " \
-    "$tmp/pty.log"; then
+if smoke_bgrep "$tmp/pty.log" -q "Applied 1 memory note(s), 1 skill(s), 1 correction(s), and 0 "; then
     t_ok "the TUI renders the shared summary line with the real counts"
 else
     t_fail "the TUI renders the shared summary line with the real counts"
-    grep -a "Applied" "$tmp/pty.log" | sed 's/^/    | /'
+    smoke_bgrep "$tmp/pty.log" "Applied" | sed 's/^/    | /'
 fi
 
 # THE assertion. The stale BULLET was printed once by the first /memory; if the
@@ -154,7 +153,7 @@ fi
 # correction's own detail line quotes the MATCH ("ResourceCache uses AutoHasher"),
 # so counting that would find two hits with the refresh working perfectly. This
 # fixture was wrong that way on its first run.
-n=$(grep -ac "AutoHasher for its key type" "$tmp/pty.log")
+n=$(smoke_bgrep "$tmp/pty.log" -c "AutoHasher for its key type")
 if [ "$n" -eq 1 ]; then
     t_ok "the correction took effect in the LIVE session (no restart)"
 else
@@ -180,7 +179,7 @@ fi
 # The other half of "reload in place": a freshly written SKILL.md is invisible to
 # the catalog (and so to the model) until jc_skill_load runs again. The /skills
 # expect above already gates the run, so this is the explicit statement of why.
-if grep -aq "curate a mentor draft" "$tmp/pty.log"; then
+if smoke_bgrep "$tmp/pty.log" -q "curate a mentor draft"; then
     t_ok "the new skill is in the LIVE catalog (/skills), not just on disk"
 else
     t_fail "the new skill is in the LIVE catalog (/skills), not just on disk"
@@ -236,7 +235,7 @@ fi
 
 # The pending memory note must be reported, not silently deferred, and must not
 # have been written.
-if grep -aq "1 other draft item(s) not applied" "$c/pty.log" &&
+if smoke_bgrep "$c/pty.log" -q "1 other draft item(s) not applied" &&
    ! grep -q "an addition that must wait" "$c/.jichi/memory.md"; then
     t_ok "the deferred memory note is reported and not committed"
 else
@@ -279,7 +278,7 @@ if (cd "$nows" && "$SMOKE_TOOLS/ptydrive" --deadline 90 \
         --log "$tmp/pty2.log" "$tmp/nodraft.pd" -- \
         "$BIN" --config "$tmp/config.json" --no-lite) \
         > "$tmp/drive2.out" 2>&1 &&
-   grep -aq "draft lessons first with /learn" "$tmp/pty2.log"; then
+   smoke_bgrep "$tmp/pty2.log" -q "draft lessons first with /learn"; then
     t_ok "no draft names the path and points at /learn"
 else
     t_fail "no draft names the path and points at /learn"

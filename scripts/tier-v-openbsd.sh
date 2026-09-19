@@ -59,6 +59,9 @@ set -u
 REL="${TIER_V_OPENBSD_RELEASE:-7.9}"
 DIR="${TIER_V_OPENBSD_DIR:-$HOME/.cache/jichi-tier-v-openbsd}"
 PORT="${TIER_V_OPENBSD_PORT:-2222}"
+# The live step is OPT-IN: a row without it is Verified, not Driven, and says so.
+LIVE_PORT=""
+LIVE_MODEL="local"
 HTTP_PORT="${TIER_V_OPENBSD_HTTP_PORT:-8088}"
 REF_SECS="${JC_REF_SECS:-}"
 MEM=2048
@@ -73,6 +76,8 @@ while [ $# -gt 0 ]; do
         --dirty)   DIRTY=1 ;;
         --release) REL="$2"; shift ;;
         --port)    PORT="$2"; shift ;;
+        --live-port)  LIVE_PORT="$2";  shift ;;
+        --live-model) LIVE_MODEL="$2"; shift ;;
         --mem)     MEM="$2"; shift ;;
         --smp)     SMP="$2"; shift ;;
         --ref-secs) REF_SECS="$2"; shift ;;
@@ -108,6 +113,9 @@ bad()  { N_FAIL=$((N_FAIL+1)); echo "not ok - $*"; echo "FAIL - $*" >> "$RESULTS
 note() { echo "$*" >> "$RESULTS"; }
 # shellcheck disable=SC2086
 g()  { ssh $SSH_OPTS -i "$KEY" -p "$PORT" tierv@127.0.0.1 "$@"; }
+# gl -- g() carrying a REVERSE forward, so the guest reaches the host's
+# loopback LM Studio for exactly the lifetime of this one command.
+gl() { ssh $SSH_OPTS -R "$LIVE_PORT:127.0.0.1:$LIVE_PORT" -i "$KEY" -p "$PORT" tierv@127.0.0.1 "$@"; }
 # shellcheck disable=SC2086
 gr() { ssh $SSH_OPTS -i "$KEY" -p "$PORT" root@127.0.0.1 "$@"; }
 
@@ -460,6 +468,11 @@ if g "cd ~/jichi && JC_SMOKE_TIMEOUT_MULT=$_mult JC_SMOKE_KEEP_GOING=1 gmake smo
     g 'grep -E "^smoke: OK" /tmp/smoke.log' 2>/dev/null | tee -a "$RESULTS" >/dev/null
 else
     bad "smoke tier did not pass -- the failing checks follow"
+    # The COUNT, on this branch too: a row that FAILED is the one whose
+    # denominator a reader wants, and capturing only `smoke: OK` left the BSD
+    # row with no number at all until this was fixed there the same day.
+    g 'grep -E "^smoke: \(|^smoke: OK" /tmp/smoke.log | tail -1' 2>/dev/null \
+        | tee -a "$RESULTS"
     {
         # NOT anchored: run.sh indents a nested driver's checks as "    | not ok 3".
         echo "--- every failing check, and the driver banners ---"
@@ -499,6 +512,78 @@ for s in "--version" "doctor" "describe" "context"; do
         bad "offline surface failed: $s"
     fi
 done
+
+# ------------------------------------------------------------- live turns
+# WHY THIS STEP EXISTS (2026-09-18/19). Every step above this line is OFFLINE:
+# build, unit suite, smoke tier and the four surfaces all pass on a kernel where
+# jichi has never called a model. `PLATFORMS.md` calls a row that HAS **Driven**,
+# and the honest position before this was that neither BSD row had been.
+#
+# TWO TURNS, because the first proves only the wire. `reply with OK` exercises
+# the provider, the request and the SSE framing; it chooses no tool, executes
+# none, and consumes no result. Every documented failure in this area lives past
+# that point -- a model that DESCRIBES tool calls terminates cleanly with an
+# empty workspace (AUTONOMOUS_LOOPS.md, "done is not a success verdict").
+#
+# THE TUNNEL IS THE POINT OF `gl`. The guest is behind QEMU user-mode NAT and LM
+# Studio binds 127.0.0.1 on the host, so rather than exposing the model server on
+# the LAN the rig carries a REVERSE forward on the very connection that runs the
+# turn: the forward lives exactly as long as the command does.
+#
+# THE PROMPTS CROSS AS BASE64 and the fixture goes over STDIN. Both were quoted
+# strings first, and both lost their quotes inside the remote `sh -c`: jichi got
+# `-p reply` and swallowed `--output json`, and the fixture file was never
+# written, so the check blamed the model for a file that did not exist. jichi
+# ships --prompt-b64 for exactly this. (tier-b-device.sh, the same day.)
+#
+# THE ASSERTION IS A PHRASE, NOT A SENTENCE: quotes drift -- measured, a model
+# quoted three passages and dropped an article from one -- but a random token can
+# only be produced by having read the file.
+say "live turns"
+if [ -z "${LIVE_PORT:-}" ]; then
+    # NOT a failure and NOT a pass: the step did not run. Saying so out loud is
+    # the difference between "this row is Verified" and "this row is Driven",
+    # and a rig that stays silent here is how the matrix came to look emptier
+    # than the work actually done.
+    note "    live turns NOT attempted (no --live-port) -- every step above is offline"
+    echo "-- live turns not attempted: this row is Verified, not Driven"
+else
+    _lurl="http://127.0.0.1:$LIVE_PORT/v1"
+    g "cat > \$HOME/live.json" <<LIVECFG 2>/dev/null || true
+{"models":[{"name":"live","provider":"openai","model":"$LIVE_MODEL",
+ "apiBase":"$_lurl","apiKey":"unused","roles":["chat"]}],
+ "snapshots":false,"repoMap":false,"maxRetries":1,"lowResource":false}
+LIVECFG
+    _phrase="TIER-V-$(od -An -N3 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' | tr 'a-f' 'A-F')"
+    [ "$_phrase" != "TIER-V-" ] || _phrase="TIER-V-FALLBACK"
+    g "mkdir -p \$HOME/ws" >/dev/null 2>&1 || true
+    g "cat > \$HOME/ws/note.txt" <<NOTEFIX 2>/dev/null || true
+The pass phrase is $_phrase.
+NOTEFIX
+    _p_live=$(printf '%s' 'reply with OK' | base64 | tr -d '\n')
+    _p_tool=$(printf '%s' 'Use the read_file tool to read note.txt in this directory, then report the pass phrase.' | base64 | tr -d '\n')
+
+    if gl "cd \$HOME/jichi && ./jichi --config \$HOME/live.json --prompt-b64 $_p_live --output json" \
+            > "$DIR/live-openbsd.txt" 2>&1 && grep -q '"text"' "$DIR/live-openbsd.txt"; then
+        ok "live turn answered over the reverse tunnel ($LIVE_MODEL)"
+        note "    $(grep -o '"text":"[^"]*"' "$DIR/live-openbsd.txt" | head -1)"
+    else
+        bad "live turn did not answer -- see $DIR/live-openbsd.txt"
+        tail -5 "$DIR/live-openbsd.txt" 2>/dev/null | sed 's/^/    /' >> "$RESULTS"
+    fi
+
+    if gl "cd \$HOME/ws && \$HOME/jichi/jichi --config \$HOME/live.json --auto -q --prompt-b64 $_p_tool" \
+            > "$DIR/live-tool-openbsd.txt" 2>&1 && grep -q "$_phrase" "$DIR/live-tool-openbsd.txt"; then
+        ok "agentic turn: the model called a tool and reported $_phrase"
+        note "    the tool ran and its result was consumed by a second turn"
+    else
+        bad "agentic turn did NOT return $_phrase -- the model may have described \
+the tool call instead of invoking it (doctor --live calls that \`text\`), or the \
+loop does not execute tools on this platform"
+        tail -8 "$DIR/live-tool-openbsd.txt" 2>/dev/null | sed 's/^/    /' >> "$RESULTS"
+    fi
+fi
+
 
 note ""
 note "# $N_OK ok, $N_FAIL failed"

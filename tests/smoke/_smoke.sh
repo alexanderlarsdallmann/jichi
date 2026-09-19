@@ -82,6 +82,22 @@ t_fail() {
 # Skip the whole driver (exit 0, empty TAP plan): for a check that this
 # build legitimately cannot run (e.g. faults.sh without FAULT=1). Assert
 # nothing rather than weaken the assertion -- mirrors _e2e.skip.
+# smoke_bgrep FILE [grep args...] -- grep a capture that contains control bytes.
+#
+# `grep -a` ("treat binary as text") is GNU-only. illumos's grep rejects it
+# outright -- `grep: illegal option -- a`, exit 2 -- which is how three pty
+# drivers failed there after M661 fixed the pty itself (tui_learn,
+# tui_learn_apply, tui_model_name). The reason -a was wanted is that a pty
+# capture contains NUL bytes, and that is the ONLY thing making grep call the
+# file binary; stripping them is POSIX and does the same job everywhere.
+#
+# FILE comes first because the file is what needs transforming, and putting it
+# last would mean parsing argv in sh to find it.
+smoke_bgrep() {
+    _bg_f="$1"; shift
+    tr -d '\000' < "$_bg_f" | grep "$@"
+}
+
 t_skip() {
     echo "1..0"
     printf '# skip: %s\n' "$1"
@@ -316,6 +332,56 @@ EOF
 }
 
 # --- fixtures --------------------------------------------------------------------
+# smoke_srcfiles DIR EXT... -- list files under DIR with those extensions.
+#
+# WHY (2026-09-19, OpenBSD). `grep -r --include='*.c'` is a GNU extension, and a
+# BSD grep does not reject it -- it reads the argument as a FILENAME, warns, and
+# keeps searching WITHOUT the filter. So the scan silently widens to the whole
+# tree, including built objects: `ctx_estimate_lint` reported
+# `src/chat/jc_compact.o` as a SOURCE using a symbol, and the failure looked like
+# a design violation rather than a portability one. posix_utils_lint check 8
+# bans the flag; this is what to use instead.
+#
+# Pipe it into `xargs <grep> <pattern> /dev/null`. The /dev/null is not
+# decoration: it guarantees at least one operand, so an empty list cannot make
+# grep read stdin and hang, and it forces the `file:` prefix that a caller
+# counting with -c relies on.
+smoke_srcfiles() {
+    _sf_dir=$1
+    shift
+    for _sf_ext in "$@"; do
+        find "$_sf_dir" -type f -name "*.$_sf_ext" 2>/dev/null
+    done | sort
+}
+
+# smoke_make -- the name of GNU make on THIS system, for a driver that shells
+# out to a make target.
+#
+# WHY (2026-09-18, FreeBSD). cppcheck_lint check 3 ran `make cpp-check` and
+# reported rc=2 on FreeBSD, where it had nothing to do with cpp-check: FreeBSD's
+# `make` is **bmake**, which cannot parse this GNU Makefile. Run by hand with
+# `gmake` the same target printed "cpp-check: OK". PLATFORMS.md has said "needs
+# gmake" since the row was opened; the drivers had no way to say it.
+#
+# Resolution order, and each step is there for a case that happened:
+#   $MAKE     -- GNU make exports this, so a driver run from `gmake smoke`
+#                inherits the right name without probing.
+#   gmake     -- for a driver run STANDALONE on a BSD, where $MAKE is unset and
+#                bare `make` is the wrong program. This is the case the rig hits
+#                when it re-runs a failing driver on its own to classify it.
+#   make      -- Linux, where they are the same thing.
+#
+# This is ONE site of a family: a tier-wide sweep counted bare `make` in the
+# drivers (install 15, clean 11, test 9, ci 7, info 6, smoke 4). The others are
+# recorded in DEFERRED.md and NOT converted here -- a blind sweep across sites
+# whose behaviour on four kernels has not been measured is how a portability fix
+# becomes a portability bug.
+smoke_make() {
+    if [ -n "${MAKE:-}" ]; then printf '%s' "$MAKE"; return; fi
+    if command -v gmake >/dev/null 2>&1; then printf 'gmake'; return; fi
+    printf 'make'
+}
+
 # smoke_make_pdf PATH TEXT -- a minimal one-page PDF carrying TEXT. All
 # content is ASCII and LC_ALL=C, so ${#var} counts bytes and the xref
 # offsets are exact by construction (M212; shared by pdf.sh/docs_pdf.sh).

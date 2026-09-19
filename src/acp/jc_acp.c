@@ -31,6 +31,7 @@
 #include "jc_cli.h"
 #include "jc_uuid.h"
 #include "jc_log.h"
+#include "jc_peercap.h"
 #include "jc_snprintf.h"
 #include "jc_transcribe.h"
 #include "jc_base64.h"
@@ -104,16 +105,28 @@ static void acp_write_line(struct acp_server *s, const char *json)
  * Returns 1 on a line, 0 on EOF (with any trailing partial line returned once). */
 static int acp_read_line(struct acp_server *s, char **out)
 {
+    jc_size scanned;
     char buf[4096];
 
     *out = NULL;
+    /* Bytes already known to hold no newline. Without this the memchr below
+     * restarts at index 0 after every read, which is quadratic in exactly the
+     * way M664 measured on the MCP reader: with a peer streaming toward
+     * JC_PEER_LINE_MAX the rescans dominate, and on a slow board they can eat a
+     * whole deadline. memchr's good constant factor hides it longer here than
+     * the MCP reader's byte loop did; it does not make it linear. */
+    scanned = 0;
     for (;;) {
         char *nl;
         ssize_t n;
 
-        /* A complete line already buffered? */
-        nl = (s->inbuf.data != NULL)
-             ? (char *)memchr(s->inbuf.data, '\n', s->inbuf.len) : NULL;
+        /* A complete line already buffered? Scan only what is new. */
+        nl = (s->inbuf.data != NULL && scanned < s->inbuf.len)
+             ? (char *)memchr(s->inbuf.data + scanned, '\n',
+                              s->inbuf.len - scanned) : NULL;
+        if (nl == NULL && s->inbuf.data != NULL) {
+            scanned = s->inbuf.len;
+        }
         if (nl != NULL) {
             jc_size linelen = (jc_size)(nl - s->inbuf.data);
             jc_size rest;
@@ -127,6 +140,7 @@ static int acp_read_line(struct acp_server *s, char **out)
             rest = s->inbuf.len - linelen - 1;
             memmove(s->inbuf.data, s->inbuf.data + linelen + 1, rest);
             s->inbuf.len = rest;
+            scanned = 0;              /* the remainder has never been examined */
             *out = line;
             return 1;
         }
@@ -158,6 +172,27 @@ static int acp_read_line(struct acp_server *s, char **out)
             continue;
         }
         jc_sb_append_n(&s->inbuf, buf, (jc_size)n);
+        /* The same bound as the MCP reader (jc_peercap.h), and it names itself.
+         * The buffer is DISCARDED rather than flushed: the eof path above hands
+         * a final unterminated line to the caller, which is right for a client
+         * that went away mid-line and wrong for one that never intended to send
+         * a newline -- flushing it would hand on the very megabytes this cap
+         * exists to refuse.
+         *
+         * Honest about the red: unlike the MCP side, this path has no deadline,
+         * so a fixture cannot tell "bounded" from "the client closed" by latency
+         * alone. What it CAN read is this message. That is the whole argument
+         * for making a cap speak (M659). */
+        if ((long)s->inbuf.len > JC_PEER_LINE_MAX) {
+            jc_logf(JC_LOG_ERROR,
+                    "acp: client sent %lu bytes with no newline (cap %lu) "
+                    "-- closing the connection",
+                    (unsigned long)s->inbuf.len,
+                    (unsigned long)JC_PEER_LINE_MAX);
+            s->inbuf.len = 0;
+            s->eof = 1;
+            return 0;
+        }
     }
 }
 

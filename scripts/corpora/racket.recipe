@@ -1,0 +1,34 @@
+# Racket — from the INSTALLED DISTRIBUTION, because there is no published
+# text archive.
+#
+# MEASURED 2026-09-19 rather than assumed: docs.racket-lang.org is a Scribble
+# HTML site and advertises no downloadable documentation bundle, and
+# download.racket-lang.org lists releases but no doc tarball. What Racket does
+# ship is the documentation WITH the distribution, which `raco`/`racket` can
+# locate. So this recipe's shape is "find what is already on this machine"
+# rather than "download an archive", and that difference is the reason the
+# fetch script has two kinds at all.
+kind=distribution
+name=racket
+title=Racket
+# How to ask the installation where its documentation lives. Run, not guessed:
+# on this machine it answers /usr/racket/doc.
+# QUOTED: this string is handed to `sh -c`, and an unquoted Racket
+# expression is shell syntax -- the parentheses made it a syntax error and
+# the script reported Racket "not installed" on a machine where it is.
+locate_cmd=racket -e '(require setup/dirs) (displayln (find-doc-dir))'
+# The Racket Guide is the tutorial; the Reference is the reference. Measured on
+# this machine: guide 151 files / 7.3 MB, reference 255 files / 26 MB, whole doc
+# tree 4,089 files / 218 MB -- so indexing the whole tree is not an option a
+# learner should be offered.
+tutorial_dir=guide
+reference_dir=reference
+licence=MIT OR Apache-2.0
+licence_url=https://github.com/racket/racket/blob/master/LICENSE-MIT.txt
+# These pages are HTML. That USED to be a known limitation -- jichi reduced HTML
+# to prose only for `url` docs sources, so a `path` source embedded the markup
+# and the first search here took 72 s against Python's 4 s. Fixed at M667: a
+# `path` source is reduced too, and the same search now takes 7 s and returns
+# readable prose. The flag stays because it is still true of the corpus and the
+# fetch prints a short note; it is no longer a warning.
+html=1

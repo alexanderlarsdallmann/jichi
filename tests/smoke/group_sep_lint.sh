@@ -52,16 +52,25 @@ cd "$SMOKE_ROOT" || exit 1
 # names the field, and a build whose only mention was the explanation must not
 # pass. jc_config.c is excluded because that is where the field is ASSIGNED from
 # the locale -- the one legitimate raw use.
+# NO `/dev/null -` HERE (2026-09-19). The pipeline below used
+# `grep -n PATTERN /dev/null -`, the idiom that reads stdin while forcing a
+# filename prefix. **OpenBSD grep does not accept `-` as stdin** -- measured on
+# the guest: `printf x | grep -n x /dev/null -` answers
+# `grep: -: No such file or directory` and exits 2. So this loop wrote NOTHING
+# there, `nuses` was 0, and check 1 reported "universe drifted: 0 uses in 2
+# files" -- an extraction failure wearing the costume of a source change. The
+# `sed` on the next line already prepends the filename, so the prefix the
+# `/dev/null` bought was never needed.
 : > "$tmp/uses"
-for f in $($G -rl 'config\.group_sep' src --include='*.c' --include='*.h' \
+for f in $(smoke_srcfiles src c h | xargs $G -l 'config\.group_sep' /dev/null \
            2>/dev/null | $G -v 'jc_config\.c'); do
     sed -e 's|/\*.*\*/||g' -e 's|^[[:space:]]*\*.*$||' -e 's|/\*.*$||' "$f" \
-        | $G -n 'config\.group_sep' /dev/null - \
+        | $G -n 'config\.group_sep' \
         | sed "s|^|$f:|" >> "$tmp/uses"
 done
 nuses=$($G -c . "$tmp/uses" 2>/dev/null || true)
 [ -n "$nuses" ] || nuses=0
-nfiles=$($G -rl 'config\.group_sep' src --include='*.c' --include='*.h' \
+nfiles=$(smoke_srcfiles src c h | xargs $G -l 'config\.group_sep' /dev/null \
          2>/dev/null | $G -vc 'jc_config\.c' || true)
 [ -n "$nfiles" ] || nfiles=0
 
@@ -104,8 +113,8 @@ fi
 # build whose only mention is the doc comment fails.
 sed -e 's|/\*.*\*/||g' -e 's|^[[:space:]]*\*.*$||' -e 's|/\*.*$||' \
     src/util/jc_str.c > "$tmp/str.stripped"
-ncalls=$($G -rc 'jc_group_sep_audience' src --include='*.c' 2>/dev/null \
-         | $G -v ':0$' | $G -c . || true)
+ncalls=$(smoke_srcfiles src c | xargs $G -c 'jc_group_sep_audience' /dev/null \
+         2>/dev/null | $G -v ':0$' | $G -c . || true)
 [ -n "$ncalls" ] || ncalls=0
 if $G -q 'char jc_group_sep_audience(char configured, int accessible);' \
         include/jc_str.h &&
@@ -139,8 +148,8 @@ fi
 # The vacuity guard for the whole driver. Checks 1-4 are all clean on a tree
 # where nobody formats numbers at all, which is exactly the state a refactor
 # could produce while the lint reports success.
-nfmt=$($G -rc 'jc_group_num(' src --include='*.c' 2>/dev/null | $G -v ':0$' \
-       | awk -F: '{s+=$2} END {print s+0}')
+nfmt=$(smoke_srcfiles src c | xargs $G -c 'jc_group_num(' /dev/null 2>/dev/null \
+       | $G -v ':0$' | awk -F: '{s+=$2} END {print s+0}')
 if [ "$nfmt" -ge 10 ]; then
     t_ok "$nfmt jc_group_num call sites exist for the rule to govern"
 else

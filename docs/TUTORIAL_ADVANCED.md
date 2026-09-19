@@ -3,6 +3,11 @@
 Companion: [TUTORIAL_ORCHESTRATION.md](TUTORIAL_ORCHESTRATION.md) covers
 sub-agents and parallel fan-out step by step.
 
+> **Unfamiliar word?** [`VOCABULARY.md`](VOCABULARY.md) defines the terms this
+> project leans on before it uses them — including the English **idioms**
+> (*dogfooding*, *blast radius*, *born red*), which are figures of speech rather
+> than technical terms and do not survive a dictionary.
+
 Assumes you've done [TUTORIAL_BEGINNER.md](TUTORIAL_BEGINNER.md) and have a
 working `local/config.json`. This covers the subsystems that make jichi more than
 a chat box: routing, MCP/LSP, subagents, autonomy, hooks, and authoring your own

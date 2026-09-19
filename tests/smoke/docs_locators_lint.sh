@@ -33,7 +33,7 @@
 # Runs no jichi and compiles nothing (hence *_lint.sh).
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 7
+t_plan 8
 
 tmp=$(smoke_tmp)
 
@@ -179,6 +179,46 @@ if [ "$nplain" -ge 6 ] && [ -z "$plain_bad" ]; then
     t_ok "all $nplain plain-register tasks route to their hub and carry a tagged command"
 else
     t_fail "plain tier: found $nplain pages, problems:$plain_bad"
+fi
+
+# 8: every tutorial routes its reader to the vocabulary (M657).
+#
+# Measured before it was written, because the population is the argument:
+# VOCABULARY.md was reachable from **0 of 10** tutorial pages and 0 of 14
+# curriculum module pages, while `self_learner_lint` check 4 held it to DEFINING
+# 24 required words. Defining a word and routing a reader to the definition are
+# different guarantees, and only the first was ever checked -- so the page that
+# exists to be met BEFORE the word is met was, for a tutorial reader, met never.
+# A policy nobody is routed to is a policy nobody applies (M510).
+#
+# The trigger was a reader rather than a sweep: the first native
+# Japanese-speaking reviewer of the localized pages asked for the English
+# *idioms* to be explained -- dogfooding, blast radius, born red -- which is a
+# person needing that page and not having it in front of her.
+#
+# Universe: docs/*TUTORIAL*.md, floored at today's exact 10. The curriculum
+# module pages are deliberately NOT in it: they are a second population with a
+# second navigation convention (the [Prev]/[Curriculum map]/[Next] locator row
+# that check 6 pins), and folding them in here would mean one check reporting on
+# two universes -- which is how a green check ends up meaning neither.
+JC_LOC_MIN_TUTS=10
+_ntut=$(ls "$SMOKE_ROOT"/docs/*TUTORIAL*.md 2>/dev/null | wc -l | tr -d '[:space:]')
+if [ "$_ntut" -lt "$JC_LOC_MIN_TUTS" ]; then
+    t_fail "only $_ntut tutorial pages found (floor $JC_LOC_MIN_TUTS) -- the \
+naming changed and this check is reading almost nothing. Fix the extraction, \
+not the floor."
+else
+    vocab_bad=""
+    for f in "$SMOKE_ROOT"/docs/*TUTORIAL*.md; do
+        grep -q 'VOCABULARY\.md' "$f" || vocab_bad="$vocab_bad $(basename "$f")"
+    done
+    if [ -z "$vocab_bad" ]; then
+        t_ok "all $_ntut tutorials route the reader to VOCABULARY.md"
+    else
+        t_fail "tutorial(s) with no route to VOCABULARY.md:$vocab_bad -- a \
+reader who meets an unfamiliar word in a tutorial has nowhere to go, and the \
+words this project leans on are defined in exactly one place"
+    fi
 fi
 
 t_done

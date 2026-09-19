@@ -126,7 +126,7 @@ then
     t_ok "accessible: the token line is prose, with no bracket form left"
 else
     t_fail "the headless token line is not accessible prose. Saw: \
-$($G -o 'tokens in=[^]]*]\|[0-9,]* input tokens used' "$tmp/acc.err" \
+$($G -oE 'tokens in=[^]]*]|[0-9,]* input tokens used' "$tmp/acc.err" \
   | head -2 | tr '\n' ' '). M566 routes hl_usage through JC_MSG_TOKENS when \
 config.accessible is set."
 fi
@@ -138,7 +138,7 @@ then
     t_ok "accessible: the tool call is prose, with no [tool] label left"
 else
     t_fail "the headless tool-call line is not accessible prose. Saw: \
-$($G -o '\[tool\][^$]*\|Calling the tool [a-z_]*' "$tmp/acc.err" | head -2 \
+$($G -oE '\[tool\][^$]*|Calling the tool [a-z_]*' "$tmp/acc.err" | head -2 \
   | tr '\n' ' ')"
 fi
 
@@ -151,7 +151,7 @@ then
     t_ok "accessible: the tool result is prose, with no -> left"
 else
     t_fail "the headless tool-result line still uses the arrow form. Saw: \
-$($G -o -- '\[tool [^]]*]\|finished successfully' "$tmp/acc.err" | head -2 \
+$($G -oE -- '\[tool [^]]*]|finished successfully' "$tmp/acc.err" | head -2 \
   | tr '\n' ' ')"
 fi
 

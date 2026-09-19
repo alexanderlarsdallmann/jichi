@@ -156,12 +156,48 @@ fi
 # ---- 7: the page still renders, and the header is not stale ------------
 # A man page that groff refuses is worse than a stale one: the reader gets
 # nothing. `man --warnings` reports unknown requests and bad escapes.
-warn=$(man --warnings -l "$MAN" 2>&1 >/dev/null | head -3 | tr '\n' ' ')
+#
+# TWO RENDERERS, because `--warnings` is man-db's and the BSDs do not have it
+# (2026-09-18). On FreeBSD this check failed with
+#
+#     Illegal option --  Usage: man [-adhlo] [-t | -w] ...
+#
+# i.e. it reported a defect in the man page while never having read it. mandoc
+# is the BSD equivalent and `-T lint` is its form of the same question.
+#
+# STYLE is excluded and that is a judgement, not an oversight: mandoc's STYLE
+# class is almost entirely "input text line longer than 80 bytes" (19 of them
+# here), which is a house-style question about the SOURCE, not about whether the
+# page renders. WARNING and ERROR are what this check is about.
+#
+# AND IT PAID FOR ITSELF THE FIRST TIME IT RAN. mandoc found two things GNU man
+# accepted silently: `.B \\ (trailing backslash)`, where the literal backslash
+# needs `\e` and was being printed as an undefined escape, and a `.TH` date
+# written `2026\-08\-22`, whose roff-escaped hyphens make the date unparseable.
+# Both are now fixed in man/jichi.1. A second renderer is a second opinion, and
+# this is the third time a non-Linux row has been the one to give it.
+if man --warnings -l "$MAN" >/dev/null 2>&1 && \
+   ! man --warnings -l "$MAN" 2>&1 >/dev/null | grep -qiE 'illegal option|unrecognized option|^Usage:'
+then
+    _renderer='man --warnings'
+    warn=$(man --warnings -l "$MAN" 2>&1 >/dev/null | head -3 | tr '\n' ' ')
+elif command -v mandoc >/dev/null 2>&1; then
+    _renderer='mandoc -T lint'
+    warn=$(mandoc -T lint "$MAN" 2>&1 | grep -v 'STYLE:' | head -3 | tr '\n' ' ')
+else
+    _renderer='none'
+    warn=''
+fi
 th=$("$G" -c '^\.TH JICHI 1 "2026' "$tmp/man.txt")
 if [ -z "$warn" ] && [ "$th" = "1" ]; then
-    t_ok "the page renders with no roff warnings and carries a dated .TH"
+    if [ "$_renderer" = none ]; then
+        t_ok "a dated .TH is present; no roff renderer here to check the page with \
+(neither \`man --warnings\` nor mandoc), so the render half did not run"
+    else
+        t_ok "the page renders with no roff warnings ($_renderer) and carries a dated .TH"
+    fi
 else
-    t_fail "roff warnings: ${warn:-none}; dated .TH found: $th (want 1)"
+    t_fail "roff warnings ($_renderer): ${warn:-none}; dated .TH found: $th (want 1)"
 fi
 
 t_done

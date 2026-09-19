@@ -616,6 +616,20 @@ void test_tool(void)
         jc_tool_result_free(&res);
     }
 
+    /* The grep prefix, both branches. The -I one is what every platform in the
+     * matrix except illumos takes; the other is the one that cannot be reached
+     * here at all, which is exactly why it is asserted rather than trusted
+     * (M658 -- illumos grep rejects -I and every search_code call failed). */
+    {
+        const char *with_i = jc_search_grep_prefix(1);
+        const char *no_i   = jc_search_grep_prefix(0);
+        JC_CHECK(strstr(with_i, "-rnI") != NULL);
+        JC_CHECK(strstr(no_i, "-rn") != NULL);
+        /* Not strchr(no_i, 'I'): GREP_OPTIONS itself carries one, which is
+         * how this assertion first failed. The claim is about the FLAG. */
+        JC_CHECK(strstr(no_i, "-rnI") == NULL);
+    }
+
     /* search_code finds a match. */
     {
         char args[512];

@@ -8,6 +8,11 @@ an answer to one question; pick the diagram by the question, keep it to that one
 question, and date it — because a diagram nobody can redraw from the code is a
 lie with a timestamp.**
 
+> **Unfamiliar word?** [`VOCABULARY.md`](VOCABULARY.md) defines the terms this
+> project leans on before it uses them — including the English **idioms**
+> (*dogfooding*, *blast radius*, *born red*), which are figures of speech rather
+> than technical terms and do not survive a dictionary.
+
 ## 1. Why mermaid, why only four
 
 Classical UML tools produce images: a `.png` or a proprietary file that a diff

@@ -109,7 +109,7 @@ You need these to read the source-reading guides, the tests, or any analysis not
   output format the smoke tier prints. A plan line (`1..8`) says how many checks
   to expect, so a suite that dies early cannot look green.
 - **smoke tier** — the POSIX-sh test suite (`tests/smoke/`) that drives the real
-  binary end to end: 298 drivers, ~1,736 checks, no Python, so it runs on a
+  binary end to end: 305 drivers, ~1,733 checks, no Python, so it runs on a
   256 MB box and on four kernels.
 - **two-sided proof** — a new test must be shown **failing** without its fix and
   passing with it. A test that has never been red proves nothing about the bug it
@@ -148,6 +148,46 @@ You need these to read the source-reading guides, the tests, or any analysis not
 - **gate** (in the curriculum) — a stage's mechanical exit condition: points plus
   a written record.
 - **record** — your own debugging log: symptom, dead ends, root cause, lesson.
+
+## The English idioms this project uses
+
+Added at M657, after the first native Japanese-speaking reviewer of the localized
+pages pointed out that a term like *dogfooding* needs its **metaphor** explained,
+not only its usage. These are not technical terms. They are English figures of
+speech that a reader can look up word by word and still not understand, and every
+one of them is load-bearing somewhere in this repository. Where the literal image
+is what makes the term stick, it is given — guessing at the image is exactly what
+makes these words opaque to everyone who did not grow up with them.
+
+- **dogfooding** — defined above; the image is *eating your own dog food*, from a
+  company that sells dog food and feeds it to its own dogs. Driving jichi at a
+  real project is the same bet: if the tool is not good enough for us, it is not
+  good enough.
+- **blast radius** — from explosives: how far the damage reaches. A fence, an
+  `--edit-scope` or a read-only agent **bounds the blast radius** of a mistake; it
+  does not prevent the mistake. Sixteen pages here use it in exactly that sense.
+- **teeth** — a rule with teeth can bite: it fails the build. `tests/teeth.sh`
+  scripts the ritual of proving a check has them — revert what it guards, watch
+  *that* check go red, restore. A check nobody has watched fail has no teeth,
+  whatever its name says.
+- **born red** — written so it **fails first**, before the fix exists. Red is the
+  failing colour of a test report. A test born green has never been shown to
+  detect anything, which is why this project treats one as unwritten.
+- **flaky** — a test that passes and fails on the same code, usually for a reason
+  outside the test: timing, a shared directory, a real clock. Worse than a
+  failing test, because people learn to re-run it instead of reading it.
+- **footgun** — a feature that makes it easy to shoot yourself in the foot. Not a
+  bug: it does exactly what it documents, and the documentation is the part you
+  did not read.
+- **happy path** — the run where nothing goes wrong. Most of this project's
+  lessons live off it, which is why the error paths have a tier of their own
+  (`make smoke-faults`).
+- **paper over** — to hide a problem rather than fix it, the way wallpaper hides a
+  crack. Used here as an accusation, and usually of myself.
+- **shu-ha-ri** (守破離) — the Japanese learning arc the curriculum is built on:
+  keep the form, break the form, leave the form. Listed here because the English
+  pages use it untranslated — obvious to one reader, opaque to the next, which is
+  the whole subject of this section.
 
 ## See also
 

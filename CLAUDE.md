@@ -316,6 +316,20 @@ taught): [`docs/PLATFORMS.md`](docs/PLATFORMS.md); RAM tiers and hardware in
   the probe said yes (M449). `CC ?= cc` means a system shipping neither `cc` nor
   `c99` reports every feature absent rather than the compiler missing — pass
   `CC=gcc` there (M458).
+- **A row is not tested until a MODEL has been driven on it.** Every gate a rig
+  runs — build, unit suite, smoke tier, `--version`/`doctor`/`describe`/`context`
+  — is **offline**, so all of them go green on a kernel where jichi has never
+  called a model. Drive at least one text turn and one **tool-calling** turn
+  whose result the model must use; record the task, the model and the seconds.
+  **Record it ON THE ROW.** The first count published with this rule said "3 of
+  19" and was wrong: it counted what `PLATFORMS.md` records, not what has run.
+  The M459 fleet push had driven a Pi, a tablet and a proot guest with a model
+  over ssh in 2026-08 — recorded in `AUTONOMOUS_LOOPS.md` and nowhere on the
+  matrix. Keep LM Studio
+  loopback-bound and reach a guest with `ssh -R 1234:127.0.0.1:1234`; pick a
+  model `doctor --live` calls **native**, since a `text` caller executes nothing
+  and looks exactly like a platform failure. `PLATFORMS.md` calls such a row
+  **Driven**.
 - **A verdict is Verified / Partly verified / Never compiled, used strictly.**
   Never write a platform claim the matrix does not support; a non-Linux row is a
   defect detector, not compatibility work — two OpenBSD findings were bugs on

@@ -7,6 +7,11 @@ test without asking you a single question.** Everything vague in a use case is a
 decision you deferred onto whoever implements it — usually the agent, usually
 wrongly.
 
+> **Unfamiliar word?** [`VOCABULARY.md`](VOCABULARY.md) defines the terms this
+> project leans on before it uses them — including the English **idioms**
+> (*dogfooding*, *blast radius*, *born red*), which are figures of speech rather
+> than technical terms and do not survive a dictionary.
+
 This tutorial is explicitly *not* about user stories; §6 draws the line, and user
 stories get their own tutorial.
 

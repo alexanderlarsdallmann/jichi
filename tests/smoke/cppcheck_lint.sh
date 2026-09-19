@@ -55,6 +55,22 @@ STAMP_PATH=include/jc_buildrev_stamp.h
 # first written and why it was vacuous: the pattern wanted STAMP or GEN in an
 # all-letter identifier, so a second generated header called anything else --
 # MANPAGE, STAMP2_GEN -- was invisible to the very check meant to notice it.
+# THE INSTRUMENT OF BOTH ROUTES IS GIT, and on a rig target there is no repo.
+# scripts/_rig_ship.sh ships a tar built from `git ls-files` and deliberately
+# EXCLUDES .git ("that would carry build artifacts, .git, and every cache"), so
+# on FreeBSD, illumos and both Pi rows `git ls-files` matched nothing, every
+# header looked untracked, and this check went RED on a tree where nothing was
+# wrong -- on every non-host row at once. A check whose instrument is absent must
+# SKIP and say so, which is what check 3 already does for the C++ front-end and
+# what M625 states as a principle; failing instead reports a defect in the
+# subject when the defect is in the harness. Checks 2 and 4-6 are text checks on
+# the Makefile and the sources, so they still run on target -- and check 1 keeps
+# its full strength on the host, where `make ci` is the gate.
+if ! command -v git >/dev/null 2>&1 || ! git rev-parse --git-dir >/dev/null 2>&1
+then
+    t_skip_one "not a git checkout -- the tracked/untracked split is the \
+instrument this check enumerates the universe with (a shipped rig tree has no .git)"
+else
 route_a=$(find include src -name '*.h' -type f 2>/dev/null | sort -u \
           | while read -r h; do
                 git ls-files --error-unmatch "$h" >/dev/null 2>&1 || echo "$h"
@@ -65,7 +81,7 @@ route_a=$(find include src -name '*.h' -type f 2>/dev/null | sort -u \
 # include/-shaped assumption reported all five as generated. Four checks in one
 # session went wrong this way before (TEST_INTEGRITY, "Audit the universe");
 # this one went wrong on its first run, which is the argument for running it.
-route_b=$(for f in $("$G" -rl '#include "' src --include='*.c' 2>/dev/null); do
+route_b=$(for f in $(smoke_srcfiles src c | xargs "$G" -l '#include "' /dev/null 2>/dev/null); do
               "$G" -oE '#include "[A-Za-z0-9_]+\.h"' "$f" | sed 's/.*"\(.*\)"/\1/'
           done | sort -u | while read -r h; do
               [ -n "$h" ] || continue
@@ -82,11 +98,17 @@ Both routes must name the same set. If a SECOND generated header appeared, every
 target that compiles a source including it needs the same prerequisite check 2
 makes -- that is the whole defect this file exists for."
 fi
+fi
 
 # ---- 2: every generated header is a prerequisite of what compiles it -----
 # Two targets compile src/util/jc_buildrev.c: the object rule and cpp-check.
 # The object rule always had its dependency; cpp-check is the one that did not.
-inc=$("$G" -lE '#include "jc_buildrev_stamp\.h"' src -r 2>/dev/null | sort | tr '\n' ' ')
+# OPTIONS BEFORE OPERANDS. This read `grep -lE 'pat' src -r`, and only GNU grep
+# permutes an option that follows a file operand; POSIX grep takes `-r` as a
+# FILE. On OpenBSD the extraction came back EMPTY and the check reported
+# `including sources=''` -- a claim that no source includes the generated header,
+# on a tree where one does. (2026-09-19.)
+inc=$("$G" -rlE '#include "jc_buildrev_stamp\.h"' src 2>/dev/null | sort | tr '\n' ' ')
 obj_dep=$("$G" -c '^src/util/jc_buildrev\.o:.*\$(STAMP)' Makefile)
 cpp_dep=$("$G" -c '^cpp-check:.*\$(STAMP)' Makefile)
 if [ "$inc" = "src/util/jc_buildrev.c " ] && [ "$obj_dep" -ge 1 ] && [ "$cpp_dep" -ge 1 ]; then
@@ -106,7 +128,10 @@ if ! command -v g++ >/dev/null 2>&1 && ! command -v clang++ >/dev/null 2>&1; the
 else
     cp "$STAMP_PATH" "$tmp/stamp.saved" 2>/dev/null
     rm -f "$STAMP_PATH"
-    out=$(make cpp-check CPPCHECK_SRC=src/util/jc_buildrev.c 2>&1)
+    # smoke_make, not bare `make`: FreeBSD's make is bmake and cannot parse
+    # this Makefile, so this check reported rc=2 for a target that passes there.
+    _mk=$(smoke_make)
+    out=$($_mk cpp-check CPPCHECK_SRC=src/util/jc_buildrev.c 2>&1)
     rc=$?
     [ -f "$STAMP_PATH" ] || cp "$tmp/stamp.saved" "$STAMP_PATH" 2>/dev/null
     if [ "$rc" -eq 0 ] && [ -f "$STAMP_PATH" ]; then

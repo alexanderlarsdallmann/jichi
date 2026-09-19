@@ -102,7 +102,7 @@ for f in mismatch agree nonutf8 cjk default; do
     # misuse that produced the vacuous passes, 126 an unexecutable binary.
     rc=$(cat "$tmp/$f.rc" 2>/dev/null || echo 999)
     case "$rc" in 0|1) ;; *) bad="$bad $f(rc=$rc)" ;; esac
-    $G -q 'locale disagree\|terminal is not UTF-8\|language agrees' \
+    $G -qE 'locale disagree|terminal is not UTF-8|language agrees' \
         "$tmp/$f" || bad="$bad $f(no-language-row)"
 done
 if [ -z "$bad" ]; then
@@ -159,11 +159,11 @@ fi
 # The check earns its place only if it is silent for everybody who did not
 # deliberately override the language. If this reddens, every user sees a
 # warning and the signal is worthless.
-if ! $G -q 'disagree\|not UTF-8\|Han characters' "$tmp/default"; then
+if ! $G -qE 'disagree|not UTF-8|Han characters' "$tmp/default"; then
     t_ok "no language warning in the default configuration"
 else
     t_fail "the default configuration WARNS, which makes the check noise: \
-$($G -i 'disagree\|not UTF-8\|Han' "$tmp/default" | tr '\n' ' ' | head_bytes 200)"
+$($G -iE 'disagree|not UTF-8|Han' "$tmp/default" | tr '\n' ' ' | head_bytes 200)"
 fi
 
 # ---- 6: the advice names an action, not just a diagnosis ----------------

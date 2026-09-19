@@ -8,6 +8,11 @@ The through-line: **a test is a claim about behaviour, and a green test is only
 worth what the claim was worth.** Most of the ways testing goes wrong are ways
 the claim was empty while the checkmark was green.
 
+> **Unfamiliar word?** [`VOCABULARY.md`](VOCABULARY.md) defines the terms this
+> project leans on before it uses them — including the English **idioms**
+> (*dogfooding*, *blast radius*, *born red*), which are figures of speech rather
+> than technical terms and do not survive a dictionary.
+
 ## 1. Why this is the load-bearing skill
 
 An AI agent is confidently wrong often enough that you cannot ship what it writes

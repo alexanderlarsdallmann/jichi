@@ -9,6 +9,11 @@ from [TUTORIAL_BEGINNER.md](TUTORIAL_BEGINNER.md); the reference pages are
 *when* to delegate is a judgment built by practice, and a checker could only
 grade the shape of it.
 
+> **Unfamiliar word?** [`VOCABULARY.md`](VOCABULARY.md) defines the terms this
+> project leans on before it uses them — including the English **idioms**
+> (*dogfooding*, *blast radius*, *born red*), which are figures of speech rather
+> than technical terms and do not survive a dictionary.
+
 **One prerequisite that bites:** the spawn tools exist only under the **full**
 tool profile. `toolProfile: core` — and `--lite`, which implies it — drops them
 deliberately (no fan-out on a tiny context window). If nothing in this tutorial
