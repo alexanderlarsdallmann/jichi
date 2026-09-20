@@ -72,7 +72,7 @@ if printf '%s' "$armed" | grep -q "This run is bounded" &&
    printf '%s' "$armed" | grep -q "token budget: 50000"; then
     t_ok "the flight plan appears with the budget actually given (50000)"
 else
-    t_fail "no flight plan: $(printf '%s' "$armed" | grep -o 'token budget: [0-9]*' | head -1)"
+    t_fail "no flight plan: $(printf '%s\n' "$armed" | grep -o 'token budget: [0-9]*' | head -1)"
 fi
 
 # --- 4: the gate contract, naming the verifier -------------------------------

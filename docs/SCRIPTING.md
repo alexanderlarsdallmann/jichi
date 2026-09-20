@@ -79,6 +79,16 @@ a driver has to treat it as its own case:
 
 - **The exit code is 0 and nothing is rolled back.** The cap is a circuit breaker against a
   runaway loop, not a verdict on the work. Everything the turn did is real and committed.
+  **Do not branch on `$?` to detect this** — a capped run and a clean one are both 0, which
+  is the whole reason `stop_reason` exists. ([`DEFERRED.md`](DEFERRED.md) item 7 holds the
+  case for changing that on a `--no-session` one-shot, and what would settle it.)
+- **If you are driving in TEXT mode rather than JSON (M687)**, you are not without a signal:
+  the reach footer's not-checked half on **stderr** opens with `THE TURN STOPPED AT THE
+  TOOL-CALL CAP`, and the `[envelope]` verdict line says `verifier ok, but the turn hit the
+  tool-call cap` instead of `verified ok`. Before M687 a text-mode driver saw an empty stdout,
+  exit 0, and an envelope reporting `verified ok` — every channel said success. **`--output
+  json` is still the right interface for a supervisor**; this is the floor under the one that
+  is not using it.
 - **`text` is usually empty**, because the model was mid-tool-loop and never wrote a final
   answer. An empty `text` with `stop_reason: "done"` used to be all a driver saw — that is what
   this value fixes.

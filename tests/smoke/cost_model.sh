@@ -108,7 +108,7 @@ if printf '%s' "$lite" | grep -q 'read_file 64 KB' &&
    ! printf '%s' "$lite" | grep -q 'read_file 256 KB'; then
     t_ok "--lite's tighter caps are what the section reports"
 else
-    t_fail "wrong caps under --lite: $(printf '%s' "$lite" | grep -o 'capped at[^.]*' | head_bytes 150)"
+    t_fail "wrong caps under --lite: $(printf '%s\n' "$lite" | grep -o 'capped at[^.]*' | head_bytes 150)"
 fi
 
 # --- 5: the caps are identical across the run's requests -----------------------

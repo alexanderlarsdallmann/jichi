@@ -3,6 +3,7 @@
  * Author: Alexander-Lars Dallmann */
 /* jc_reach.c - see the header. Pure over a struct of counts. */
 #include "jc_reach.h"
+#include "jc_outcome.h"
 #include "jc_snprintf.h"
 #include "cJSON.h"
 
@@ -16,9 +17,16 @@ static void reach_halves(const struct jc_reach *r, char *checked,
 
     checked[0] = '\0';
     unchecked[0] = '\0';
-    if (r->verifier_armed) {
+    /* M688: an armed verifier that reached NEITHER verdict is reported below,
+     * in the not-checked half. It used to print "verify did not conclude" HERE
+     * -- on the checked side -- which is the wrong side of the colon: a
+     * verifier that never concluded is the definition of something that was not
+     * checked. Found in the same audit that found the budget cell empty, in the
+     * same printed block, where "verify did not conclude" sat two words from
+     * "not checked: (nothing)". */
+    if (r->verifier_armed && (r->verify_red || r->verify_green)) {
         n += jc_snprintf(checked + n, ccap - n, "verify %s%s",
-                         r->verify_red ? "RED" : (r->verify_green ? "green" : "did not conclude"),
+                         r->verify_red ? "RED" : "green",
                          r->rolled_back ? " (work rolled back to the last green)" : "");
     }
     /* M638: the refusals are printed beside the errors they are a part of.
@@ -64,23 +72,57 @@ static void reach_halves(const struct jc_reach *r, char *checked,
             n += jc_snprintf(checked + n, ccap - n, " · writes in scope");
         }
     }
+    /* M689: a shell command that provably changed nothing is a CHECKED fact,
+     * not an unchecked one -- the sweep looked and the tree was identical. It
+     * earns a place on this side precisely because the alternative was a
+     * warning that fired on `ls` and taught readers to skip the line. */
+    if (r->shell_ran && r->shell_wrote_nothing) {
+        n += jc_snprintf(checked + n, ccap - n,
+                         "%sa shell command ran and changed nothing",
+                         n > 0 ? " · " : "");
+    }
 
+    /* M687, widened at M688: FIRST, and in both branches. A truncated answer is
+     * the largest thing that was not checked, and it is not conditional on an
+     * envelope -- the run that prompted M687 armed one and was told
+     * "(nothing -- a verifier and an edit scope were armed)" about a turn cut
+     * off mid-task. M687 asked only about the iteration cap; the audit in
+     * docs/plans/2026-09-run-outcome.md then found a `--max-tool-calls` run
+     * printing the same false "(nothing)" beside an EMPTY answer, so the test
+     * is now `answer_truncated` -- one question that covers the cap, a budget,
+     * a deadline, an interrupt and an error, and cannot be left empty for the
+     * next one. Placed ahead of the rest so it is not read as a footnote. */
+    if (r->answer_truncated) {
+        m += jc_snprintf(unchecked + m, ucap - m,
+                         "THE ANSWER IS INCOMPLETE -- the run %s, so what the "
+                         "model had said by then is the whole of it and the "
+                         "task may be unfinished",
+                         r->stop_clause != NULL ? r->stop_clause
+                                                : "did not finish");
+    }
     if (!r->envelope) {
         m += jc_snprintf(unchecked + m, ucap - m,
-                         "no envelope armed -- no verifier, no edit scope, no "
+                         "%sno envelope armed -- no verifier, no edit scope, no "
                          "budget; nothing about this run's result was tested "
-                         "(see docs/AUTONOMY.md)");
+                         "(see docs/AUTONOMY.md)", m > 0 ? " · " : "");
     } else {
         if (!r->verifier_armed) {
-            m += jc_snprintf(unchecked + m, ucap - m,
-                             "no verifier armed -- the answer's claim of "
-                             "success was not tested");
+            m += jc_snprintf(unchecked + m, ucap - m, "%sno verifier armed -- "
+                             "the answer's claim of success was not tested",
+                             m > 0 ? " · " : "");
+        } else if (!r->verify_red && !r->verify_green) {
+            /* M688: armed, but it never returned a verdict -- the run stopped
+             * first. Distinct from "no verifier armed": somebody DID arm one,
+             * and the reason it says nothing is the stop, not the setup. */
+            m += jc_snprintf(unchecked + m, ucap - m, "%sthe verifier never "
+                             "reached a verdict -- it was armed, the run "
+                             "stopped first", m > 0 ? " · " : "");
         }
         if (!r->scope_armed) {
             m += jc_snprintf(unchecked + m, ucap - m, "%sno edit scope -- "
                              "writes were not fenced", m > 0 ? " · " : "");
         }
-        if (r->shell_ran) {
+        if (r->shell_ran && !r->shell_wrote_nothing) {
             m += jc_snprintf(unchecked + m, ucap - m, "%sa shell command ran "
                              "-- changes it made are not attributed to the run",
                              m > 0 ? " · " : "");
@@ -96,7 +138,7 @@ static void reach_halves(const struct jc_reach *r, char *checked,
 void jc_reach_line(const struct jc_reach *r, char *buf, jc_size cap)
 {
     char checked[640];
-    char unchecked[320];
+    char unchecked[512];
     if (r == NULL || buf == NULL || cap == 0) {
         return;
     }
@@ -107,7 +149,7 @@ void jc_reach_line(const struct jc_reach *r, char *buf, jc_size cap)
 struct cJSON *jc_reach_json(const struct jc_reach *r)
 {
     char checked[640];
-    char unchecked[320];
+    char unchecked[512];
     cJSON *o;
     if (r == NULL) {
         return NULL;

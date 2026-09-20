@@ -366,6 +366,8 @@ int jc_tool_git_available(const char *cwd);
  * (<=0 => 20); build a `git blame -L` range value into buf, returning 1 when a
  * range applies (start>0) and 0 otherwise. */
 int jc_git_clamp_max(int requested);
+int jc_git_tracked_paths(const char *cwd, const char *const *paths,
+                         int npaths, int *out);
 int jc_git_blame_range(int start, int end, char *buf, int cap);
 const struct jc_tool *jc_tool_todowrite(void);
 const struct jc_tool *jc_tool_todoread(void);

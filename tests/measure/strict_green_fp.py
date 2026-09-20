@@ -42,12 +42,17 @@ import json
 import os
 
 
-# Deliberately shape-based and deliberately crude. A precise answer needs to know
-# whether the path is TRACKED in the project's VCS -- a gate file is tracked, a
-# downloaded PDF is not -- and the journal does not record that today. Recording
-# it is the next step this measurement asks for; until then the shape is what
-# there is, and calling it approximate in the output is better than implying it
-# is not.
+# M684: THE JOURNAL NOW RECORDS THE ANSWER, so this is the fallback rather than
+# the method. Each `out_of_scope` record carries a `tracked` array naming the
+# subset git knows about; a path in it is a file under version control, which is
+# what "the gate edited through the shell" means, and a path not in it is the
+# work's own output. The key is ABSENT on journals written before M684 and on
+# workspaces with no git -- "none are tracked" and "nobody asked" are different
+# facts, and the two are counted separately below rather than merged.
+#
+# What follows is the crude shape-based classifier, kept for those journals. It
+# guesses from the file extension. It is not a second opinion on a record that
+# has the field; it is what there is when nothing does.
 def classify_path(p):
     import re as _re
     if _re.search(r"\.(o|a|so|beam|class|pyc|tmp|dump|log|lock)$", p):
@@ -169,23 +174,50 @@ def main():
     if downgrades:
         buckets = {}
         seen = []
+        n_tracked = 0
+        n_untracked = 0
+        n_unrecorded = 0
         for _r in downgrades:
             for _e in _r["oos"]:
+                _trk = _e.get("tracked")
                 for _p in (_e.get("paths") or []):
                     seen.append(_p)
-                    _k = classify_path(_p)
-                    buckets[_k] = buckets.get(_k, 0) + 1
+                    if _trk is None:
+                        n_unrecorded += 1
+                        _k = classify_path(_p)
+                        buckets[_k] = buckets.get(_k, 0) + 1
+                    elif _p in _trk:
+                        n_tracked += 1
+                    else:
+                        n_untracked += 1
         if seen:
             print("")
-            print("what those paths ARE (n=%d, %d distinct):"
-                  % (len(seen), len(set(seen))))
-            for _k in sorted(buckets, key=lambda k: -buckets[k]):
+            # M684: the recorded answer first, because it is the one that can
+            # settle the question. A run under version control gets a fact; the
+            # rest get a guess, and the two are never added together.
+            _rec = n_tracked + n_untracked
+            if _rec:
+                print("TRACKEDNESS, as recorded by the run (n=%d):" % _rec)
                 print("   %-28s %5d  %5.1f%%"
-                      % (_k, buckets[_k], 100.0 * buckets[_k] / len(seen)))
-            print("   (a path jichi's own build or the task's own output wrote is")
-            print("    NOT the gate being edited through the shell; strict-green")
-            print("    cannot tell them apart, and that is the finding, M662)")
-            print("")
+                      % ("tracked -- READ THESE", n_tracked,
+                         100.0 * n_tracked / _rec))
+                print("   %-28s %5d  %5.1f%%"
+                      % ("untracked -- own output", n_untracked,
+                         100.0 * n_untracked / _rec))
+                print("   (this is the line M662 asked for: a gate file is in")
+                print("    version control, a downloaded PDF is not. A rule that")
+                print("    downgrades only on a TRACKED path is the candidate.)")
+                print("")
+            if n_unrecorded:
+                print("no trackedness recorded (pre-M684 journal, or no git) "
+                      "(n=%d, %d distinct):" % (n_unrecorded, len(set(seen))))
+                for _k in sorted(buckets, key=lambda k: -buckets[k]):
+                    print("   %-28s %5d  %5.1f%%"
+                          % (_k, buckets[_k], 100.0 * buckets[_k] / n_unrecorded))
+                print("   (shape-based and crude -- the extension, not the index.")
+                print("    Not comparable with the block above, and deliberately")
+                print("    not summed with it.)")
+                print("")
 
     print("flagged runs that ended non-ok anyway (untouched by strict-green): %d"
           % len(flagged_nonok))

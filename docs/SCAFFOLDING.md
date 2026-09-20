@@ -45,11 +45,13 @@ pack reuses the language-agnostic `default` assets and adds a domain-tuned
 | `sysadmin` | routine operations | `sysadmin` agent; `service-health` / `backup-verify` / `cron-audit` / `disk-space` / `env-check` skills; `/health-check` command |
 | `assignments` | teaching/practice | `assignment-writer` / `solution-writer` / read-only `solution-checker` agents; `assignment-template` + `grading-rubric` + `code-reading` skills (the last coaches the five readings of [`CODE_REVIEW.md`](CODE_REVIEW.md), propose-only, M627); `/assign` `/solve` `/check` commands; a starter **glossary of jichi's own terms** (→ `.jichi/glossary.md`, M175 — the one pack file that nests despite being top-level, see [`GLOSSARY.md`](GLOSSARY.md)). See [`ASSIGNMENTS.md`](ASSIGNMENTS.md) |
 | `onboarding` | adopting an existing project | read-only `project-analyst` / `data-fetcher` + `tutorial-writer` agents; `onboarding-checklist` skill; `/onboard` command. Drives `setup --onboard` (propose-only). See [`SETUP_WIZARD.md`](SETUP_WIZARD.md) |
+| `platform-test` | answering *"does jichi work on my machine?"* | `PLATFORM_TEST.md` (the three questions, the steps, a row template); the **`platform-tester`** skill, which **never runs the gate for the learner** and walks the diagnosis rather than the fix; `/platform-test`. Writes no config. See [`PLATFORM_TESTING.md`](PLATFORM_TESTING.md) |
+| `course` | learning a language from its **own** docs | `COURSE.md` (the route: fetch a versioned snapshot → point `docs` at it → coached reading → graded task); the `course-coach` skill (predict-before-reveal, every claim cited to a file in the snapshot); `/course`. **Writes no config, deliberately** — see [`LANGUAGE_COURSE.md`](LANGUAGE_COURSE.md) and [`DECISIONS.md`](DECISIONS.md) |
 | language packs | per language | `rust-cli`, `go-cli`, `web-ts`, `cpp`, `perl`, `r`, `guile`, `racket`, `clojure`, `haskell`, `elixir`, `erlang`, `elisp` — each a domain `AGENTS.md` + reviewer/triage skill + `config.example.json` |
 
 The authoritative list is the compiled-in `PACKS[]` registry
 (`src/scaffold/jc_scaffold.c`); `init --list` prints it. This table names the
-high-traffic packs — the full set is 30 (run `jichi init --list`; the
+high-traffic packs — the full set is 33 (run `jichi init --list`; the
 four M183 journey packs — `sdlc`, `contributor`, `refactor`, `rewrite` —
 are mapped in [SDLC.md](SDLC.md)).
 

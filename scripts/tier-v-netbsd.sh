@@ -87,6 +87,7 @@ set -u
 
 # The one implementation of JC_SMOKE_TIMEOUT_MULT, and why it is not inline here.
 . "$(dirname "$0")/_rig_mult.sh"
+. "$(dirname "$0")/_rig_live.sh"
 
 REL="${TIER_V_NETBSD_RELEASE:-10.1}"
 DIR="${TIER_V_NETBSD_DIR:-$HOME/.cache/jichi-tier-v-netbsd}"
@@ -150,7 +151,16 @@ note() { echo "$*" >> "$RESULTS"; }
 g()  { ssh $SSH_OPTS -i "$KEY" -p "$PORT" tierv@127.0.0.1 "$@"; }
 # gl -- g() carrying a REVERSE forward, so the guest reaches the host's
 # loopback LM Studio for exactly the lifetime of this one command.
-gl() { ssh $SSH_OPTS -R "$LIVE_PORT:127.0.0.1:$LIVE_PORT" -i "$KEY" -p "$PORT" tierv@127.0.0.1 "$@"; }
+# -o ExitOnForwardFailure=yes IS THE POINT, and it was missing (M677). `ssh -R`
+# whose forward cannot bind prints "Warning: remote port forwarding failed for
+# listen port N" and RUNS THE COMMAND ANYWAY, exit 0. Measured on the Pi 400
+# this session: the rig's own forward failed, the turn answered regardless --
+# through a STALE forward left bound by an ssh session more than a day old --
+# and the row reported two green live turns. The model calls were real; the
+# transport under test was never exercised, and on a machine without that
+# leftover the same rig would have failed. A pass that depends on something
+# nobody knew was there is the shape of evidence this project refuses.
+gl() { ssh $SSH_OPTS -o ExitOnForwardFailure=yes -R "$LIVE_PORT:127.0.0.1:$LIVE_PORT" -i "$KEY" -p "$PORT" tierv@127.0.0.1 "$@"; }
 # shellcheck disable=SC2086
 gr() { ssh $SSH_OPTS -i "$KEY" -p "$PORT" root@127.0.0.1 "$GPATH $*"; }
 
@@ -454,7 +464,14 @@ if [ "$REUSE" -eq 0 ]; then
     # out and errors actionably when it is missing), but without it `pdf` and
     # `docs_pdf` decline, so two of this row's declines were a package nobody had
     # installed rather than anything about the platform (M482).
-    if gr "PKG_PATH='$PKGURL' pkg_add -I gmake pkg-config curl git-base poppler-utils >/tmp/pkg.log 2>&1 && echo PKG_OK" \
+    # A NETWORK INSTALL WITH NO DEADLINE CAN HANG THIS RIG FOREVER (M685).
+    # Measured on the OpenBSD row the same day: `ftp` sat on one package for
+    # 22m47s at 0.0%% CPU with the connection ESTABLISHED and both queues at
+    # zero, and the rig printed nothing between `== pkg_add` and never. Bounded
+    # here for the same reason; `timeout` is probed rather than assumed, so a
+    # system without it runs unbounded and is no worse off than before.
+    if gr "T=''; command -v timeout >/dev/null 2>&1 && T='timeout 900'; \
+           PKG_PATH='$PKGURL' \$T pkg_add -I gmake pkg-config curl git-base poppler-utils >/tmp/pkg.log 2>&1 && echo PKG_OK" \
             2>/dev/null | grep -q PKG_OK; then
         ok "toolchain present (gmake, not make: NetBSD's make is BSD make)"
     else
@@ -496,7 +513,8 @@ fi
 # install pdftotext. Guarding on the command rather than on the package makes this
 # idempotent, so it is safe to run every time and it repairs an older disk in place.
 if gr "command -v pdftotext >/dev/null 2>&1 ||
-       PKG_PATH='$PKGURL' pkg_add -I poppler-utils >/dev/null 2>&1;
+       { T=''; command -v timeout >/dev/null 2>&1 && T='timeout 600';
+         PKG_PATH='$PKGURL' \$T pkg_add -I poppler-utils >/dev/null 2>&1; };
        command -v pdftotext >/dev/null" 2>/dev/null; then
     ok "pdftotext present (the pdf/docs_pdf drivers can run)"
 else
@@ -642,74 +660,14 @@ for s in "--version" "doctor" "describe" "context"; do
 done
 
 # ------------------------------------------------------------- live turns
-# WHY THIS STEP EXISTS (2026-09-18/19). Every step above this line is OFFLINE:
-# build, unit suite, smoke tier and the four surfaces all pass on a kernel where
-# jichi has never called a model. `PLATFORMS.md` calls a row that HAS **Driven**,
-# and the honest position before this was that neither BSD row had been.
-#
-# TWO TURNS, because the first proves only the wire. `reply with OK` exercises
-# the provider, the request and the SSE framing; it chooses no tool, executes
-# none, and consumes no result. Every documented failure in this area lives past
-# that point -- a model that DESCRIBES tool calls terminates cleanly with an
-# empty workspace (AUTONOMOUS_LOOPS.md, "done is not a success verdict").
-#
-# THE TUNNEL IS THE POINT OF `gl`. The guest is behind QEMU user-mode NAT and LM
-# Studio binds 127.0.0.1 on the host, so rather than exposing the model server on
-# the LAN the rig carries a REVERSE forward on the very connection that runs the
-# turn: the forward lives exactly as long as the command does.
-#
-# THE PROMPTS CROSS AS BASE64 and the fixture goes over STDIN. Both were quoted
-# strings first, and both lost their quotes inside the remote `sh -c`: jichi got
-# `-p reply` and swallowed `--output json`, and the fixture file was never
-# written, so the check blamed the model for a file that did not exist. jichi
-# ships --prompt-b64 for exactly this. (tier-b-device.sh, the same day.)
-#
-# THE ASSERTION IS A PHRASE, NOT A SENTENCE: quotes drift -- measured, a model
-# quoted three passages and dropped an article from one -- but a random token can
-# only be produced by having read the file.
+# The DRIVEN step. Its definition, and every reason behind it, is in ONE place:
+# scripts/_rig_live.sh. Do not re-explain it here -- three copies of the prose
+# is the same defect as three copies of the code, one level down.
 say "live turns"
 if [ -z "${LIVE_PORT:-}" ]; then
-    # NOT a failure and NOT a pass: the step did not run. Saying so out loud is
-    # the difference between "this row is Verified" and "this row is Driven",
-    # and a rig that stays silent here is how the matrix came to look emptier
-    # than the work actually done.
-    note "    live turns NOT attempted (no --live-port) -- every step above is offline"
-    echo "-- live turns not attempted: this row is Verified, not Driven"
+    jc_rig_live_skip
 else
-    _lurl="http://127.0.0.1:$LIVE_PORT/v1"
-    g "cat > \$HOME/live.json" <<LIVECFG 2>/dev/null || true
-{"models":[{"name":"live","provider":"openai","model":"$LIVE_MODEL",
- "apiBase":"$_lurl","apiKey":"unused","roles":["chat"]}],
- "snapshots":false,"repoMap":false,"maxRetries":1,"lowResource":false}
-LIVECFG
-    _phrase="TIER-V-$(od -An -N3 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' | tr 'a-f' 'A-F')"
-    [ "$_phrase" != "TIER-V-" ] || _phrase="TIER-V-FALLBACK"
-    g "mkdir -p \$HOME/ws" >/dev/null 2>&1 || true
-    g "cat > \$HOME/ws/note.txt" <<NOTEFIX 2>/dev/null || true
-The pass phrase is $_phrase.
-NOTEFIX
-    _p_live=$(printf '%s' 'reply with OK' | base64 | tr -d '\n')
-    _p_tool=$(printf '%s' 'Use the read_file tool to read note.txt in this directory, then report the pass phrase.' | base64 | tr -d '\n')
-
-    if gl "cd \$HOME/jichi && ./jichi --config \$HOME/live.json --prompt-b64 $_p_live --output json" \
-            > "$DIR/live-netbsd.txt" 2>&1 && grep -q '"text"' "$DIR/live-netbsd.txt"; then
-        ok "live turn answered over the reverse tunnel ($LIVE_MODEL)"
-        note "    $(grep -o '"text":"[^"]*"' "$DIR/live-netbsd.txt" | head -1)"
-    else
-        bad "live turn did not answer -- see $DIR/live-netbsd.txt"
-        tail -5 "$DIR/live-netbsd.txt" 2>/dev/null | sed 's/^/    /' >> "$RESULTS"
-    fi
-
-    if gl "cd \$HOME/ws && \$HOME/jichi/jichi --config \$HOME/live.json --auto -q --prompt-b64 $_p_tool" \
-            > "$DIR/live-tool-netbsd.txt" 2>&1 && grep -q "$_phrase" "$DIR/live-tool-netbsd.txt"; then
-        ok "agentic turn: the model called a tool and reported $_phrase"
-        note "    the tool ran and its result was consumed by a second turn"
-    else
-        bad "agentic turn did NOT return $_phrase -- the model may have described \
-the tool call instead of invoking it (doctor --live calls that \`text\`), or the \
-loop does not execute tools on this platform"
-        tail -8 "$DIR/live-tool-netbsd.txt" 2>/dev/null | sed 's/^/    /' >> "$RESULTS"
-    fi
+    jc_rig_live netbsd "$LIVE_PORT" "$LIVE_MODEL" "$DIR"
 fi
 
 

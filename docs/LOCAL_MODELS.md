@@ -153,13 +153,20 @@ JIT-loads a model on the first request that names it.
 ```jsonc
 {
   "models": [
-    { "name": "local", "provider": "openai", "model": "qwen/qwen2.5-coder-14b",
+    { "name": "local", "provider": "openai", "model": "google/gemma-4-12b-qat",
       "apiBase": "http://127.0.0.1:1234/v1",
       "contextLength": 4096,
       "roles": ["chat", "edit", "apply", "summarize"] }
   ]
 }
 ```
+
+> **This example named `qwen/qwen2.5-coder-14b` until M678**, which is the one
+> model the table below marks **unusable by jichi**. A reader copying the config
+> got a model that answers well and never runs a tool — the exact failure the
+> page then spends a paragraph explaining. `local_models_lint.sh` now holds
+> every example config on this page to that table, because a page that
+> contradicts itself two screens apart is worse than a page that says nothing.
 
 **Five traps, all measured on 2026-08-21** against a 16 GB ROCm card serving
 eight installed models. Every one of them looks like something else, and **two of
@@ -183,8 +190,12 @@ the full record is worth reading:
 - **A model may emit tool calls as prose — but check your instrument before you
   believe it of five models at once.** On this bench exactly **one** of six models
   does: `qwen/qwen2.5-coder-14b` returns `finish_reason: stop`, `tool_calls: []`,
-  and the correct call inside `content` wrapped in Qwen2.5's `<tools>` template,
-  which this GGUF's prompt template never translates back. jichi **cannot
+  and the correct call inside `content`, which this GGUF's prompt template never
+  translates back. **Re-measured 2026-09-20 and the finding holds**, with one
+  correction: the call now arrives as a fenced ```` ```json ```` block rather
+  than in Qwen2.5's `<tools>` template. *The verdict was stable across a month
+  and the evidence for it was not* — which is why the marker carries a date and
+  why re-running a claim is worth the four minutes. jichi **cannot
   execute** that: it notices and nudges (M147) but never runs it. The model is
   right and the server template is not translating — so the repair is a different
   quant or a fixed template, not different weights. The other five

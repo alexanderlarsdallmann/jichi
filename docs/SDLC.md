@@ -96,6 +96,6 @@ contribution bench; any journey plus `docs` upgrades the documentation
 story. The journeys are starting points, not fences.
 
 *See also: [SETUP_WIZARD.md](SETUP_WIZARD.md) (the wizard),
-[SCAFFOLDING.md](SCAFFOLDING.md) (all 31 packs),
+[SCAFFOLDING.md](SCAFFOLDING.md) (all 33 packs),
 [DESIGN_INPUT.md](DESIGN_INPUT.md) (`--design`),
 [AUTONOMY.md](AUTONOMY.md) (the envelope every journey runs under).*

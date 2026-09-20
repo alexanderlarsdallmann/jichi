@@ -42,7 +42,7 @@
 #               not guaranteed built when the smoke tier runs).
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 18
+t_plan 19
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 graded=$(grep -l '^verify:' "$root"/docs/assignments/*.md | wc -l | tr -d ' ')
@@ -450,6 +450,31 @@ the i18n-INCLUSIVE count ($all) than the English-only count ($en) its page count
 uses. That is the M620 defect: the lines and the pages were measured over \
 different sets, and the translations were then added a second time."
     fi
+fi
+
+# --- 19: SCAFFOLDING.md's pack count is the registry's -----------------------
+# THE DEFECT, found at M675 while adding the 32nd pack: the page said "the full
+# set is 30" and the registry held 31. It had been wrong for at least one pack
+# before this milestone touched it, and nothing could have said so -- the number
+# is prose, the registry is C, and no check joined them. Same shape as the
+# BUILD.md gap two milestones ago: a page summarising a thing that grows, with
+# nobody holding the summary to the thing.
+#
+# Counted from the PACKS[] table by its entry lines, not by `init --list`, so
+# this needs no binary and runs in the lint tier.
+_pk=$(awk '/^static const struct jc_scaffold_pack PACKS\[\] = \{/ { f = 1; next }
+           f && /^\};/                                            { exit }
+           f && /^    \{ "/                                       { n++ }
+           END                                                    { print n + 0 }' \
+      "$SMOKE_ROOT/src/scaffold/jc_scaffold.c")
+_doc=$(sed -n 's/.*the full set is \([0-9][0-9]*\).*/\1/p' \
+       "$SMOKE_ROOT/docs/SCAFFOLDING.md" | head -1)
+if [ "${_pk:-0}" -ge 25 ] && [ "$_pk" = "${_doc:-}" ]; then
+    t_ok "SCAFFOLDING.md's pack count matches the registry ($_pk)"
+else
+    t_fail "SCAFFOLDING.md says ${_doc:-<none found>} packs, PACKS[] has ${_pk:-0}.
+The registry is the fact; the page is a summary of it. (A count under 25 means
+the awk stopped matching the table -- fix that before the prose.)"
 fi
 
 t_done

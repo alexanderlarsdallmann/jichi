@@ -247,7 +247,12 @@ MPORT=$(cat "$J/.port"  2>/dev/null || echo "")
 MPORT2=$(cat "$J/.port2" 2>/dev/null || echo "")
 GUEST_MOCK_PORT=9000
 GUEST_MOCK_PORT2=9001
-ssh $SSH_OPTS -i "$KEY" -p "$PORT" -N \
+# -o ExitOnForwardFailure=yes (M677): without it ssh WARNS that a forward could
+# not bind and stays up regardless, so this backgrounded tunnel would look alive
+# while the guest's requests reached whatever else holds 9000/9001 -- or nothing
+# at all, which then reads as a jichi failure. Found by the lint after the same
+# hole cost a Pi row its transport evidence.
+ssh $SSH_OPTS -o ExitOnForwardFailure=yes -i "$KEY" -p "$PORT" -N \
     -R "${GUEST_MOCK_PORT}:127.0.0.1:${MPORT}" \
     -R "${GUEST_MOCK_PORT2}:127.0.0.1:${MPORT2}" tierv@127.0.0.1 &
 TUNPID=$!

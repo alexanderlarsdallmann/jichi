@@ -57,6 +57,17 @@ jc_status jc_net_parse_model_limits(const char *json,
                                     long *out_max_input,
                                     long *out_max_output);
 
+/* M689: is MODEL_ID present in the server's /v1/models listing?
+ *   JC_OK          -- listed
+ *   JC_ERR_NOTFOUND-- the listing was obtained and does not contain it
+ *   anything else  -- could not tell; the caller must FAIL OPEN, because a
+ *                     server that will not answer is not a bad config.
+ * The parse half is separable so it can be tested without a server. */
+jc_status jc_net_parse_model_listed(const char *json, const char *model_id);
+jc_status jc_net_model_listed(const char *api_base, const char *api_key,
+                              const char *model_id, int timeout_secs,
+                              volatile int *abort, long *out_http_status);
+
 jc_status jc_net_model_limits(const char *api_base, const char *api_key,
                               const char *model_id, long timeout_secs,
                               volatile int *abort, long *out_max_input,

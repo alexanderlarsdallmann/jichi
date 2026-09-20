@@ -586,6 +586,7 @@ CORE_SRC = \
   src/util/jc_daemon_proto.c \
   src/util/jc_assign.c \
   src/util/jc_assignlist.c \
+  src/util/jc_outcome.c \
   src/util/jc_reach.c \
   src/util/jc_plan.c \
   src/util/jc_progress.c \

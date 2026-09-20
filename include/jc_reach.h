@@ -38,6 +38,27 @@ struct jc_reach {
     int scope_armed;      /* an --edit-scope was set                       */
     int scope_violations; /* writes seen outside it                        */
     int shell_ran;        /* a shell tool ran: its changes are unattributed */
+    /* M689: set only when the turn-end sweep actually ran AND found the tree
+     * byte-identical to the run-start baseline. That PROVES the shell wrote
+     * nothing; the converse proves nothing, so there is no flag for it. */
+    int shell_wrote_nothing;
+    /* M687, widened at M688: did the model stop because it was FINISHED?
+     * Belongs in the NOT-CHECKED half and nowhere else -- the answer is
+     * whatever had been said by then, so nothing downstream of it was tested,
+     * including (in the case that prompted M687) an answer never produced at
+     * all. M687 asked only about the iteration cap; an audit then found a
+     * budget-stopped run printing "not checked: (nothing)" beside an empty
+     * answer, so the question is now the general one and `stop_clause` says
+     * WHICH reason. Both come from jc_outcome.h, decided once per run.
+     *
+     * PHRASED AS "truncated", NOT "complete", so that ZERO IS THE BENIGN VALUE
+     * like every other field here. The first version asked `answer_complete`,
+     * and `memset(r, 0, sizeof *r)` then meant every default-initialised footer
+     * announced an incomplete answer -- tests/test_reach.c caught it on the
+     * first run. A struct filled by memset must not have a field whose zero is
+     * an accusation. */
+    int answer_truncated;     /* the run stopped before the model finished */
+    const char *stop_clause;  /* NULL when the run ended cleanly            */
     int tool_calls;       /* attempted                                     */
     int tool_errors;      /* results with is_error                         */
     int tool_refused;     /* M638: of those, stopped by a fence            */

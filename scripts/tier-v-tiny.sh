@@ -51,12 +51,18 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BIN=""
 DRY=0
 TURN=0
+LIVE_MODEL=""
+LIVE_PORT=1234
 CEILINGS=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --bin)     shift; BIN="${1:?--bin needs a path}" ;;
         --turn)    TURN=1 ;;
+        # A REAL model instead of the mock. Implies --turn: the payload, the
+        # NIC and the initramfs size are the same rung either way.
+        --live-model) LIVE_MODEL="$2"; TURN=1; shift ;;
+        --live-port)  LIVE_PORT="$2";  shift ;;
         --dry-run) DRY=1 ;;
         -h|--help) awk 'NR>1 && !/^#/{exit} NR>1' "$0"; exit 0 ;;
         -*) echo "tier-v-tiny: unknown option: $1" >&2; exit 2 ;;
@@ -66,6 +72,9 @@ while [ $# -gt 0 ]; do
 done
 [ -n "${CEILINGS# }" ] || CEILINGS="256 192 128 96 64 48 32 24 16"
 [ -n "$BIN" ] || BIN="$ROOT/jichi"
+
+. "$(dirname "$0")/_rig_live.sh"
+LIVE_PHRASE=$(jc_rig_live_phrase TINY)
 
 BUSYBOX=$(command -v busybox || true)
 OUT="$DIR/tiny-initramfs.cpio.gz"
@@ -84,7 +93,17 @@ MARK_V=TINY_VERSION_OK
 MARK_M=TINY_MAP_OK
 MARK_D=TINY_DOCTOR_OK
 MARK_END=TINY_RUN_COMPLETE
-MARK_TURN=TINY_TURN_ANSWER_OK
+# THE TURN MARKER IS THE VERDICT, and with a real model it must be the NONCE.
+# Against the mock it is a fixed string the mock is told to emit, which proves
+# the wire and nothing else. Against a real model, a fixed string could be
+# guessed, echoed or hallucinated -- only a token generated this boot, written
+# into a file the model can reach solely by calling a tool, distinguishes
+# "the loop closed" from "something replied".
+if [ -n "$LIVE_MODEL" ]; then
+    MARK_TURN="$LIVE_PHRASE"
+else
+    MARK_TURN=TINY_TURN_ANSWER_OK
+fi
 # --turn needs a model. It runs on the HOST, outside -m, so the ceiling measures
 # the guest's jichi and not the mock -- the same rule tests/measure/ram_floor.sh
 # states. QEMU user-mode networking maps the host's loopback to 10.0.2.2, so a
@@ -98,6 +117,23 @@ res() { if [ "$DRY" -eq 1 ]; then sed 's/^/[results] /'; else cat >> "$RESULTS";
 command -v qemu-system-x86_64 >/dev/null 2>&1 || { echo "tier-v-tiny: no qemu-system-x86_64" >&2; exit 2; }
 command -v cpio >/dev/null 2>&1 || { echo "tier-v-tiny: no cpio" >&2; exit 2; }
 [ -n "$BUSYBOX" ] || { echo "tier-v-tiny: no busybox on PATH (apt install busybox-static)" >&2; exit 2; }
+# THE TURN RUNG FETCHES ITS OWN KERNEL, from the SAME release as the modules.
+# Before M680 it took whatever kernel happened to be cached and downloaded
+# modules from a floating URL; when Alpine moved from 6.12.81 to 6.12.110 the
+# two stopped matching, insmod refused the module without saying so, and the
+# guest ran the turn with no network at all. Fetching both from one place
+# removes the failure rather than detecting it.
+if [ "$TURN" -eq 1 ] && [ -z "${TINY_KERNEL:-}" ] && [ ! -r "$KERNEL" ]; then
+    _nb="https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/netboot"
+    say "fetch the Alpine virt kernel (same release as the modloop)"
+    if curl -fL --no-progress-meter -o "$KERNEL.part" "$_nb/vmlinuz-virt" 2>/dev/null; then
+        mv "$KERNEL.part" "$KERNEL"
+        echo "   kernel: $KERNEL ($(file -b "$KERNEL" | sed -n 's/.*version \([^ ]*\).*/\1/p'))"
+    else
+        rm -f "$KERNEL.part"
+        echo "tier-v-tiny: could not fetch a kernel; set TINY_KERNEL" >&2
+    fi
+fi
 [ -r "$KERNEL" ] || { echo "tier-v-tiny: no readable kernel at $KERNEL" >&2
     echo "  (the host's /boot/vmlinuz-* is mode 0600 root; run a tier-v-vm.sh" >&2
     echo "   row first, or point TINY_KERNEL at any bzImage you can read)" >&2; exit 2; }
@@ -139,17 +175,50 @@ build_initramfs() {
     fi
     cp "$BIN" "$_d/jichi"
     if [ "$TURN" -eq 1 ]; then
-        cat > "$_d/work/config.json" <<CFGEOF
+        if [ -n "$LIVE_MODEL" ]; then
+            # THE REAL MODEL, over slirp. No tunnel is needed here and that is
+            # worth saying, because every other rig in this tree carries one:
+            # QEMU's user-mode network maps the HOST's loopback to 10.0.2.2 seen
+            # from inside the guest, so a model server bound to 127.0.0.1 is
+            # already reachable. The reverse forward the ssh rigs use exists to
+            # solve a problem this guest does not have.
+            cat > "$_d/work/config.json" <<CFGEOF
+{"models":[{"name":"m","provider":"openai","model":"$LIVE_MODEL",
+"apiBase":"http://$HOST_GW:$LIVE_PORT/v1","apiKey":"unused","roles":["chat"]}],
+"snapshots":false,"repoMap":false,"references":false,"markdown":false,
+"lowResource":true,"maxRetries":1}
+CFGEOF
+            # The fixture the agentic turn must READ. Its phrase is generated
+            # per run by the shared task (scripts/_rig_live.sh), so a pass can
+            # only come from a tool call made during THIS boot.
+            mkdir -p "$_d/work/ws"
+            jc_rig_live_fixture "$LIVE_PHRASE" > "$_d/work/ws/note.txt"
+        else
+            cat > "$_d/work/config.json" <<CFGEOF
 {"models":[{"name":"m","provider":"openai","model":"mock",
 "apiBase":"http://$HOST_GW:$MM_PORT/v1","apiKey":"x","roles":["chat"]}],
 "snapshots":false,"repoMap":false,"references":false,"markdown":false,
 "lowResource":true,"maxRetries":0}
 CFGEOF
+        fi
     fi
 
     # The turn stanza is built here so the heredoc below stays one template.
     # Static IP rather than udhcpc: slirp's addresses are fixed and a DHCP
     # client is one more moving part inside the ceiling being measured.
+    # What the guest actually runs for its turn(s). With a real model this is
+    # the SHARED driven task -- both prompts, byte for byte the ones every other
+    # row uses -- so the tiny row is comparable with the rest of the matrix
+    # rather than a similar-looking different measurement.
+    if [ -n "$LIVE_MODEL" ]; then
+        TINY_TURN_CMDS="/jichi --config /work/config.json --no-session -q --lite --prompt-b64 $(jc_rig_live_prompt_wire) < /dev/null
+echo \"--- THE AGENTIC TURN: a tool the model must actually run\"
+cd /work/ws && /jichi --config /work/config.json --no-session -q --lite --auto --prompt-b64 $(jc_rig_live_prompt_tool) < /dev/null
+cd /"
+    else
+        TINY_TURN_CMDS='/jichi --config /work/config.json --no-session -q --lite -p "tiny turn probe"'
+    fi
+
     TURN_BLOCK=""
     if [ "$TURN" -eq 1 ]; then
         TURN_BLOCK=$(cat <<TBEOF
@@ -157,6 +226,8 @@ echo "--- load the NIC driver (insmod in dependency order; busybox has no depmod
 for m in virtio virtio_ring virtio_pci_modern_dev virtio_pci_legacy_dev virtio_pci failover net_failover virtio_net; do
     [ -f /modules/\$m.ko ] && insmod /modules/\$m.ko 2>/dev/null
 done
+echo "--- did the NIC driver load? (insmod is silent about a vermagic mismatch)"
+[ -d /sys/class/net/eth0 ] && echo "TINY_NIC_OK" || echo "TINY_NIC_MISSING -- no eth0; any turn below will fail on the NETWORK, not the model"
 echo "--- network: interfaces the kernel actually has"
 # Printed because the first attempt failed with no eth0 and nothing to say why:
 # a distro kernel ships virtio_net as a MODULE, and this initramfs carries no
@@ -167,8 +238,8 @@ echo "--- network up (slirp: guest $GUEST_IP, host $HOST_GW)"
 ip link set eth0 up 2>/dev/null
 ip addr add $GUEST_IP/24 dev eth0 2>/dev/null
 ip route add default via $HOST_GW 2>/dev/null
-echo "--- A REAL TURN against the host's mock model"
-/jichi --config /work/config.json --no-session -q --lite -p "tiny turn probe"
+echo "--- A REAL TURN against the host's model"
+$TINY_TURN_CMDS
 TBEOF
 )
     fi
@@ -249,6 +320,27 @@ stage_modules() {
         esac
     done
     rm -rf "$_tmp"
+    # THE MODULE MUST MATCH THE KERNEL, and the two come from different places:
+    # the kernel is cached and PINNED, the modloop URL is FLOATING ("v3.21
+    # /netboot/modloop-virt" always serves the current build). Measured M680:
+    # a kernel cached in August, 6.12.81-0-virt, against a modloop that had moved
+    # to 6.12.110-0-virt. insmod refuses a vermagic mismatch, the loop discards
+    # its errors, and the guest boots with `lo` and no eth0 -- so the turn
+    # reports "error: http error" and the row reads as a model failure. Nothing
+    # said the NIC driver had not loaded.
+    if command -v modinfo >/dev/null 2>&1; then
+        _vm=$(modinfo "$MODS/virtio_net.ko" 2>/dev/null | sed -n 's/^vermagic:[ \t]*\([^ ]*\).*/\1/p')
+        if [ -n "$_vm" ] && [ "$_vm" != "$_kver" ]; then
+            echo "tier-v-tiny: MODULE/KERNEL MISMATCH -- the turn rung cannot work." >&2
+            echo "  kernel : $_kver   (cached at $KERNEL)" >&2
+            echo "  modules: $_vm   (from the floating modloop URL)" >&2
+            echo "  insmod refuses this silently; the guest would boot with no eth0" >&2
+            echo "  and the turn would look like a model failure. Delete the cached" >&2
+            echo "  kernel so both are fetched from the same release:" >&2
+            echo "    rm -f $KERNEL $_ml" >&2
+            return 1
+        fi
+    fi
     [ -f "$MODS/virtio_net.ko" ] || { echo "tier-v-tiny: virtio_net.ko not found in the modloop" >&2
         rm -rf "$MODS"; return 1; }
     echo "   staged: $(ls "$MODS" | tr '\n' ' ')"
@@ -262,6 +354,20 @@ if [ "$TURN" -eq 1 ] && [ "$DRY" -eq 0 ]; then
         echo "  The offline sweep (without --turn) is unaffected and still valid." >&2
         exit 2
     }
+    if [ -n "$LIVE_MODEL" ]; then
+        # A REAL model on the host serves this sweep; no mock is started and
+        # none is needed. Checked here rather than assumed: an unreachable
+        # endpoint must fail as a connection error on the guest, which is a true
+        # negative, instead of looking like a model that declined to answer.
+        if ! curl -s -o /dev/null --max-time 5 "http://127.0.0.1:$LIVE_PORT/v1/models"; then
+            echo "tier-v-tiny: no model server on 127.0.0.1:$LIVE_PORT" >&2
+            echo "  The guest reaches the host's loopback as $HOST_GW through slirp," >&2
+            echo "  so the server must be UP here before the sweep starts." >&2
+            exit 2
+        fi
+        say "host model $LIVE_MODEL on 127.0.0.1:$LIVE_PORT (in-guest: $HOST_GW)"
+        say "the turn marker is this run's phrase: $LIVE_PHRASE"
+    else
     MOCK="$ROOT/tests/tools/mockmodel"
     [ -x "$MOCK" ] || { echo "tier-v-tiny: --turn needs $MOCK (run 'make smoke-tools')" >&2; exit 2; }
     MMDIR=$(mktemp -d "${TMPDIR:-/tmp}/tinymm.XXXXXX") || exit 2
@@ -280,6 +386,7 @@ if [ "$TURN" -eq 1 ] && [ "$DRY" -eq 0 ]; then
     done
     MM_PORT=$(cat "$MMDIR/.port")
     say "host mock model on 127.0.0.1:$MM_PORT (reachable in-guest as $HOST_GW)"
+    fi
 fi
 
 if [ "$DRY" -eq 1 ]; then
@@ -299,7 +406,23 @@ echo
         echo "run: $(date -u '+%Y-%m-%dT%H:%M:%SZ')  host: $(uname -n)"
         echo "kernel: $(file -b "$KERNEL" | cut -c1-80)"
         echo "jichi: $(wc -c < "$BIN" | tr -d '[:space:]') bytes static; initramfs $(wc -c < "$OUT" | tr -d '[:space:]') bytes"
-        echo "NOTE: curl-free payload -- offline surfaces only, no model call."
+        # THE NOTE MUST DESCRIBE THIS RUN, NOT THE DEFAULT ONE (M686). It was
+        # hard-coded, so a --turn run that made four real model calls wrote
+        # "no model call" into its own results file -- a results file that
+        # contradicts the run it records is worse than one that says nothing,
+        # because somebody later quotes it. Measured on the 2026-09-20 live
+        # sweep, where the same file also carried "COMPLETE + REAL TURN" four
+        # lines below.
+        if [ -n "$LIVE_MODEL" ]; then
+            echo "NOTE: curl-enabled static payload; turns are REAL calls to \
+$LIVE_MODEL on the host's $LIVE_PORT (10.0.2.2 in-guest), plain HTTP, so the \
+TLS handshake path is not exercised."
+        elif [ "$TURN" -eq 1 ]; then
+            echo "NOTE: curl-enabled static payload; the turn is answered by \
+the MOCK model on the host, not a real one."
+        else
+            echo "NOTE: curl-free payload -- offline surfaces only, no model call."
+        fi
         echo
     } | res
 }
@@ -392,7 +515,19 @@ if [ -n "$floor" ]; then
     if [ "$TURN" -eq 1 ]; then
         echo "lowest ceiling with every offline surface AND a verified model turn: ${floor} MB"
         echo "scope: jichi RUNNING on a whole machine that size -- not building."
-        echo "       The turn is HTTP against a host-side mock, so the TLS handshake"
+        if [ -n "$LIVE_MODEL" ]; then
+            echo "       The turn is a REAL model ($LIVE_MODEL): both prompts of the"
+            echo "       shared driven task, and the agentic one reported $LIVE_PHRASE,"
+            echo "       a phrase minted this run and reachable only by a tool call."
+        else
+            # The recognised sentence, so a reader and rig_live_lint check 4 get
+            # the same answer: a mock turn proves the wire and NOT the loop, and
+            # a sweep that says nothing here reads as the better verdict.
+            echo '       skip "live turn not attempted (no --live-model)" -- this'
+            echo '       sweep is Verified, not Driven: the turn is a host-side MOCK,'
+            echo '       which proves the wire and says nothing about the loop.'
+        fi
+        echo "       Either way it is plain HTTP, so the TLS handshake"
         echo "       path is not exercised; a real HTTPS endpoint would cost more."
         { echo; echo "FLOOR: ${floor} MB (offline surfaces + a verified turn, static musl)"; } | res
     else

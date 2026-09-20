@@ -43,12 +43,15 @@ set -u
 
 . "$(dirname "$0")/_rig_mult.sh"
 . "$(dirname "$0")/_rig_ship.sh"
+. "$(dirname "$0")/_rig_live.sh"
 
 REL="r151058"
 REF_SECS="${JC_REF_SECS:-}"
 DRY=0; KEEP=0; DIRTY=0; CONSOLE=0
 MEM="${JC_ILLUMOS_MEM:-4096}"; SMP="${JC_ILLUMOS_SMP:-4}"
 PORT="${JC_ILLUMOS_PORT:-2299}"
+LIVE_PORT=""
+LIVE_MODEL="local"
 # REPO is derived from THIS SCRIPT'S location, which means the rig must be run
 # from the repository -- `sh /elsewhere/tier-v-illumos.sh` ships an empty
 # archive and fails with "tree did not ship" (measured, M660, while trying to
@@ -63,6 +66,8 @@ DIR="${TIER_V_DIR:-$HOME/.cache/jichi-tier-v}/illumos"
 while [ $# -gt 0 ]; do
     case "$1" in
         --ref-secs) REF_SECS="$2"; shift ;;
+        --live-port)  LIVE_PORT="$2";  shift ;;
+        --live-model) LIVE_MODEL="$2"; shift ;;
         --release)  REL="$2"; shift ;;
         --dry-run)  DRY=1 ;;
         --keep)     KEEP=1 ;;
@@ -109,6 +114,24 @@ g() {
     fi
     printf '%s\n' "$_g_out"
     return $_g_rc
+}
+
+# gl -- g's tunnelling twin, for the live step only. Deliberately WITHOUT g's
+# 255-retry: a retried model call is a second turn against a fresh nonce, and
+# the honest report of a transport failure there is a failure, not a do-over.
+# shellcheck disable=SC2086
+# -o ExitOnForwardFailure=yes IS THE POINT, and it was missing (M677). `ssh -R`
+# whose forward cannot bind prints "Warning: remote port forwarding failed for
+# listen port N" and RUNS THE COMMAND ANYWAY, exit 0. Measured on the Pi 400
+# this session: the rig's own forward failed, the turn answered regardless --
+# through a STALE forward left bound by an ssh session more than a day old --
+# and the row reported two green live turns. The model calls were real; the
+# transport under test was never exercised, and on a machine without that
+# leftover the same rig would have failed. A pass that depends on something
+# nobody knew was there is the shape of evidence this project refuses.
+gl() {
+    ssh $SSH_OPTS -o ExitOnForwardFailure=yes -R "$LIVE_PORT:127.0.0.1:$LIVE_PORT" -i "$KEY" -p "$PORT" \
+        tierv@127.0.0.1 "$@"
 }
 
 if [ "$DRY" -eq 1 ]; then
@@ -260,7 +283,14 @@ say "install the toolchain (IPS; gcc14 + GNU make)"
 # table is the thing this whole rig exists to prevent". On the first illumos run
 # its absence also gave doctor a real problem to report (`snapshots enabled but
 # git is not on PATH`), which is correct of doctor and noise in a platform row.
-if g 'sudo pkg install -q developer/gcc14 developer/build/gnu-make developer/versioning/git >/dev/null 2>&1; \
+# A NETWORK INSTALL WITH NO DEADLINE CAN HANG THIS RIG FOREVER (M685).
+# Measured on the OpenBSD row the same day: `ftp` sat on one package for
+# 22m47s at 0.0%% CPU with the connection ESTABLISHED and both queues at
+# zero, and the rig printed nothing between `== pkg_add` and never. Bounded
+# here for the same reason; `timeout` is probed rather than assumed, so a
+# system without it runs unbounded and is no worse off than before.
+if g 'T=""; command -v timeout >/dev/null 2>&1 && T="timeout 900"; \
+      sudo $T pkg install -q developer/gcc14 developer/build/gnu-make developer/versioning/git >/dev/null 2>&1; \
       command -v gcc >/dev/null && command -v gmake >/dev/null' 2>/dev/null; then
     # Single quotes around the word: a backtick inside a DOUBLE-quoted shell
     # string is a command substitution, and the first version of this line ran
@@ -375,6 +405,20 @@ if [ -n "$_sum" ]; then
     printf '%s' "$_doc" | grep -E '^[!x]|not recognised' | sed 's/^/    /' >> "$RESULTS"
 else
     bad "offline: doctor printed no summary line at all"
+fi
+
+# ------------------------------------------------------------- live turns
+# The DRIVEN step. Its definition, and every reason behind it, is in ONE place:
+# scripts/_rig_live.sh. Until M677 this row was driven BY HAND (M663, a text
+# turn only, no tool call), which is why PLATFORMS.md could say "Driven (text
+# turn only)" and nothing more -- a hand-run turn is not a row anyone else can
+# reproduce, and the tool half is the half the verdict is named for.
+note ""
+say "live turns"
+if [ -z "${LIVE_PORT:-}" ]; then
+    jc_rig_live_skip
+else
+    jc_rig_live illumos "$LIVE_PORT" "$LIVE_MODEL" "$DIR"
 fi
 
 note ""

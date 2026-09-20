@@ -5,7 +5,7 @@
 # init_scaffold.sh, whose user-edit-preserved check is case 4.)
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 15
+t_plan 21
 smoke_home
 tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
@@ -211,6 +211,105 @@ if [ $rc -eq 2 ] && [ ! -d "$ws8/.jichi" ]; then
     t_ok "a bad pack name in a multi-init rejects before writing"
 else
     t_fail "bad multi-init rc=$rc (want 2) or wrote files"
+fi
+
+# --- the course pack (M675) -------------------------------------------------
+# The scaffold half of docs/LANGUAGE_COURSE.md. Three properties, and the third
+# is the one worth a check rather than a comment.
+ws9=$(smoke_tmp)
+(cd "$ws9" && "$BIN" init course < /dev/null > "$tmp/course" 2>&1); rc=$?
+missing=""
+for rel in COURSE.md .jichi/skills/course-coach/SKILL.md .jichi/commands/course.md; do
+    [ -f "$ws9/$rel" ] || missing="$missing $rel"
+done
+if [ $rc -eq 0 ] && [ -z "$missing" ]; then
+    t_ok "init course writes the route, the coach and the command"
+else
+    t_fail "init course rc=$rc; missing:$missing"
+fi
+
+# The loaders must SEE them. A scaffold that writes a skill the discovery layer
+# does not pick up is four files and no feature -- and the learner's first
+# instruction in COURSE.md is `load_skill course-coach`, so this is the step
+# that either works or wastes their evening.
+(cd "$ws9" && "$BIN" skills < /dev/null > "$tmp/csk" 2>&1)
+(cd "$ws9" && "$BIN" commands < /dev/null > "$tmp/ccm" 2>&1)
+if grep -q "course-coach" "$tmp/csk" && grep -q "/course" "$tmp/ccm"; then
+    t_ok "the scaffolded coach and /course are discovered by the loaders"
+else
+    t_fail "scaffolded course assets not discovered:
+  skills:   $(head_bytes 120 "$tmp/csk")
+  commands: $(head_bytes 120 "$tmp/ccm")"
+fi
+
+# It writes NO config, deliberately. The `docs` source is a path only the
+# learner knows (the snapshot they just fetched) and the embed model is whatever
+# their machine actually has, so a scaffolded config is a file of guesses that
+# `doctor` then reports as broken -- worse than no file, because it looks like
+# a setup that failed rather than one not yet done. COURSE.md shows the lines
+# to add instead. If someone adds a config to this pack, this check says why not.
+# BOTH paths jc_config reads as a project config, and that is the correction
+# this check needed: the first draft tested `.jichi/config.json` alone, and a
+# perturbation adding `config.json` to the pack sailed past it -- because a pack
+# relpath with no slash lands at the PROJECT ROOT, not under .jichi. A check
+# that watches one of two doors is a check that reports a locked house.
+_cfg=""
+for _c in .jichi/config.json local/config.json config.json; do
+    [ -f "$ws9/$_c" ] && _cfg="$_cfg $_c"
+done
+if [ -z "$_cfg" ] && grep -q '"docs"' "$ws9/COURSE.md"; then
+    t_ok "init course writes no config, and COURSE.md shows the docs source to add"
+else
+    t_fail "the course pack wrote a config ($_cfg), or COURSE.md stopped showing
+the docs source. A scaffolded config here names a snapshot path only the learner
+knows and an embed model only their machine has, so doctor would report it as
+a setup that FAILED rather than one not yet done."
+fi
+
+# --- the platform-test pack (M682) ----------------------------------------
+# The scaffold half of docs/PLATFORM_TESTING.md. Same three properties the
+# course pack is held to, for the same reasons.
+ws10=$(smoke_tmp)
+(cd "$ws10" && "$BIN" init platform-test < /dev/null > "$tmp/pt" 2>&1); rc=$?
+missing=""
+for rel in PLATFORM_TEST.md .jichi/skills/platform-tester/SKILL.md \
+           .jichi/commands/platform-test.md; do
+    [ -f "$ws10/$rel" ] || missing="$missing $rel"
+done
+if [ $rc -eq 0 ] && [ -z "$missing" ]; then
+    t_ok "init platform-test writes the route, the coach and the command"
+else
+    t_fail "init platform-test rc=$rc; missing:$missing"
+fi
+
+(cd "$ws10" && "$BIN" skills < /dev/null > "$tmp/ptsk" 2>&1)
+(cd "$ws10" && "$BIN" commands < /dev/null > "$tmp/ptcm" 2>&1)
+if grep -q "platform-tester" "$tmp/ptsk" && grep -q "/platform-test" "$tmp/ptcm"; then
+    t_ok "the scaffolded platform-tester and /platform-test are discovered"
+else
+    t_fail "scaffolded platform-test assets not discovered:
+  skills:   $(head_bytes 120 "$tmp/ptsk")
+  commands: $(head_bytes 120 "$tmp/ptcm")"
+fi
+
+# THE COACH MUST NOT OFFER TO RUN THE GATE, and this is the pack's whole point:
+# a platform result is only worth something to the person who watched it happen.
+# The skill says so in as many words, and a future edit that softened it would
+# turn a teaching tool into a thing that answers for you. Checked on the SHIPPED
+# text rather than the source, because that is what a learner actually gets.
+_sk="$ws10/.jichi/skills/platform-tester/SKILL.md"
+_cfg=""
+for _c in .jichi/config.json local/config.json config.json; do
+    [ -f "$ws10/$_c" ] && _cfg="$_cfg $_c"
+done
+if grep -q "Never run the gate for them" "$_sk" && [ -z "$_cfg" ]; then
+    t_ok "the coach refuses to run the gate, and the pack writes no config"
+else
+    t_fail "the platform-tester skill lost its refusal to run the gate, or the
+pack wrote a config ($_cfg). The refusal is the pack's reason to exist: a result
+the learner did not watch is one they cannot defend. The config is left unwritten
+for the same reason the course pack leaves it -- the model and its endpoint are
+guesses, and placeholders read as a setup that FAILED rather than one not done."
 fi
 
 t_done

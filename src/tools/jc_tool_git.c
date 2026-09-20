@@ -89,6 +89,85 @@ static int git_capture(const char *cwd, const char *const *args, int nargs,
     return -1;
 }
 
+/* M684: which of PATHS does git track?  Writes 1 or 0 into OUT[i] for each
+ * input path; returns 0 when git answered and -1 when it could not be run at
+ * all, so a caller can tell "none are tracked" from "nobody asked".
+ *
+ * WHY THE JOURNAL WANTS THIS. `--strict-green` downgrades a run that touched a
+ * file outside its edit scope. Measured at M662 over 91 run journals it would
+ * have downgraded 16 of 35 successful runs -- 46% -- and the classification of
+ * the 1,158 flagged paths says why: 85% of them are the WORK'S OWN OUTPUT (a
+ * downloaded PDF, a `.o`, jichi's own state) and only 15% is source. The line
+ * that separates the two is version control, and nothing recorded it.
+ *
+ * SHAPE. The paths are passed to `git ls-files` as operands, so the output is
+ * at most the tracked subset rather than the whole index -- a repository with
+ * 2,000 tracked files does not cost 60 KB of pipe to ask about two paths.
+ * Batched, because git_capture's argv is bounded.
+ *
+ * A PATH THIS CANNOT PARSE IS REPORTED UNTRACKED, which is the conservative
+ * direction: `git ls-files` quotes a name containing a newline or a quote, and
+ * a misread there must not promote an artifact to "a gate file". The cost of
+ * being wrong is asymmetric, so the fallback is chosen rather than left to
+ * whichever way the parser happens to fail. */
+int jc_git_tracked_paths(const char *cwd, const char *const *paths,
+                         int npaths, int *out)
+{
+    int i;
+    int base;
+    const int per = 16;         /* git_capture's argv is 24 wide, minus git -C */
+
+    if (out == NULL || npaths <= 0) return 0;
+    for (i = 0; i < npaths; i++) out[i] = 0;
+    if (cwd == NULL || paths == NULL) return -1;
+    /* NB: this returns a BOOLEAN (1 = git works here), not a status code.
+     * Written as `!= 0` it means the opposite of what it reads like, which is
+     * how the first version of this function reported "no git" on every
+     * repository it was given. */
+    if (!jc_tool_git_available(cwd)) return -1;
+
+    for (base = 0; base < npaths; base += per) {
+        const char *a[2 + 16];
+        struct jc_sb sb;
+        int n = npaths - base;
+        int k = 0;
+        int rc;
+
+        if (n > per) n = per;
+        a[k++] = "ls-files";
+        a[k++] = "--";
+        for (i = 0; i < n; i++) a[k++] = paths[base + i];
+
+        jc_sb_init(&sb);
+        rc = git_capture(cwd, a, k, &sb, 65536);
+        if (rc != 0) {
+            jc_sb_free(&sb);
+            return -1;
+        }
+        /* One tracked path per line. Compare whole lines: a prefix match would
+         * call `docs/a.md` tracked because `docs/a.md.bak` is. */
+        if (sb.data != NULL) {
+            const char *line = sb.data;
+            while (*line != '\0') {
+                const char *nl = strchr(line, '\n');
+                jc_size len = (nl != NULL) ? (jc_size)(nl - line)
+                                           : (jc_size)strlen(line);
+                for (i = 0; i < n; i++) {
+                    const char *cand = paths[base + i];
+                    if (cand != NULL && strlen(cand) == len &&
+                        strncmp(cand, line, len) == 0) {
+                        out[base + i] = 1;
+                    }
+                }
+                if (nl == NULL) break;
+                line = nl + 1;
+            }
+        }
+        jc_sb_free(&sb);
+    }
+    return 0;
+}
+
 int jc_tool_git_available(const char *cwd)
 {
     const char *a[2];

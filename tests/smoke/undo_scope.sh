@@ -119,7 +119,7 @@ esac
 # Measure after restoring and every diff is empty, so the report would read
 # "0 files changed" -- present, well-formed, and useless. The run above changed
 # two tracked files, so the number must be at least 2.
-n=$(printf '%s' "$out" | grep -o '[0-9][0-9]* file' | head -1 | tr -d ' file')
+n=$(printf '%s\n' "$out" | grep -o '[0-9][0-9]* file' | head -1 | tr -d ' file')
 [ -n "$n" ] || n=0
 if [ "$n" -ge 2 ]; then
     t_ok "the count is $n, so it was measured before the restore (not after)"

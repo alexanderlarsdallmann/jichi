@@ -17,6 +17,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#include "jc_outcome.h"
 #include "jc_platform.h"
 #include "jc_app.h"
 #include "jc_message.h"
@@ -166,6 +168,13 @@ int jc_subagent_can_spawn(int agent_depth, int max_depth);
  * total tool-call budget combinatorially while still letting each level work.
  * Pure; unit-tested. depth <= 0 returns base_iters unchanged. */
 int jc_subagent_iters_at_depth(int base_iters, int depth);
+
+/* M690: why the last run stopped -- for every reporting surface AND for the run
+ * journal. Lives here rather than in main.c because the journal's `end` event
+ * is written from inside the agent, and it used to record only the envelope's
+ * `outcome`, which cannot express `max_iters` at all. See jc_outcome.h for the
+ * enum and why every renderer switches on it without a `default:` label. */
+enum jc_run_stop jc_agent_stop_reason(struct jc_app *app, jc_status st);
 
 #ifdef __cplusplus
 }

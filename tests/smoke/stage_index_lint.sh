@@ -5,7 +5,7 @@
 # UNIVERSE, STATED, TWICE (CLAUDE.md "audit the universe"):
 #   A. frontmatter route -- docs/assignments/*.md minus INDEX.md and
 #      *.solution.md must each carry exactly one `stage:` line whose value is
-#      in the closed vocabulary below; floored at today's exact count (84).
+#      in the closed vocabulary below; floored at today's exact count (88).
 #   B. INDEX route -- the section tables of docs/assignments/INDEX.md, parsed
 #      here (awk over `## ` headings + `|` table rows, first spec link per
 #      row). The LINT parses the prose tables so the BINARY never has to --
@@ -15,8 +15,13 @@
 # A row in B whose spec's frontmatter disagrees, a spec in A that no table
 # lists, or a spec listed under two different sections all fail loudly.
 #
-# The vocabulary (18): shu ha ri memory plain extras migration racket guile
-# elixir haskell clojure c-systems c-io zig cpp rust process.
+# The vocabulary (19): shu ha ri memory plain extras migration racket guile
+# elixir haskell clojure c-systems c-io zig cpp rust process python.
+#
+# python joined at M674 with the language course's graded track (tasks 81-84).
+# It is its own family heading rather than a "Functional track" or a "Systems
+# track", because it is neither and a heading that lies to fit a slug map is a
+# worse problem than one more line in this awk.
 #
 # c-io joined at M636g with the "C: files & structures" course (task 76). It is a
 # SECOND stage under the same systems family as c-systems, deliberately: the two
@@ -29,7 +34,7 @@
 t_plan 4
 tmp=$(smoke_tmp)
 AD="$SMOKE_ROOT/docs/assignments"
-VOCAB="shu ha ri memory plain extras migration racket guile elixir haskell clojure c-systems c-io zig cpp rust process"
+VOCAB="shu ha ri memory plain extras migration racket guile elixir haskell clojure c-systems c-io zig cpp rust process python"
 
 # --- A: the frontmatter route ------------------------------------------------------
 na=0
@@ -55,10 +60,10 @@ for f in "$AD"/*.md; do
 done
 
 # --- 1: floor at today's exact count ----------------------------------------------
-if [ "$na" -eq 84 ]; then
-    t_ok "enumerated 84 shipped specs (today's exact count)"
+if [ "$na" -eq 88 ]; then
+    t_ok "enumerated 88 shipped specs (today's exact count)"
 else
-    t_fail "enumerated $na specs, not 84 -- recount and refloor"
+    t_fail "enumerated $na specs, not 88 -- recount and refloor"
 fi
 
 # --- 2: every spec carries exactly one vocabulary stage ---------------------------
@@ -88,7 +93,8 @@ awk '
     /^## Systems track .* C\+\+/     { slug = "cpp" }
     /^## Systems track .* Rust/      { slug = "rust" }
     /^## Process track/              { slug = "process" }
-    /^## / && $0 !~ /^## (Set|Plain-register|Extras \(beyond|Migration tracks|Functional track|Systems track|Process track)/ { slug = "" }
+    /^## Language-course track .* Python/ { slug = "python" }
+    /^## / && $0 !~ /^## (Set|Plain-register|Extras \(beyond|Migration tracks|Functional track|Systems track|Process track|Language-course track)/ { slug = "" }
     /^\|/ && slug != "" {
         # first spec name in the row, as a code span: `<name>.md` -- the
         # linked form [`<name>.md`](<name>.md) contains the span, and the
@@ -101,10 +107,10 @@ awk '
 ' "$SMOKE_ROOT/docs/assignments/INDEX.md" | sort -u > "$tmp/set_b"
 
 nb=$(wc -l < "$tmp/set_b")
-if [ "$nb" -eq 84 ]; then
-    t_ok "INDEX's tables list 84 specs, each in exactly one section"
+if [ "$nb" -eq 88 ]; then
+    t_ok "INDEX's tables list 88 specs, each in exactly one section"
 else
-    t_fail "INDEX route found $nb spec rows, not 84 -- a table moved, a spec is unlisted, or one is listed twice; read $tmp/set_b"
+    t_fail "INDEX route found $nb spec rows, not 88 -- a table moved, a spec is unlisted, or one is listed twice; read $tmp/set_b"
 fi
 
 # --- 4: the two routes agree, spec by spec ----------------------------------------

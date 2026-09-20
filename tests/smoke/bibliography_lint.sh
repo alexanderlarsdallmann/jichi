@@ -30,7 +30,7 @@
 # is how the first draft of this lint reported 61.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 8
+t_plan 9
 G=/usr/bin/grep
 [ -x "$G" ] || G=grep
 tmp=$(smoke_tmp)
@@ -78,9 +78,23 @@ fi
 # ---- 3: every entry carries a dated verification marker -----------------
 # [read YYYY-MM-DD] | [probed YYYY-MM-DD: HTTP nnn] | [ISBN verified YYYY-MM-DD]
 # | [DOI ...]. A marker without a date is a claim without a shelf life.
+#
+# THE DATES ARE SPELLED [0-9][0-9][0-9][0-9], NOT [0-9]{4} (M680). Two of this
+# project's own platforms run an awk WITHOUT ERE interval expressions --
+# illumos ships one-true-awk "version Aug 27, 2018", where `{4}` matches a
+# literal brace, measured on the live guest:
+#
+#     echo "a{4}b" | awk '/a{4}b/ {print "matched"}'   ->  matched
+#
+# So the date alternatives never matched there and this check reported dozens of
+# correctly-marked entries as unmarked. It passed on the host under gawk and
+# under a 2024 mawk, which is why it took a --keep run and a shell on the guest
+# to see. The fourth alternative, `\[DOI `, carries no interval and kept
+# matching -- which is what made the failure look like a handful of odd entries
+# rather than "the regex does not work here".
 unmarked=$(awk '
   /^- \*\*/{ if(cur!="" && !seen) print cl": "substr(cur,1,60); cur=$0; cl=NR; seen=0 }
-  /\[read [0-9]{4}-[0-9]{2}-[0-9]{2}\]|\[probed [0-9]{4}-[0-9]{2}-[0-9]{2}: HTTP [0-9]+\]|\[ISBN verified [0-9]{4}-[0-9]{2}-[0-9]{2}\]|\[DOI /{ if(cur!="") seen=1 }
+  /\[read [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\]|\[probed [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]: HTTP [0-9]+\]|\[ISBN verified [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\]|\[DOI /{ if(cur!="") seen=1 }
   END{ if(cur!="" && !seen) print cl": "substr(cur,1,60) }' "$BODY")
 if [ -z "$unmarked" ]; then
     t_ok "all $entries entries carry a dated [read]/[probed]/[ISBN verified]/[DOI] marker"
@@ -130,16 +144,18 @@ sec() {
                    END                   {print c+0}' "$BODY"
 }
 craft=$(sec 1); cc=$(sec 2); cpp=$(sec 3); zig=$(sec 4); rust=$(sec 5)
+py=$(sec 6); rkt=$(sec 7); guile=$(sec 8); elixir=$(sec 9); haskell=$(sec 10)
+clojure=$(sec 11); iface=$(sec 12)
 # Newlines collapsed first: the sentence wraps in the source, and a line-oriented
 # grep found nothing and reported "<no count sentence found>" for a sentence that
 # was there and correct. \s is not ERE either -- that was the second half of the
 # same mistake.
 claim=$(tr '\n' ' ' < "$DOC" | tr -s ' ' \
-        | "$G" -oE '\*\*[0-9]+ entries\*\* below \([0-9]+ craft, [0-9]+ C, [0-9]+ C\+\+, [0-9]+ Zig, [0-9]+ Rust\)')
-want="**$entries entries** below ($craft craft, $cc C, $cpp C++, $zig Zig, $rust Rust)"
-sum=$((craft + cc + cpp + zig + rust))
+        | "$G" -oE '\*\*[0-9]+ entries\*\* below \([0-9]+ craft, [0-9]+ C, [0-9]+ C\+\+, [0-9]+ Zig, [0-9]+ Rust, [0-9]+ Python, [0-9]+ Racket, [0-9]+ Guile, [0-9]+ Elixir, [0-9]+ Haskell, [0-9]+ Clojure, [0-9]+ interfaces\)')
+want="**$entries entries** below ($craft craft, $cc C, $cpp C++, $zig Zig, $rust Rust, $py Python, $rkt Racket, $guile Guile, $elixir Elixir, $haskell Haskell, $clojure Clojure, $iface interfaces)"
+sum=$((craft + cc + cpp + zig + rust + py + rkt + guile + elixir + haskell + clojure + iface))
 if [ "$claim" = "$want" ] && [ "$sum" -eq "$entries" ]; then
-    t_ok "the stated counts match the page: $entries = $craft + $cc + $cpp + $zig + $rust"
+    t_ok "the stated counts match the page: $entries = $craft + $cc + $cpp + $zig + $rust + $py + $rkt + $guile + $elixir + $haskell + $clojure + $iface"
 else
     t_fail "the counts in the prose are not the counts on the page.
   states:   ${claim:-<no count sentence found>}
@@ -213,7 +229,8 @@ b8=""
 n8=0
 for f in docs/USE_CASE_TUTORIAL.md docs/UML_TUTORIAL.md \
          docs/DOMAIN_MODELLING_TUTORIAL.md docs/ARCHITECTURE_TUTORIAL.md \
-         docs/PSEUDOCODE_TUTORIAL.md docs/TESTING_TUTORIAL.md; do
+         docs/PSEUDOCODE_TUTORIAL.md docs/TESTING_TUTORIAL.md \
+         docs/INTERFACE_TUTORIAL.md; do
     if [ ! -f "$f" ]; then
         b8="$b8 $f(missing)"
         continue
@@ -221,8 +238,8 @@ for f in docs/USE_CASE_TUTORIAL.md docs/UML_TUTORIAL.md \
     n8=$((n8 + 1))
     "$G" -q 'BIBLIOGRAPHY.md' "$f" || b8="$b8 $f"
 done
-if [ "$n8" -lt 6 ]; then
-    t_fail "only $n8 of the 6 design tutorials were found ($b8) -- a renamed page \
+if [ "$n8" -lt 7 ]; then
+    t_fail "only $n8 of the 7 design tutorials were found ($b8) -- a renamed page \
 makes this check read nothing. Fix the list, not the floor."
 elif [ -z "$b8" ]; then
     t_ok "all $n8 design tutorials route the reader to BIBLIOGRAPHY.md"
@@ -230,6 +247,40 @@ else
     t_fail "design tutorial(s) that name outside reading but do not link the \
 bibliography:$b8 -- a work named without a citation is the defect this page \
 exists against, and a citation nobody is routed to is the next one."
+fi
+
+# ---- 9: the FREE count is computed, not maintained ----------------------
+# M677. The page has always stated how many of its entries can be read for
+# nothing -- the number a learner with no budget actually cares about -- and
+# that number was maintained by hand. When the four deferred languages landed,
+# the first mechanical recount of the UNCHANGED page returned 75 against a
+# stated 74: one entry of drift, in a figure nobody could falsify by reading,
+# which is check 5's lesson (M259) wearing a different hat one line lower.
+#
+# The rule is mechanical so that it can be checked at all: an entry is free
+# when its bullet -- the `- **` line plus its indented continuation -- carries
+# a bare <https://...> link to the text. Print-only entries carry an ISBN and
+# no link, so they do not count; an entry that is free AND in print carries
+# both, and does.
+_free=$(awk '
+    /^## [0-9]+\. /            { insec = 1; cur = 0; next }
+    /^## [A-Za-z]/              { insec = 0; cur = 0; next }
+    !insec                      { next }
+    /^- \*\*/                    { n++; cur = 1; hit = 0 }
+    cur && /<https?:\/\//       { if (!hit) { f++; hit = 1 } }
+    /^[^ -]/ && !/^- \*\*/       { cur = 0 }
+    END                         { print f + 0 }' "$BODY")
+_claim=$(tr '\n' ' ' < "$DOC" | tr -s ' ' \
+         | "$G" -oE '\*\*[0-9]+ carry a link to a text you can read for nothing\*\*' \
+         | "$G" -oE '[0-9]+' | head -1)
+if [ "${_free:-0}" -ge 50 ] && [ "$_free" = "${_claim:-}" ]; then
+    t_ok "the free-entry count is the page's own: $_free of $entries carry a readable link"
+else
+    t_fail "the page says ${_claim:-<none found>} entries are free; the rule counts ${_free:-0}.
+The rule: a "- **" bullet (with its indented continuation) carrying a bare
+<https://...> link. Recount by running this, do not adjust the prose to taste --
+the figure this check replaced had drifted by one and nobody could see it.
+(Under 50 means the extraction broke, not the page.)"
 fi
 
 t_done

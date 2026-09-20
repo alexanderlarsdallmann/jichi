@@ -133,6 +133,8 @@ int main(void)
     test_toolprobe();
     printf("test_reach\n");
     test_reach();
+    printf("test_outcome\n");
+    test_outcome();
     printf("test_plan\n");
     test_plan();
     printf("test_promptcache\n");

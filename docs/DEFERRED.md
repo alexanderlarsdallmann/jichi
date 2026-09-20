@@ -136,50 +136,294 @@ needs. Those are named in their rows and stay as old as their last sweep.
 
 ### What I recommend doing next, in order
 
-*Rewritten 2026-09-19. The previous list had **four of its five items done** —
-illumos compiled (M658), the Pi Zero re-run (M664), the three peer-transport caps
-(M659/M661b) and `--strict-green` measured and its recommendation withdrawn — and
-a recommendation list that outlives its recommendations is worse than none, because
-it is read as current. Ordered by **value per hour**, with what stands in the way
-named.*
+*Rewritten 2026-09-20. **Five of the previous six are done** — the language
+course complete (M671/M674/M675), the UI/UX tutorial with its TUI section
+(M670/M678), the bibliography's deferred languages (M677), `doctor` on
+`maxParallelAgents` (M669), and both red drivers (M672) — and item 6's item zero
+plus both Raspberry Pi rows landed at M676/M677. A recommendation list that
+outlives its recommendations is worse than none, because it is read as current;
+this is the second rewrite under that rule. Ordered by **value per hour**, with
+what stands in the way named.*
 
-1. **Build the language course, Python first.** Designed and its feasibility
-   measured ([`plans/2026-09-language-course.md`](plans/2026-09-language-course.md)):
-   the corpus snapshot works, retrieval answered a real question in **4 s** with a
-   resolving anchor, and a grounded agentic turn quoted the tutorial in **27 s**.
-   Nothing is blocked. It is the largest piece of user-facing value currently
-   sitting at zero, and Racket follows the same shape once Python proves it.
-2. **`doctor` should say that `maxParallelAgents` is 1 on this machine.** One
-   warning, and it closes a real user-facing degradation: on FreeBSD and NetBSD a
-   person gets one parallel agent on an eight-core box and is told nothing. The
-   diagnosis is finished and the decision not to add a `sysctl` path still stands;
-   what is missing is only the sentence that tells the user.
-3. **The UI/UX tutorial and its bibliography**, treating documents as interfaces —
-   *you are here, this is what you can do here*. It has a natural anchor in this
-   tree already (the `describe`/`--help`/`doctor` surfaces are that idea applied to
-   a CLI) and it makes the curriculum's writing work assessable rather than
-   advisory.
-4. **The six deferred languages in `BIBLIOGRAPHY.md`**, Racket and Python first,
-   because the course points at them for "the important literature". One language
-   per sitting; the discipline is already written down.
-5. **Diagnose `lite_context_cap` on the Pi Zero and `preprompt_discard` on
-   OpenBSD.** The last two red drivers on otherwise complete rows. The second has
-   a refuted hypothesis recorded, which is the cheap half of the work already done.
-6. **Drive the rows that have never called a model.** Termux, proot, Guix and the
-   tiny rows have rigs and no live step; the pattern is now proven in three rigs
-   and is a copy, not a design. **Decide the minimum driven task first** so the
-   rows are comparable — that decision is itself item zero and costs minutes.
+1. ~~**Run the Debian ladder with a live step.**~~ **Done at M679, and the
+   answer is yes.** `v2k` — a whole machine with **160 MB of RAM** — ran both
+   turns: `agentic turn: the model called a tool and reported TIER-V-EA7E77`.
+   It is now the smallest whole machine in the matrix to have closed the agent
+   loop; the Pi Zero's 415 MB held that before. Two of this project's own bugs
+   stood between the question and the answer and **both looked like results** —
+   a port collision that printed *"the kernel never STARTED … a property of the
+   IMAGE"*, and a live step pointed at the wrong guest path that printed two
+   FAIL lines on the row asking this very question. *Original entry:* ~~illumos~~ **ran at M678 and is
+   now fully Driven** — `18 ok, 1 failed`, agentic phrase `TIER-V-52FE94`, the
+   tool half finally happening on that kernel after a year of text turns by
+   hand. `tier-v-vm.sh` is still wired and unrun, and its question is the sharper
+   one nobody has asked: **does the agent loop close at all in 160 MB?** Every
+   gate on those rows is offline, so the answer is genuinely unknown rather than
+   assumed. Nothing is blocked; this is wall clock.
+1b. ~~**Diagnose the seven drivers still failing on illumos**~~ **— done at
+   M683. All ten now pass on OmniOS r151058, and the whole tier does: `smoke: OK (311 drivers, 1,801 checks)` there, against 311/1,814 on this bench.** Every one was a
+   defect in the project's own test tooling, not in jichi, and the whole batch
+   was **five** fixes because three drivers shared a cause:
 
-**And what I recommend *not* doing yet**, so the list is a judgement rather than a
-wish: the **14 `qemu-user` architecture rows** cannot be driven at all — they link
-`HAVE_CURL=`, so there is no HTTP in the binary, and driving them is a different
-piece of work than a longer run; **macOS**, still blocked on hardware, where no
+   | Driver(s) | Mechanism, measured on the live guest | Fix |
+   |---|---|---|
+   | `context_tools_live`, `superseded_marker`, `reading_trace` | `mockmodel` wrote `req.N` ending mid-line, because an HTTP request ends with its JSON body. POSIX defines a text file as newline-terminated lines, and two tools disagree about the last one: illumos `grep -o` returns **only the first match** on an unterminated line (27 advertised tools read as 1; 2 sentinels read as 1), and illumos `sed` **terminates** the last line it writes, as POSIX requires, where GNU sed preserves its absence — so every committed trace artifact differed from its illumos re-take by exactly one byte | terminate the capture in `capture_request`; 7 `expected/req.*` re-taken, diff verified to be that byte and nothing else |
+   | `doctor_language` | `env -u` is a GNU extension; illumos answers `env: illegal option -- u`. **It exits 1**, and 1 is one of `doctor`'s own verdicts, so the driver's rc guard could not tell a refused option from a result — only its "every capture must contain a language row" half could | `( unset VAR; … )`, which `state_root.sh` had recommended in a comment since it was written |
+   | `i18n_tracks_lint` | `RS="-->"` is a gawk extension. illumos one-true-awk (Aug 27, 2018) uses the **first character only**, so it split on `-` and stripped no comment at all — inverting the check, whose premise is that a `<!-- figures-behind: N -->` declaration's own number is not evidence | an `index`/`substr` stripper carrying state in a global; verified equivalent on 590 files under gawk and identical host-vs-guest on all 51 pages |
+   | `preprompt_discard` | On illumos a write to a pty master **with no slave open returns the full length and discards the bytes** (measured: Linux 6 of 6 readable, illumos 0 of 6, with and without the STREAMS push). `ptydrive` set `presend_ok` from the write's return value — the attempt, not the effect — so the driver's own skip path could not fire | open the slave in the parent first (which is also the faithful model: a terminal exists before anyone types), verify with `ioctl(FIONREAD)`, and let the child inherit the descriptor across `fork` so the open count never reaches zero. illumos now **runs** the test rather than skipping it |
+   | `snapshot_lint` | `git archive <commit>` writes a **pax global header**; GNU tar consumes it silently, illumos tar does not recognise typeflag `g` and writes it out as a regular file — landing `pax_global_header` at the root of the tree this project publishes to strangers | archive `<commit>^{tree}`, which omits the header. Measured: identical 2,332 entries, `export-ignore` still honoured (and `docs/internal/` is tracked, so that comparison is not vacuous) |
+
+   **The bug's own artifact then impersonated the bug.** After the fix, the
+   guest still failed: a previous session had run `git add -A` there while a
+   stray `pax_global_header` — produced by this very defect — sat in the tree,
+   so it became a **tracked file** in the guest's scratch commit and `git
+   archive` shipped it legitimately, in both forms. Parsing the tar typeflags on
+   both machines is what separated the two.
+
+   **And the diagnosis found a worse defect than the seven.** Checks 8-13 of
+   `snapshot_lint` build one text corpus by concatenating every non-ELF file;
+   GNU grep prints matches until the **first NUL byte** and then goes silent.
+   ELF was excluded for exactly that reason — but a PNG carries NULs too, and
+   this session added one. Measured: the first NUL sat **89.1% of the way
+   through a 19.5 MB corpus**, so 10.9% was never read, and the cut point moves
+   with `find` order. It was hiding a real leak — the author's home path, in
+   `docs/ILLUSTRATION.md`, in the paragraph explaining that a screenshot must
+   not show one person's machine. The corpus now strips NULs (what
+   `smoke_bgrep` does), excludes the `.git/` the `--commit` probe leaves behind,
+   and a new floor asserts it is NUL-free, so a corpus that silently shortens
+   again is a failure rather than a clean scan of less.
+
+   **Recurrence is linted, not remembered:** `posix_utils_lint` checks 23-26 —
+   `env -u`, multi-character `RS`, each with a matcher proved on planted
+   positives and negatives first, because both were written to exclude the
+   lint's own text and an excluded file plus an unproven matcher is a check that
+   can pass while reading nothing.
+
+   *Original entry, for the ten:* (three of the ten closed earlier:
+   `bibliography_lint` at M680 — an awk with no interval expressions;
+   `tutorial_refs_lint` at M679/M680 — an unescaped `/` in a bracket expression;
+   and `config_defaults_lint` at M681 — a newline-less stream into `grep -o`.
+   All three diagnosed on a live `--keep` guest, which is the only way any of
+   them was visible.) **The instrument is the reusable part:** a PATH shim
+   pointing `awk` at busybox awk runs any driver under a stricter parser in
+   milliseconds; applied to all 64 `*_lint.sh` drivers it found exactly one
+   defect, so the tier's existing awk usage is already portable. What it could
+   **not** find is everything above: five of the seven needed a live guest,
+   because they are kernel, libc and utility behaviour rather than parsing.
+
+2. ~~**Drive the tiny row for real.**~~ **Already done at M680; this entry was
+   stale, and that is the finding.** It said *"the row is turning, not driven"*
+   and *"the 160 MB Debian row holds that now"* while
+   [`PLATFORMS.md`](PLATFORMS.md) had already recorded the opposite: the agent
+   loop closing on a **96 MB** machine with no distro, both turns of the shared
+   driven task, the agentic one reporting `TINY-3232A6` — a phrase minted that
+   run and reachable only by a tool call. Two pages of this project disagreed
+   about its own smallest result for five milestones, and neither
+   `platform_retest_lint` nor `deferred_register_lint` could see it, because
+   each holds its own page to the tree rather than the two pages to each other.
+
+   **Re-confirmed independently at M686, 2026-09-20**, from a payload rebuilt
+   from source rather than reused: a static musl jichi (3,187,984 bytes
+   stripped) linked against the cached minimal **mbedTLS** libcurl, `doctor`
+   reporting `✓ libcurl available (networking enabled)`. The sweep against a
+   real local model (`google/gemma-4-12b`, plain HTTP at 10.0.2.2:1234):
+
+   | ceiling | verdict | jichi's peak RSS |
+   |---|---|---|
+   | 256 MB | COMPLETE + REAL TURN | 1,672 KB |
+   | 192 MB | COMPLETE + REAL TURN | 1,668 KB |
+   | 128 MB | COMPLETE + REAL TURN | 1,664 KB |
+   | **96 MB** | **COMPLETE + REAL TURN** | **1,668 KB** |
+   | 64 MB | PANIC — *"System is deadlocked on memory"* | — |
+
+   The agentic turn reported `TINY-8E8082`, a different nonce from M680's, so
+   this is a second observation rather than a re-reading of the first. **Scope,
+   narrowly:** plain HTTP, so the TLS handshake path is not exercised; and this
+   measures jichi **running** on a machine that size, not building.
+3. ~~**Make the tier's `grep -o` extractions portable.**~~ **Done at M681**, and
+   it was 11 one-character edits rather than the 30-driver rewrite the register
+   predicted — because the recorded mechanism was wrong. See the closed row
+   below. One more illumos driver passes; seven remained at the time, and none
+   of them shared this cause — **all seven closed at M683**, see 1b above.
+4. **Give Cygwin and MSYS2 a rig.** Both are *partly verified* and both were
+   measured **by hand** (M476/M477), which means neither is reproducible and
+   neither can be re-run when something changes. They are also the only rows
+   where a documented **safety** difference exists — MSYS2's `noacl` mount makes
+   `chmod` a no-op — so a row that silently stops being true there costs more
+   than a row that stops being true elsewhere.
+5. ~~**Record trackedness in the run journal**~~ **— done at M684.** The
+   `out_of_scope` record keeps `paths` and gains a `tracked` array naming the
+   subset git knows about (`jc_git_tracked_paths`, `tests/smoke/journal_trackedness.sh`).
+   **The key is absent rather than empty when git cannot answer** — no
+   repository, no git on PATH — because "none of these are tracked" and "nobody
+   asked" are different facts, and M662's measurement was reversed by exactly
+   that kind of conflation. `tests/measure/strict_green_fp.py` prefers the
+   recorded answer and falls back to its crude extension-based guess only for
+   older journals, printing the two separately and never summing them.
+
+   **The rule itself is still not written, and that is deliberate.** The field
+   makes it *writable*; what it does not supply is a corpus. Every journal on
+   this machine predates the field, so the 16-of-35 rate and the 85% breakdown
+   are still the only numbers, and both came from the guess. The next step is
+   runs, not code: once enough post-M684 journals exist, the candidate rule —
+   *downgrade only on a TRACKED out-of-scope path* — can be measured against
+   the same corpus shape that reversed the last recommendation. Writing it now
+   would be the M657 mistake again, a recommendation ahead of its measurement.
+
+6. ~~**Four seams found by driving jichi on somebody else's project**~~ **— two
+   closed at M689, two remain.** `doctor` now probes `/v1/models` and says when
+   the configured id is not listed (failing open when the listing cannot be
+   read), and a shell command that provably changed nothing is reported as such
+   instead of as an unattributed change. **Still open:** the live probe's error
+   message still discards the server's own diagnosis (it has the HTTP status and
+   the body's first line and prints neither), and the M86 hollow-gate check is
+   still silent when a verifier prints no test count. Original entry:
+
+   **Four seams found by driving jichi on somebody else's project** (zigodot,
+   2026-09-20, M683 — the full account with the measurements is
+   [`analysis/2026-09-20-driving-jichi-on-zigodot.md`](analysis/2026-09-20-driving-jichi-on-zigodot.md)).
+   None is a crash; each is a place where jichi holds the information needed to
+   say something better than it says:
+
+   | Seam | Measured | Why it is deferred rather than fixed here |
+   |---|---|---|
+   | **`doctor` validates the endpoint, not the model id.** `✓ model server reachable` for `jlu/this-model-does-not-exist-9999`, and for the two dead ids zigodot's committed config actually names | the id is absent from `/v1/models`, which jichi **fetches in the very next check** to read limits | The fix is small, but it changes a `✓` to a `✗` on configs that are live elsewhere, and the listing is a gateway's schema rather than the OpenAI API's. It wants a decision about what jichi does when the listing is unavailable — fail open or fail loud — and that is the operator's call. Worth pairing with the `CLAUDE.md` free-namespace rule, which is the same check made by hand |
+   | **`doctor --live` discards the server's diagnosis.** Reports `the probe request did not complete (http error, HTTP error)` | the server answered **HTTP 400** with `"You passed in model=hosted_vllm/qwen3-coder-next. There are no healthy deployments for this model."` | Cheap and clearly right; deferred only because it is a message change across every provider's error path, and the right shape is "status + the server's first line, truncated", not "paste the body" |
+   | **The envelope cannot tell a reading shell command from a writing one.** `not checked: a shell command ran -- changes it made are not attributed to the run` | fired identically on a run whose 14 shell calls were `grep`/`find`/`ls`, and on one whose single call was `zig fmt` (which rewrites the file) | jichi keeps a snapshot per snapshotted turn, so "a shell command ran and the tree is byte-identical" is a measurement it *could* make. That is the fix worth having, and it is bigger than the warning. Until then the warning is honest but unselective — and it is attached to the one sentence a reader should never skip, which is the argument for doing it |
+   | **The hollow-gate detector needs a parseable count, and says nothing when it has none.** | zigodot's `zig build test` prints **nothing** on success; three consecutive run journals recorded no `tests` key, while `zig build test --summary all` recorded `{"tests": 29}` | M86's machinery is right; it is simply disarmed. One line — *"verify passed but printed no test count, so the hollow-gate check could not run"* — would turn a silent blindness into advice. Deferred because "no count" is also the normal state for verifiers that legitimately print nothing, so the note needs a rate limit or it becomes noise on every run |
+
+   **What the same session found in the project being driven**, recorded because
+   it is what a second project is for: zigodot's `AGENTS.md` sends the agent to
+   an absolute path under a **different account** than the machine has, and its
+   `zig build test` gate runs **29 of 202** `test` blocks, reaching neither the
+   editor, physics, shader, profiler nor platform subsystems — the physics one
+   having arrived in the second-most-recent commit. jichi reported `verify
+   green` on that, correctly and uselessly. *(jichi handled the dead path well:
+   nine tool calls, two errors, and a plain "the directory does not exist"
+   rather than an invented function name.)*
+
+7. **Should a capped one-shot exit non-zero?** M687 made the tool-call cap
+   visible in the reach footer and in the `[envelope]` verdict, and deliberately
+   left the exit code at **0**. M322 chose that, with a reason that is still
+   good: the cap is a circuit breaker, not a failure — the history is intact and
+   another prompt resumes from it, so returning an error would invite callers to
+   discard work that is fine.
+
+   **The counter-argument, which is also good:** that reasoning assumes a *next
+   prompt*. A `jichi --no-session -p '…'` one-shot has none. In the run that
+   prompted M687 the model looped for 200 tool calls and 4,887,733 tokens,
+   produced no final message, and the shell saw `$? == 0`. For that shape the
+   work is not "intact pending resumption"; it is gone, and the caller was told
+   it succeeded.
+
+   **Why it is deferred rather than done.** It changes a currently-zero exit
+   code on a stable-tier contract, which is the same move as the
+   `--strict-green` default flip — and that recommendation was **withdrawn at
+   M662** precisely for having been made ahead of its measurement. Repeating the
+   mistake in a different row would be worse than the defect.
+
+   **CORRECTION (M690): the journal did NOT already record `stop_reason`.**
+   The sentence below said it did, and that was read rather than measured.
+   Counted on 2026-09-21 over **114 journals and 101 completed runs**, the
+   recorded values were `ok`, `running`, `budget_exhausted` and `verify_failed`
+   — the *envelope's* outcome, which cannot express `max_iters` at all. A
+   capped run wrote `"outcome":"ok"` and was indistinguishable from a clean
+   one. So the corpus that was supposed to answer this question could not have,
+   and the row was cheaper than it looked only on paper. The field now exists
+   (`jc_agent_stop_reason`, recorded in the `end` event), and
+   `tests/measure/capped_oneshot.py` asks the question — printing **NOT
+   EVIDENCE** below 20 capped runs, because answering from a handful is exactly
+   how M662's withdrawn recommendation came about. Every journal on this
+   machine predates the field, so the floor is not a formality.
+
+   *Original sentence, kept because a correction that erases what it corrects
+   teaches nothing:* **What would settle it**, and it is cheap: the run journal
+   already records `stop_reason`. Count how many completed `--no-session`
+   headless runs ended `max_iters` and what fraction of those produced a
+   non-empty answer. If a
+   capped one-shot almost always answers *something*, the current 0 is defensible
+   and this row closes. If it usually answers nothing, the exit code is lying on
+   the majority of them and the flip has a number behind it. **A narrower option
+   exists if the corpus is ambiguous**: an opt-in flag, or folding the cap into
+   `--unattended`'s escalation set (which already holds `privilegedAudit: false`
+   and the private-files probe) — an unattended run has nobody to read a footer,
+   and its exit code is the whole interface. *(No flag spelling is proposed here
+   on purpose: `docs_flags` check 2 refuses a documented flag that does not
+   parse, and it caught the first draft of this paragraph inventing one. A name
+   in a register is a name somebody tries.)*
+
+**And what I recommend *not* doing yet**, so the list is a judgement rather than
+a wish: the **14 `qemu-user` architecture rows** cannot be driven as built —
+they link `HAVE_CURL=`, so there is no HTTP in the binary, and
+both rigs say so themselves; **macOS**, still blocked on hardware, where no
 amount of willingness moves it; the **frontier craft A/B**, superseded by the
-standing local-and-free-models rule and kept only because ~3.73M input tokens of it
-were spent and lost; and a **blind sweep of the remaining bare-`make` sites**,
-which is how a portability fix becomes a portability bug.
+standing local-and-free-models rule; a **blind sweep of the remaining bare-`make`
+sites**, which is how a portability fix becomes a portability bug; and **notebook
+support**, whose 257× token measurement is compelling and whose use case is still
+undecided — the honest trigger is somebody saying notebooks *are* the workflow.
+
+> **Correction (M680): the tiny row was wrongly listed there, twice.**
+> `HAVE_CURL=` is a property of what those rigs **ship**, not of those systems.
+> `tier-v-tiny.sh` has a **`--turn` mode** that carries a NIC and a curl-enabled
+> payload, and M430 recorded **a verified model turn at 80 MB** through it. The
+> rig requires only that the binary be *static*; whether it has libcurl is the
+> operator's choice of `--bin`, and `scripts/minimal-curl.sh` builds exactly
+> that — measured at 2,698 KB on disk and **804 KB resident**, *"can make a
+> model call? yes"*.
+>
+> What is actually missing on that row is narrower and is now item 2 of the
+> list above: the M430 turn ran against a **mock** model with a one-line probe,
+> so the row is not *Driven* in this page's sense. **The qemu-user sweep is a
+> different case and the exclusion stands there**: ~20 target triples would each
+> need a cross-built libcurl, which is what `zig cc` does not give you. One
+> simplification worth recording for whoever tries: the driven task talks to
+> `http://127.0.0.1:1234/v1` over a loopback tunnel — **plaintext, no TLS** — so
+> a libcurl configured with no TLS backend at all removes the hardest part of
+> that cross-compile.
 
 ---
+
+## Closed at M680 — `bibliography_lint` check 3, and an awk without intervals
+
+**Diagnosed on a live illumos guest**, which is the only way it could have been:
+the rig tears its VM down, and this failure is invisible from the host. One
+`--keep` run and a shell on the guest answered it in three commands.
+
+illumos ships **one-true-awk "version Aug 27, 2018"**, which does **not support
+ERE interval expressions**. Measured there:
+
+```
+$ echo "a{4}b" | awk '/a{4}b/ {print "matched"}'
+matched
+```
+
+`{4}` is a literal brace, not a repetition count. So check 3's date patterns —
+`[0-9]{4}-[0-9]{2}-[0-9]{2}` — matched **nothing** on that platform, and the
+entries that still passed were the ones hitting the fourth alternative,
+`\[DOI `, which carries no interval. That is why the failure looked like a
+handful of odd entries rather than *"the regex does not work here"*.
+
+**It fails silently, which is the part worth remembering.** A regex that matches
+nothing is not an error. The check went on reporting, in good faith, that
+correctly-marked entries were unmarked.
+
+Fixed by spelling the dates out (`[0-9][0-9][0-9][0-9]`), verified **on the
+guest**: 9 of 9. The same run also **established** what M679 had left
+unestablished — `tutorial_refs_lint` now passes there, so the unescaped `/`
+inside a bracket expression really was that row's cause.
+`posix_utils_lint` check 21 bans intervals inside awk regex literals tier-wide;
+in `grep -E` they are POSIX and this tree keeps using them there.
+
+**Eight of the original ten remain**, and they do not share this cause — only
+two even contain an interval pattern and both are in `grep -E`. One of those,
+`i18n_tracks_lint`, uses `grep -oE`, which points at the `grep -o` first-match
+problem that is item 3 of the list above.
+
+## Closed at M681 — the tier's `grep -o`, and a mechanism the register had wrong
+
+| Closed | What it was |
+|---|---|
+| ~~**Make the tier's `grep -o` extractions portable**~~ **— done at M681, and the recorded mechanism was wrong.** The register said *"`grep -o` returns only the FIRST match per line on illumos"*. Measured on a live guest, that is false as stated: `printf "item1 item22 item333\n" \| grep -o "item[0-9]*"` returns **3**. The trigger is a line with **no trailing newline** — the same input without the `\n` returns **1**. On the real case, `jc_config.c` flattened, it was **1 against 593**, and appending a newline restores all 593. **The wrong mechanism made the work look thirty times bigger**: the predicted shape, `tr '\n' ' ' \| grep -o`, occurs **zero** times in the tier; the real shape is a shell variable printed with `printf '%s'`, and there were **11 sites in 6 files**, each a one-character fix. It cost `config_defaults_lint` its first check on that platform (*"only 0 defaults were comparable — the extraction broke"*), which now reports *"compared 13 documented defaults"* there. `posix_utils_lint` check 22 prevents recurrence; `grep -q` is deliberately not covered, since a match is a match either way. |
 
 ## Open — instrumentation and cost
 
@@ -261,21 +505,22 @@ measurement** — which is why it outlived the others.
 |---|---|
 | ~~**Diagnose `parallel_abort` on the BSDs.**~~ **DIAGNOSED AND CLOSED 2026-09-19 — and it was never an abort defect.** Instrumenting the real driver on the FreeBSD guest showed **two** jichi processes where Linux has three: the second child was never forked, so the mock was innocent and so was the abort path. `jc_parallel_eff_max` caps workers at `jc_cpu_count()` when no config max is set, and on FreeBSD/NetBSD that is **1** — not because the guest has one CPU (`sysctl hw.ncpu` says 2) but because `_SC_NPROCESSORS_ONLN` is hidden behind `__BSD_VISIBLE` while this tree compiles `-D_POSIX_C_SOURCE=200112L`. Measured on the guest: the same source prints `2` under default flags and `NOT DECLARED` under the tree's. **`src/platform/jc_platform_posix.c` had predicted this consequence in full, in a comment, since M459** — *"spawn_parallel runs one child"* — and nobody had connected the prediction to the red driver. The driver now pins `maxParallelAgents: 2` in its fixture, so it measures abort and reaping, which is its subject, rather than `jc_cpu_count()` by accident. Green on FreeBSD. |
 
-## Open — the one OpenBSD stop that is not a text tool (2026-09-19)
+## Closed at M672 — the OpenBSD stop that was not a text tool, and not jichi either
 
 Eight of the nine drivers failing on OpenBSD were GNU-isms in the tier's own
-patterns and are fixed. This one is not, and it is recorded with what was
-measured and what was **refuted**, rather than with a guess.
+patterns. This was the ninth, and it was neither a text tool nor a defect in
+jichi — it was the fixture. Kept in full, because **the two refuted hypotheses
+are the useful part**: they are the two a reader would try first.
 
-| Deferred | Why | Where |
-|---|---|---|
-| **`preprompt_discard` check 1 on OpenBSD: the discard is not ANNOUNCED.** | **The safety property holds** — check 3 passes, so type-ahead entered before the first prompt is still discarded and never becomes a prompt. What is missing is the notice. The mechanism is `enter_raw`, which calls `input_pending()` — a zero-timeout `select()` on the tty **before** raw mode is set — and announces only if it sees a byte; `TCSAFLUSH` then discards whatever is there regardless. So on OpenBSD `select()` reported nothing readable at that instant while there evidently *was* input to flush. **Refuted by measurement, not assumed:** the obvious explanation was canonical-mode line buffering, i.e. that `\r` does not terminate a line without `ICRNL` — sending `\n` instead fails identically. What remains is a genuine timing or pty-semantics difference that has not been isolated, and the announcement is best-effort by construction: it can only report input that had already arrived when the probe ran. | `src/tui/jc_term.c:134`, `tests/smoke/preprompt_discard.sh` |
+| Was deferred | Closed by |
+|---|---|
+| ~~**`preprompt_discard` check 1 on OpenBSD**~~ **CLOSED M672 — and the cause is in the FIXTURE, not in jichi.** jichi's own instrumentation settled it: `enter_raw fd=0 pending=0`, five runs of five, so `input_pending()` correctly saw nothing because the bytes had not arrived yet. **Two hypotheses were tested and refuted first** — that `\r` does not terminate a canonical line without `ICRNL` (sending `\n` fails identically), and that `select()` on a canonical pty slave behaves differently there (a direct probe reports CR- and LF-terminated input readable in ~0 ms on both platforms). The real cause: a script `send` runs in the parent **after the fork**, so it races the child's startup, and that race is the whole experiment for this driver. `ptydrive --presend` now writes **before** the fork — which removed a latent race on Linux too. On OpenBSD the fixture still cannot create the precondition, because **a write to a pty master with no slave open returns -1 there** (measured; Linux accepts it and the bytes survive), so ptydrive reports `presend unsupported` and the two dependent checks **skip with that reason**. The safety property — the type-ahead never becomes a prompt — passes on both. |
 
-## Open — one CPU on the BSDs, and what users get because of it (2026-09-19)
+## Closed at M669 — one CPU on the BSDs, and the warning users needed
 
-| Deferred | Why | Where |
-|---|---|---|
-| **`maxParallelAgents` silently defaults to 1 on FreeBSD and NetBSD.** | Not a bug and not harmless: `_SC_NPROCESSORS_ONLN` is a widely-copied extension the BSDs hide behind `__BSD_VISIBLE`, so under this tree's `-D_POSIX_C_SOURCE=200112L` the identifier is undeclared and `jc_cpu_count()` returns 1. M459 chose that deliberately over widening the feature-test macros everywhere or adding the tree's first `#ifdef __FreeBSD__`, and **that decision still looks right**. What is missing is the user-facing half: a person running jichi on FreeBSD gets **one** parallel agent on an eight-core machine and is told nothing. **OpenBSD is unaffected** — it declares the symbol under POSIX flags, which is why its `parallel_abort` passed while the other two BSDs' failed. Candidate fix, cheap and honest: `doctor` warns when the count is 1 and names `maxParallelAgents` as the override. Rejected for now: a sysctl path, for M459's reasons. | `src/platform/jc_platform_posix.c:585` |
+| Was deferred | Closed by |
+|---|---|
+| ~~**`maxParallelAgents` silently defaults to 1 on FreeBSD and NetBSD.**~~ **CLOSED M669.** `doctor` now warns — on the **fact** that the count is not obtainable, not on the suspicion that it is 1, because a genuine one-core VM is normal and this matrix runs several. `jc_cpu_count_known()` answers the second question and sits adjacent to `jc_cpu_count()` so the two cannot drift. The rejected alternatives stand: no `sysctl` path (M459's reasoning), and no widening of the feature-test macros. |
 
 ## Open — the four programmes raised 2026-09-18
 
@@ -444,7 +689,7 @@ a platform that exists in every other register and not in this one.
 | Was deferred | Closed by |
 |---|---|
 | **The licence.** | **M619 (2026-08-27): Apache-2.0**, copyright Justus-Liebig-Universität Gießen, author Alexander-Lars Dallmann, with `scripts/set-license.sh MIT` and the candidate text in the tree should a review switch it. The reasoning and the rights position are in [LICENSING.md](LICENSING.md). The decision is structural rather than remembered: `scripts/make-snapshot.sh` refuses `--commit` without a `LICENSE` file (M484), and `tests/smoke/snapshot_lint.sh` scans the tree that would be published (M485/M487). |
-| **The public repository.** | **Published 2026-08-27** (`v0.9.0`) and re-cut **2026-09-17** (`v0.9.1`; public `573ccce` = private `a64cc4b3`), on GitLab and GitHub, both pushes green on the hosted runner. The development history stays private and the repository advances by curated states — the mechanism, the two deliberate omissions and the tag rule are in [plans/2026-08-public-snapshot.md](plans/2026-08-public-snapshot.md). |
+| **The public repository.** | **Published 2026-08-27** (`v0.9.0`), re-cut **2026-09-17** (`v0.9.1`; public `573ccce` = private `a64cc4b3`) and again **2026-09-19** (`v0.9.2`; public `3e6a242` = private `f8ead53a`, 1,987 files compared byte for byte with 0 differing, both hosted CI runs green), on GitLab and GitHub, both pushes green on the hosted runner. The development history stays private and the repository advances by curated states — the mechanism, the two deliberate omissions and the tag rule are in [plans/2026-08-public-snapshot.md](plans/2026-08-public-snapshot.md). |
 
 
 ## Closed at M503 — four signals that were silent, absent, or invisible
@@ -522,7 +767,6 @@ rather than guessed at.
 | Deferred | Why | Where |
 |---|---|---|
 | **Diagnose the remaining failing smoke drivers on illumos.** *(238 of 300 at M658 → 249 of 301 once the rig made the shipped tree a git repo → 279 of 301 once the pty cluster was fixed, M661. The **pty cluster is closed**: 19 of 19. What is left is the text-tool cluster and a handful of others.)* *(62 at M658; ten of those were the rig not making the shipped tree a git repository, fixed at M660 — so ten "illumos failures" were never about illumos.)* | **~19 are pty-driven** (`tui_*`, `typeahead*`, `paste*`, `typed`, `tab`, `editor`, `approval_keys`, `view_key`, `slash_leading_space`, …) and point at `tests/tools/ptydrive` against illumos pty semantics — one cause would plausibly explain the whole cluster, which is why it is worth one sitting rather than nineteen. **Most of the rest are text-tool lints** (`bibliography_lint`, `man_page_lint`, `describe_names_lint`, `doc_claims_lint`, `i18n_tracks_lint`, `config_defaults_lint`, `superseded_marker`, …), and the **hypothesis** — untested, and named as one — is the cause the product already hit: illumos ships the legacy Solaris `grep`/`sed`/`awk`, and the tier's own text tooling may assume GNU behaviour. `posix_utils_lint` already polices part of that family and caught a GNU-only `\|` in this milestone's own driver, so if the hypothesis holds, the interesting question is why its universe missed these — but that question only exists once the cause is known. **It is not known.** Saying which cluster a driver is in is not saying why it fails, and this row deliberately stops where the measurement stopped. **Revisit** when the pty cluster is worth a sitting; the rig makes the row one command now (`scripts/tier-v-illumos.sh`). | [PLATFORMS.md](PLATFORMS.md), ROADMAP M658 |
-| **Make the tier's `grep -o` extractions portable** — the dominant cause of the remaining illumos failures. | **Measured M661b: `grep -o` returns only the FIRST match per line on illumos, where GNU returns all** — 199 matches against 1, on `jc_config.c` flattened to one 66 KB line. A lint that flattens a file and extracts many items therefore collapses to one and announces *"the extraction broke, so this lint is vacuous"*: the floors are working, the extraction is not. **Counted before proposing a gate, and the count is why there is no gate yet:** 69 drivers use `grep -o` and **27 flatten first** (`tr '\n' ' '` plus `grep -o`). A lint would be born red on 27 and need a 27-entry allowlist, which is the "checks almost nothing and collects exceptions" shape this project refuses. So the work is a **sweep with a portable idiom** — split on a delimiter before matching, or `awk` — and the 27 is its floor. Distinct from check 17's hazard: that one is a pattern that can match *empty*, this one a pattern that matches *repeatedly*. **Revisit as** its own milestone; it is the largest single lever left on the illumos row. | `tests/smoke/*.sh`, [PLATFORMS.md](PLATFORMS.md) |
 | **The smoke tier invokes `make` by name in several drivers, and on illumos that is Sun make.** | Found at M661 inside `install_no_build`, where four checks failed with messages about refusals and DESTDIR that had nothing to do with `install`: the driver shelled out to `make`, illumos **has** a `make`, and it is not GNU's. That driver now uses `${MAKE:-make}` — GNU make exports `MAKE` to every recipe shell, so a driver run by `make smoke` gets the same make that is running it. **Counted before deciding not to sweep:** across `tests/smoke/*.sh` the real invocations are `make install` (15), `make clean` (11), `make test` (9), `make ci` (7), `make info` (6), `make smoke` (4) — but most of the 57 files matching `make ` match it in *prose*, so a blind regex sweep would rewrite comments and grepped strings. **Revisit as** one pass with the count above as its floor, or when a second driver fails this way on a non-GNU-make platform. | `tests/smoke/install_no_build.sh` |
 
 ## Open — what the FreeBSD re-run found and did not diagnose (M665, 2026-09-18)

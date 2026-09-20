@@ -213,7 +213,26 @@ static void hold_until_close(int fd)
 
 /* Capture the raw request to DIR/req.N. Best-effort: a capture failure is
  * reported on stderr but does not fail the serve loop (the driver's grep
- * will fail loudly instead). */
+ * will fail loudly instead).
+ *
+ * THE TRAILING NEWLINE IS NOT COSMETIC (M683). An HTTP request ends with the
+ * body, which is JSON and carries no terminator, so req.N used to end mid-line
+ * -- and POSIX defines a text file as a sequence of NEWLINE-TERMINATED lines.
+ * Two tools disagree about an unterminated last line, and both disagreements
+ * were measured on illumos:
+ *
+ *   grep -o  returns only the FIRST match on a line with no trailing newline
+ *            (GNU returns all of them). context_tools_live read 1 tool off the
+ *            wire instead of 27; superseded_marker counted 1 sentinel of 2.
+ *   sed      TERMINATES the last line it writes, as POSIX requires -- GNU sed
+ *            preserves the absence. docs/reading/traces/capture.sh normalizes
+ *            each capture with sed, so every committed trace artifact differed
+ *            from its illumos re-take by exactly one byte, and reading_trace
+ *            reported drift in three of four traces.
+ *
+ * Three drivers, one missing byte. Terminating it here fixes the artifact
+ * rather than the ~40 call sites that read it, and makes GNU and POSIX agree.
+ * The committed expected/ artifacts were re-taken in the same commit. */
 static void capture_request(const char *dir, int index,
                             const char *bytes, size_t len)
 {
@@ -229,6 +248,8 @@ static void capture_request(const char *dir, int index,
     }
     if (len > 0)
         fwrite(bytes, 1, len, f);
+    if (len == 0 || bytes[len - 1] != '\n')
+        fputc('\n', f);
     fclose(f);
 }
 

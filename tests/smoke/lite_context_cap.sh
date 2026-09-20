@@ -47,8 +47,25 @@ else
     t_ok "an explicit contextLimit is not warned about"
 fi
 
-# --- 4-5: without lite, the declaration is used and nothing is said ----------
-err=$(with_deadline 30 "$BIN" --config "$tmp/declared.json" context 2>&1 >"$tmp/out2")
+# --- 4-5: with lite OFF, the declaration is used and nothing is said ---------
+# `--no-lite`, NOT "omit --lite" (2026-09-19). Lite AUTO-ENABLES below the
+# resource tier, so on a small board the absence of the flag does not mean the
+# normal profile -- it means jichi decided for itself. These two checks
+# therefore failed on both Raspberry Pi rows while jichi was behaving exactly as
+# LOW_MEMORY.md documents:
+#
+#     4 core(s), 415 MB RAM -- tier: minimal (lite)
+#     not ok 4 - declared window ignored: ... limit ~16384 tokens
+#     not ok 5 - warned when lite is not in play
+#
+# Measured on that board: the same config reads 16384 with one cap warning when
+# the flag is omitted, and 196608 with none under `--no-lite`. So the checks were
+# measuring the BENCH'S RAM, not the behaviour in their own names. This is the
+# third driver in a week with that shape -- parallel_abort pinned
+# maxParallelAgents for the same reason, and a unit test asserting
+# `jc_cpu_count_known() == 1` broke the FreeBSD row for it. A driver must PIN the
+# condition it depends on rather than inherit it from the machine.
+err=$(with_deadline 30 "$BIN" --no-lite --config "$tmp/declared.json" context 2>&1 >"$tmp/out2")
 if grep -q "limit ~196608 tokens" "$tmp/out2"; then
     t_ok "without lite the declared 196608 is budgeted"
 else

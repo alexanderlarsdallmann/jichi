@@ -16,11 +16,21 @@ all. Those three gaps, and fifty more like them, are what follows.
 
 **Who it is for.** The same reader as the rest: a self-learner with a laptop,
 alone ([CURRICULUM.md](CURRICULUM.md)). So **free and freely-readable works are
-marked and come first within each group**: of the **78 entries** below (33 craft,
-17 C, 11 C++, 8 Zig, 9 Rust), **45 can be read for nothing** — including a complete C
-book, a complete Zig book, SICP, and every language standard that matters here in
-its last free working draft. A bibliography a learner cannot afford is a reading
-list for somebody else.
+marked and come first within each group**: of the **149 entries** below (34 craft,
+18 C, 12 C++, 8 Zig, 9 Rust, 8 Python, 8 Racket, 7 Guile, 9 Elixir, 9 Haskell,
+9 Clojure, 18 interfaces), **103 carry a link to a text you can read for
+nothing** — including a complete C book, a complete Zig book, SICP, *The Scheme
+Programming Language*, *Clojure for the Brave and True*, and every language
+standard that matters here in its last free working draft. A bibliography a
+learner cannot afford is a reading list for somebody else.
+
+> **That second number is computed, not counted by hand** (M677). The rule is
+> mechanical and stated so it can be checked: an entry is *free* when its bullet
+> carries a bare `<https://…>` link to the text. The figure this replaces was
+> maintained by hand at **74**, and the first mechanical recount of the same page
+> returned **75** — one entry's worth of drift, in a number nobody could have
+> falsified by reading. `bibliography_lint.sh` recomputes both totals now, so
+> neither can be incremented again.
 
 Those four counts and the 53 are **counted by the lint, not maintained by hand**
 (`tests/smoke/bibliography_lint.sh`), because this project has watched a
@@ -36,10 +46,10 @@ the previous claim instead of recounting (M259).
 - **Not a syllabus.** Nothing here is graded, sequenced or gated. The graded
   path is [`assignments/INDEX.md`](assignments/INDEX.md), and it needs none of
   these.
-- **Not complete.** Five areas: the craft, C, C++, Zig, Rust. The six other
-  languages with tracks in this tree — Racket, Guile, Elixir, Haskell, Clojure,
-  Python — have none of their literature here yet, and saying so is cheaper than
-  a thin section per language (DEFERRED).
+- **Not complete.** Eight areas: the craft, C, C++, Zig, Rust, Python, Racket and
+  interfaces. The four other languages with tracks in this tree — Guile, Elixir,
+  Haskell and Clojure — have none of their literature here yet, and saying so is
+  cheaper than a thin section per language (DEFERRED).
 
 ## How every entry was checked, and on what date
 
@@ -81,6 +91,15 @@ answer this time.
 
 ---
 
+**The ISBN route changed under this page, measured 2026-09-20.** Entries dated
+2026-09-19 were verified through Open Library's `/api/books` endpoint. That
+endpoint now answers **HTTP 404** while the site itself answers 200 — so a probe
+that only checked "is the host up?" would have reported the verification working.
+The M677 entries use `https://openlibrary.org/search.json?q=<isbn>` instead, and
+each one records the title, author and publisher that came back, which is the
+part a reader can actually re-check. The older markers are left as they are:
+they were true on their date, and that is what a dated marker means.
+
 ## 1. The craft
 
 Software development as a discipline — the part of the subject that outlives
@@ -90,6 +109,12 @@ which is the half that tells you which of today's certainties are fashions.
 
 ### Freely readable
 
+- **Teach Yourself Programming in Ten Years** — Peter Norvig.
+  <https://norvig.com/21-days.html> [probed 2026-09-20: HTTP 200]
+  Read it for: the argument against the "learn X in 24 hours" shelf, and a
+  realistic clock for the thing you are attempting. Short, free, and addressed
+  to exactly the reader this project is for — it is also the essay jichi's
+  author set his own course by, which is why the README names it.
 - **Structure and Interpretation of Computer Programs** — Abelson & Sussman, 1996. MIT Press, 2nd edition. ISBN 978-0-262-51087-5 [ISBN verified 2026-09-16]. Free PDF from MIT's own course: <https://web.mit.edu/6.001/6.037/sicp.pdf> [read 2026-09-16] · the same edition as HTML: <https://sarabander.github.io/sicp/> [probed 2026-09-16: HTTP 200]
   Read it for: what a program *is*, before any question of which language. The five functional tracks in this tree ([RACKET_PARADIGM.md](RACKET_PARADIGM.md) and its siblings) all descend from it.
   *Both free copies are one edition in two formats* — verified, not assumed: the MIT file is 7,416,886 bytes of `application/pdf`, 883 pages, titled "Structure and Interpretation of Computer Programs, 2nd ed.", CC BY-SA 4.0, and carries the same *Unofficial Texinfo Format* typeset (2.andresraba5.6) the HTML edition serves. **Take the PDF if you are working offline** — one file, and the caution below about boards with no route out is the reason this page bothers to say which copies are downloadable.
@@ -231,6 +256,22 @@ to that gap. These are the works on both sides of it.
 
 - **The C Programming Language** — Kernighan & Ritchie, 1988. Prentice Hall, 2nd edition. ISBN 978-0-13-110362-7 [ISBN verified 2026-09-16]
   Read it for: **the book this codebase is written in.** K&R2 documents exactly ANSI C — C89 — so unlike every other C book on this list it needs no mental translation to match `src/`. 272 pages.
+- **Effective C, 2nd Edition** — Robert C. Seacord, 2024. No Starch Press.
+  ISBN 978-1-7185-0412-7 [ISBN verified 2026-09-19] — Open Library returned
+  *Effective C, 2nd Edition* / *An Introduction to Professional C Programming*,
+  No Starch Press, 2024, by Robert C. Seacord.
+  Read it for: **how to write C that does not have the defects**, from the author
+  of the SEI CERT C standard listed above — objects and lifetimes, the integer
+  conversions that quietly break arithmetic, error handling, and the undefined
+  behaviour that the two Regehr/Lattner series describe from the *compiler's*
+  side. This one gives you the practitioner's side of the same subject, which is
+  why they belong together.
+  **Note the standard it targets**, because this project is a C89 codebase: the
+  second edition is written to **C23**, with C17 as the fallback. That is a
+  feature for a learner and a caveat here — the *reasoning* about lifetimes,
+  conversions and UB transfers unchanged, while `_Generic`, `constexpr` and the
+  newer library are not available in this tree. Read the reasoning; check the
+  feature against [`C_STANDARDS.md`](C_STANDARDS.md) before using it.
 - **C: A Reference Manual** — Harbison & Steele, 2002. Prentice-Hall, 5th edition. ISBN 978-0-13-089592-9 [ISBN verified 2026-09-16]
   Read it for: the precise per-feature reference, C89 through C99, with the differences called out. The book to own if you write portable C across old compilers — which is what [PLATFORMS.md](PLATFORMS.md) is about.
 - **C Interfaces and Implementations** — David R. Hanson, 1997. Addison-Wesley. ISBN 978-0-201-49841-7 [ISBN verified 2026-09-16]
@@ -267,6 +308,23 @@ migration track. Neither teaches C++. These do.
 
 ### In print
 
+- **Programming: Principles and Practice Using C++** — Bjarne Stroustrup, April
+  2024. Addison-Wesley, **3rd edition** (C++20, with C++23 where compilers allow).
+  ISBN 978-0-13-830868-1 [ISBN verified 2026-09-19] — Open Library returned
+  *Programming* / *Principles and Practice Using C++*, Pearson Education, 2024,
+  by Bjarne Stroustrup; the author's own support page
+  (<https://www.stroustrup.com/programming.html> [probed 2026-09-19: HTTP 200])
+  states the edition and the April 2024 date, which Open Library's record does
+  not carry.
+  Read it for: **the one book here written for someone learning to program at
+  all**, rather than for a programmer learning C++. That makes it the odd entry
+  in this section and the most useful one for this project's actual reader — it
+  teaches the discipline (types, invariants, error handling, testing) with C++ as
+  the vehicle, and the third edition rewrites the whole thing around modern C++
+  rather than bolting it on. **It is the C++ counterpart to the design recipe**
+  that *How to Design Programs* (§7) teaches in Racket: both answer *how do I get
+  from a problem to a program*, before any question of syntax. A self-learner
+  should expect a long book and a real course, not a tour.
 - **A Tour of C++** — Bjarne Stroustrup, 2021. Pearson, 3rd edition (C++20). ISBN 978-0-13-681648-5 [ISBN verified 2026-09-16]
   Read it for: **the right entry point for someone who already knows C.** Short, written by the language's designer, and current. Read this before the C++ systems course (tasks 59–62).
 - **The C++ Programming Language** — Bjarne Stroustrup, 2013. Addison-Wesley, 4th edition (C++11). ISBN 978-0-321-56384-2 [ISBN verified 2026-09-16]
@@ -365,6 +423,527 @@ the only language in this tree with a graded course and no literature at all.
 
 ---
 
+## 6. Python
+
+The language with the widest audience on this list and, for a self-learner, the
+one with the most material of uneven quality. So this section is **almost
+entirely primary**: the documentation is written by the people who wrote the
+language, it is free, and it is better than most of what is sold beside it.
+
+**The thing to know before you start**, and the tutorial says it about itself:
+
+> This tutorial is designed for **programmers** that are new to the Python
+> language, **not beginners** who are new to programming.
+
+If you are new to programming, that sentence is doing you a favour. Read it and
+choose accordingly.
+
+### Primary documentation — free
+
+- **The Python Tutorial** — <https://docs.python.org/3/tutorial/index.html> [read 2026-09-19]
+  Read it for: the guided path, in the order its authors intended, and the only
+  part of the documentation designed to be read front to back. It is also the
+  corpus [`LANGUAGE_COURSE.md`](LANGUAGE_COURSE.md) indexes, because Python
+  publishes a downloadable text build of it — 17 files, against 537 for the whole
+  documentation set. **Read the version you are running**, not "3".
+- **The Python Language Reference** — <https://docs.python.org/3/reference/index.html> [probed 2026-09-19: HTTP 200]
+  Read it for: what the language *is*, when the tutorial's answer stops being
+  precise enough — the data model, execution model, and the grammar. This is
+  where you go when two explanations disagree.
+- **The Python Standard Library** — <https://docs.python.org/3/library/index.html> [probed 2026-09-19: HTTP 200]
+  Read it for: the batteries. Worth *browsing* once rather than searching
+  forever: most "how do I do X in Python" questions are answered by a module the
+  asker did not know existed.
+- **Python HOWTOs** — <https://docs.python.org/3/howto/index.html> [probed 2026-09-19: HTTP 200]
+  Read it for: the topics that need more than a reference entry and less than a
+  book — logging, sorting, regular expressions, Unicode. Official, and
+  consistently better than the blog post you would otherwise find.
+
+### The conventions
+
+- **PEP 8 — Style Guide for Python Code** — <https://peps.python.org/pep-0008/> [probed 2026-09-19: HTTP 200]
+  Read it for: the conventions a Python reader expects, and the sentence people
+  quote it for and then ignore — *"a foolish consistency is the hobgoblin of
+  little minds"*. Style guides are **house rules**, and this page says so itself.
+- **PEP 20 — The Zen of Python** — <https://peps.python.org/pep-0020/> [probed 2026-09-19: HTTP 200]
+  Read it for: nineteen aphorisms that are quoted constantly and argued with
+  rarely. Read it as a *statement of taste with a history*, not as a
+  specification — "there should be one obvious way to do it" is a design goal
+  the language itself does not always meet.
+- **Python Developer's Guide** — <https://devguide.python.org/> [probed 2026-09-19: HTTP 200]
+  Read it for: how the language is actually changed — the PEP process, the
+  branches, the release cycle. The best available answer to *"why is it like
+  that?"* is usually a PEP, and this is the door to them.
+
+### One book
+
+- **Fluent Python**, 2nd edition — Ramalho, 2021. O'Reilly Media.
+  ISBN 978-1-492-05635-5 [ISBN verified 2026-09-19] — Open Library returned
+  *Fluent Python*, O'Reilly Media, 2021.
+  Read it for: the gap between *writing Python* and *writing Python the way the
+  language wants* — the data model, protocols, and why `__len__` is not an
+  implementation detail. Assumes you already know the syntax, which is exactly
+  the reader the tutorial produces.
+
+## 7. Racket
+
+A small section, and a well-served one: Racket's documentation is unusually good
+and unusually *complete*, and it routes readers deliberately. The Guide says so
+about itself —
+
+> It assumes programming experience, so if you are new to programming, consider
+> instead reading **How to Design Programs**. If you want an especially quick
+> introduction to Racket, start with **Quick: An Introduction to Racket with
+> Pictures**.
+
+— which is three audiences named on one page, and a model of the orientation
+[`INTERFACE_TUTORIAL.md`](INTERFACE_TUTORIAL.md) argues for.
+
+**One practical note this project measured.** Racket publishes no downloadable
+text build of its documentation; the docs ship *with the distribution*
+(`/usr/racket/doc` here, 4,089 files). That is why
+[`LANGUAGE_COURSE.md`](LANGUAGE_COURSE.md) has a second recipe kind, and why
+jichi now reduces HTML to prose before indexing it.
+
+### Primary documentation — free
+
+- **The Racket Guide** — <https://docs.racket-lang.org/guide/> [read 2026-09-19]
+  Read it for: the guided path for someone who can already program. Chapter 2 is
+  the essentials; from chapter 3 it becomes a tour of the toolbox and hands
+  precise details to the Reference.
+- **The Racket Reference** — <https://docs.racket-lang.org/reference/> [probed 2026-09-19: HTTP 200]
+  Read it for: the precise details the Guide deliberately does not give. Large,
+  and meant to be searched rather than read.
+- **Quick: An Introduction to Racket with Pictures** — <https://docs.racket-lang.org/quick/> [probed 2026-09-19: HTTP 200]
+  Read it for: the fastest honest look at what the language feels like, using
+  pictures as the values so the results are visible rather than printed.
+- **More: Systems Programming with Racket** — <https://docs.racket-lang.org/more/> [probed 2026-09-19: HTTP 200]
+  Read it for: the counter-argument to "Racket is a teaching language" — it
+  builds a web server, continuations and all, in one sitting.
+- **The Racket Style Guide** — <https://docs.racket-lang.org/style/> [probed 2026-09-19: HTTP 200]
+  Read it for: house conventions written by people who had to maintain a large
+  Racket codebase, which is a different and more useful thing than taste.
+
+### The design argument
+
+- **The Racket Manifesto** — Felleisen, Findler, Flatt, Krishnamurthi, Barzilay,
+  McCarthy, Tobin-Hochstadt. SNAPL 2015, Dagstuhl LIPIcs.
+  <https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.SNAPL.2015.113> [probed 2026-09-19: HTTP 200]
+  Read it for: **why** the language is shaped this way — language-oriented
+  programming, and the claim that building a *language* for a problem should be
+  as ordinary as building a library. Open access, peer-reviewed, and short.
+
+### Books
+
+- **How to Design Programs**, 2nd edition — Felleisen, Findler, Flatt,
+  Krishnamurthi. <https://htdp.org/> [probed 2026-09-19: HTTP 200] · print: MIT
+  Press, 2018, ISBN 978-0-262-53480-2 [ISBN verified 2026-09-19] — Open Library
+  returned *How to Design Programs*, The MIT Press, 2018.
+  Read it for: **the design recipe** — a repeatable procedure for getting from a
+  problem statement to a program, taught before any language feature. It is the
+  book the Racket Guide sends beginners to, it is free to read in full online,
+  and its method transfers to every language in this bibliography.
+- **Realm of Racket** — Bice, Foo, Felleisen et al., 2013. No Starch Press.
+  ISBN 978-1-59327-491-7 [ISBN verified 2026-09-19] — Open Library returned
+  *Realm of Racket*, No Starch Press, 2013.
+  Read it for: learning the language by writing games, chapter by chapter. The
+  lightest entry here and the one most likely to keep a discouraged learner
+  going, which is a real property of a book.
+
+## 8. Guile — Scheme, and the GNU extension language
+
+The smallest literature in this bibliography, and the reason is worth stating
+rather than apologising for: **Guile's own manual is the book**, and the rest of
+what a Guile programmer reads is *Scheme* literature that predates Guile by
+decades and outlives any one implementation. A section padded with Guile-branded
+tutorials would be longer and worse.
+
+The one thing to understand before starting is what Guile is *for*. It is an
+extension language — the GNU project's answer to "this application needs a
+scripting layer" — so its manual spends as much time on embedding it in a C
+program as on the language itself. That is the half most relevant to a reader of
+this tree.
+
+### Primary documentation — free
+
+- **The GNU Guile Reference Manual** — <https://www.gnu.org/software/guile/manual/> [probed 2026-09-20: HTTP 200]
+  Read it for: the whole language and, unusually, the whole C API beside it.
+  Part of it is a tutorial and part is a reference, and it says which is which.
+- **Guile: Learn** — <https://www.gnu.org/software/guile/learn/> [probed 2026-09-20: HTTP 200]
+  Read it for: the routing page — which manual, which tutorial, which SRFI, for
+  which question. Short, and the right first click.
+- **Guile documentation index** — <https://www.gnu.org/software/guile/docs/> [probed 2026-09-20: HTTP 200]
+  Read it for: the versioned manuals, including the older ones a distribution
+  may still be shipping.
+
+### The standard the language tracks
+
+- **R7RS-small** — <https://small.r7rs.org/> [probed 2026-09-20: HTTP 200]
+  Read it for: what "Scheme" means when someone says it without qualification.
+  It is **88 pages** for a whole language, which is itself the argument: the
+  report is short because the language is, and reading it end to end is a
+  realistic afternoon rather than a project.
+
+### The Scheme books, which are the Guile books
+
+- **Structure and Interpretation of Computer Programs**, 2nd edition — Abelson,
+  Sussman, Sussman. MIT Press, ISBN 978-0-262-51087-5 [ISBN verified 2026-09-20]
+  — Open Library returned *Structure and Interpretation of Computer Programs
+  (SICP)*, Abelson and Sussman, MIT Press. Full text free:
+  <https://mitp-content-server.mit.edu/books/content/sectbyfn/books_pres_0/6515/sicp.zip/index.html> [probed 2026-09-20: HTTP 200]
+  Read it for: the book that argues programs are written to be **read**, and
+  then demonstrates it by building an interpreter for its own language in its
+  own language. Slow going and worth it; the metacircular evaluator in chapter 4
+  is the single best answer to "what is a language, actually?".
+- **The Scheme Programming Language**, 4th edition — R. Kent Dybvig. MIT Press,
+  ISBN 978-0-262-51298-5 [ISBN verified 2026-09-20] — Open Library returned *The
+  Scheme programming language*, R. Kent Dybvig, MIT Press. Full text free:
+  <https://www.scheme.com/tspl4/> [probed 2026-09-20: HTTP 200]
+  Read it for: the fastest route from "I can program" to "I can write Scheme" —
+  it is a language book rather than a teaching book, so it assumes you and gets
+  on with it.
+- **The Little Schemer**, 4th edition — Friedman, Felleisen. MIT Press,
+  ISBN 978-0-262-56099-3 [ISBN verified 2026-09-20] — Open Library returned *The
+  Little Schemer*, Friedman and Felleisen, MIT Press.
+  Read it for: recursion, taught entirely as a dialogue of questions. It is the
+  one book here that will change how you *think* about a base case, and it can
+  be finished on a train.
+
+## 9. Elixir — processes as the unit of failure
+
+Elixir's literature has a shape the others do not: the language is the smaller
+half. What you are really learning is **OTP** — supervision trees, and a model
+in which a process crashing is an ordinary event the system is designed around
+rather than an emergency. A reading list that teaches the syntax and stops has
+taught the easy part.
+
+That matters to a reader of this tree for a concrete reason. jichi's own
+subagent and parallel-tool machinery solves a related problem — a child that
+fails must not take the parent with it — in C, with `fork`, exit codes and
+explicit reaping. Elixir's answer is worth reading precisely because it is a
+*different* answer to the same question, made a language feature rather than a
+discipline.
+
+### Primary documentation — free
+
+- **Elixir: Getting Started** — <https://hexdocs.pm/elixir/introduction.html> [probed 2026-09-20: HTTP 200]
+  Read it for: the official guided path, maintained with the language and
+  versioned with it.
+- **elixir-lang.org documentation index** — <https://elixir-lang.org/docs.html> [probed 2026-09-20: HTTP 200]
+  Read it for: which docs exist for which version — including Erlang/OTP's,
+  which you will need.
+- **`GenServer` module docs** — <https://hexdocs.pm/elixir/GenServer.html> [probed 2026-09-20: HTTP 200]
+  Read it for: the single abstraction most Elixir code is built out of, with its
+  callbacks and its failure semantics stated exactly.
+- **OTP Design Principles** — <https://www.erlang.org/doc/system/design_principles.html> [probed 2026-09-20: HTTP 200]
+  Read it for: supervision trees from the source. This is Erlang documentation
+  and it is the important reading; Elixir's own guides route you here.
+
+### Free, and not official
+
+- **Elixir School** — <https://elixirschool.com/en> [probed 2026-09-20: HTTP 200]
+  Read it for: short lessons with exercises, translated into many languages. A
+  second explanation when the official one has not landed.
+- **The Elixir Style Guide** — <https://github.com/christopheradams/elixir_style_guide> [probed 2026-09-20: HTTP 200]
+  Read it for: community conventions, and the arguments behind them.
+
+### In print
+
+- **Programming Elixir ≥ 1.6** — Dave Thomas. Pragmatic Bookshelf, 2018,
+  ISBN 978-1-68050-299-2 [ISBN verified 2026-09-20] — Open Library returned
+  *Programming Elixir ≥ 1.6*, Dave Thomas, Pragmatic Bookshelf, 2018.
+  Read it for: the language taught by someone who is candid about which parts
+  are elegant and which are merely conventional.
+- **Elixir in Action**, 3rd edition — Saša Jurić. Manning, 2023,
+  ISBN 978-1-63343-851-4 [ISBN verified 2026-09-20] — Open Library returned
+  *Elixir in Action, Third Edition*, Sasa Juric, Manning, 2023.
+  Read it for: **the OTP book**, and the one to reach for if you read only one.
+  It treats concurrency and fault tolerance as the subject rather than as later
+  chapters.
+- **Designing Elixir Systems with OTP** — Gray, Tate. Pragmatic Bookshelf, 2019,
+  ISBN 978-1-68050-661-7 [ISBN verified 2026-09-20] — Open Library returned
+  *Designing Elixir Systems With OTP*, Gray and Tate, Pragmatic Bookshelf, 2019.
+  Read it for: how to lay out an application so the OTP parts stay small and the
+  functional core stays testable — the architectural question the other two
+  answer only in passing.
+
+## 10. Haskell — types as the design tool
+
+The reason to read Haskell literature, whether or not you write Haskell: it is
+where the argument that **types are a design medium rather than a safety net**
+is made most completely. Every other language in this bibliography borrows from
+that argument, and reading the original is cheaper than reconstructing it from
+the borrowings.
+
+**A warning about this section's links, measured 2026-09-20.** Two of the
+best-known free Haskell books were published at domains that **no longer
+resolve** — `learnyouahaskell.com` and `book.realworldhaskell.org` both fail DNS
+resolution outright, not with a 404. Both texts survive at community-maintained
+locations, cited below. This is the ordinary fate of a URL and the reason every
+entry on this page carries a date.
+
+### Primary documentation — free
+
+- **haskell.org documentation** — <https://www.haskell.org/documentation/> [probed 2026-09-20: HTTP 200]
+  Read it for: the routing page — tutorials, the report, the libraries, the
+  tooling, sorted by what you are trying to do.
+- **The Haskell 2010 Language Report** — <https://www.haskell.org/onlinereport/haskell2010/> [probed 2026-09-20: HTTP 200]
+  Read it for: the language as specified, which is a different document from the
+  language as implemented. Short by the standards of language reports.
+- **GHC User's Guide** — <https://downloads.haskell.org/ghc/latest/docs/users_guide/> [probed 2026-09-20: HTTP 200]
+  Read it for: the language as *implemented*, which in practice is the one you
+  are writing — the extensions, the pragmas and the flags that real code uses.
+- **GHCup** — <https://www.haskell.org/ghcup/> [probed 2026-09-20: HTTP 200]
+  Read it for: how to get a toolchain without a fight. Listed because the
+  toolchain is the first obstacle and pretending otherwise wastes an evening.
+
+### Freely readable
+
+- **Learn You a Haskell for Great Good!** — Miran Lipovača.
+  <https://learnyouahaskell.github.io/> [probed 2026-09-20: HTTP 200] · print:
+  No Starch Press, 2011, ISBN 978-1-59327-283-8 [ISBN verified 2026-09-20] —
+  Open Library returned *Learn You a Haskell for Great Good!*, Miran Lipovača,
+  No Starch Press, 2011.
+  Read it for: the gentlest first pass, and the one that makes typeclasses feel
+  ordinary. **The original domain `learnyouahaskell.com` no longer resolves**
+  (checked 2026-09-20); the link above is the community-maintained edition.
+- **Real World Haskell** — O'Sullivan, Goerzen, Stewart. Print: O'Reilly, 2008,
+  ISBN 978-0-596-51498-3 [ISBN verified 2026-09-20] — Open Library returned
+  *Real World Haskell*, O'Sullivan and Goerzen, O'Reilly, 2008. Updated free
+  text: <https://github.com/tssm/up-to-date-real-world-haskell> [probed 2026-09-20: HTTP 200]
+  Read it for: the book that answers "but how do you actually *build* something"
+  — files, concurrency, parsing, profiling. It is from 2008 and says so; the
+  linked project is a community effort to keep the code compiling.
+  **`book.realworldhaskell.org` no longer resolves** (checked 2026-09-20).
+- **Typeclassopedia** — Brent Yorgey. <https://wiki.haskell.org/Typeclassopedia> [probed 2026-09-20: HTTP 200]
+  Read it for: the map of Functor → Applicative → Monad → Traversable and what
+  each one is actually *for*. The single most useful free page in Haskell, and
+  the answer to the tutorial problem that produced a decade of bad monad
+  analogies.
+- **CIS 194: Introduction to Haskell (Penn)** — <https://www.cis.upenn.edu/~cis1940/spring13/> [probed 2026-09-20: HTTP 200]
+  Read it for: a real university course with homework, which is a different
+  instrument from a book and better for some readers.
+
+### In print
+
+- **Programming in Haskell**, 2nd edition — Graham Hutton. Cambridge University
+  Press, 2016, ISBN 978-1-316-62622-1 [ISBN verified 2026-09-20] — Open Library
+  returned *Programming in Haskell*, Graham Hutton, Cambridge University Press,
+  2016.
+  Read it for: the tightest treatment of the *ideas*, by someone who teaches
+  them for a living. Short chapters, exercises that matter, and the equational
+  reasoning chapter that justifies the whole enterprise.
+
+## 11. Clojure — a Lisp with an argument about state
+
+Clojure earns a section here for one reason above the rest: it is a language
+designed around an explicit, written-down **thesis about mutable state**, and
+its author argued that thesis in public before the language had users. Reading
+the rationale first and the syntax second is the right order, and it is unusual
+to be able to.
+
+The relevance to this tree is direct. jichi is C89 with arenas and manual
+lifetimes — as far from persistent immutable data structures as a program gets —
+and the value of reading Clojure's argument is not that it should have been
+written that way. It is that the argument names *which* problems come from
+shared mutable state, and those problems appear in this tree too, solved by
+different means: the descriptor fence, the turn scratch arena, the rule that a
+tool result is copied rather than aliased.
+
+### The argument, first
+
+- **Clojure rationale** — <https://clojure.org/about/rationale> [probed 2026-09-20: HTTP 200]
+  Read it for: the design thesis in the author's own words — why identity and
+  state are separated, and why that separation is the language rather than a
+  library.
+- **`clojure.spec` guide** — <https://clojure.org/guides/spec> [probed 2026-09-20: HTTP 200]
+  Read it for: the other half of the argument — what you do about correctness in
+  a language that declined static types, answered with runtime specifications
+  that also generate tests.
+
+### Primary documentation — free
+
+- **Clojure reference documentation** — <https://clojure.org/reference/documentation> [probed 2026-09-20: HTTP 200]
+  Read it for: the reference proper, organised by concept rather than by
+  alphabet.
+- **Learn Clojure: syntax** — <https://clojure.org/guides/learn/syntax> [probed 2026-09-20: HTTP 200]
+  Read it for: the official guided introduction, starting from the reader.
+- **ClojureDocs** — <https://clojuredocs.org/> [probed 2026-09-20: HTTP 200]
+  Read it for: every core function with **community examples**, which is the
+  thing the official docs deliberately do not carry and the thing you actually
+  want at three in the afternoon.
+- **clojure-doc.org** — <https://clojure-doc.org/> [probed 2026-09-20: HTTP 200]
+  Read it for: community tutorials and per-topic guides, including the ecosystem
+  questions (build tools, editors) the language docs leave alone.
+
+### Freely readable
+
+- **Clojure for the Brave and True** — Daniel Higginbotham.
+  <https://www.braveclojure.com/> [probed 2026-09-20: HTTP 200] · print: No
+  Starch Press, 2015, ISBN 978-1-59327-591-4 [ISBN verified 2026-09-20] — Open
+  Library returned *Clojure for the Brave and true*, Daniel Higginbotham, No
+  Starch Press, 2015.
+  Read it for: the whole book free online, and the one that gets a beginner from
+  nothing to a working program without pretending the JVM is not there.
+
+### In print
+
+- **Programming Clojure**, 3rd edition — Miller, Halloway, Bedra. Pragmatic
+  Bookshelf, 2018, ISBN 978-1-68050-246-6 [ISBN verified 2026-09-20] — Open
+  Library returned *Programming Clojure (The Pragmatic Programmers)*, Alex
+  Miller and Stuart Halloway, Pragmatic Bookshelf, 2018.
+  Read it for: the standard treatment, co-written by a core maintainer, and
+  clear about where the language's idioms come from.
+- **The Joy of Clojure**, 2nd edition — Fogus, Houser. Manning, 2014,
+  ISBN 978-1-61729-141-8 [ISBN verified 2026-09-20] — Open Library returned *The
+  Joy of Clojure*, Michael Fogus and Chris Houser, Manning, 2014.
+  Read it for: the *why* behind the idioms, once the syntax is no longer in the
+  way. It is the second Clojure book, deliberately, and it is the one that
+  explains laziness and persistence properly.
+
+## 12. Interfaces — CLI, terminal, desktop, web, and documents
+
+**Why this section is here at all.** jichi *is* an interface — a CLI, a TUI, an
+ACP server and a great deal of prose — and this project has spent milestones on
+interface defects without ever reading the literature on them: a cap that fired
+silently, a refusal that named no way forward, a `note:` line that vanished, and
+a matrix whose most substantive rows rendered as plain text. Each of those is the
+same failure in a different surface: **the system knew where the user was and did
+not tell them.**
+
+**The ordering principle, and it is not neutral.** Standards first, then living
+guides, then books, then method — because the standards outlive the fashion.
+Most writing about interfaces dates in months; `ECMA-48` does not, and neither
+does POSIX chapter 12. Where a recommendation is current practice rather than a
+settled question, this page says so instead of implying otherwise.
+
+**The honest gap:** this section is weighted toward **CLI, terminal and
+documents**, the three surfaces this project actually builds and can demonstrate
+from its own tree. Desktop and web are represented by their primary guidelines
+and nothing more. A thin section written to look complete is worse than a stated
+absence — the same rule the six deferred languages get.
+
+### Command line — the standards
+
+- **POSIX.1-2024, XBD chapter 12: Utility Conventions** —
+  <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap12.html> [read 2026-09-19]
+  Read it for: **the rules an argument parser is judged against**, in two parts —
+  §12.1 the argument syntax (what `-c option_argument`, `[-f[option_argument]]`
+  and `--` actually mean) and §12.2 the numbered Utility Syntax Guidelines. The
+  part worth internalising is the one about *optional* option-arguments: a
+  mandatory one may be a separate argument, an optional one **must** be adjacent,
+  and a utility must not consume the next argument to fill it. That single rule
+  is where most hand-written parsers quietly diverge from every standard utility
+  on the system.
+- **GNU Coding Standards — Standards for Command Line Interfaces** —
+  <https://www.gnu.org/prep/standards/html_node/Command_002dLine-Interfaces.html> [probed 2026-09-19: HTTP 200]
+  Read it for: the long-option convention POSIX does not define, and the
+  `--help`/`--version` obligations. It is a *house* standard, widely adopted —
+  read it as such rather than as a specification.
+
+### Command line — the living guide
+
+- **Command Line Interface Guidelines** — <https://clig.dev/> [read 2026-09-19]
+  Read it for: **"human-first design"**, which is its own framing — an
+  open-source guide that takes the traditional UNIX principles and updates them
+  for programs whose users are people at a terminal rather than pipelines. Its
+  structure (Philosophy → Human-first design → Guidelines) is the useful part: it
+  argues the *why* before the rules, which is exactly the half a checklist omits.
+  **Current practice, not a standard**, and it says so itself.
+
+### Terminal and TUI
+
+- **XTerm Control Sequences** —
+  <https://invisible-island.net/xterm/ctlseqs/ctlseqs.html> [probed 2026-09-19: HTTP 200]
+  Read it for: what a terminal actually does with the bytes you send it. The
+  reference the rest of the ecosystem is measured against.
+- **terminfo(5)** — <https://invisible-island.net/ncurses/man/terminfo.5.html> [probed 2026-09-19: HTTP 200]
+  Read it for: why you ask the *database* what this terminal can do instead of
+  hardcoding escapes — the difference between a TUI that works over ssh into a
+  BSD and one that works on your laptop.
+- **ECMA-48, Control Functions for Coded Character Sets** —
+  <https://ecma-international.org/publications-and-standards/standards/ecma-48/> [probed 2026-09-19: HTTP 200]
+  Read it for: the standard under the escape sequences, free and stable. Cite it
+  when you need to say what is *specified* rather than what xterm happens to do.
+- **NCURSES Programming HOWTO** — <https://tldp.org/HOWTO/NCURSES-Programming-HOWTO/> [probed 2026-09-19: HTTP 200]
+  Read it for: the curses model — windows, refresh, and why you do not print. It
+  is old and that is mostly fine; the model has not moved.
+
+### Desktop
+
+**Read these as a set, and read two of them on the same question.** A destructive
+confirmation, say: they will disagree. That disagreement is the lesson — the
+conventions belong to the platform, and a cross-platform application that invents
+a third answer is worse than one that concedes to each host.
+
+- **GNOME Human Interface Guidelines** — <https://developer.gnome.org/hig/> [probed 2026-09-19: HTTP 200]
+  Read it for: the freedesktop-side conventions, and a patterns section organised
+  by the question you have rather than by widget name.
+- **KDE Human Interface Guidelines** — <https://develop.kde.org/hig/> [probed 2026-09-19: HTTP 200]
+  Read it for: the second opinion on the same desktop. Where it differs from
+  GNOME is where "the platform convention" turns out to be two platforms.
+- **Apple Human Interface Guidelines** — <https://developer.apple.com/design/human-interface-guidelines> [probed 2026-09-19: HTTP 200]
+  Read it for: the most opinionated of the four, and the one whose vocabulary
+  most of the field borrowed. Useful precisely because it refuses to be neutral.
+- **Windows app design** — <https://learn.microsoft.com/en-us/windows/apps/design/> [probed 2026-09-19: HTTP 200]
+  Read it for: the host most developers ship to and fewest read the guidance for.
+
+### Web, and accessibility as its own subject
+
+- **WCAG 2.2** — <https://www.w3.org/TR/WCAG22/> [probed 2026-09-19: HTTP 200]
+  Read it for: **the part of interface quality that is measurable.** Contrast
+  ratios, target sizes, focus visibility and motion are testable; most of the
+  rest of this field is taste. Accessibility is listed here and not as a footnote
+  because it is the strongest evidence a design decision can carry.
+- **WAI-ARIA Authoring Practices Guide** — <https://www.w3.org/WAI/ARIA/apg/> [probed 2026-09-19: HTTP 200]
+  Read it for: the expected keyboard behaviour of composite widgets. Also the
+  best available answer to *"what should Tab do here?"* on any surface, including
+  a TUI.
+*This project's own measurement against that literature is
+[`analysis/2026-08-22-screen-reader-audit.md`](analysis/2026-08-22-screen-reader-audit.md):
+what happened when jichi's output was put through a screen reader — a redrawn
+panel is not a line-oriented one, and the fix was a path, not a setting. It is a
+finding rather than a work to read, so it is named here and not listed as an
+entry.*
+
+### Documents, which are interfaces
+
+- **Butterick's Practical Typography** — <https://practicaltypography.com/> [probed 2026-09-19: HTTP 200]
+  Read it for: the small number of decisions that carry most of a document's
+  readability, argued rather than asserted. Free to read; the author asks for
+  payment on the honour system.
+- **The Visual Display of Quantitative Information**, 2nd edition — Tufte, 2001.
+  Graphics Press. ISBN 978-1-930824-13-3 [ISBN verified 2026-09-19] — Open Library returned
+  *The Visual Display of Quantitative Information, 2nd Ed.*, Graphics Press, 2001.
+  Read it for: the standard against which a diagram earns its place. The rule
+  this project takes from it is negative — a diagram that answers no question the
+  prose cannot is a cost, and `docs/UML_TUTORIAL.md` applies that to mermaid.
+
+### The craft, for interfaces
+
+- **The Design of Everyday Things** — Norman, 2013. Basic Books.
+  ISBN 978-0-465-05065-9 [ISBN verified 2026-09-19] — Open Library returned
+  *The Design of Everyday Things*, Basic Books, 2013.
+  Read it for: **affordances, signifiers and feedback** — the vocabulary for
+  saying *why* a silent cap is a defect rather than merely annoying. It is about
+  doors and stoves, and it transfers exactly.
+- **Don't Make Me Think, Revisited** — Krug, 2014. Pearson Education.
+  ISBN 978-0-321-96551-6 [ISBN verified 2026-09-19] — Open Library returned
+  *Don't Make Me Think, Revisited: A Common Sense Approach to Web Usability*,
+  Pearson Education, 2014.
+  Read it for: the cheapest usability test that works, and the discipline of
+  watching one person without coaching them. Its examples are web and its method
+  is not.
+
+### Method
+
+- **Why You Only Need to Test with 5 Users** — Nielsen Norman Group —
+  <https://www.nngroup.com/articles/why-you-only-need-to-test-with-5-users/> [probed 2026-09-19: HTTP 200]
+  Read it for: the argument that small-n qualitative testing finds most problems.
+  **Read it sceptically**, and read it beside this project's own rule that *n is
+  small by construction, so a direction is the most it can show* — the two are
+  compatible, and the failure mode they share is reporting a magnitude.
+
 ## How to read these with jichi at your side
 
 A bibliography is not a pile of links if you can pull one into a turn. jichi's
@@ -392,12 +971,20 @@ Three cautions, all of them earned:
 
 ## What is deliberately absent
 
-- **The other six languages.** Racket, Guile, Elixir, Haskell, Clojure and Python
-  all have tracks in this tree and no literature here. Deferred on purpose: a
-  section per language written thin is worse than an honest gap. (Rust was on
-  this list until M636c and is now §5 — it came off because it was the only
-  language with a *graded course* and nothing to read, not because the list was
-  being worked through.)
+- ~~**The other four languages.**~~ **Closed at M677.** Guile (§8), Elixir (§9),
+  Haskell (§10) and Clojure (§11) now have sections, and the list this entry
+  existed for is empty: **every language with a track in this tree has
+  literature behind it.** The entry is kept rather than deleted because the
+  reasoning is the useful part — the list was worked through *when there was a
+  reason*, never alphabetically. Rust came off at M636c because it was the only
+  language with a graded course and nothing to read; Python and Racket at M671
+  because the language course points at them for *"the important literature"*
+  and leaving them empty would have made that page cite nothing; these four last,
+  together, because by then the gap itself had become the anomaly.
+  **What the four cost, said plainly:** Guile's section is the smallest here and
+  deliberately so — its manual is the book, and the rest of what a Guile
+  programmer reads is Scheme literature older than Guile. A section padded to
+  match the others would have been longer and worse.
 - **Anything about LLMs or agents.** It dates in months, this project's own
   [fukabori-11-ai-supported-coding-examined.md](reading/fukabori-11-ai-supported-coding-examined.md)
   covers the ground with measurements rather than citations, and a reading list

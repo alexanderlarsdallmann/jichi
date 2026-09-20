@@ -23,8 +23,13 @@
 # tool; one that does not is a trap.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 5
+# The skip test precedes the plan (M672): `t_plan` then `t_skip` emits TWO TAP
+# plan lines and a runner reads that as malformed output, failing a driver that
+# exited 0. progress_write_fails was the last red driver on the OpenBSD row for
+# exactly that, and it was not a defect -- it was a skip the harness could not
+# parse.
 command -v git >/dev/null 2>&1 || t_skip "git not on PATH (snapshots are git-backed)"
+t_plan 5
 smoke_home
 tmp=$(smoke_tmp)
 ws="$tmp/ws"

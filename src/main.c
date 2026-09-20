@@ -84,6 +84,7 @@
 #include "jc_assign.h"
 #include "jc_assignlist.h"
 #include "jc_reach.h"
+#include "jc_outcome.h"
 #include "jc_plan.h"
 #include "jc_gradecore.h"
 #include "jc_progress.h"
@@ -2131,10 +2132,25 @@ static void learn_on_stop(struct jc_app *app, struct jc_session *session,
 /* M630: the reach footer's facts, from the sink and the envelope -- never from
  * the model. See jc_reach.h. */
 static void hl_reach_fill(const struct hl_ctx *c, struct jc_app *app,
-                          struct jc_reach *r)
+                          jc_status st, struct jc_reach *r)
 {
     const struct jc_envelope *env = app->env;
     memset(r, 0, sizeof *r);
+    /* M687/M688: set before the `env == NULL` return below, or the notice is
+     * absent from exactly the runs that arm the least -- which is where a
+     * silent truncation is hardest to notice. M688 widened it from "was the
+     * iteration cap hit" to "is the answer complete", so the same line now
+     * covers a budget, a deadline and an interrupt; the audit that prompted
+     * this found the budget cell empty with the cap cell already filled. */
+    {
+        struct jc_run_outcome oc;
+        jc_run_outcome_set(&oc, jc_agent_stop_reason(app, st),
+                           env != NULL && (env->outcome == JC_ENV_OK ||
+                                           env->outcome == JC_ENV_VERIFY_FAILED ||
+                                           env->outcome == JC_ENV_SCOPE_TAINTED));
+        r->answer_truncated = !oc.answer_complete;
+        r->stop_clause = jc_run_stop_clause(oc.stop);
+    }
     r->tool_calls = c->tool_calls;
     r->tool_errors = c->tool_errors;
     r->tool_refused = app->tool_refusals; /* M638 */
@@ -2187,6 +2203,9 @@ static void hl_reach_fill(const struct hl_ctx *c, struct jc_app *app,
     r->scope_armed = (env->edit_scope.len > 0);
     r->scope_violations = env->out_of_scope_seen;
     r->shell_ran = env->shell_ran;
+    /* M689: only the proven-quiet case, and only when the sweep really ran. */
+    r->shell_wrote_nothing = (env->shell_ran && env->sweep_ran &&
+                              !env->tree_changed) ? 1 : 0;
     r->test_edits = env->test_edits;
 }
 
@@ -2462,7 +2481,7 @@ static int run_headless(struct jc_app *app, const char *prompt, int fmt)
     if (!ctx.quiet && !ctx.json && !ctx.jsonl) {
         struct jc_reach reach;
         char line[1100];
-        hl_reach_fill(&ctx, app, &reach);
+        hl_reach_fill(&ctx, app, st, &reach);
         jc_reach_line(&reach, line, sizeof line);
         fprintf(stderr, "\n[jichi] %s\n", line);
     }
@@ -2472,7 +2491,12 @@ static int run_headless(struct jc_app *app, const char *prompt, int fmt)
      * always gets a machine-readable result with a precise stop_reason. */
     if (ctx.json && !ctx.broken_pipe) {
         const char *ans = jc_agent_last_assistant_text(&session.history);
-        const char *stop = "done";
+        /* M688: the reason comes from the ONE classifier every surface reads,
+         * so this block can no longer drift from the reach footer -- which is
+         * exactly what it had done. The wire strings are unchanged and remain
+         * a stable interface (docs/EMBEDDING.md). */
+        enum jc_run_stop stopv = jc_agent_stop_reason(app, st);
+        const char *stop = jc_run_stop_wire(stopv);
         int aborted = (st == JC_ERR_ABORTED);
         int errc = 0;
         const char *errtype = NULL;
@@ -2480,39 +2504,39 @@ static int run_headless(struct jc_app *app, const char *prompt, int fmt)
         cJSON *root;
         char *s;
 
-        if (st == JC_ERR_ABORTED) {
-            stop = "interrupted";
-        } else if (st == JC_ERR_TIMEOUT) {
-            stop = "timeout";
+        /* No `default:` -- see jc_outcome.h. A new stop reason fails the build
+         * here until somebody decides whether it carries an error payload.
+         *
+         * The four that do not: `done` needs none; `interrupted` is the
+         * operator's own doing; `budget` is a fence reporting that it worked;
+         * and `max_iters` is M322's circuit breaker, NOT a task failure -- the
+         * history is intact and another prompt resumes from it, which is why
+         * its exit code stays 0. */
+        switch (stopv) {
+        case JC_STOP_TIMEOUT:
             errc = (int)st; errtype = "timeout"; errmsg = jc_status_str(st);
-        } else if (st != JC_OK) {
-            stop = "error";
+            break;
+        case JC_STOP_ERROR:
             errc = (int)st; errtype = "error"; errmsg = jc_status_str(st);
-        } else if (app->env != NULL &&
-                   app->env->outcome == JC_ENV_BUDGET_EXHAUSTED) {
-            stop = "budget";
-        } else if (app->env != NULL &&
-                   app->env->outcome == JC_ENV_VERIFY_FAILED) {
-            stop = "verify_failed";
+            break;
+        case JC_STOP_VERIFY_FAILED:
             errc = 1; errtype = "verify_failed";
             errmsg = "verifier failed after the retry budget";
-        } else if (app->env != NULL &&
-                   app->env->outcome == JC_ENV_SCOPE_TAINTED) {
+            break;
+        case JC_STOP_SCOPE_TAINTED:
             /* M332: the verifier PASSED. The green is refused because the run
-             * changed a file outside the edit scope first, so the pass cannot be
-             * told apart from a modified gate. A distinct stop_reason, not
+             * changed a file outside the edit scope first, so the pass cannot
+             * be told apart from a modified gate. A distinct stop_reason, not
              * verify_failed, because saying the verifier failed would be false. */
-            stop = "scope_tainted";
             errc = 1; errtype = "scope_tainted";
             errmsg = "verify passed but the run changed files outside the edit "
                      "scope, so the result is not trusted (--strict-green)";
-        } else if (app->turn_capped) {
-            /* M322: the turn stopped at maxToolIters with work still to do. NOT
-             * an error -- the history is intact and another prompt resumes from
-             * it -- but a supervisor that cannot tell this from "done" will
-             * accept a half-finished task as complete. Exit code stays 0
-             * deliberately: nothing failed. */
-            stop = "max_iters";
+            break;
+        case JC_STOP_DONE:
+        case JC_STOP_INTERRUPTED:
+        case JC_STOP_BUDGET:
+        case JC_STOP_MAX_ITERS:
+            break;
         }
         {
             /* M97: run economics for a driving agent (0/""/false when no
@@ -2547,7 +2571,7 @@ static int run_headless(struct jc_app *app, const char *prompt, int fmt)
             /* M630: the same facts the text footer prints, as the `reach`
              * member -- handed to the emitter, which attaches it, so the
              * contract lint sees it written where it reads `done`. */
-            hl_reach_fill(&ctx, app, &reach);
+            hl_reach_fill(&ctx, app, st, &reach);
             root = jc_agentjson_result(ans, app->config.model.model,
                 app->no_session ? NULL : session.id,
                 (app->env != NULL) ? app->env->run_id : NULL,
@@ -11651,6 +11675,46 @@ static int run_doctor(struct jc_app *app, int json, int unattended, int live)
                         m->name != NULL ? m->name : "?",
                         m->api_base != NULL ? m->api_base : "(provider default)");
             jc_doctor_add(&d, JC_DOC_OK, "model server reachable", detail);
+            /* M689: reachable is a fact about the BASE URL and says nothing
+             * about the model. Driving jichi on a second project, its committed
+             * config named two ids the gateway had retired -- every non-live
+             * check here passed, and only `doctor --live` failed, with a
+             * message that sent the reader to the network when the fix was one
+             * string. `/v1/models` answers the prior question.
+             *
+             * WARN and not FAIL: a gateway may route an alias it does not list,
+             * and turning that into a red doctor would teach people to ignore
+             * the row. FAILS OPEN on anything but a listing that was obtained
+             * and lacks the id -- a server that will not answer is not a bad
+             * config (M458: "nothing to check" is not "not checked"). */
+            {
+                long lhttp = 0;
+                jc_status ls = jc_net_model_listed(m->api_base, m->api_key,
+                                                   m->model, 4,
+                                                   &app->abort_flag, &lhttp);
+                if (ls == JC_ERR_NOTFOUND) {
+                    /* The base already ends in /v1 for every gateway this
+                     * has met, so naming the endpoint relative to it printed
+                     * `.../v1/v1/models`. Say which server, then the endpoint,
+                     * rather than gluing them. */
+                    jc_snprintf(detail, sizeof(detail),
+                        "%s is not in the /v1/models listing at %s -- every "
+                        "request with this id will fail. Check the id against "
+                        "that listing; a retired or mistyped namespace is the "
+                        "usual cause",
+                        m->model != NULL ? m->model : "?",
+                        m->api_base != NULL ? m->api_base : "(provider default)");
+                    jc_doctor_add(&d, JC_DOC_WARN,
+                        active ? "the active model is not listed by its server"
+                               : "a configured model is not listed by its server",
+                        detail);
+                } else if (ls == JC_OK) {
+                    jc_snprintf(detail, sizeof(detail), "%s is in the server's "
+                        "/v1/models listing", m->model != NULL ? m->model : "?");
+                    jc_doctor_add(&d, JC_DOC_OK, "the server lists this model",
+                                  detail);
+                }
+            }
         } else {
             jc_snprintf(detail, sizeof(detail), "%s: %s",
                         m->name != NULL ? m->name : "?",
@@ -12504,6 +12568,25 @@ static int run_doctor(struct jc_app *app, int json, int unattended, int live)
             jc_snprintf(detail, sizeof(detail), "%d core(s)", cpu);
         }
         jc_doctor_add(&d, JC_DOC_OK, "machine profile", detail);
+        /* THE CORE COUNT MAY BE A FALLBACK, AND THE USER PAYS FOR IT SILENTLY
+         * (M669). `maxParallelAgents` defaults to the core count, so where the
+         * count is not detectable `spawn_parallel` runs ONE child on an
+         * eight-core machine and says nothing. Measured on FreeBSD 15.1: the
+         * guest has 2 CPUs (`sysctl hw.ncpu`), the same source prints
+         * "declared: 2" under default flags and "NOT DECLARED" under this
+         * tree's, and parallel_abort's anti-vacuity check caught it as one
+         * TASK_ request where Linux sends two.
+         *
+         * This warns on the FACT (the count is not available) rather than on
+         * the suspicion (the count is 1): a genuine one-core VM is a normal
+         * thing and must not be nagged. */
+        if (!jc_cpu_count_known()) {
+            jc_doctor_add(&d, JC_DOC_WARN, "core count",
+                "this platform does not expose a core count to jichi, so it "
+                "reads 1 -- and maxParallelAgents defaults to it, which makes "
+                "spawn_parallel run a single child. If this machine has more "
+                "cores, set \"maxParallelAgents\" in your config explicitly.");
+        }
         if (disk > 0) {
             char dd[64];
             jc_snprintf(dd, sizeof(dd), "%lu MB free on the workspace filesystem",
@@ -15772,6 +15855,15 @@ int main(int argc, char **argv)
             if (exit_code == 0) {
                 exit_code = 1; /* preserve 130 (interrupt) / 2 (usage) */
             }
+        } else if (oc == JC_ENV_OK && app.turn_capped && !args.quiet) {
+            /* M687: the last line a reader sees. "verified ok" is true about
+             * what the verifier did and false about the run: the turn was cut
+             * off at the tool-call cap, so the verifier passed on a half-done
+             * task. A footer that says "cut short" above an unqualified "ok"
+             * is worse than either alone. */
+            fprintf(stderr, "[envelope] verifier ok, but the turn hit the "
+                    "tool-call cap -- the task may be unfinished "
+                    "(tokens %s, tool calls %d)\n", tk, app.env->tool_calls);
         } else if (oc == JC_ENV_OK && !args.quiet) {
             fprintf(stderr, "[envelope] verified ok (tokens %s, "
                     "tool calls %d)\n", tk, app.env->tool_calls);

@@ -23,14 +23,25 @@ flowchart TD
   subgraph linux["Linux — supported (CI matrix)"]
     l1["libcurl-dev + pkg-config"] --> l2["make"] --> l3["make ci"]
   end
+  subgraph bsd["FreeBSD / NetBSD / OpenBSD — verified, full gate"]
+    b1["pkg install / pkg_add:<br>gmake pkgconf curl"] --> b2["<b>gmake</b> — their make is not GNU make"] --> b3["gmake check-target"]
+  end
+  subgraph ill["illumos / Solaris — partly verified"]
+    i1["pkg install gcc + gnu-make<br>(libcurl is in the base)"] --> i2["<b>gmake CC=gcc</b> — its make is Sun make"] --> i3["flags probed, not passed"]
+  end
   subgraph mac["macOS — NEVER COMPILED"]
     m1["brew install curl pkg-config"] --> m2["make"]
   end
   subgraph win["Windows — WSL2 verified (M475); native Win32 unsupported"]
     w1["wsl --install (Ubuntu)"] --> w2["build as Linux"]
-    w3["native Win32 = large port, not supported"]
+    w3["Cygwin / MSYS2 — build, partly verified"]
+    w4["native Win32 = large port, not supported"]
   end
 ```
+
+**The single most important line on this page, if you are not on Linux:** the
+BSDs' and illumos's `make` is **not** GNU make, and this tree's `Makefile` is a
+GNU makefile. Type **`gmake`**. Everything else is ordinary.
 
 The verdict for every platform, with the evidence behind each one, lives on one
 page: [`PLATFORMS.md`](PLATFORMS.md). The table below is that page's summary — if
@@ -39,10 +50,23 @@ the two ever disagree, PLATFORMS.md is right.
 | Platform | Status | How |
 | --- | --- | --- |
 | **Linux** | **Verified** — compiled and gates run: gcc + clang, ASan/UBSan, valgrind, fuzz, smoke, e2e; x86-64, aarch64, armhf, s390x big-endian, musl static ([the matrix](PLATFORMS.md#the-matrix)) | native |
+| **FreeBSD** | **Verified — the full gate**, and **Driven**: a live model call and a real tool call ran there. `gmake WERROR=1` clean in **7 s**; smoke **OK (305 drivers, 1,742 checks)** at the 0.9.2 release tree. | `pkg install gmake pkgconf curl` · `gmake` |
+| **NetBSD** | **Verified — the full gate**, and **Driven**. Build clean in **8 s**. Ships GNU grep, which is why some text-tool defects hide here and surface on OpenBSD. | `pkg_add gmake pkg-config curl` · `gmake` |
+| **OpenBSD** | **Verified — the full gate**, and **Driven**. Build clean in **9 s** with clang 19.1.7. Its `/bin/sh` is **ksh**, so the smoke tier runs under a shell nothing else in the matrix exercises. | `pkg_add gmake curl` · `gmake` |
+| **illumos / Solaris** | **Partly verified** (OmniOS CE), and **Driven** (a text turn; no tool call yet). Clean `WERROR=1` build with gcc; **no source conditional was needed** — two build facts are probed. | [packages below](#illumos--solaris-partly-verified) · `gmake CC=gcc` |
 | **macOS** | **Never compiled.** Expected to build (BSD/POSIX), with **one** Darwin-specific code path — `jc_mem_total_mb`'s `sysctl(HW_MEMSIZE)`, which was un-compilable under this project's own C89 flags until M400 found it. "No Darwin-specific code" was this page's own claim, and it was wrong. | native |
-| **Windows** | Not supported natively (POSIX process/terminal/signal/socket layers have no Win32 equivalent without a port) | **WSL2 — measured (M475, 2026-08-18):** full `make ci` green on Ubuntu 24.04 / WSL2 (12,418 unit checks under gcc *and* clang, smoke 209 drivers at multiplier **1**). Keep the checkout on the Linux filesystem, **not `/mnt/c`**. [PLATFORMS.md](PLATFORMS.md) |
+| **Windows** | Not supported natively (POSIX process/terminal/signal/socket layers have no Win32 equivalent without a port). **WSL2 is the measured path**; **Cygwin** and **MSYS2** are *partly verified* — they build and pass the tier, but not `make ci`, and MSYS2 needs a mount option before jichi's file-privacy guarantees hold at all. | **WSL2 — measured (M475, 2026-08-18):** full `make ci` green on Ubuntu 24.04 / WSL2 (12,418 unit checks under gcc *and* clang, smoke 209 drivers at multiplier **1**). Keep the checkout on the Linux filesystem, **not `/mnt/c`**. [PLATFORMS.md](PLATFORMS.md) |
 
-## Linux (supported)
+## Linux (supported — the reference platform)
+
+*"Supported" and "verified" are two different claims on this page, and the
+difference matters when something breaks.* **Supported** means the hosted CI
+matrix builds and gates every commit there, so a regression is caught before you
+see it — that is Linux, and only Linux. **Verified** means a human ran the whole
+gate on that platform at a recorded milestone and it passed — the three BSDs, and
+most of it on illumos. A verified platform is not watched between those runs, so
+if you hit a break on one, you may be the first person to see it; the fix loop is
+the same, and [`PLATFORMS.md`](PLATFORMS.md) records what the last run measured.
 
 ### Dependencies
 
@@ -135,6 +159,141 @@ while work is uncommitted, run the gate, commit, install — and the result is a
 legitimate thing to want while testing a change on the real PATH binary:
 `sudo make install ALLOW_DIRTY=1`.
 
+## FreeBSD, NetBSD, OpenBSD (verified — the full gate)
+
+All three **compile clean at `WERROR=1` and run the whole test tier**, and all
+three have had a real model driven on them — a live turn in which the model
+chose a tool, the tool ran, and a second turn consumed its result.
+
+**There is not one `#ifdef __FreeBSD__`, `__NetBSD__` or `__OpenBSD__` in this
+source tree.** What FreeBSD forced at M460 was three *capability* guards — a
+`#ifdef _SC_NPROCESSORS_ONLN` in the platform TU, and `INADDR_LOOPBACK` and
+`SIGWINCH` in two test tools — because this tree compiles with
+`-D_POSIX_C_SOURCE=200112L` and FreeBSD hides those behind `__BSD_VISIBLE` where
+four Linux libcs expose them anyway. Those three guards then carried OpenBSD and
+NetBSD with **no further change**, and illumos after them. That is the strongest
+evidence this page can offer that the source is portable rather than accidentally
+Linux: not that it has many platform branches, but that it has none.
+
+### Dependencies
+
+These are the package sets the rigs actually install, which is why they are
+exactly these names:
+
+```sh
+# FreeBSD
+pkg install gmake pkgconf curl git
+
+# NetBSD
+pkg_add gmake pkg-config curl git-base
+
+# OpenBSD
+pkg_add gmake curl git
+```
+
+**On NetBSD, `pkg-config` is required and not a nicety.** pkgsrc installs into
+`/usr/pkg`, which the base compiler does not search, so without it the libcurl
+probe answers *no*, `make info` prints a bare `HAVE_CURL =`, and you get a
+**networkless jichi that built without a single error**. Same reasoning on
+FreeBSD, where the package is spelled `pkgconf`.
+
+`poppler-utils` is **not** a dependency — jichi shells out to `pdftotext` for
+PDF documents and errors actionably when it is absent. Install it if you want
+that path, and the tier's two PDF drivers, to run: `pkg_add poppler-utils` on
+NetBSD and OpenBSD.
+
+### Build
+
+```sh
+gmake                 # NOT `make`
+gmake check-target    # unit suite + smoke tier, the on-target gate
+```
+
+**Use `gmake`, not `make`.** FreeBSD's and NetBSD's `make` is **bmake**;
+OpenBSD's is BSD make. None of them parses a GNU makefile, and the error you get
+is a parse error somewhere in the middle of it rather than a clear "wrong make".
+This is the one thing that stops a first build on these systems.
+
+### What to expect, measured
+
+*Build times measured by the rigs on 2026-09-19, four cores under KVM. They
+are wall-clock for a full `gmake WERROR=1` from clean.*
+
+| | build (`WERROR=1`) | notes |
+|---|---|---|
+| FreeBSD 15.1 | **7 s** | clang 19.1.7, libcurl 8.16 from `pkg` |
+| NetBSD 10.1 | **8 s** | gcc; ships **GNU** grep, unlike its siblings |
+| OpenBSD 7.9 | **9 s** | clang 19.1.7; `/bin/sh` is **ksh** |
+
+**No `/proc`.** `jc_have_proc_rss()` reports the RSS watchdog unavailable and the
+memory guard **degrades rather than crashing** — that was a prediction the
+FreeBSD row was run to test, and it held. Nothing for you to configure.
+
+**If you are porting or debugging here**, the failures these rows have actually
+found were almost all in the *test tier's* own `grep`/`sed`/`awk` usage rather
+than in jichi: GNU extensions that a BSD accepts silently and ignores
+(`grep -r --include=`), refuses outright (a BRE `\(…\)\?`), or reads as a
+literal (`\|` alternation, and `\n` in a `sed` replacement). If a driver fails
+here and jichi looks wrong, suspect the driver first — that has been the answer
+every time so far.
+
+## illumos / Solaris (partly verified)
+
+The first non-Linux, **non-BSD** kernel this tree was built on. It compiles clean
+and runs the unit suite and most of the smoke tier.
+
+### Dependencies and build
+
+```sh
+# OmniOS CE -- other illumos distributions spell these differently
+pkg install developer/gcc14 developer/build/gnu-make developer/versioning/git
+gmake CC=gcc
+gmake CC=gcc check-target
+```
+
+No curl package appears there because **OmniOS ships libcurl and its headers in
+the base image**: `HAVE_CURL = yes` with nothing but the compiler and make
+installed.
+
+**Both halves of that command line are load-bearing.**
+
+**`gmake`, because illumos *has* a `make` and it is Sun make.** That is worse
+than the BSD case, where the wrong make is at least differently named: here the
+command you would reach for exists, runs, and is not the one this tree needs.
+
+**`CC=gcc`, because there is no `cc` and no `c99`.** The Makefile's default is
+`CC ?= cc` (line 13), and when that binary is absent the result is not "no
+compiler" — it is **every capability probe answering "no"**, so `gmake info`
+cheerfully reports no vsnprintf, no curl, no `malloc_trim`, and you build a
+degraded binary with no error anywhere. Pass `CC=gcc` and the probes tell the
+truth. This is the same failure shape M476 found on Cygwin from a different
+cause, which is why the probes are worth distrusting until one of them says
+something you can check.
+
+### Two build facts, both probed rather than passed
+
+You do **not** need to set these; they are listed so the output of `gmake info`
+makes sense:
+
+- **`-D__EXTENSIONS__`** — Solaris hides every non-POSIX interface when
+  `_POSIX_C_SOURCE` is defined, and takes `struct winsize` / `TIOCGWINSZ` with
+  it. The Makefile probes for that and adds the macro when it is needed.
+- **`-lsocket -lnsl`** — `accept`, `listen` and `bind` are not in its libc. Same
+  story: probed, and linked only where the probe says they are required.
+
+**No source conditional was added for illumos**, which is the same outcome the
+BSD rows produced and the reason this page can claim portability rather than a
+pile of `#ifdef`s.
+
+### What is not verified here
+
+Some smoke drivers still fail, and the cause is known and recorded: illumos ships
+the **legacy Solaris text tools**, and `grep -o` there prints only the **first**
+match per line where GNU prints every one. Several lints flatten a file and
+extract many items that way. `docs/PLATFORMS.md` carries the current count and
+the per-driver detail; this page does not duplicate it, because a number in two
+places is a number that will disagree with itself.
+
 ## macOS (should build; unverified)
 
 ```sh
@@ -143,15 +302,24 @@ export PKG_CONFIG_PATH="$(brew --prefix curl)/lib/pkgconfig"
 make
 ```
 
-The code is pure BSD/POSIX (`fork`/`exec`/`pipe`/`select`/`termios`/`sigaction`)
-with **no glibc- or Darwin-specific calls**, so it should compile and run. It is
-not yet in the CI matrix, so treat it as best-effort. Total RAM detection uses
-`sysconf(_SC_PHYS_PAGES)`, which Darwin provides; the canonical macOS path is
-`sysctl(HW_MEMSIZE)` (jichi prefers the sysctl value on Darwin when available and
-falls back to `_SC_PHYS_PAGES`). Everything else (the TUI raw mode, the
-fork-based tool/MCP/LSP spawners, the AF_UNIX daemon) is standard POSIX.
+The code is BSD/POSIX (`fork`/`exec`/`pipe`/`select`/`termios`/`sigaction`), and
+the three BSD rows above are the closest evidence there is that it will build
+here — none of them needed a single source conditional. But **nobody has ever
+compiled this tree on a Mac**, so this section is a prediction, not a
+measurement.
 
-## Windows (WSL only)
+There is exactly **one Darwin-specific code path**: total-RAM detection prefers
+`sysctl(HW_MEMSIZE)` on Darwin and falls back to `sysconf(_SC_PHYS_PAGES)`. This
+page used to claim there was *no* Darwin-specific code at all; M400 found that
+path and found it un-compilable under this project's own C89 flags, which is
+worth knowing before you trust any other unmeasured claim on this page. Everything
+else (the TUI raw mode, the fork-based tool/MCP/LSP spawners, the AF_UNIX daemon)
+is standard POSIX.
+
+If you build it, `make check-target` is the gate to run, and a result — green or
+red — is welcome; it is the one row in the matrix that has never been filled in.
+
+## Windows (WSL2, or one of two POSIX emulation layers)
 
 Native Windows is **not supported**. jichi's process model (`fork`/`exec`/`pipe`/
 `waitpid`), raw-mode terminal (`termios`), signal handling (`sigaction`), and the
@@ -167,7 +335,45 @@ wsl --install            # in an elevated PowerShell (installs Ubuntu)
 ```
 then inside the WSL shell follow the **Linux** instructions above. Your Windows
 files are under `/mnt/c/...`; for best performance keep the repo inside the WSL
-filesystem (`~/…`).
+filesystem (`~/…`). This is the measured path: a full `make ci` is green on
+Ubuntu 24.04 / WSL2 (M475), which no other Windows route can say.
+
+### The two POSIX emulation layers, if WSL2 is not available
+
+Both build; neither runs `make ci`. **Read the caveat under MSYS2 before you put
+an API key on one of them.**
+
+| | Build | What was measured |
+|---|---|---|
+| **Cygwin** 3.6.10, gcc 14.4.0 | `make` (GNU make is Cygwin's `make`) | Clean at `WERROR=1`, fully featured. **12,418 unit checks / 0 failures**, smoke **209 drivers / 1,081 checks**. No product change was needed. |
+| **MSYS2** 3.6.10, gcc 15.3.0, the **MSYS** environment | `make`, **94 s** | Clean at `WERROR=1`. **12,440 unit checks**, smoke **211 drivers / 1,157 checks**. MINGW64 is a different environment and has never been measured. |
+
+**The fork penalty is the number to plan around.** Warm (binary already built),
+the smoke tier costs **45–59 s** on Cygwin against **6.2–6.5 s** on WSL2 —
+roughly **7–9×**. Run the tier as `JC_SMOKE_TIMEOUT_MULT=10 make smoke`; without
+it, drivers fail on deadlines rather than on behaviour. MSYS2 was measured at
+multiplier 8.
+
+**MSYS2 only: `chmod` is a no-op by default, and jichi's file-privacy
+guarantees do not hold.** The MSYS2 root is mounted `noacl`, so `chmod 0600`
+returns success and changes nothing — measured, and it leaves the **API key
+file**, the **daemon socket** and the **audit log** world-readable. This is
+configuration, not Windows: on the same machine and the same NTFS volume,
+Cygwin's `chmod 600` yields 600. Fix it before you use jichi there, by adding an
+`acl` mount to `/etc/fstab`:
+
+```
+C:/msys64/tmp /tmp ntfs binary,acl 0 0
+```
+
+With that one line, all four privacy failures clear (unit suite 12,437 / **0**).
+Two smoke drivers still fail under `acl` for an unrelated reason — on NTFS the
+owner keeps access to a `chmod 000` path, so those drivers cannot construct the
+unreadable fixture they test.
+
+**Do not run Cygwin and MSYS2 at the same time.** Their `cygwin1.dll` and
+`msys-2.0.dll` shared-memory regions collide, `fork` then begins failing in
+both, and you are left with a stranded package-manager lock.
 
 ### Future native port (not planned)
 
@@ -182,9 +388,40 @@ deliberately out of scope; the analysis in
 ```sh
 ./jichi --version
 ./jichi doctor      # setup health check (libcurl, config, models, tools)
-make test                  # unit suite
-make ci                    # full gate (Linux)
+make test           # unit suite
+make check-target   # unit suite + smoke tier -- the gate to run ON a platform
+make ci             # the full gate: gcc + clang, ASan/UBSan, valgrind, e2e
 ```
+
+`make ci` is the **Linux** gate: it wants two compilers, valgrind and the
+sanitizers. On a BSD, on illumos, or on a small board, `gmake check-target` is
+the one to run — it is what every non-Linux row in the table above was measured
+with. On a slow or remote target, add the two levers from
+[the knobs above](#two-knobs-for-a-slow-or-remote-target-m466):
+`JC_SMOKE_KEEP_GOING=1 JC_SMOKE_TIMEOUT_MULT=3 gmake check-target`.
+
+### Two `doctor` warnings that are expected off Linux, and are not your build
+
+Both are jichi reporting a **fact about the platform**, not a fault in the
+binary you just made. Neither needs fixing; one is worth acting on.
+
+- **`! host platform not recognised`** — the generic non-Linux note. illumos
+  reports it, and the rest of that run is `23 ok, 8 warnings, 0 problems`. It
+  means only that PLATFORMS.md, not the binary, is where the verdict lives.
+- **`! core count`** — *this platform does not expose a core count to jichi, so
+  it reads 1.* FreeBSD and NetBSD hide `_SC_NPROCESSORS_ONLN` behind
+  `__BSD_VISIBLE`, and this tree compiles `-D_POSIX_C_SOURCE=200112L`, so
+  `jc_cpu_count()` degrades to 1 rather than guessing. **This one has a
+  consequence**: `maxParallelAgents` defaults to the core count, so
+  `spawn_parallel` would run a single child on a machine with sixteen. Set
+  `"maxParallelAgents"` in your config explicitly there.
+
+  The warning fires on the *fact* — the count is unavailable — and not on the
+  *suspicion* that a 1 is wrong, because a genuine one-core VM is an ordinary
+  thing and must not be nagged. An earlier unit test asserted
+  `jc_cpu_count_known() == 1` as though it were universal, and broke the
+  FreeBSD row; the portable contract is the weaker one, that when the count is
+  not known it reads exactly 1.
 
 
 ---

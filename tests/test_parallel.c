@@ -19,6 +19,49 @@ static void test_cpu_count(void)
     JC_CHECK(jc_cpu_count() >= 1);
 }
 
+/* M669: the count and whether it was MEASURED are two different answers, and
+ * conflating them is what let `maxParallelAgents` default to 1 on FreeBSD and
+ * NetBSD in silence. The contract pinned here:
+ *
+ *   - jc_cpu_count() is always usable (>= 1), so no caller needs a guard;
+ *   - jc_cpu_count_known() is 0 exactly when that number is a FALLBACK;
+ *   - when it IS known the number must be a real one, so a diagnostic can warn
+ *     on the fact rather than on the suspicion "the count is 1", which would
+ *     nag a genuine single-core VM.
+ *
+ * On this bench the symbol is declared, so `known` is 1 -- the negative case is
+ * verified on the FreeBSD row, where `doctor` prints the warning and Linux does
+ * not. A unit test cannot reach the other branch: it is a #ifdef, decided when
+ * this file was compiled. */
+static void test_cpu_count_known(void)
+{
+    int known = jc_cpu_count_known();
+    JC_CHECK(known == 0 || known == 1);
+    if (known) {
+        JC_CHECK(jc_cpu_count() >= 1);
+    } else {
+        /* THE INVARIANT THE WARNING RESTS ON: where the count is not known it
+         * must be exactly 1, never 0 and never a stale number. doctor tells the
+         * user "it reads 1", and a fallback that read anything else would make
+         * that sentence false on the one platform it is written for. */
+        JC_CHECK(jc_cpu_count() == 1);
+    }
+}
+
+/* WHAT THIS TEST DELIBERATELY DOES NOT ASSERT, because the first version did
+ * and it broke the FreeBSD row (2026-09-19). It said `JC_CHECK(known == 1)`,
+ * reasoning that glibc declares _SC_NPROCESSORS_ONLN so this bench must say
+ * "known" -- true here, and a bench-specific fact stated as a universal one.
+ * On FreeBSD `known` is 0 BY DESIGN, which is the entire point of the
+ * function, so the unit suite failed on the platform the feature exists for:
+ *
+ *     FAIL tests/test_parallel.c:46: known == 1
+ *
+ * A portable unit suite may assert the CONTRACT (known is boolean; the count is
+ * usable; the fallback is exactly 1) and must not assert which branch a given
+ * machine takes. Which branch this machine takes is what `doctor` reports and
+ * what the platform rows verify. */
+
 static void test_eff_max(void)
 {
     /* auto cap = min(cpu, ceiling); result = min(n_tasks, cap), >= 1 */
@@ -140,6 +183,7 @@ static void test_verify_cmd(void)
 void test_parallel(void)
 {
     test_cpu_count();
+    test_cpu_count_known();
     test_eff_max();
     test_parse_changes();
     test_claim();

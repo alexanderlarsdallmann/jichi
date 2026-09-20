@@ -138,6 +138,55 @@ static void test_parse_models(void)
      * The cases that matter here are not the happy path but what real servers
      * answer when they do NOT have this endpoint. */
     {
+        /* M689: is the id in the server's /v1/models listing at all? The
+         * sibling above answers "does this server publish a WINDOW for it",
+         * which is a different question -- a LiteLLM proxy lists limits for
+         * only some of the models it serves, so "absent from /v1/model/info"
+         * does not mean "absent from the server". This one does mean it.
+         *
+         * The shape measured on api.hrz.uni-giessen.de, trimmed: the standard
+         * OpenAI listing, `data` of objects with an `id`. */
+        const char *listing =
+            "{\"object\":\"list\",\"data\":["
+            "{\"id\":\"jlu/qwen3-coder-next\",\"object\":\"model\"},"
+            "{\"id\":\"jlu/qwen3.8-27b\",\"object\":\"model\"}]}";
+
+        JC_CHECK(jc_net_parse_model_listed(listing, "jlu/qwen3-coder-next")
+                 == JC_OK);
+
+        /* THE CASE THAT COST A SESSION: a plausible id, in the right shape,
+         * that the server does not serve. `hosted_vllm/qwen3-coder-next` sat in
+         * a committed config while the gateway served `jlu/qwen3-coder-next`,
+         * and every offline doctor check passed. */
+        JC_CHECK(jc_net_parse_model_listed(listing,
+                 "hosted_vllm/qwen3-coder-next") == JC_ERR_NOTFOUND);
+
+        /* EXACT match, not prefix or substring: a namespace is the difference
+         * between a free model and a billed one (CLAUDE.md), so "contains" is
+         * the wrong test in the one place it would be most expensive. */
+        JC_CHECK(jc_net_parse_model_listed(listing, "qwen3-coder-next")
+                 == JC_ERR_NOTFOUND);
+        JC_CHECK(jc_net_parse_model_listed(listing, "jlu/qwen3-coder")
+                 == JC_ERR_NOTFOUND);
+
+        /* FAILS OPEN on anything it cannot read. A server that answers
+         * something else, or nothing parseable, must not be reported as a bad
+         * config -- only a listing that WAS obtained and lacks the id is a
+         * finding. These three are "cannot tell", and the caller in doctor
+         * says nothing for them. */
+        JC_CHECK(jc_net_parse_model_listed("{\"error\":\"nope\"}", "m")
+                 == JC_ERR_PARSE);
+        JC_CHECK(jc_net_parse_model_listed("not json at all", "m")
+                 == JC_ERR_PARSE);
+        JC_CHECK(jc_net_parse_model_listed("{\"data\":\"not-an-array\"}", "m")
+                 == JC_ERR_PARSE);
+
+        /* Defensive: no model id is a caller bug, not a server answer. */
+        JC_CHECK(jc_net_parse_model_listed(listing, "") == JC_ERR_INVALID);
+        JC_CHECK(jc_net_parse_model_listed(NULL, "m") == JC_ERR_INVALID);
+    }
+
+    {
         long in = 0;
         long outv = 0;
         /* The shape measured on api.hrz.uni-giessen.de for jlu/qwen3.8-27b. */

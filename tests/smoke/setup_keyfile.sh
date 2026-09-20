@@ -247,7 +247,7 @@ fi
 if printf '%s' "$plain" | grep -q "0 = nothing in particular"; then
     t_ok "the journey is optional and defaults to none"
 else
-    t_fail "no skip default: $(printf '%s' "$plain" | grep -o 'choice \[.*\]' | tail -1)"
+    t_fail "no skip default: $(printf '%s\n' "$plain" | grep -o 'choice \[.*\]' | tail -1)"
 fi
 
 
@@ -292,7 +292,7 @@ if printf '%s' "$plain" | grep -q "choice \[1 = learner\]" &&
    printf '%s' "$plain" | grep -q "professionally"; then
     t_ok "the stance defaults to learner, with an explicit way out"
 else
-    t_fail "stance default wrong: $(printf '%s' "$plain" | grep -o 'choice \[.*\]' | tail -1)"
+    t_fail "stance default wrong: $(printf '%s\n' "$plain" | grep -o 'choice \[.*\]' | tail -1)"
 fi
 
 # --- M326n: the wizard teaches the file it is writing -----------------------

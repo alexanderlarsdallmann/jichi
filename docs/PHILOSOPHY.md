@@ -139,6 +139,11 @@ is named, and when output is truncated the truncation says so. A tool that
 admits its limits can be trusted at them; a tool that hides them cannot be
 trusted anywhere.
 
+The author says the same of the project as a whole, in his own words in the
+[README](../README.md#why-this-exists-and-who-it-is-for): jichi is honest, and
+frail, and has strengths of its own — and he would rather you saw all three than
+only the third.
+
 ## Giants, and heaps of dwarves
 
 We stand on the shoulders of giants — and, just as truly, on heaps of dwarves:

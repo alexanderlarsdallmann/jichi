@@ -25,7 +25,7 @@
 # It bans a specific, checked list of flags -- not "all non-POSIX usage".
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 20
+t_plan 26
 tmp=$(smoke_tmp)
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 
@@ -669,6 +669,200 @@ FreeBSD grep treats -r as -H, so the output gains a \"path:\" prefix that GNU gr
 does not add -- the comparison then fails on a healthy tree. Drop the -r; it does
 nothing on a named file:
 $_rf"
+fi
+
+# --- 21: no ERE interval {n} inside an awk regex literal --------------------
+# THE DEFECT, diagnosed on a live illumos guest at M680 and invisible before it.
+# illumos ships one-true-awk "version Aug 27, 2018", which does NOT support ERE
+# interval expressions. Measured on the guest itself:
+#
+#     echo "a<brace>4<brace>b" | awk '/a{4}b/ {print "matched"}'   ->  matched
+#
+# `{4}` is a literal brace there, not a repetition count. So a date pattern
+# spelled [0-9]{4}-[0-9]{2}-[0-9]{2} matches NOTHING on that platform -- and it
+# fails **silently**, because a regex that matches nothing is not an error. In
+# `bibliography_lint` it reported dozens of correctly-marked entries as unmarked
+# and the check looked like a content problem for a day.
+#
+# In `grep -E` intervals are POSIX and portable, and this tree uses them there
+# deliberately -- so the rule is narrow: inside an awk REGEX LITERAL only. Spell
+# the date [0-9][0-9][0-9][0-9] instead; it is uglier and it works everywhere.
+#
+# Plain `grep`, not a $G indirection: this driver defines none, and the first
+# draft used one anyway -- an empty variable that dash ran as the empty
+# command, printing ": Permission denied" beside a green check. A check that
+# prints an error and still says ok is worse than one that fails.
+#
+# This finds zero today, which is the point of a prohibition rather than an
+# extraction: its teeth come from perturbation, exactly like checks 8, 9 and 14
+# above, not from a standing population.
+_iv=$(for f in "$SMOKE_DIR"/*.sh; do
+          [ -f "$f" ] || continue
+          grep -nE '/[^/]*\{[0-9]+(,[0-9]*)?\}[^/]*/' "$f" 2>/dev/null \
+            | grep -v 'grep' \
+            | grep -v '^[0-9]*:#' \
+            | sed "s#^#$(basename "$f"):#"
+      done)
+if [ -z "$_iv" ]; then
+    t_ok "no ERE interval {n} inside an awk regex literal (illumos awk reads it literally)"
+else
+    t_fail "interval expression(s) inside an awk regex literal:
+$_iv
+illumos's awk matches {n} as a literal brace, so the pattern silently matches
+nothing there -- no error, just a check that stops checking. Spell it out:
+[0-9][0-9][0-9][0-9] rather than [0-9]{4}. In grep -E intervals are fine."
+fi
+
+# --- 22: no newline-less stream feeds `grep -o` -----------------------------
+# THE DEFECT, measured on a live illumos guest at M681 -- and the register had
+# the mechanism wrong in a way that made the work look thirty times bigger.
+#
+# DEFERRED.md recorded it as "illumos `grep -o` returns only the FIRST match per
+# line". As stated that is false, and the guest says so:
+#
+#     printf "item1 item22 item333\n" | grep -o "item[0-9]*"   ->  3 matches
+#     printf "item1 item22 item333"    | grep -o "item[0-9]*"   ->  1 match
+#
+# One character apart. The trigger is a line with **no trailing newline**, and
+# `printf '%s'` produces exactly that. On the real case -- jc_config.c flattened
+# -- it was 1 match against the 593 the unflattened file gives, and appending a
+# newline restores all 593.
+#
+# It cost `config_defaults_lint` its whole first check on that platform: every
+# field's extraction returned one statement, nothing compared, and the driver
+# reported "only 0 defaults were comparable -- the extraction broke, so this
+# lint is vacuous". That check exists for exactly this and it fired.
+#
+# WHY THIS SHAPE AND NOT `tr '\n' ' ' | grep -o`: the register predicted the
+# pipeline form and there are **zero** of those in the tier. The real shape is a
+# shell variable printed without a newline. Counting the wrong shape is how a
+# 13-site one-character fix was filed as a 30-driver rewrite.
+#
+# `grep -q` is deliberately NOT covered: a match is a match with or without the
+# newline, so including it would make the diff larger than the finding.
+_nl=$(for f in "$SMOKE_DIR"/*.sh; do
+          [ -f "$f" ] || continue
+          grep -nE "printf '%s' [^|]*\| *grep -o" "$f" 2>/dev/null \
+            | grep -v '^[0-9]*:#' \
+            | sed "s#^#$(basename "$f"):#"
+      done)
+if [ -z "$_nl" ]; then
+    t_ok "no newline-less stream feeds grep -o (illumos returns one match)"
+else
+    t_fail "a stream with no trailing newline is piped into grep -o:
+$_nl
+On illumos that yields ONE match instead of all of them, silently -- the
+extraction collapses and the check goes vacuous rather than red. Use
+printf '%s\\n'. (grep -q is unaffected and not flagged.)"
+fi
+
+# --- 23: `env -u` is a GNU extension ----------------------------------------
+# illumos /usr/bin/env accepts only `env [-i] [name=value ...] [utility ...]`
+# and answers `env: illegal option -- u`. tests/smoke/doctor_language.sh used
+# it to clear JICHI_LANG for two of its five doctor runs, and on OmniOS those
+# two produced NO OUTPUT AT ALL (M683).
+#
+# WHY IT SURVIVED A DEDICATED rc GUARD, which is the part worth keeping: that
+# driver already floors every run's exit status, and accepts 0 or 1 because
+# doctor's own verdict is 1 when any check FAILs. illumos env exits **1**. The
+# status was therefore indistinguishable from a legitimate result, and only the
+# driver's other half -- "every capture must CONTAIN a language row" -- could
+# see it. A rc guard is not an output guard.
+#
+# tests/smoke/state_root.sh line 31 has said "`env -u` is not POSIX" in a
+# comment since it was written, and chose the portable form; the knowledge was
+# in the tree and the other driver still shipped the GNU one. That gap is what
+# a lint closes and a comment does not.
+#
+# The portable form is a subshell:  ( unset VAR; FOO=1 cmd )
+# `env -i` IS POSIX and is deliberately not flagged.
+#
+# THE UNIVERSE is tests/ and scripts/, with this driver's own text excluded --
+# the same hole, for the same reason, as check 18: a lint that quotes the form
+# it forbids matches itself forever and buries the real finding. The hole is
+# paid for below by proving the matcher on planted files, which check 18 does
+# not do: an excluded file plus an unproven matcher is a check that can pass
+# while reading nothing.
+_eu_pat='(^|[^-[:alnum:]_])env +-u'
+mkdir -p "$tmp/self23"
+_eu_lit='env'
+printf '%s -u FOO BAR=1 cmd\n' "$_eu_lit"        > "$tmp/self23/bad.sh"
+printf '%s -i BAR=1 cmd\n'     "$_eu_lit"        > "$tmp/self23/posix.sh"
+printf '( unset FOO; BAR=1 cmd )\n'              > "$tmp/self23/good.sh"
+_s23=$(grep -lE "$_eu_pat" "$tmp/self23"/*.sh 2>/dev/null | wc -l | tr -d ' ')
+if [ "$_s23" = "1" ] && grep -qE "$_eu_pat" "$tmp/self23/bad.sh"; then
+    t_ok "the matcher flags a planted GNU-only unset and spares \`-i\` and the subshell form"
+else
+    t_fail "the matcher is broken ($_s23/1 planted files flagged) -- the check below would be meaningless"
+fi
+
+_envu=$(grep -rnE "$_eu_pat" "$ROOT/tests" "$ROOT/scripts" 2>/dev/null \
+        | grep -v '^[^:]*:[0-9]*: *#' \
+        | grep -v 'posix_utils_lint.sh')
+if [ -z "$_envu" ]; then
+    t_ok "no GNU-only unset-one-variable form (illumos env exits 1, which reads as a verdict)"
+else
+    t_fail "a GNU-only option to \`env\` that illumos rejects:
+$_envu
+Use a subshell instead -- ( unset VAR; FOO=1 cmd ) -- which is POSIX everywhere.
+illumos exits 1 for the refused option, and 1 is a status many tools return as
+a legitimate result, so the run looks like a finding rather than a broken
+fixture."
+fi
+
+# --- 24: awk RS is a SINGLE CHARACTER ----------------------------------------
+# POSIX defines RS as one character; gawk extends it to a regular expression.
+# illumos one-true-awk (Aug 27, 2018) uses only the FIRST character. Measured on
+# OmniOS: with RS="-->" the input
+#     A <!-- hidden 999 --> B 12345 C
+# split on '-' alone and came back as `A <!` / ` hidden 999 ` / `> B 12345 C`.
+#
+# tests/smoke/i18n_tracks_lint.sh used RS="-->" to strip HTML comments before
+# extracting figures. On illumos nothing was stripped, so the page's own
+# `<!-- figures-behind: N -->` declaration counted as an undeclared figure --
+# the check's stated premise ("a declaration's own numbers are not evidence")
+# inverted (M683). It failed loudly there; the same stripper going quiet on
+# another awk would have made the check vacuous instead, which is worse.
+#
+# RS="" is PARAGRAPH MODE, defined by POSIX, and is not flagged --
+# portability_lint.sh:518 relies on it and passes on illumos.
+# THE PATTERN IS ANCHORED, and the first draft was not: bare `RS *= *"..."`
+# matched SMOKE_TMPDIRS= and READERS= -- any shell variable whose name happens
+# to END in RS. Two false positives in the tier's own files, caught only
+# because they were printed. A matcher that is never shown its own positives
+# and negatives is the thing this driver exists to refuse, so it is proved
+# below before it is trusted.
+_rs_pat='(^|[^A-Za-z0-9_])RS *= *"[^"]{2,}"'
+mkdir -p "$tmp/self24"
+# The planted positive is assembled from a %s so the forbidden literal never
+# appears in THIS file: written out plainly, check 25 below flags the fixture
+# that proves it works. A self-matching lint reports itself forever and the
+# real finding is lost in the noise.
+_rs_lit='RS'
+printf 'awk %sBEGIN{%s="-->"}%s f\n' "'" "$_rs_lit" "'" > "$tmp/self24/bad.sh"
+printf 'awk %sBEGIN{%s=""}%s f\n'    "'" "$_rs_lit" "'" > "$tmp/self24/para.sh"
+printf 'SMOKE_TMPDI%s="$SMOKE_TMPDI%s $d"\n' "$_rs_lit" "$_rs_lit" > "$tmp/self24/var.sh"
+_s24=$(grep -lE "$_rs_pat" "$tmp/self24"/*.sh 2>/dev/null | wc -l | tr -d ' ')
+if [ "$_s24" = "1" ] && grep -qE "$_rs_pat" "$tmp/self24/bad.sh"; then
+    t_ok "the RS matcher flags a planted multi-char RS and spares RS=\"\" and a variable ending in RS"
+else
+    t_fail "the RS matcher is broken ($_s24/1 planted files flagged) -- check 24 below would be meaningless"
+fi
+
+_rs=$(for f in "$SMOKE_DIR"/*.sh "$ROOT"/scripts/*.sh; do
+          [ -f "$f" ] || continue
+          grep -nE "$_rs_pat" "$f" 2>/dev/null \
+            | grep -v '^[0-9]*:[[:space:]]*#' \
+            | sed "s#^#$(basename "$f"):#"
+      done)
+if [ -z "$_rs" ]; then
+    t_ok "no multi-character awk RS (illumos uses only its first character)"
+else
+    t_fail "a multi-character awk RS, which only gawk reads as a regex:
+$_rs
+illumos one-true-awk splits on the FIRST CHARACTER alone, so the records are
+not the ones the program means. Use index()/substr() and carry the state in a
+global, or a single-character RS. RS=\"\" (paragraph mode) is POSIX and exempt."
 fi
 
 t_done

@@ -28,28 +28,37 @@ solo developer, a balanced team, and a junior solo developer.
 
 | Metric | Value |
 |---|---|
-| Calendar span | 2026-06-18 → 2026-09-17 (**91 days**, **54 active**) |
-| Commits | **1,141** |
-| Milestones | **M1 – M645** (635 `###` entries in `docs/ROADMAP.md`) |
-| First-party source (`src` + `include`) | **~108,700 lines** (323 tracked `.c`/`.h` files) |
-| Tests | **~93,700 lines** (129 unit files + 298 POSIX-sh smoke drivers + 9 e2e modules + **19** fuzz targets incl. the path-fence property target — not 21; see the note below), **13,329 unit checks**, smoke **1,736 checks** |
-| Documentation | **~131,300 lines** across **466** English markdown pages (517 files incl. de/es/ja/ko/zh) — 43 design proposals, 74 dated analysis notes, 31 source-reading guides, **84 graded assignments** (71 trap cases). Translations are counted separately below, not folded in here; see the note. |
+| Calendar span | 2026-06-18 → 2026-09-20 (**95 days**, **57 active**) |
+| Commits | **1,221** |
+| Milestones | **M1 – M686** (670 `###` entries in `docs/ROADMAP.md`) |
+| First-party source (`src` + `include`) | **~109,500 lines** (324 tracked `.c`/`.h` files) |
+| Tests | **~97,800 lines** (129 unit files + 312 POSIX-sh smoke drivers + 9 e2e modules + **19** fuzz targets incl. the path-fence property target — not 21; see the note below), **13,329 unit checks**, smoke **1,736 checks** |
+| Documentation | **~141,400 lines** across **489** English markdown pages (540 files incl. de/es/ja/ko/zh) — 43 design proposals, 81 dated analysis notes, 32 source-reading guides, **84 graded assignments** (71 trap cases). Translations are counted separately below, not folded in here; see the note. |
 | Subsystems | **20** (`src/*`) |
 | Third-party source | none — `src/json/cJSON.{c,h}` is original code (M171), ~1,100 lines |
 | Language / target | C89 / ANSI C; **four kernels** carry the full gate (Linux, FreeBSD, NetBSD, OpenBSD), 14 architectures cross-built under emulation, five libcs; libcurl the only dependency |
 | Quality gates | `-Wall -Wextra -Werror` (gcc + clang), ASan/UBSan, valgrind, fuzz, smoke, e2e — plus two Windows emulation layers *partly* verified, each with what it does **not** cover written down |
 | Copyright / licence | **Apache-2.0** (decided 2026-08-27, M619); every tracked `.c`/`.h` (`src`, `include`, `tests`) carries `Copyright (c) 2026 Justus-Liebig-Universität Gießen` + `Author: Alexander-Lars Dallmann` over the SPDX line |
 
-Total **authored** lines (code + tests + English docs): **~333,700**, plus **~8,000**
+Total **authored** lines (code + tests + English docs): **~348,800**, plus **~8,100**
 lines of translation under `docs/i18n/` — the two figures are disjoint, which the
 M620 revision's were not.
 
-*Every figure in this table was **re-counted** on 2026-09-17 (M646), not
-incremented. This recount was not triggered by the lint — `docs_counts_lint`
-check 12 refuses a drift over 40 milestones and M645 was only 25 past M620 — but
-by the operator asking for the page to be brought current. That matters, because
-it found two defects a lint-triggered recount would have left standing for
-another sixteen milestones.*
+*Every figure in this table was **re-counted** on 2026-09-20 (M686), not
+incremented — same universes as the M646 recount below, so the two are
+comparable: `src` + `include` for source, everything tracked under `tests/` for
+tests, and **`docs/` minus `docs/i18n/`** for English documentation — `docs/`
+only, **not** the root pages. The first draft of this recount added the root
+markdown and came out ~7,800 lines high; `docs_counts_lint` check 18 caught it
+by asking which of two candidate universes the claim was nearer, which is the
+same defect it was written for after M620 double-counted the translations.
+A recount can drift in the universe as easily as in the number. **This one WAS lint-triggered**, and the difference is worth
+naming: `docs_counts_lint` check 12 refuses a drift over 40 milestones, and
+M686 is 41 past M645, so the gate fired on the first milestone that crossed it.
+The M646 recount below was not — it came from the operator asking, and it found
+two defects a lint-triggered recount would have left standing for another
+sixteen milestones. A threshold catches rot; it does not catch a figure that was
+wrong when it was written.*
 
 > **What this recount found in the M620 figures, and how.** The M620 revision
 > wrote "Nothing anomalous surfaced this round — every figure moved in the

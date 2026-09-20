@@ -20,7 +20,7 @@
 # Compiles nothing and runs no jichi (hence *_lint.sh).
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 17
+t_plan 18
 
 mk="$SMOKE_ROOT/Makefile"
 plat="$SMOKE_ROOT/src/platform/jc_platform_posix.c"
@@ -674,5 +674,75 @@ only the driven ones makes absence ambiguous, which is the defect the Driven
 verdict was introduced to remove. (A register of 0 means the parse broke.)"
 fi
 
-t_done
+# --- 18: BUILD.md documents every NON-LINUX userland the matrix has built on --
+# THE DEFECT, reported by a reader on 2026-09-19 and not by any check here:
+# "BUILD.md doesn't mention FreeBSD, OpenBSD, NetBSD, nor illumos."  It did not.
+# Four platforms carried a Verified or Partly-verified verdict on PLATFORMS.md,
+# three of them Driven, and the build page named none of them -- its headings
+# were Linux, macOS, Windows, and its at-a-glance table had three rows. Someone
+# arriving on a BSD was told nothing, including the one thing that actually
+# stops them: that `make` there is not GNU make.
+#
+# Checks 15-17 all passed throughout, because every one of them compares
+# PLATFORMS.md against the README or against itself. Nothing held the BUILD page
+# to the matrix, so the matrix grew four rows and the build page did not move.
+#
+# WHY THE UNIVERSE IS AN EXCLUSION AND NOT A LIST. The Driven register is the
+# one flat, short-labelled enumeration of every row on the page (check 17 keeps
+# it complete). From it we drop the LINUX family -- distributions, boards,
+# architectures, libcs -- and what remains is the set of foreign userlands, each
+# of which needs its own package manager and its own make. Written the other way
+# round, as a list of the kernels we know about, a NEW kernel would be skipped
+# silently; written as an exclusion, a new kernel is included by default and
+# this check fails until the build page mentions it. A check should fail towards
+# the work, not away from it.
+#
+# WHAT IT DOES NOT CHECK, stated so nobody reads more into a green line than is
+# there: it asks only that the name APPEAR on the page. A passing mention in
+# prose satisfies it -- "OpenBSD" did, before this revision, while the page
+# still had no OpenBSD instructions. The floor is "a reader can find the word",
+# which is the most a text lint can hold; whether the section is any good is a
+# reviewer's job (docs/DOC_REVIEW.md), not this one's.
+_uni=$(awk '
+    { line[NR] = $0 }
+    END {
+        for (i = 1; i <= NR; i++) {
+            if (line[i] ~ /^\| Row \| Driven\?/ && line[i+1] ~ /^\|[ :|-]+\|?[ :|-]*$/) {
+                j = i + 2
+                while (j <= NR && substr(line[j],1,1) == "|" && line[j] ~ /[^ \t|]/) {
+                    cell = line[j]
+                    sub(/^\| */, "", cell)
+                    sub(/ *\|.*$/, "", cell)
+                    print cell
+                    j++
+                }
+                exit
+            }
+        }
+    }' "$SMOKE_ROOT/docs/PLATFORMS.md" |
+    sed 's/\*\*//g; s/([^)]*)//g; s/  */ /g; s/ *$//' |
+    tr 'A-Z' 'a-z' |
+    grep -E -v 'linux|debian|raspberry|arduino|musl|s390x|aarch64|x86-64|architecture')
+# The distinctive token is the LAST word: "windows + cygwin" and "windows +
+# msys2" both begin with the word the build page already has, and both were
+# missing from it. "macos / darwin" -> darwin, "illumos / solaris" -> solaris.
+_missing=''
+_seen=0
+for _row in $(echo "$_uni" | sed 's/.* //' | sort -u); do
+    [ -n "$_row" ] || continue
+    _seen=$((_seen + 1))
+    if ! grep -i -q "$_row" "$SMOKE_ROOT/docs/BUILD.md"; then
+        _missing="$_missing $_row"
+    fi
+done
+if [ "$_seen" -ge 6 ] && [ -z "$_missing" ]; then
+    t_ok "BUILD.md names all $_seen non-Linux userlands the matrix records"
+else
+    t_fail "BUILD.md is missing:$_missing (of $_seen non-Linux userlands in PLATFORMS.md).
+A platform the matrix says jichi BUILDS on, with no build instructions on the
+build page, is a reader on that platform being told nothing -- including that
+their \`make\` is not GNU make. Add a section, or say plainly why there is none.
+(A universe under 6 means the register parse broke; fix that before the prose.)"
+fi
 
+t_done

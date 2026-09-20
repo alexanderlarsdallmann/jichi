@@ -186,6 +186,30 @@ cat > "$tmp/foreign" <<'EOF'
 # of claim the Driven verdict exists to stop.
 --live-port
 --live-model
+# tests/tools/ptydrive.c --presend (M672), named in DEFERRED.md where the
+# preprompt_discard diagnosis is recorded. A test-tool flag, not jichi's. It is
+# documented because the finding is only reproducible if a reader knows which
+# option carries it -- "a fixture race" without the mechanism is a story rather
+# than a diagnosis.
+--presend
+# podman/docker --rm, documented in PLATFORM_TESTING.md's rung 1 (M682). A
+# container runtime's flag, not jichi's. The page must show the exact command
+# because the rung's whole value is that it costs minutes -- and a reader who
+# omits --rm accumulates a stopped container per attempt, which is how a
+# cheap rung acquires a reputation for being messy.
+--rm
+# scripts/ansi-to-png.py --cols/--title, documented in ILLUSTRATION.md (M680).
+# Not jichi flags: that script renders a CAPTURED terminal transcript to a PNG.
+# The page must show the exact invocation because the whole point of the capture
+# path is that a reader can reproduce the image -- an image nobody can reproduce
+# is decoration, and a recipe missing its width flag produces a different one.
+--cols
+--title
+# local-ai run --address, documented in ILLUSTRATION.md's setup (M680). LocalAI's
+# own flag, not jichi's. Documented because the address is the difference between
+# a loopback-only model server and one exposed on the LAN, and this project binds
+# loopback on purpose everywhere else.
+--address
 # tests/bench/craft_ab/craft_ab.py --pairs, documented in CRAFT_AB_TUTORIAL.md
 # (M665). The harness's own flag, not jichi's. The tutorial has to show the
 # exact invocation because `--pairs` is the knob that decides what a session

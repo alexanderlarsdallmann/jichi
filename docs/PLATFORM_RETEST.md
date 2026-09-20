@@ -74,7 +74,7 @@ the figure moves with every driver added, which is the point of it):
 | NetBSD 10.1 (M480) | 209 | **94** | 94 drivers unexercised on a BSD that ships GNU userland tools |
 | OpenBSD 7.9 (M481) | 209 | **94** | 94 drivers unexercised under ksh as `/bin/sh` — the axis nothing else in the matrix covers |
 | Windows 11 + WSL2 (M475) | 209 | **94** | same, and this row also carries T5 (the `/mnt/c` translation layer) |
-| Raspberry Pi Zero 2 W aarch64 (**2026-09-18**) | 302 | **1** | re-run with the rig's gate fixed to report a count at all; the one failing driver is `lite_context_cap`, undiagnosed. Also **Driven**: text and agentic turns, 17 s each, on a 512 MB board |
+| Raspberry Pi Zero 2 W aarch64 (**2026-09-18**) | 302 | **1** | measured at the 303-driver tree, `lite_context_cap` the only failure. That driver was **the driver rather than the board** (M672) — checks 4-5 assumed the absence of `--lite` meant the normal profile, but lite auto-enables below the resource tier and this board reports `tier: minimal (lite)` on 415 MB. Fixed and **verified 5/5 on the board**; the row's full re-run at the current tree is pending and this number is the one that was measured, not the one that is expected. Also **Driven**: text and agentic turns, 17 s each |
 | Raspberry Pi Zero 2 W armhf (**M658**) | 297 | **6** | re-run 2026-09-18; was 194 at M454, debt 106 |
 | Raspberry Pi 400 aarch64 (**2026-09-18**) | 303 | **0** | the whole tier, 0 failures, reproduced three times. The row read *n/a* for months because `tier-b-device.sh` ran the gate **without `JC_SMOKE_KEEP_GOING=1`**, so the tier stopped at the first failing driver and never printed a summary — the missing denominator was a rig defect, not a device one |
 

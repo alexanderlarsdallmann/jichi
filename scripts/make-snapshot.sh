@@ -120,7 +120,21 @@ if [ -e "$DEST" ] && [ -n "$(ls -A "$DEST" 2>/dev/null)" ]; then
 fi
 
 mkdir -p "$DEST" || exit 1
-git -C "$ROOT" archive --format=tar "$REV" | (cd "$DEST" && tar -xf -) || {
+# `$REV^{tree}`, NOT `$REV` (M683). Archiving a COMMIT makes git write a pax
+# global header -- a tar entry named `pax_global_header` with typeflag 'g' that
+# carries the commit id as a comment. GNU tar consumes it silently; illumos
+# /usr/bin/tar does not recognise typeflag 'g' and writes it out as a REGULAR
+# FILE, so the publishable tree gained a stray `pax_global_header` at its root
+# and tests/smoke/snapshot_lint.sh failed three checks on OmniOS -- including
+# the one whose whole job is "no unexpected file at the root of the tree we
+# publish to strangers".
+#
+# Archiving the TREE omits the header entirely. Measured: identical 2,332
+# entries either way, and `export-ignore` is still honoured (docs/internal/ is
+# excluded in both forms, and it is tracked, so that comparison is not vacuous).
+# Nothing here reads a commit timestamp or an export-subst substitution, which
+# are the two things the commit form would otherwise buy.
+git -C "$ROOT" archive --format=tar "$REV^{tree}" | (cd "$DEST" && tar -xf -) || {
     echo "make-snapshot: git archive failed" >&2; exit 1; }
 
 NFILES=$(find "$DEST" -type f | wc -l | tr -d ' ')

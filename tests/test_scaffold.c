@@ -106,6 +106,8 @@ static void test_pack_table(void)
     JC_CHECK(jc_scaffold_find_pack("refactor") != NULL);     /* M183 */
     JC_CHECK(jc_scaffold_find_pack("rewrite") != NULL);      /* M183 */
     JC_CHECK(jc_scaffold_find_pack("music") != NULL);        /* M186 */
+    JC_CHECK(jc_scaffold_find_pack("course") != NULL);       /* M675 */
+    JC_CHECK(jc_scaffold_find_pack("platform-test") != NULL); /* M682 */
 
     /* Every pack: a description and well-formed files (relpath without a leading
      * slash, at least one content chunk). */

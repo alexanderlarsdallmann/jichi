@@ -78,6 +78,14 @@ documentation.
 mkdir -p ~/development/course-python && cd ~/development/course-python
 ```
 
+> **Or let the scaffold write it** (M675): `jichi init course` puts a `COURSE.md`
+> (this route, condensed, with a log table at the bottom), the **`course-coach`**
+> skill and a `/course` command into that directory. It deliberately writes **no
+> config** — the `docs` path is the snapshot only you know and the embed model is
+> whatever your machine actually has, so a scaffolded one would be a file of
+> guesses that `doctor` then reports as broken. Everything below still applies;
+> the scaffold saves the typing, not the understanding.
+
 `jichi.json`:
 
 ```jsonc
@@ -180,15 +188,34 @@ the code runs, that the tests pass, that a citation resolves. **They do not grad
 whether you understood**, and no grader here pretends to. That judgement stays
 with you and your reviewer.
 
-> **What does not exist yet, said plainly.** These are jichi's *own* assignments,
-> about jichi and about the craft. **The course does not yet ship graded
-> assignments for the language you just downloaded** — there is no Python task
-> set, and no Racket one. Building them is the next piece of this work
-> ([`plans/2026-09-language-course.md`](plans/2026-09-language-course.md) §6), and
-> the design decision is already fixed: the task templates and their graders are
-> **hand-written and committed**, and a model may personalise the wording and the
-> hints but never the grader. Until then, §5 is the part of this page that gives
-> you a course; §6 is the machinery it will be graded with.
+**Python has a graded track, and it is four tasks long** (M674). Each one names
+the section of the tutorial you just downloaded that it comes from, so the answer
+to *"where does this come from?"* is a file on your disk:
+
+```sh
+jichi assignments --stage python         # the four, and what each is worth
+jichi grade docs/assignments/81-python-make-it-pass.md
+```
+
+| | What you practise | Pts |
+|---|---|---|
+| `81-python-make-it-pass` | the fix-forward loop; a function that remembers cannot be tested alone | 2 |
+| `82-python-test-first` | write the failing test **first**, then fix — the bug a bare `except:` was hiding | 3 |
+| `83-python-loops-to-comprehensions` | refactor under green tests; the smell is checked mechanically | 3 |
+| `84-python-capstone` | a test file read as a specification, and a compound sort key | 4 |
+
+They need **`python3` and nothing else** — no package manager, no virtual
+environment, no third-party library — and the graders name the tool if it is
+missing, so an absent toolchain never reads as a wrong answer.
+
+> **What does not exist yet, said plainly.** **Racket has no course track**, and
+> nor does any other language you might snapshot with §1 — only Python does. The
+> design decision is fixed and will not change when they arrive: the task
+> templates and their graders are **hand-written and committed**, and a model may
+> personalise the wording and the hints but **never** the grader. For every
+> language except Python, §5 is the part of this page that gives you a course,
+> and the built-in curriculum ([`ASSIGNMENTS.md`](ASSIGNMENTS.md)) is where the
+> graded work is.
 
 ## 7. When it goes wrong
 

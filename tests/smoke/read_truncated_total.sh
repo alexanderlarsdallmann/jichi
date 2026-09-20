@@ -73,7 +73,7 @@ if printf '%s' "$body" | grep -q "the file has $real lines"; then
     t_ok "the message reports the FILE's line count ($real)"
 else
     t_fail "the file's true line count ($real) is not in the message:
-   $(printf '%s' "$body" | grep -o 'no lines in range[^\"]*' | head_bytes 200)"
+   $(printf '%s\n' "$body" | grep -o 'no lines in range[^\"]*' | head_bytes 200)"
 fi
 
 # 2) ... and the false form must not.
@@ -89,7 +89,7 @@ fi
 #    the word anywhere in the request, and passed while the range message had
 #    lost it -- the truncation notice below names the same knob, so the check was
 #    satisfied by a different sentence than the one it is about.
-rangemsg=$(printf '%s' "$body" | grep -o 'no lines in range[^)]*)' | head -1)
+rangemsg=$(printf '%s\n' "$body" | grep -o 'no lines in range[^)]*)' | head -1)
 if printf '%s' "$rangemsg" | grep -q 'readMaxBytes'; then
     t_ok "the range message itself names readMaxBytes, so the limit can be acted on"
 else
@@ -102,7 +102,7 @@ if printf '%s' "$body" | grep -qE 'read lines 1-[0-9]+ of [0-9]+'; then
     t_ok "the truncation notice states the window and the whole"
 else
     t_fail "the truncation notice does not say how much is missing, so a second
-   read cannot be aimed: $(printf '%s' "$body" | grep -o 'output truncated[^\"]*' | head_bytes 160)"
+   read cannot be aimed: $(printf '%s\n' "$body" | grep -o 'output truncated[^\"]*' | head_bytes 160)"
 fi
 
 # 5) CONTROL: a SMALL file must keep the plain wording. Without this, checks 1-4
@@ -129,7 +129,7 @@ if printf '%s' "$body2" | grep -q '(no lines in range; file has 3 lines)'; then
     t_ok "an untruncated read keeps the plain, correct wording"
 else
     t_fail "the small-file message changed; it was already true and should not have:
-   $(printf '%s' "$body2" | grep -o 'no lines in range[^\"]*' | head_bytes 160)"
+   $(printf '%s\n' "$body2" | grep -o 'no lines in range[^\"]*' | head_bytes 160)"
 fi
 
 t_done

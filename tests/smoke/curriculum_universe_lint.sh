@@ -24,10 +24,15 @@ for f in "$SMOKE_ROOT"/docs/assignments/*.md; do
 done
 
 # --- 1: extraction floor ---------------------------------------------------------
-if [ "$n" -ge 79 ]; then
-    t_ok "enumerated $n shipped specs (floor 84 -- today's exact count)"
+# The floor and the message have to be the SAME number. They were not: the test
+# read `-ge 79` while all three messages said 84, so five specs could vanish and
+# this check would report a floor it was not enforcing (found at M674, while
+# raising it). A message that states a different number than the check uses is
+# worse than no message -- it is a green line telling you something untrue.
+if [ "$n" -ge 88 ]; then
+    t_ok "enumerated $n shipped specs (floor 88 -- today's exact count)"
 else
-    t_fail "enumerated only $n specs (floor 84) -- the glob or the layout broke"
+    t_fail "enumerated only $n specs (floor 88) -- the glob or the layout broke"
 fi
 
 # --- 2: every spec is named in the two-sided proof --------------------------------

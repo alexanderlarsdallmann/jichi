@@ -24,7 +24,8 @@
 #     cJSON_Add*ToObject(o, "field") up to that event's hl_emit()
 #   * the `done` object: jc_agentjson_result in src/util/jc_agentjson.c, counting
 #     only fields added to `o` (sub-objects like tokens/cache/tools are their own)
-#   * stop reasons: every `stop = "..."` assignment in run_headless
+#   * stop reasons: every `case JC_STOP_...: return "..."` in jc_run_stop_wire
+#     (M688 -- they used to be assignments scattered through run_headless)
 # Every event also carries v and type, stamped by jc_agentjson_event itself.
 #
 # Extraction FLOORS (docs/TEST_INTEGRITY.md: put a floor under the ground truth so
@@ -37,6 +38,7 @@ tmp=$(smoke_tmp)
 root=$(cd "$(dirname "$0")/../.." && pwd)
 MAIN="$root/src/main.c"
 AJ="$root/src/util/jc_agentjson.c"
+OUTC="$root/src/util/jc_outcome.c"   # M688: the stop reasons' single definition
 
 # --- ground truth: what the emitters actually write ---------------------------
 # "<type> <field>" per line, sorted unique. v/type come from jc_agentjson_event.
@@ -157,7 +159,18 @@ else
 fi
 
 # --- stop reasons -------------------------------------------------------------
-grep -o 'stop = "[a-z_]*"' "$MAIN" | sed 's/.*"\(.*\)"/\1/' | sort -u > "$tmp/stop_code"
+# M688: the stop-reason strings moved out of run_headless's else-if chain into
+# `jc_run_stop_wire` (src/util/jc_outcome.c), which is now their single
+# definition -- so this extraction reads THAT instead of scanning main.c for
+# assignments. The move is why this check fired: the old pattern found 0 and
+# check 5's floor refused to report "no drift" over an empty set, which is
+# exactly what the floor is for.
+#
+# Anchored on `case JC_STOP_...:` so the unreachable `return "done";` fallback
+# at the end of that function -- present only to satisfy compilers that cannot
+# see the switch is exhaustive -- is not counted as a ninth reason.
+sed -n 's/.*case JC_STOP_[A-Z_]*: *return "\([a-z_]*\)";.*/\1/p' \
+    "$OUTC" | sort -u > "$tmp/stop_code"
 awk '
     /arr = cJSON_CreateArray\(\);/ { buf = ""; next }
     /cJSON_CreateString\("/ {

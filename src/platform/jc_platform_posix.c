@@ -614,6 +614,19 @@ int jc_cpu_count(void)
 #endif
 }
 
+int jc_cpu_count_known(void)
+{
+    /* The same two branches as above, answering the other question: was the 1
+     * measured or assumed? Kept adjacent on purpose -- a future edit that adds
+     * a third way of obtaining the count has to answer both, and separating
+     * them is how the two would drift. */
+#ifdef _SC_NPROCESSORS_ONLN
+    return sysconf(_SC_NPROCESSORS_ONLN) >= 1;
+#else
+    return 0;
+#endif
+}
+
 unsigned long jc_mem_total_mb(void)
 {
 #if defined(__APPLE__)

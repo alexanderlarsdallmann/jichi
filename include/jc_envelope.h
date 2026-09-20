@@ -265,6 +265,21 @@ struct jc_envelope {
      * becomes provable in one direction: no shell command and no chokepoint
      * write means the change cannot be the run's. */
     int           shell_ran;
+    /* M689: the turn-end sweep's own two facts, so the reach footer can tell a
+     * READING shell command from a WRITING one. It could not: the same line --
+     * "a shell command ran -- changes it made are not attributed to the run" --
+     * fired on a run whose fourteen shell calls were `grep`, `find` and `ls`,
+     * and on one whose single call was `zig fmt` (which rewrites the file).
+     * A warning that fires on every `ls` is one readers learn to skip, and it
+     * is attached to the sentence that should never be skipped.
+     *
+     * ONLY THE NEGATIVE IS SOUND, and the code below relies on exactly that:
+     * `tree_changed == 0` PROVES the shell wrote nothing, because nothing at
+     * all changed since the baseline. `tree_changed == 1` proves nothing about
+     * the shell -- the run's own file tools change the tree too -- so the
+     * warning is kept unchanged in that case rather than guessing. */
+    int           sweep_ran;      /* the baseline diff could be taken at all */
+    int           tree_changed;   /* it found at least one changed path      */
 
     /* M503: where verify_cmd came from -- "flag" (the operator typed it),
      * "config" (inherited from `verify`/`testCommand`), or "" (none).

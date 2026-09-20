@@ -284,6 +284,119 @@ jc_status jc_net_parse_model_limits(const char *json, const char *model_id,
     return found;
 }
 
+/* Does the server LIST this model id at all? (M689)
+ *
+ * WHY THIS EXISTS, and it cost a whole working session. `doctor` answers
+ * `✓ model server reachable` after probing the BASE URL -- which is true, and
+ * says nothing about whether the configured model exists there. Driving jichi
+ * on a second project, its committed config named two ids the gateway had
+ * retired; every non-live check passed, and only `doctor --live` failed, with
+ * `the probe request did not complete (http error, HTTP error)` -- a message
+ * that sends the reader to the network when the fix is one string.
+ *
+ * The information was already in hand: the very next check fetches
+ * `/v1/model/info` for the window. What it could not do is answer the prior
+ * question, because a LiteLLM proxy lists limits for only some models --
+ * "not in /v1/model/info" does NOT mean "not on this server". `/v1/models` is
+ * the standard OpenAI listing and does: an id absent from it cannot be called.
+ *
+ * FAILS OPEN, on purpose. A server that will not answer `/v1/models`, or
+ * answers something this cannot parse, must not turn into a red `doctor` -- the
+ * config may be perfectly good and the reader would learn to ignore the row.
+ * Only a listing that was obtained AND does not contain the id is a finding.
+ * That is the same rule the /v1/model/info check follows one branch below, and
+ * for the same reason (M458: a reader must be able to tell "nothing to check"
+ * from "not checked"). */
+jc_status jc_net_parse_model_listed(const char *json, const char *model_id)
+{
+    cJSON *root;
+    cJSON *data;
+    cJSON *item;
+    jc_status found = JC_ERR_NOTFOUND;
+
+    if (json == NULL || model_id == NULL || model_id[0] == '\0') {
+        return JC_ERR_INVALID;
+    }
+    root = jc_json_parse(json);
+    if (root == NULL) {
+        return JC_ERR_PARSE;
+    }
+    data = cJSON_GetObjectItem(root, "data");
+    if (!cJSON_IsArray(data)) {
+        /* Not the OpenAI listing shape. Unknown, not absent. */
+        cJSON_Delete(root);
+        return JC_ERR_PARSE;
+    }
+    for (item = data->child; item != NULL; item = item->next) {
+        cJSON *id = cJSON_GetObjectItem(item, "id");
+        if (cJSON_IsString(id) && id->valuestring != NULL &&
+            strcmp(id->valuestring, model_id) == 0) {
+            found = JC_OK;
+            break;
+        }
+    }
+    cJSON_Delete(root);
+    return found;
+}
+
+jc_status jc_net_model_listed(const char *api_base, const char *api_key,
+                              const char *model_id, int timeout_secs,
+                              volatile int *abort, long *out_http_status)
+{
+    char url[512];
+    char auth[512];
+    struct jc_http_headers headers;
+    struct jc_http_request req;
+    long http_status = 0;
+    char *resp = NULL;
+    jc_status st;
+
+    if (out_http_status != NULL) {
+        *out_http_status = 0;
+    }
+    if (api_base == NULL || api_base[0] == '\0' ||
+        model_id == NULL || model_id[0] == '\0') {
+        return JC_ERR_INVALID;
+    }
+    url_join_v1(api_base, "/models", url, sizeof(url));
+
+    jc_http_headers_init(&headers);
+    if (api_key != NULL && api_key[0] != '\0') {
+        jc_snprintf(auth, sizeof(auth), "Authorization: Bearer %s", api_key);
+        jc_http_headers_add(&headers, auth);
+    }
+    memset(&req, 0, sizeof(req));
+    req.method = "GET";
+    req.url = url;
+    req.headers = &headers;
+    req.timeout_secs = (timeout_secs > 0) ? timeout_secs : 6;
+    req.abort_flag = abort;
+
+    /* Muted like the probe beside it: a server without this endpoint is a
+     * normal state, not an error to shout about. */
+    {
+        int prev = jc_log_get_level();
+        jc_log_set_level(JC_LOG_NONE);
+        st = jc_http_perform(&req, &http_status, &resp, NULL);
+        jc_log_set_level(prev);
+    }
+    jc_http_headers_free(&headers);
+    if (out_http_status != NULL) {
+        *out_http_status = http_status;
+    }
+    if (st != JC_OK) {
+        free(resp);
+        return st;
+    }
+    if (http_status >= 400 || resp == NULL) {
+        free(resp);
+        return JC_ERR_HTTP;
+    }
+    st = jc_net_parse_model_listed(resp, model_id);
+    free(resp);
+    return st;
+}
+
 /* The GATEWAY'S OWN account of a model's context window.
  *
  * WHY THIS EXISTS. Standard OpenAI `/v1/models` answers with id/object/

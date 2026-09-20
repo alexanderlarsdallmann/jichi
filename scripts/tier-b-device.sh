@@ -70,6 +70,7 @@ set -eu
 # The one implementation of JC_SMOKE_TIMEOUT_MULT (M464). This script's logic is
 # the original; it lives there now so the other rigs cannot diverge from it again.
 . "$(dirname "$0")/_rig_mult.sh"
+. "$(dirname "$0")/_rig_live.sh"
 
 REF_SECS="${JC_REF_SECS:-}"
 CC_NAME=""
@@ -78,6 +79,7 @@ OUT="./.tier-b-results"
 REMOTE_DIR="jichi-tier-b"
 REV="HEAD"
 LIVE=""
+LIVE_PORT=""
 # The model id the endpoint serves. An OpenAI-compatible server rejects an id it
 # does not have, and the id is not derivable from the URL, so it is an option.
 LIVE_MODEL="local"
@@ -95,6 +97,7 @@ while [ $# -gt 0 ]; do
         --remote)   REMOTE_DIR="$2"; shift ;;
         --rev)      REV="$2";      shift ;;
         --live)     LIVE="$2";     shift ;;
+        --live-port) LIVE_PORT="$2"; shift ;;
         --live-model) LIVE_MODEL="$2"; shift ;;
         --keep)     KEEP=1 ;;
         --dry-run)  DRY=1 ;;
@@ -125,6 +128,54 @@ note() { echo "$*" >> "$OUT/results.txt"; }
 # HOME so the operator's own config cannot move a number (the M430 rule).
 dev() { $SSH "$TARGET" "cd \$HOME/$REMOTE_DIR && HOME=\$HOME/$REMOTE_DIR/.home ${MAKEV}sh -lc '$1'"; }
 
+# devl -- dev() carrying a REVERSE forward, so the board reaches a model server
+# bound to the HOST's loopback for exactly the lifetime of this one command.
+#
+# WHY (M677). The live step took a `--live <url>` the board had to reach on its
+# own, which means the model server must listen on the LAN. Measured on this
+# bench: LM Studio binds 127.0.0.1:1234 and nothing else, so that URL was
+# unreachable from either Pi and the only way to drive a board was to reconfigure
+# the model server to accept connections from the network. The three VM rigs had
+# already refused that trade and solved it with `ssh -R`; the boards can use the
+# identical trick, and then --live-port names a port on the BOARD's loopback that
+# exists only while the turn runs. Proven before it was written in: both Pis
+# fetched /v1/models through the forward against an unchanged, loopback-bound
+# server.
+# devl -- dev() carrying a REVERSE forward, used only when the board cannot
+# already reach the endpoint.
+#
+# WHY THE PROBE BELOW EXISTS, and it is the more useful half of this (M677).
+# The first version always forwarded, and `ssh -R` whose forward cannot bind
+# prints "Warning: remote port forwarding failed for listen port N" and RUNS
+# THE COMMAND ANYWAY, exit 0. Measured on the Pi 400: the rig's forward failed,
+# the turn answered regardless, and the row reported two green live turns with
+# no indication of which path carried them.
+#
+# The cause was NOT a stale socket. Both boards on this bench carry a
+# deliberate persistent tunnel -- `ssh -N -R 1234:127.0.0.1:1234` with
+# ServerAliveInterval and ExitOnForwardFailure already set -- so the port was
+# already correctly forwarded and the rig was trying to bind it a second time.
+# Adding ExitOnForwardFailure here alone would therefore have BROKEN a working
+# bench: the rig would abort precisely where the operator had already done the
+# work.
+#
+# So the rig asks the board first. If it can already reach the endpoint, that
+# path is used and NAMED in the results; if it cannot, the rig makes its own
+# forward and a bind failure is then a real failure rather than a warning that
+# scrolls past. Either way the row says which transport carried it, which is
+# the thing whose absence made the log unreadable.
+devl() {
+    $SSH -o ExitOnForwardFailure=yes -R "$LIVE_PORT:127.0.0.1:$LIVE_PORT" "$TARGET" \
+        "cd \$HOME/$REMOTE_DIR && HOME=\$HOME/$REMOTE_DIR/.home ${MAKEV}sh -lc '$1'"
+}
+
+# Can the board already reach the endpoint on its own? Answered by asking IT,
+# not by looking at this host's process list.
+dev_can_reach() {
+    $SSH "$TARGET" "curl -s -o /dev/null --max-time 5 http://127.0.0.1:$LIVE_PORT/v1/models" \
+        >/dev/null 2>&1
+}
+
 if [ "$DRY" -eq 1 ]; then
     echo "tier-b-device: DRY RUN"
     echo "  target      : $TARGET"
@@ -133,7 +184,13 @@ if [ "$DRY" -eq 1 ]; then
     echo "  ref secs    : $REF_SECS   (denominator for JC_SMOKE_TIMEOUT_MULT)"
     echo "  remote dir  : ~/$REMOTE_DIR"
     echo "  results     : $OUT/results.txt"
-    echo "  live model  : ${LIVE:-<skipped>}"
+    if [ -n "$LIVE_PORT" ]; then
+        echo "  live        : $LIVE_MODEL over a reverse forward on port $LIVE_PORT"
+    elif [ -n "$LIVE" ]; then
+        echo "  live        : $LIVE_MODEL at $LIVE (the board must reach this itself)"
+    else
+        echo "  live        : <skipped -- pass --live-port or --live>"
+    fi
     echo
     echo "would run, in order:"
     echo "  0. identity     uname -a; /etc/os-release; gcc --version; ldd --version; nproc; free -m"
@@ -141,7 +198,7 @@ if [ "$DRY" -eq 1 ]; then
     echo "  2. gate         JC_SMOKE_TIMEOUT_MULT=<computed> make check-target"
     echo "  3. footprint    /usr/bin/time -v  ->  else poll /proc/<pid> VmHWM (labelled)"
     echo "  4. offline      doctor; context; map | head -20; describe"
-    echo "  5. live turn    jichi -p 'reply with OK' --output json   (only with --live)"
+    echo "  5. live turn   the shared driven task (scripts/_rig_live.sh)   (--live/--live-port)"
     exit 0
 fi
 
@@ -423,98 +480,62 @@ fi
 note ""
 
 # --------------------------------------------------------- step 5 live turn
+# The DRIVEN step. The TASK -- both prompts, the nonce, the config, the fixture
+# -- is scripts/_rig_live.sh, shared with every other rig so the rows are
+# comparable. Only the TRANSPORT is this rig's own: `dev`/`devl` drive a
+# physical board over the LAN, cd into a run directory under a nested $HOME, so
+# every path here is RELATIVE. That is why this calls the task functions rather
+# than jc_rig_live, which assumes the tier-v guests' absolute layout.
 say "step 5 -- live turn"
 note "## step 5 -- live turn"
-if [ -z "$LIVE" ]; then
-    skip "live turn not attempted (no --live); steps 0-4 need no model"
+if [ -z "$LIVE" ] && [ -z "$LIVE_PORT" ]; then
+    skip "live turn not attempted (no --live/--live-port); steps 0-4 need no model"
     note "    not attempted -- no endpoint given"
 else
-    # A REAL CONFIG, because JICHI_API_BASE IS NOT A THING (2026-09-18).
-    # This step used to run `JICHI_API_BASE='$LIVE' ./jichi -p 'reply with OK'`.
-    # That variable appears nowhere in jichi -- not in src/, not in docs/, only
-    # here -- so it was never read, and the step has NEVER driven the endpoint it
-    # was given. With no config jichi fell back to its default provider, and the
-    # Pi 400 row on 2026-09-18 failed with:
-    #
-    #     provider returned HTTP 401: "x-api-key header is required"
-    #     request_id: req_011CfBUd7k7R8G3nh89j2Q37
-    #
-    # i.e. the "local live turn" sent a request to **Anthropic**. It 401'd, so
-    # nothing was spent -- but on a device with ANTHROPIC_API_KEY exported,
-    # `--live http://127.0.0.1:1234/v1` would have quietly billed a priced model
-    # for a run the operator believed was local. CLAUDE.md's spending rule exists
-    # for exactly this, and a rig that can violate it by accident is a fence with
-    # a hole in it.
-    #
-    # The fix is the pattern scripts/fleet-run.sh already proves: write a config
-    # naming the provider, the apiBase and a dummy key, and pass --config. An
-    # unreachable endpoint then fails as a connection error, which is a true
-    # negative, instead of silently addressing someone else's paid API.
-    # A RELATIVE path. `dev` runs `cd $HOME/$REMOTE_DIR && HOME=$HOME/$REMOTE_DIR/.home`,
-    # so $HOME INSIDE it is the nested .home directory -- `$HOME/$REMOTE_DIR/live.json`
-    # resolved to a path that does not exist, the write failed, and jichi then
-    # reported `config file not found: live.json`. Measured on the device:
-    # `HOME=/tmp/rt/.home sh -lc 'echo $HOME'` prints /tmp/rt/.home. dev already
-    # cds into the run directory, so the file belongs there under its bare name.
-    dev "cat > live.json" <<LIVECFG 2>/dev/null || true
-{"models":[{"name":"live","provider":"openai","model":"$LIVE_MODEL",
- "apiBase":"$LIVE","apiKey":"unused","roles":["chat"]}],
- "snapshots":false,"repoMap":false,"maxRetries":1,"lowResource":false}
-LIVECFG
-    # --prompt-b64, NOT -p 'quoted text'. `dev` wraps its argument in
-    # `sh -lc '...'`, so a single-quoted prompt INSIDE it closes the outer quote:
-    # jichi received `-p reply` and swallowed `--output json` as prompt text.
-    # Measured on the Pi 400 -- the model answered "How can I help you today?"
-    # and the output was prose, so the check failed against a turn that had
-    # actually worked (tokens in=11.311 out=252). jichi ships --prompt-b64 for
-    # exactly this ("multiline/quote-safe"), so the prompt crosses two shells
-    # with no quoting at all.
-    _p_live=$(printf '%s' 'reply with OK' | base64 | tr -d '\n')
-    if dev "./jichi --config live.json --prompt-b64 $_p_live --output json" \
+    # --live-port tunnels to the HOST's loopback (preferred; needs no model
+    # server reconfiguration). --live takes a URL the board reaches itself.
+    if [ -n "$LIVE_PORT" ]; then
+        _lurl="http://127.0.0.1:$LIVE_PORT/v1"
+        if dev_can_reach; then
+            _run=dev
+            ok "transport: the board already reaches port $LIVE_PORT (an existing forward)"
+            note "    transport: existing forward on the board -- the rig made none"
+        else
+            _run=devl
+            note "    transport: the rig's own reverse forward on port $LIVE_PORT"
+        fi
+    else
+        _lurl="$LIVE"
+        _run=dev
+        note "    transport: the board reaches $LIVE itself (no forward)"
+    fi
+
+    # A RELATIVE path: `dev` already cds into the run directory, and $HOME
+    # inside it is the nested .home, so `$HOME/live.json` resolved to a path
+    # that did not exist and jichi reported `config file not found`.
+    jc_rig_live_config "$LIVE_MODEL" "$_lurl" | $_run "cat > live.json" 2>/dev/null || true
+
+    _p_live=$(jc_rig_live_prompt_wire)
+    if $_run "./jichi --config live.json --prompt-b64 $_p_live --output json" \
         > "$OUT/live.txt" 2>&1 && grep -q '"text"' "$OUT/live.txt"; then
-        ok "live turn answered against $LIVE"
+        ok "live turn answered against $_lurl"
         sed 's/^/    /' "$OUT/live.txt" | head -5 >> "$OUT/results.txt"
     else
-        bad "live turn did not produce a JSON answer against $LIVE"
+        bad "live turn did not produce a JSON answer against $_lurl"
         tail -10 "$OUT/live.txt" | sed 's/^/    /' >> "$OUT/results.txt"
     fi
 
     # ------------------------------------------------ step 5b: the AGENT LOOP
-    # WHY A SECOND TURN, AND WHY THIS ONE (2026-09-18). The turn above proves
-    # the wire: provider, request, SSE framing, an answer. It proves NOTHING
-    # about the agent loop -- no tool is chosen, none is executed, and no second
-    # turn consumes a result. Every documented failure in this area lives past
-    # that point: a model that DESCRIBES tool calls instead of invoking them
-    # terminates perfectly cleanly, `stop_reason: done`, tokens spent, empty
-    # workspace (AUTONOMOUS_LOOPS.md, "done is not a success verdict"). A row
-    # green on the text turn alone can be a row where jichi executes nothing.
-    #
-    # THE ASSERTION IS A PHRASE, NOT A SENTENCE. Measured the same day: a model
-    # asked to quote three passages gave two verbatim and dropped an article
-    # from the third. A quoted sentence is not a reliable oracle; a nonsense
-    # token the model can only have obtained BY READING THE FILE is.
-    #
-    # AND IT IS NOT AN EXIT CODE. A dead ssh and a refused task both exit
-    # non-zero, which is why every fleet verdict in this repo comes from a
-    # positive marker in the output rather than from $?.
-    _phrase="TIER-B-$(od -An -N3 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' \
-             | tr 'a-f' 'A-F')"
-    [ -n "${_phrase#TIER-B-}" ] || _phrase="TIER-B-FALLBACK"
-    _p_tool=$(printf '%s' 'Use the read_file tool to read note.txt in this \
-directory, then report the pass phrase.' | base64 | tr -d '\n')
+    # The turn above proves the wire and nothing else: no tool is chosen, none
+    # executed, no second turn consumes a result. A row green on the text turn
+    # alone can be a row where jichi executes nothing.
+    _phrase=$(jc_rig_live_phrase TIER-B)
+    _p_tool=$(jc_rig_live_prompt_tool)
     say "step 5b -- agentic turn (a tool the model must actually run)"
     note "## step 5b -- agentic turn"
-    # The fixture goes over STDIN, not through a quoted printf. The first
-    # version wrote it with `printf 'The pass phrase is %s.\n' '$_phrase'`
-    # inside dev's `sh -lc '...'` -- the same quote collision as the prompt one
-    # line below, so the file was never created and the model answered, quite
-    # honestly, "I could not find a file named note.txt". The check then blamed
-    # the model for describing a tool call it had in fact tried to make.
-    dev "mkdir -p ws" >/dev/null 2>&1 || true
-    dev "cat > ws/note.txt" <<NOTEFIX 2>/dev/null || true
-The pass phrase is $_phrase.
-NOTEFIX
-    if dev "cd ws && ../jichi --config ../live.json --auto -q --prompt-b64 $_p_tool \
+    $_run "mkdir -p ws" >/dev/null 2>&1 || true
+    jc_rig_live_fixture "$_phrase" | $_run "cat > ws/note.txt" 2>/dev/null || true
+    if $_run "cd ws && ../jichi --config ../live.json --auto -q --prompt-b64 $_p_tool \
 < /dev/null" > "$OUT/live-tool.txt" 2>&1 \
        && grep -q "$_phrase" "$OUT/live-tool.txt"; then
         ok "agentic turn: the model called a tool and reported $_phrase"

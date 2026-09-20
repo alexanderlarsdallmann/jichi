@@ -26,6 +26,14 @@
  * (found on the V2f old-kernel guest: turn_scratch's 99 mock turns outran
  * a fixed 90 s expect while progressing at ~1 turn/s).
  *
+ * --presend TEXT writes TEXT to the pty master BEFORE the child is spawned, so
+ * the bytes are already in the line discipline when the child first looks. Use
+ * it for a property about input that arrived before the program was ready; a
+ * script `send` cannot express that, because it runs after the fork and races
+ * the child. ptydrive prints `presend ok` or `presend unsupported` on stderr --
+ * OpenBSD refuses a write to a master with no slave open, and a driver must
+ * branch on that rather than assume its fixture worked.
+ *
  * Exit codes: 0 script completed; 2 usage / script parse error; 3 expect
  * timeout (the transcript tail is dumped to stderr) or --deadline hit;
  * 4 pty/spawn failure; 5 waitexit timeout (child SIGKILLed); 6 assertexit
@@ -48,6 +56,7 @@
 #include <termios.h>
 #ifdef JC_HAVE_STREAMS_PTY
 #include <stropts.h>
+#include <sys/filio.h>          /* FIONREAD is not in <sys/ioctl.h> here */
 #endif
 #include <time.h>
 #include <unistd.h>
@@ -225,10 +234,53 @@ static void pt_dump_tail(const struct pt_buf *b)
 
 /* --- spawn ---------------------------------------------------------------- */
 
+/* `presend`: bytes written to the MASTER before the fork, so they are already in
+ * the line discipline when the child first looks (M672).
+ *
+ * WHY IT EXISTS. A `send` in the script runs in the parent AFTER the fork, so it
+ * RACES the child's startup. For a driver testing what a program does with input
+ * that arrived BEFORE it was ready -- `preprompt_discard` is the one -- that race
+ * is the whole experiment, and it resolves differently per platform: on Linux the
+ * write lands first, on OpenBSD the child reaches its terminal setup first, every
+ * time. The driver there failed while jichi was behaving perfectly, and jichi's
+ * own instrumentation said so: `enter_raw fd=0 pending=0`, five runs out of five.
+ *
+ * *presend_ok is 0 when the pre-write could not be done, and that is NOT an error:
+ * **on OpenBSD a write to a master with no slave open returns -1** (measured:
+ * Linux accepts it and the bytes survive until the slave opens). A caller that
+ * needs the precondition must therefore check, and say so, rather than assert a
+ * property its fixture could not create.
+ *
+ * THE THIRD CASE, AND THE ONLY ONE THAT LIES (M683). illumos accepts the write,
+ * returns the full length, and DISCARDS the bytes. Measured on OmniOS r151058
+ * with a 14-line probe: write 6 bytes to the master with no slave open, then
+ * open the slave and ask FIONREAD -- Linux answers 6, illumos answers 0, with
+ * and without the STREAMS module push, so the push is not the mechanism. So
+ * `*presend_ok = (write returned plen)` reported the ATTEMPT, and this project's
+ * own platform rule is "report the EFFECT, never the attempt". preprompt_discard
+ * has a skip path for exactly this precondition and FAILED instead of taking it,
+ * because the only thing it could ask was whether the write returned.
+ *
+ * TWO CHANGES, and the second is what makes the first honest:
+ *
+ *   1. The slave is opened IN THE PARENT before the pre-write, which is also
+ *      the more faithful model -- a real terminal exists before anyone types
+ *      into it; nothing types at a pty that has not been opened. Measured: the
+ *      bytes then survive on illumos exactly as on Linux (6 of 6). The child
+ *      INHERITS that descriptor across fork and closes it only after opening
+ *      its own, so the slave open count never reaches zero and neither the
+ *      flush-on-last-close nor the EOF-on-master semantics change.
+ *   2. *presend_ok is now set from ioctl(FIONREAD) on the slave -- the bytes
+ *      are readable, or they are not. If FIONREAD itself fails we report 0:
+ *      a caller that cannot verify the precondition must skip, not assume.
+ *
+ * Only the presend path opens the slave early; the other eighteen pty drivers
+ * pass no --presend and take the original path untouched. */
 static int pt_spawn(char **child_argv, int rows, int cols, int *master_out,
-                    pid_t *pid_out)
+                    pid_t *pid_out, const char *presend, int *presend_ok)
 {
     int master;
+    int slave_pre = -1;
     char *slave_name;
     pid_t pid;
 
@@ -245,8 +297,35 @@ static int pt_spawn(char **child_argv, int rows, int cols, int *master_out,
         return -1;
     }
 
+    if (presend_ok != NULL) {
+        *presend_ok = 0;
+    }
+    if (presend != NULL && presend[0] != '\0') {
+        size_t plen = strlen(presend);
+        ssize_t pw;
+        int pending = -1;
+
+        /* Hold the slave open across the write; see the header comment. */
+        slave_pre = open(slave_name, O_RDWR | O_NOCTTY);
+#ifdef JC_HAVE_STREAMS_PTY
+        if (slave_pre >= 0 && !isatty(slave_pre)) {
+            (void)ioctl(slave_pre, I_PUSH, "ptem");
+            (void)ioctl(slave_pre, I_PUSH, "ldterm");
+            (void)ioctl(slave_pre, I_PUSH, "ttcompat");
+        }
+#endif
+        pw = write(master, presend, plen);
+        if (pw == (ssize_t)plen && slave_pre >= 0 &&
+            ioctl(slave_pre, FIONREAD, &pending) == 0 &&
+            pending >= (int)plen && presend_ok != NULL) {
+            *presend_ok = 1;         /* the bytes are READABLE, not merely sent */
+        }
+    }
+
     pid = fork();
     if (pid < 0) {
+        if (slave_pre >= 0)
+            close(slave_pre);
         close(master);
         return -1;
     }
@@ -257,6 +336,10 @@ static int pt_spawn(char **child_argv, int rows, int cols, int *master_out,
         slave = open(slave_name, O_RDWR);   /* becomes the controlling tty */
         if (slave < 0)
             _exit(127);
+        /* Only now: the inherited descriptor kept the slave open across the
+         * fork so the pre-written bytes could not be flushed by a last close. */
+        if (slave_pre >= 0)
+            close(slave_pre);
 #ifdef JC_HAVE_STREAMS_PTY
         /* On a STREAMS system (illumos/Solaris) a freshly opened pty slave is
          * NOT a terminal: measured on OmniOS r151058 at M661, `tcgetattr` fails
@@ -294,6 +377,8 @@ static int pt_spawn(char **child_argv, int rows, int cols, int *master_out,
         execvp(child_argv[0], child_argv);
         _exit(127);
     }
+    if (slave_pre >= 0)
+        close(slave_pre);           /* the child holds its own; see above */
     *master_out = master;
     *pid_out = pid;
     return 0;
@@ -307,6 +392,8 @@ int main(int argc, char **argv)
     long deadline = 60;
     const char *log_path = NULL;
     const char *script_path = NULL;
+    const char *presend = NULL;
+    int presend_ok = 0;
     char **child_argv = NULL;
     struct pd_script script;
     char err[256];
@@ -326,6 +413,8 @@ int main(int argc, char **argv)
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--rows") == 0 && i + 1 < argc) {
             rows = (int)strtol(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--presend") == 0 && i + 1 < argc) {
+            presend = argv[++i];
         } else if (strcmp(argv[i], "--cols") == 0 && i + 1 < argc) {
             cols = (int)strtol(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--deadline") == 0 && i + 1 < argc) {
@@ -394,10 +483,19 @@ int main(int argc, char **argv)
         }
     }
 
-    if (pt_spawn(child_argv, rows, cols, &master, &child) != 0) {
+    if (pt_spawn(child_argv, rows, cols, &master, &child,
+                 presend, &presend_ok) != 0) {
         fprintf(stderr, "%s: pty spawn failed\n", g_prog);
         pd_script_free(&script);
         return PT_EXIT_SPAWN;
+    }
+    if (presend != NULL && presend[0] != '\0') {
+        /* Said out loud either way, on stderr, so a driver can BRANCH on it
+         * rather than assume. A precondition a fixture could not create is not
+         * a failure of the program under test, and a driver that cannot tell
+         * the two apart reports the wrong one. */
+        fprintf(stderr, "%s: presend %s\n", g_prog,
+                presend_ok ? "ok" : "unsupported (write to master before spawn failed)");
     }
     g_child_pid = (sig_atomic_t)child;
     signal(SIGALRM, on_alarm);

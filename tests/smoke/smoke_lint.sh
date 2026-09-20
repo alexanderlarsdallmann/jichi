@@ -53,7 +53,7 @@
 # EXEMPT: _smoke.sh (the lib itself), run.sh (the runner), this file.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 19
+t_plan 21
 
 drivers=""
 for f in "$SMOKE_DIR"/*.sh; do
@@ -92,15 +92,32 @@ else
     t_fail "no t_fail path:$bad"
 fi
 
+# The property is that the tier does not RUN these -- that is what lets it pass
+# on a 256 MB board and on four kernels, and what CONTRIBUTING.md advertises.
+# `python3` was matched as flat text while `nc`/`curl` beside it were already
+# matched in COMMAND POSITION, and the difference bit at M674: a lint that
+# enumerates the assignment toolchains had to name python3 in an ERE to see the
+# Python track's four graders, and naming it is not running it. Tightened to
+# command position, which is what the rule means and what its other half already
+# said. What separates the two is the TRAILING context, not the leading one: an
+# invocation is followed by whitespace or end of line (`python3 x`,
+# `$(python3 -c ...)`, `| python3 -`, `/usr/bin/python3 x`), while a mention
+# inside an ERE alternation is followed by `)` or `|`. The first draft of this
+# excluded a leading `(` instead, and check 21 caught within the minute that it
+# would let `out=$(python3 -c ...)` through -- a rule relaxed one character too
+# far, found by its own tooth rather than in six months by a board with no
+# Python on it.
+# Check 21 below is the tooth: it proves this still catches a real invocation,
+# because a rule relaxed without one is a rule nobody can tell is still working.
 bad=""
 for f in $drivers; do
-    if grep -E -q 'python3|/dev/tcp' "$f" \
-       || grep -E -q '(^|[^A-Za-z_#"])(nc|curl) ' "$f"; then
+    if grep -E -q '/dev/tcp' "$f" \
+       || grep -E -q '(^|[^A-Za-z_#"])(python3|nc|curl)([ \t]|$)' "$f"; then
         bad="$bad $(basename "$f")"
     fi
 done
 if [ -z "$bad" ]; then
-    t_ok "no python3/nc/curl//dev/tcp anywhere in the tier"
+    t_ok "no python3/nc/curl//dev/tcp RUN anywhere in the tier"
 else
     t_fail "forbidden tool:$bad"
 fi
@@ -494,6 +511,83 @@ if grep -q '^BARE' "$_pl"; then
     grep '^BARE' "$_pl" | sed 's/^/# /' | head -6
 else
     t_ok "every headless -p run pins stdin (< /dev/null, heredoc, file, pipe, or --no-stdin)"
+fi
+
+# ---- 20: a driver decides whether it can RUN before it declares a plan ------
+# THE DEFECT (M672). `t_plan 4` followed by `t_skip` emits **two** TAP plan
+# lines -- `1..4` and then `1..0` -- and a runner reading that sees malformed
+# output and calls the driver FAILED even though it exited 0.
+# `progress_write_fails` was the last red driver on an otherwise complete
+# OpenBSD row for exactly this: OpenBSD has no `/dev/full`, the driver took its
+# skip path, and a correct skip was reported as a failure.
+#
+# It is invisible on the bench that has the thing. Every driver in this tier
+# runs its skip path only where the platform lacks something, so the shape is
+# discovered by a platform row or not at all -- which is the argument for a lint
+# rather than a fix.
+#
+# THE RULE: decide first, declare second. A `t_skip` that can fire must come
+# BEFORE `t_plan`.
+#
+# ONE EXEMPTION, and it is a design rather than an oversight:
+# bibliography_lint.sh reports `t_fail` for a missing page and only then skips
+# the rest. Hoisting that above the plan would turn a genuine failure into a
+# skip, and the run is already red in that state.
+#
+# THE LEADING `(` IS LOAD-BEARING (M685). Written `bibliography_lint.sh)`, this
+# case pattern's closing paren is UNBALANCED inside the enclosing `$( )`, and a
+# parser that counts parentheses closes the substitution there. OpenBSD's ksh
+# does exactly that: `smoke_lint.sh[538]: syntax error: ';;' unexpected`, after
+# nineteen checks had already passed -- so the driver died mid-run and the whole
+# OpenBSD row went red on a file nobody had touched since it was written.
+#
+# POSIX allows the optional `(` before a case pattern for this reason. Verified
+# in sh, dash, bash and busybox ash here, and the population was counted before
+# deciding not to lint it: this is the ONLY case arm inside a command
+# substitution in the tier, and a gate for a population of one is the trade this
+# project has already declined once (1 verbatim quote in 110 blocks).
+_ps=$(for f in $drivers; do
+        case "$(basename "$f")" in
+            (bibliography_lint.sh) continue ;;
+        esac
+        awk -v F="$f" '
+            /^[[:space:]]*t_plan /             { p = FNR }
+            /t_skip[[:space:]]+"/              { if (p && FNR > p) {
+                                                   printf "  %s: t_plan line %d, t_skip line %d\n", F, p, FNR
+                                                   exit } }' "$f"
+      done)
+if [ -z "$_ps" ]; then
+    t_ok "every driver decides it can run before it declares a plan"
+else
+    t_fail "driver(s) whose t_skip follows t_plan -- a skip there emits a SECOND
+TAP plan line, and the runner reads the driver as failed although it exited 0:
+$_ps
+Move the skip test above t_plan."
+fi
+
+# --- 21: the forbidden-tool rule still catches a real invocation -------------
+# THE TOOTH FOR CHECK 3, added when check 3 was relaxed from a flat text match
+# to a command-position one (M674). Relaxing a rule is the moment it can go
+# hollow without anybody noticing, because the tier stays green either way --
+# a green line proves the rule ran, never that it can still fail. So this
+# rebuilds check 3's pattern against four synthetic drivers that DO run the
+# tool, and one that only names it in a pattern, and asserts the verdict on
+# each. If someone widens the exclusion set until an invocation slips past,
+# this goes red here rather than silently in six months.
+_probe() { printf '%s\n' "$1" | grep -E -q '(^|[^A-Za-z_#"])(python3|nc|curl)([ \t]|$)'; }
+_t21=""
+_probe 'python3 -m unittest x'            || _t21="$_t21 bare-invocation"
+_probe 'out=$(python3 -c "print(1)")'     || _t21="$_t21 command-substitution"
+_probe 'cat f | python3 -'                || _t21="$_t21 pipeline"
+_probe 'cat f |python3 -'                 || _t21="$_t21 pipeline-no-space"
+_probe '/usr/bin/python3 script.py'       || _t21="$_t21 absolute-path"
+_probe 'grep -E "(zig|python3)([ ;)]|$)"' && _t21="$_t21 pattern-mention-FALSE-POSITIVE"
+if [ -z "$_t21" ]; then
+    t_ok "check 3's rule still catches 5 real invocations and no pattern mention"
+else
+    t_fail "check 3 has gone hollow -- it no longer decides these correctly:$_t21
+The rule must catch a tool that is RUN and ignore one that is merely named.
+Fix the pattern above; do not adjust this probe to match it."
 fi
 
 t_done

@@ -471,6 +471,32 @@ graded tasks rather than reading, for the reason the ROADMAP's M636j entry gives
 | [`79-when-a-vector-is-wrong.md`](79-when-a-vector-is-wrong.md) | 3 | the same fix twice: a vector kept honest by holding an index across `realloc`, and a linked list whose nodes keep their addresses and move between teams in O(1) -- both under ASan, so the comparison is the lesson |
 | [`80-the-order-you-didnt-sort.md`](80-the-order-you-didnt-sort.md) | 4 | an ordered map built twice -- a sorted array kept sorted on insert (jichi's `qsort` + `bsearch`) and an unbalanced BST -- correct on random and on SORTED input under ASan, then measured insert-heavy against query-heavy on your machine; the finding must say what sorted input did to the tree |
 
+## Language-course track — Python (graded)
+
+The graded half of the [**language course**](../LANGUAGE_COURSE.md): the course
+teaches you to download a language's own documentation and work through it with
+jichi, and these four tasks are where you find out whether you can *use* what you
+read. Each one names the section of the Python tutorial it comes from, so the
+answer to "where does this come from?" is a file you have on disk rather than
+something a model remembered.
+
+The arc is the one every track here uses — fix-forward, test-first, refactor
+under green, capstone — but the defects are **Python's own**, not a C exercise
+translated: the mutable default argument, the bare `except:`, the accumulator
+loop, and a sort whose two halves go in opposite directions. Graded with
+`python3 -m unittest`; two-sided like every task here.
+
+| Assignment | Pts | Practices |
+|---|---|---|
+| [`81-python-make-it-pass.md`](81-python-make-it-pass.md) | 2 | the fix-forward loop in Python; a function that remembers cannot be tested alone (the mutable default) |
+| [`82-python-test-first.md`](82-python-test-first.md) | 3 | tests as proof: write the failing test first, then fix — the bug the bare `except:` was hiding |
+| [`83-python-loops-to-comprehensions.md`](83-python-loops-to-comprehensions.md) | 3 | refactor under green tests: accumulator loops → list/dict/set comprehensions, smell-gone proven mechanically |
+| [`84-python-capstone.md`](84-python-capstone.md) | 4 | a test file read as a specification; a compound sort key; name your design in one line |
+
+**12 points.** Needs `python3` and nothing else — no package manager, no virtual
+environment, no third-party library. The graders say so by name when it is
+missing, so an absent toolchain never reads as a wrong answer.
+
 ## Process track — how software is actually made (graded)
 
 The other half of software development, the half no compiler checks: the

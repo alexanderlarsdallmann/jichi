@@ -165,8 +165,50 @@ fi
 # The check that would have caught ~700 KB and 7,170 the day the English deck moved.
 # HTML comments are stripped first, so a declaration's own numbers are not evidence.
 bad4=""
+# STRIPPING THE COMMENTS WITHOUT A MULTI-CHARACTER RS (M683). This was
+#   awk 'BEGIN{RS="-->"} {sub(/<!--.*/,"")} {print}'
+# which works on gawk, where RS is a regular expression. POSIX defines RS as a
+# SINGLE CHARACTER, and illumos one-true-awk (Aug 27, 2018) takes it literally:
+# given RS="-->" it splits on '-' alone. Measured on OmniOS, the input
+#   A <!-- hidden 999 --> B 12345 C
+# came back as `A <!` / ` hidden 999 ` / `> B 12345 C` -- so the comment was
+# NEVER STRIPPED, and 999 entered the extracted set.
+#
+# That inverts this check. Its premise is "HTML comments are stripped first, so
+# a declaration's own numbers are not evidence" -- on illumos the
+# `<!-- figures-behind: N -->` declaration counted as a figure the English page
+# does not carry, i.e. as evidence against itself. The failure is loud, but a
+# check whose stripper silently stops stripping would be quietly vacuous on any
+# other platform, which is the shape worth refusing.
+#
+# The replacement uses index/substr only -- no regex, no RS -- and carries the
+# in-comment state across lines in an awk global, so multi-line comments strip
+# exactly as before. Verified equivalent on 590 files under gawk (0 differences)
+# and identical host-vs-illumos on all 51 docs/i18n pages.
+# tests/smoke/posix_utils_lint.sh check 24 now refuses a multi-character RS.
+_strip_comments() {
+    awk '
+    {
+        line = $0; out = ""
+        while (length(line) > 0) {
+            if (incomment) {
+                i = index(line, "-->")
+                if (i == 0) { line = ""; break }
+                line = substr(line, i + 3); incomment = 0
+            } else {
+                i = index(line, "<!--")
+                if (i == 0) { out = out line; line = "" }
+                else {
+                    out = out substr(line, 1, i - 1)
+                    line = substr(line, i + 4); incomment = 1
+                }
+            }
+        }
+        print out
+    }' "$1"
+}
 nums() {
-    awk 'BEGIN{RS="-->"} {sub(/<!--.*/,"")} {print}' "$1" |
+    _strip_comments "$1" |
         /usr/bin/grep -oE '[0-9]+([.,][0-9]{3})+|[0-9]{3,}' |
         tr -d '.,' | sort -u
 }

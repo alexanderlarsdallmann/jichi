@@ -248,6 +248,17 @@ jc_status jc_list_dir(const char *dir, struct jc_vec *names,
 
 /* Number of online CPU cores; at least 1 (1 if it cannot be determined). */
 int jc_cpu_count(void);
+/* Whether that count was actually DETECTED, as opposed to fallen back to (M669).
+ *
+ * jc_cpu_count() returns 1 for two unrelated reasons -- a genuine one-core
+ * machine, and a platform where `_SC_NPROCESSORS_ONLN` is not declared under
+ * this tree's feature-test macros (the BSDs hide it behind __BSD_VISIBLE while
+ * we compile -D_POSIX_C_SOURCE=200112L). A caller cannot tell those apart, and
+ * the difference is not cosmetic: `maxParallelAgents` defaults to the core
+ * count, so on FreeBSD and NetBSD `spawn_parallel` silently runs ONE child on
+ * an eight-core machine. Returns 0 when the number is a fallback rather than a
+ * measurement, so a diagnostic can state a fact instead of a suspicion. */
+int jc_cpu_count_known(void);
 
 /* Total physical RAM in mebibytes, or 0 if it cannot be determined. */
 unsigned long jc_mem_total_mb(void);

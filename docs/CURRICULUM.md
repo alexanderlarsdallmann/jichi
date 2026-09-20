@@ -86,10 +86,10 @@ are in [`assignments/INDEX.md`](assignments/INDEX.md).
 (18 tasks, 47 points) plus **set D — memory & lifetimes** (3 tasks, born
 from this project's own 2026-08 hardening wave) and the extras and
 migration tracks below: [`docs/assignments/INDEX.md`](assignments/INDEX.md)
-— **84 graded tasks** in all, every grader two-sided (it provably rejects the
+— **88 graded tasks** in all, every grader two-sided (it provably rejects the
 untouched fixtures and accepts a reference solution;
 `tests/e2e/curriculum_graders.py` enforces this on every change, including
-**71 trap cases** — lazy checkers, half-fixes, hollow gates, leaky
+**75 trap cases** — lazy checkers, half-fixes, hollow gates, leaky
 journals, cost-free port tables, disguised mutation, hand-rolled recursion,
 a hidden `sprintf`, answer-only memory checkers, an untraced kanban card, and
 a schedule with no estimate-vs-actual retro must all still fail). Those two
@@ -161,14 +161,35 @@ allocator, `defer`, tagged/error unions), and the **C++ systems course** (tasks
 you to *reason* about memory, these courses make you *build* the machinery.
 and the **Rust systems course** (tasks 63–66: the borrow checker as compile-time memory safety, `Result`/`Option`, sum types). **With Rust, the systems family is complete** — all four languages now have a standalone graded course, and both the functional and systems families are done. The C family then grew a sibling, **C: files & structures** (tasks 76–80, M636g–M636k): reading and atomically replacing a file, then a hash table, a linked list and an ordered map each built to a fixed contract under AddressSanitizer and *measured* against what jichi does instead — the three moves of [`FILE_HANDLING.md`](FILE_HANDLING.md) and [`DATA_STRUCTURES.md`](DATA_STRUCTURES.md): what jichi chose and why, when that is wrong, what to reach for. Two of those measurements went against the page's own claims and the page says so.
 
+**The Python track is the first one that is not about jichi** (tasks 81–84,
+M674). It is the graded half of [`LANGUAGE_COURSE.md`](LANGUAGE_COURSE.md),
+whose subject is a *language's own documentation*: the learner downloads the
+official Python docs as a versioned snapshot, and each task names the tutorial
+section it comes from, so "where does this come from?" is answered by a file on
+their disk rather than by something a model remembered. The arc is the same one
+every language track here uses — fix-forward, test-first, refactor under green,
+capstone — but the defects are **Python's own** rather than a C exercise
+translated: the mutable default argument, the bare `except:` that hid the bug it
+was asked about, the accumulator loop, and a sort whose two halves run in
+opposite directions. `tests/smoke/course_citations_lint.sh` holds the citations
+to the snapshot, and it caught a wrong one on its first run — a real path and a
+real section, in the wrong file.
+
 **Reading outside this tree.** Everything above teaches from jichi's own source,
 which is the design and also a closed world.
-[BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) is the door out of it: 78 checked entries on
-the craft, C, C++, Zig and Rust, each saying which question in *these* pages it
-answers — 37 of them free to read, including complete books on C, Zig and Rust,
-SICP, and every language standard that matters here in draft. **Every language
-with a graded systems course now has literature behind it.** Nothing in the
-graded path requires any of it; every module is better for some of it.
+[BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) is the door out of it: 149 checked entries on
+the craft, C, C++, Zig, Rust, Python, Racket, Guile, Elixir, Haskell, Clojure and
+interfaces, each saying which question in *these* pages it answers, and **most of
+them free to read** — complete books on C, Zig and Rust, SICP, *The Scheme
+Programming Language*, and every language standard that matters here in draft.
+**Every language with a graded course now has literature behind it** (M677
+finished the list). Nothing in the graded path requires any of it; every module
+is better for some of it.
+
+*The exact free count lives on that page and nowhere else, deliberately.* This
+sentence used to carry its own — **37** — while the page said **74** and a
+mechanical recount said **75**: three numbers for one fact, in two files, none
+of them checkable from where a reader met them. The page computes it now.
 
 **Supplementary reading.** The source reading guides accompany every
 track: [案内（あんない）*Annai* — the guided tour](reading/ANNAI.md)

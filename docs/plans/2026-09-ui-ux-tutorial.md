@@ -7,7 +7,9 @@ references, index, and a map of the text for navigation.*
 
 ## 0. The thesis, which is the operator's and is already in this tree
 
-> **You are here, and this is what you can do here.**
+> **You are here. This is what you can do here.**
+>
+> — Alexander-Lars Dallmann
 
 That is the property every surface below is judged against. It is not a metaphor
 borrowed for the occasion — jichi already practises it, and the tutorial's best

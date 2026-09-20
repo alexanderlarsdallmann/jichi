@@ -46,6 +46,8 @@
 set -eu
 
 ROW=""
+LIVE_PORT=""
+LIVE_MODEL="local"
 DRY=0
 CONSOLE=0
 HOST_SECS=""
@@ -61,6 +63,14 @@ for arg in "$@"; do
     case "$arg" in
         v2e|v2f|v2g|v2h|v2i|v2j|v2k) ROW="$arg" ;;
         --dry-run)   DRY=1 ;;
+        # PENDING sentinels, not `"$2"; shift` -- THIS LOOP IS A `for`, so $2 is
+        # the script's second argument and `shift` does not skip an iteration.
+        # Written the wrong way at M677 and never exercised, because nobody had
+        # run this rig with a live port until M678: `--live-port 1234` set the
+        # port to `--dry-run` and then died on `1234` as an unknown option.
+        # --host-secs beside it had the right shape all along.
+        --live-port)  LIVE_PORT="PENDING" ;;
+        --live-model) LIVE_MODEL="PENDING" ;;
         --console)   CONSOLE=1 ;;
         --host-secs) HOST_SECS="PENDING" ;;
         # Print the header comment block, not a hardcoded line range: the range
@@ -69,11 +79,15 @@ for arg in "$@"; do
         -h|--help)   awk 'NR>1 && !/^#/{exit} NR>1' "$0"; exit 0 ;;
         *)
             if [ "$HOST_SECS" = "PENDING" ]; then HOST_SECS="$arg"; continue; fi
+            if [ "$LIVE_PORT" = "PENDING" ]; then LIVE_PORT="$arg"; continue; fi
+            if [ "$LIVE_MODEL" = "PENDING" ]; then LIVE_MODEL="$arg"; continue; fi
             echo "unknown option: $arg" >&2; exit 2 ;;
     esac
 done
 [ -n "$ROW" ] || { echo "tier-v-vm: name a row: v2e v2f v2g v2h v2i v2j v2k (--help)" >&2; exit 2; }
 [ "$HOST_SECS" = "PENDING" ] && { echo "tier-v-vm: --host-secs needs a number" >&2; exit 2; }
+[ "$LIVE_PORT" = "PENDING" ] && { echo "tier-v-vm: --live-port needs a port" >&2; exit 2; }
+[ "$LIVE_MODEL" = "PENDING" ] && { echo "tier-v-vm: --live-model needs a model id" >&2; exit 2; }
 # WHOLE seconds only, and say so here rather than 500 lines later. This rig times
 # with `date +%s` and derives the multiplier in shell arithmetic, so a decimal dies
 # as "Illegal number: 4.38" at the division, with nothing to connect it to the flag
@@ -170,6 +184,7 @@ SEED="$DIR/$ROW-seed.iso"
 KEY="$DIR/id_ed25519"
 CONSOLE_LOG="$DIR/console-$ROW.log"
 RESULTS="$DIR/results-$ROW.txt"
+QEMU_ERR="$DIR/qemu-$ROW.err"
 PIDFILE="$DIR/$ROW.pid"
 
 if [ -e /dev/kvm ] && [ -r /dev/kvm ]; then
@@ -189,6 +204,8 @@ say() { echo "== $*"; }
 # Append stdin to the results file (a no-op narration under --dry-run).
 res() { if [ "$DRY" -eq 1 ]; then sed 's/^/[results] /'; else cat >> "$RESULTS"; fi; }
 
+. "$(dirname "$0")/_rig_live.sh"
+
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
 -o LogLevel=ERROR -o ConnectTimeout=5 -o BatchMode=yes"
 
@@ -200,6 +217,34 @@ g() {  # run a command in the guest as tierv
 }
 # gr wraps in single quotes, so its argument must not contain one.
 gr() { g "sudo sh -c '$*'"; }
+
+# gl -- g's tunnelling twin, for the live step only: the guest is behind QEMU
+# user-mode NAT and the model server binds the HOST's loopback, so the forward
+# is carried on the very connection that runs the turn and lives exactly as
+# long as it does. No model server is exposed on the LAN.
+# shellcheck disable=SC2086
+# -o ExitOnForwardFailure=yes IS THE POINT, and it was missing (M677). `ssh -R`
+# whose forward cannot bind prints "Warning: remote port forwarding failed for
+# listen port N" and RUNS THE COMMAND ANYWAY, exit 0. Measured on the Pi 400
+# this session: the rig's own forward failed, the turn answered regardless --
+# through a STALE forward left bound by an ssh session more than a day old --
+# and the row reported two green live turns. The model calls were real; the
+# transport under test was never exercised, and on a machine without that
+# leftover the same rig would have failed. A pass that depends on something
+# nobody knew was there is the shape of evidence this project refuses.
+gl() {
+    ssh $SSH_OPTS -o ExitOnForwardFailure=yes -R "$LIVE_PORT:127.0.0.1:$LIVE_PORT" -i "$KEY" -p "$PORT" \
+        tierv@127.0.0.1 "$@"
+}
+
+# The three reporters scripts/_rig_live.sh expects. This rig has no ok/bad
+# counters of its own -- it narrates into a results file and the reader greps
+# TIERV_ lines out of it -- so they are defined here, in its idiom, rather than
+# bolted onto it. N_LIVE_FAIL carries the verdict to the exit status.
+N_LIVE_FAIL=0
+ok()   { echo "ok - $*";     printf 'TIERV_LIVE ok   %s\n' "$*" | res; }
+bad()  { echo "not ok - $*"; printf 'TIERV_LIVE FAIL %s\n' "$*" | res; N_LIVE_FAIL=1; }
+note() { printf '%s\n' "$*" | res; }
 
 vm_start() {  # vm_start <mem> <smp>
     _mem=$1; _smp=$2
@@ -223,8 +268,39 @@ vm_start() {  # vm_start <mem> <smp>
         -netdev user,id=n0,hostfwd=tcp:127.0.0.1:"$PORT"-:22 \
         -device virtio-net-pci,netdev=n0 \
         -display none -monitor none \
-        -serial "file:$CONSOLE_LOG" &
+        -serial "file:$CONSOLE_LOG" 2> "$QEMU_ERR" &
     echo $! > "$PIDFILE"
+
+    # DID QEMU ITSELF START? Measured 2026-09-20, and the misdiagnosis is the
+    # reason this exists. A stale VM from tier-v-openbsd.sh held port 2222 --
+    # both rigs defaulted to it -- so qemu exited instantly with
+    #
+    #   Could not set up host forwarding rule 'tcp:127.0.0.1:2222-:22'
+    #
+    # and the wait loop below, seeing no "Linux version" after 120 s, wrote
+    # "FINDING: the kernel never STARTED ... a property of the IMAGE, not of
+    # jichi" into the results file that PLATFORMS.md quotes. An infrastructure
+    # failure recorded as a capability verdict, which is the one thing every rig
+    # in this tree is written to avoid.
+    #
+    # The rig already knew: it has qemu's pid. It simply never asked.
+    sleep 1
+    if ! kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+        echo "tier-v-vm: qemu did not start -- this is an INFRASTRUCTURE error," >&2
+        echo "  not a finding about the image or about jichi. qemu said:" >&2
+        sed 's/^/    /' "$QEMU_ERR" >&2
+        case $(cat "$QEMU_ERR" 2>/dev/null) in
+            *"host forwarding rule"*)
+                echo "  Port $PORT is already bound. Another rig or a --keep VM" >&2
+                echo "  is holding it; TIER_V_SSH_PORT picks a different one." >&2 ;;
+        esac
+        { echo "INFRASTRUCTURE: qemu did not start at -m $_mem (port $PORT?)."
+          echo "  NOT a finding about the image or about jichi -- nothing was"
+          echo "  measured. qemu's own error is in $QEMU_ERR."
+          echo
+        } | res
+        exit 2
+    fi
 }
 
 vm_wait_ssh() {  # generous: a 256 MB guest under TCG boots slowly
@@ -690,6 +766,52 @@ if [ "$DRY" -eq 1 ]; then
     echo "+ guest: /work/tv-gate.sh $MULT   (tee -> $RESULTS)"
 else
     g "/work/tv-gate.sh $MULT" 2>&1 | tee -a "$RESULTS" || true
+fi
+
+# ------------------------------------------------------------- live turns
+# The DRIVEN step, before the VM stops. Its definition is scripts/_rig_live.sh.
+# These rows CAN be driven -- they are stock Debian images with a real libcurl,
+# unlike the curl-free tiny and qemu-user rows, which say so themselves. What
+# makes them worth driving is the ceiling: whether the agent loop closes at all
+# in 160 MB is a different question from whether the offline gates pass there.
+echo
+say "live turns"
+if [ -z "${LIVE_PORT:-}" ]; then
+    jc_rig_live_skip
+elif [ "$DRY" -eq 1 ]; then
+    echo "+ guest: the driven task over a reverse forward on port $LIVE_PORT"
+else
+    # The TASK is scripts/_rig_live.sh, shared so the rows are comparable. The
+    # PATHS are this rig's own: it builds in /work/jichi, not $HOME/jichi, so
+    # jc_rig_live -- which assumes the tier-v BSD guests' layout -- cannot be
+    # called here.
+    #
+    # It WAS called here, from M677 until M678, and the row it produced said
+    #     bash: line 1: cd: /home/tierv/jichi: No such file or directory
+    # for both turns. The failure was honest and loud; what made it expensive is
+    # that the row it belonged to was asking "does the agent loop close in
+    # 160 MB?", and a reader skimming two FAIL lines would have taken them for
+    # the answer. They were not an answer to anything.
+    _cfgurl="http://127.0.0.1:$LIVE_PORT/v1"
+    jc_rig_live_config "$LIVE_MODEL" "$_cfgurl" | g 'cat > /work/live.json' 2>/dev/null || true
+    _phrase=$(jc_rig_live_phrase TIER-V)
+    g 'mkdir -p /work/ws' >/dev/null 2>&1 || true
+    jc_rig_live_fixture "$_phrase" | g 'cat > /work/ws/note.txt' 2>/dev/null || true
+    _p_live=$(jc_rig_live_prompt_wire)
+    _p_tool=$(jc_rig_live_prompt_tool)
+
+    if gl "cd /work/jichi && ./jichi --config /work/live.json --prompt-b64 $_p_live --output json" \
+            > "$DIR/live-$ROW.txt" 2>&1 && grep -q '"text"' "$DIR/live-$ROW.txt"; then
+        ok "live turn answered over the reverse tunnel ($LIVE_MODEL)"
+    else
+        bad "live turn did not answer -- see $DIR/live-$ROW.txt"
+    fi
+    if gl "cd /work/ws && /work/jichi/jichi --config /work/live.json --auto -q --prompt-b64 $_p_tool" \
+            > "$DIR/live-tool-$ROW.txt" 2>&1 && grep -q "$_phrase" "$DIR/live-tool-$ROW.txt"; then
+        ok "agentic turn: the model called a tool and reported $_phrase"
+    else
+        bad "agentic turn did NOT return $_phrase -- see $DIR/live-tool-$ROW.txt"
+    fi
 fi
 
 vm_stop

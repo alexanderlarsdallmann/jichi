@@ -15,7 +15,13 @@
 # could not be kept is a warning on stderr, never a change of verdict.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 4
+# THE SKIP TEST COMES BEFORE THE PLAN (M672). `t_plan 4` then `t_skip` emits
+# TWO TAP plan lines -- `1..4` followed by `1..0` -- and a runner reading that
+# sees malformed output and calls the driver FAILED even though it exited 0.
+# OpenBSD has no /dev/full, so it took that path and was the last red driver on
+# an otherwise complete row: not a defect, a driver announcing its own skip in a
+# way the harness could not parse. Decide whether the platform can run the test
+# first, then declare how many checks there will be.
 smoke_home
 tmp=$(smoke_tmp)
 spec=docs/assignments/01-find-the-setting.md
@@ -29,6 +35,8 @@ fullws=$(smoke_tmp); mkws "$fullws"
 if ! ln -s /dev/full "$fullws/.jichi/progress.jsonl" 2>/dev/null || [ ! -c /dev/full ]; then
     t_skip "no /dev/full or no symlinks here"
 fi
+
+t_plan 4
 
 (cd "$okws" && with_deadline 60 "$BIN" grade "$spec" --record < /dev/null \
     > "$tmp/ok.out" 2> "$tmp/ok.err"); okrc=$?

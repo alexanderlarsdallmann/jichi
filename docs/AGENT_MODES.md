@@ -256,10 +256,28 @@ on.
 
 | Surface | What you see |
 |---|---|
-| TUI / headless text | `[jichi warn] hit max tool iterations (25)` on **stderr** |
-| `--output json` / `jsonl` | `stop_reason: "max_iters"`, usually with an empty `text` |
-| exit code | **0** — nothing failed |
+| TUI / headless text | `[jichi warn] hit max tool iterations (25)` on **stderr**, **and** (M687, generalised at M688) the reach footer's not-checked half opens with `THE ANSWER IS INCOMPLETE — the run stopped at the tool-call cap, so what the model had said by then is the whole of it and the task may be unfinished`. **The same line now covers every truncating stop** — a budget, a deadline, an interrupt, an error — with the clause naming which |
+| the `[envelope]` verdict line | (M687) `verifier ok, but the turn hit the tool-call cap — the task may be unfinished`, in place of `verified ok` |
+| `--output json` / `jsonl` | `stop_reason: "max_iters"`, usually with an empty `text`; the reach object's not-checked string carries the same sentence |
+| **stdout** | **unchanged — the raw answer, or nothing.** M73 keeps stdout pipeable, so the notice is never written there |
+| exit code | **0** — nothing failed. See [DEFERRED.md](DEFERRED.md) item 7 for the case that a `--no-session` one-shot should differ, and what would settle it |
 | a subagent that caps | its partial answer is returned with `[stopped at its iteration limit]` (M62) |
+
+> **One classifier since M688.** All five surfaces read the same
+> `enum jc_run_stop` (`jc_outcome.h`), and each renderer switches on it with no
+> `default:` — so a new stop reason is a build error at every site that must
+> handle it, rather than a cell somebody forgets. That is why this table can be
+> trusted to be complete: it is checked by the compiler and by
+> `tests/smoke/run_outcome_agrees.sh`, not by whoever last edited the page.
+>
+> **Why the footer and not stdout (M687).** A headless run that capped returned
+> **0 bytes on stdout, exit 0**, and `[envelope] verified ok (tokens 4,887,733,
+> tool calls 200)` with `not checked: (nothing — a verifier and an edit scope
+> were armed)`. Every channel a caller reads said success. M322 had fixed this
+> for `--output json` and the text path was left behind for fifteen milestones.
+> stdout could not take the notice without breaking every script that pipes it,
+> so the fix went where a reader already looks for what a run does *not*
+> establish. ANECDOTES #87.
 
 The `stop_reason` is the M322 half. Before it, a machine driver was told
 `stop_reason: "done"` with an empty answer — indistinguishable from *"finished and had nothing

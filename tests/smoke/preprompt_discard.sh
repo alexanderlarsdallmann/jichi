@@ -40,23 +40,44 @@ write_config "$tmp/config.json" "$MM_PORT"
 # The first thing the driver does is type -- before any `expect`, so the bytes
 # are in the tty buffer while jichi is still starting up. That is exactly the
 # window the row measured.
+# `--presend`, NOT a script `send` (M672). A script command runs in the parent
+# AFTER the fork, so it RACES the child's startup -- and for this driver that
+# race IS the experiment: the property is what jichi does with input that arrived
+# BEFORE it was ready. The race resolves differently per platform, every time:
+# on Linux the write lands first; on OpenBSD the child reaches its terminal setup
+# first, and jichi's own instrumentation said so -- `enter_raw fd=0 pending=0`,
+# five runs of five. The driver was failing a program that was behaving
+# perfectly. `--presend` writes before the fork, so the bytes are in the line
+# discipline when the child first looks.
+_pre=$(printf 'STRAY_TYPED_EARLY\r')
 cat > "$tmp/early.pd" <<'EOF'
-send "STRAY_TYPED_EARLY\r"
-expect "discarded" 20
-delay 300
+delay 2000
 send "/exit\r"
 waitexit 15
 EOF
 # --log, not stdout: ptydrive writes the SESSION transcript there, and the
 # notice is terminal output, not a diagnostic on stderr.
 (cd "$ws" && "$SMOKE_TOOLS/ptydrive" --deadline 45 --cols 100 \
+    --presend "$_pre" \
     --log "$tmp/out" "$tmp/early.pd" -- \
-    "$BIN" --config "$tmp/config.json" > /dev/null 2>&1)
+    "$BIN" --config "$tmp/config.json" > /dev/null 2>"$tmp/pterr")
 rc=$?
+# Did the fixture manage to create the precondition at all? MEASURED, not
+# assumed: OpenBSD refuses a write to a pty master with no slave open (it
+# returns -1), where Linux accepts it and the bytes survive until the slave
+# opens. Where the precondition cannot be created, the two checks that depend
+# on it are SKIPPED with that reason -- asserting them would be reporting a
+# defect in jichi for a state the test could not produce.
+_pre_ok=0
+grep -q 'presend ok' "$tmp/pterr" 2>/dev/null && _pre_ok=1
 mm_stop
 
 # --- 1: the discard is announced -------------------------------------------
-if grep -q 'discarded' "$tmp/out"; then
+if [ "$_pre_ok" -eq 0 ]; then
+    t_skip_one "this platform refuses a write to a pty master before the slave \
+is open, so the fixture cannot put input in the buffer BEFORE jichi looks -- the \
+precondition of the announcement, not the announcement itself"
+elif grep -q 'discarded' "$tmp/out"; then
     t_ok "input typed before the first prompt is reported, not silently dropped"
 else
     t_fail "the line vanished with no explanation -- the M464 defect: \
@@ -66,7 +87,10 @@ fi
 # --- 2: and the notice says what to do -------------------------------------
 # A notice that names a cause with no way forward is the M342 class. Here the
 # way forward is one word: retype.
-if grep -q 'retype' "$tmp/out"; then
+if [ "$_pre_ok" -eq 0 ]; then
+    t_skip_one "same precondition as check 1: the fixture could not place input \
+in the buffer before jichi's first look on this platform"
+elif grep -q 'retype' "$tmp/out"; then
     t_ok "the notice tells the user to retype it"
 else
     t_fail "the notice names no way forward: $(head_bytes 250 "$tmp/out")"

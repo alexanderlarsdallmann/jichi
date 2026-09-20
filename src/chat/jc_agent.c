@@ -4,6 +4,7 @@
 /* jc_agent.c - the streaming agent loop (see jc_agent.h). */
 
 #include "jc_agent.h"
+#include "jc_outcome.h"
 #include "jc_delegreport.h"
 #include "jc_toolout.h"
 #include "jc_meminfo.h"
@@ -948,6 +949,10 @@ static void env_report_out_of_scope(struct jc_app *app,
         !jc_snapshot_available(app->snapshots)) {
         return;
     }
+    /* M689: from here the diff is genuinely taken, so its result is evidence.
+     * Set before the early return below, which is the "nothing changed" case
+     * and therefore the one the footer most wants to know about. */
+    e->sweep_ran = 1;
     jc_sb_init(&names);
     if (jc_snapshot_changed_since(app->snapshots, e->baseline_commit, &names)
             != JC_OK || names.data == NULL) {
@@ -968,6 +973,13 @@ static void env_report_out_of_scope(struct jc_app *app,
     }
     if (line[0] != '\0') {
         jc_vec_push(&paths, &line);
+    }
+    /* M689: the whole changed set, before the edit-scope filter below. The
+     * footer needs "did ANYTHING change", not "did anything change outside the
+     * scope" -- a shell command that rewrote an in-scope file is still a shell
+     * command whose changes are unattributed. */
+    if (paths.len > 0) {
+        e->tree_changed = 1;
     }
     jc_vec_init(&oos, sizeof(char *));
     jc_env_out_of_scope_paths(e, app->cwd, (const char *const *)paths.data,
@@ -1011,6 +1023,44 @@ static void env_report_out_of_scope(struct jc_app *app,
         }
         if (o != NULL && arr != NULL) {
             cJSON_AddItemToObject(o, "paths", arr);
+        }
+        /* M684: and WHICH of them git tracks. `paths` keeps its shape -- every
+         * existing reader, tests/measure/strict_green_fp.py included, still
+         * works -- and `tracked` names the subset. A parallel array of booleans
+         * desynchronises silently; rewriting `paths` into objects breaks the
+         * one reader this field exists to serve.
+         *
+         * THE KEY IS ABSENT, NOT EMPTY, when git could not answer -- no
+         * repository, no git on PATH. "None of these are tracked" and "nobody
+         * asked" are different facts, and a rule that treats the second as the
+         * first would downgrade every run in a workspace without version
+         * control. M662's measurement was reversed by exactly this kind of
+         * conflation, so the distinction is in the wire format rather than in
+         * a convention a reader has to know. */
+        if (o != NULL && oos.len > 0) {
+            const char **names = (const char **)
+                malloc(sizeof(char *) * (size_t)oos.len);
+            int *istrk = (int *)malloc(sizeof(int) * (size_t)oos.len);
+            if (names != NULL && istrk != NULL) {
+                for (i = 0; i < oos.len; i++) {
+                    names[i] = *(char **)jc_vec_at(&oos, i);
+                }
+                if (jc_git_tracked_paths(app->cwd, names, (int)oos.len,
+                                         istrk) == 0) {
+                    cJSON *tr = cJSON_CreateArray();
+                    if (tr != NULL) {
+                        for (i = 0; i < oos.len; i++) {
+                            if (istrk[i]) {
+                                cJSON_AddItemToArray(tr,
+                                    cJSON_CreateString(names[i]));
+                            }
+                        }
+                        cJSON_AddItemToObject(o, "tracked", tr);
+                    }
+                }
+            }
+            free((void *)names);
+            free(istrk);
         }
         /* M142 (opt-in): put the out-of-scope files back the way the run
          * found them -- per-path restore from the run-start baseline, so
@@ -3743,6 +3793,51 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
     return JC_OK;
 }
 
+/* M688/M690: WHY the run stopped, decided ONCE for every surface. Before this, the
+ * chain below lived inside `if (ctx.json ...)`, so the text path never computed
+ * a stop reason at all -- which is why the reach footer could print
+ * "not checked: (nothing)" beside an `[envelope] budget_exhausted` and an empty
+ * answer. The order of the tests is load-bearing and is preserved exactly from
+ * that chain: a transport failure outranks an envelope verdict, and the
+ * iteration cap is last because it is the weakest claim -- any of the others
+ * explains the stop better. See docs/plans/2026-09-run-outcome.md.
+ *
+ * M690 moved it here from main.c so the RUN JOURNAL can record the same
+ * answer. The journal's `end` event carried only the envelope's `outcome`,
+ * which cannot express `max_iters` at all -- measured over 114 journals and
+ * 101 completed runs, the recorded values were ok / running / budget_exhausted
+ * / verify_failed and nothing else, so DEFERRED item 7's question ("does a
+ * capped one-shot usually answer anything?") could not be asked of the corpus
+ * that was supposed to answer it. */
+enum jc_run_stop jc_agent_stop_reason(struct jc_app *app, jc_status st)
+{
+    if (st == JC_ERR_ABORTED) {
+        return JC_STOP_INTERRUPTED;
+    }
+    if (st == JC_ERR_TIMEOUT) {
+        return JC_STOP_TIMEOUT;
+    }
+    if (st != JC_OK) {
+        return JC_STOP_ERROR;
+    }
+    if (app->env != NULL) {
+        if (app->env->outcome == JC_ENV_BUDGET_EXHAUSTED) {
+            return JC_STOP_BUDGET;
+        }
+        if (app->env->outcome == JC_ENV_VERIFY_FAILED) {
+            return JC_STOP_VERIFY_FAILED;
+        }
+        if (app->env->outcome == JC_ENV_SCOPE_TAINTED) {
+            return JC_STOP_SCOPE_TAINTED;
+        }
+    }
+    if (app->turn_capped) {
+        return JC_STOP_MAX_ITERS;
+    }
+    return JC_STOP_DONE;
+}
+
+
 jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
                             const struct jc_agent_callbacks *cb)
 {
@@ -4217,6 +4312,22 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
         if (o != NULL) {
             cJSON_AddStringToObject(o, "outcome",
                                     jc_env_outcome_name(app->env->outcome));
+            /* M690: and WHY it stopped, which `outcome` cannot say. Measured
+             * over 114 journals and 101 completed runs before this line
+             * existed: the recorded values were ok / running /
+             * budget_exhausted / verify_failed and nothing else, so a capped
+             * turn was indistinguishable from a clean one in the corpus --
+             * and DEFERRED item 7's question ("does a capped one-shot usually
+             * answer anything?") could not be asked of the record that was
+             * supposed to answer it. The row said the journal already carried
+             * stop_reason. It did not; that claim was read, not measured.
+             *
+             * JC_OK is passed because reaching this line means the loop
+             * returned normally -- a transport error never gets here. So the
+             * value distinguishes exactly what the agent can know: done,
+             * max_iters, and the three envelope verdicts. */
+            cJSON_AddStringToObject(o, "stop_reason",
+                jc_run_stop_wire(jc_agent_stop_reason(app, JC_OK)));
             cJSON_AddBoolToObject(o, "rolled_back", app->env->rolled_back);
             cJSON_AddNumberToObject(o, "tokens_used", app->env->tokens_used);
             cJSON_AddNumberToObject(o, "tool_calls",

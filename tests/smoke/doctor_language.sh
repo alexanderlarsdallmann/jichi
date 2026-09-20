@@ -62,12 +62,22 @@ cat > "$tmp/config.json" <<'EOF'
   "roles": ["chat"] } ] }
 EOF
 
-# `env -u` MUST PRECEDE THE ASSIGNMENTS. Written the other way round it is not
-# a warning but an error -- `env: '-u': No such file or directory`, rc 127, no
-# output -- and it cost this driver two vacuous passes before the first run:
-# check 5 asserts an ABSENCE, and an absence holds trivially in the empty
-# output of a command that never ran. That is why doc() now records rc and
-# check 1 floors all five captures instead of two.
+# `env -u` IS NOT POSIX, and this driver used it anyway (M683). illumos
+# /usr/bin/env accepts only `env [-i] [name=value ...] [utility ...]` and
+# answers `env: illegal option -- u` -- so on OmniOS the two runs below that
+# clear JICHI_LANG produced NO doctor output at all.
+#
+# WHAT MADE IT INVISIBLE, and it is the interesting half: illumos env exits
+# **1**, and 1 is one of doctor's OWN verdicts (jc_doctor_exit_code returns 1
+# iff any check FAILs), which this fixture deliberately earns. The rc guard
+# below was written against the GNU failure mode -- 127 -- and cannot tell a
+# refused option from a legitimate doctor verdict. Only check 1's OTHER half,
+# the one that insists every capture actually CONTAINS a language row, could
+# see it. Floor the extraction, not just the status.
+#
+# `unset` in a subshell is POSIX and does the same job; tests/smoke/state_root.sh
+# already said so in a comment at line 31 while this driver shipped the
+# non-portable form. tests/smoke/posix_utils_lint.sh check 23 now refuses it.
 doc() {   # doc <name> <lc_all> <lang> [jichi_lang]
     name="$1"; shift
     if [ -n "$3" ]; then
@@ -75,8 +85,8 @@ doc() {   # doc <name> <lc_all> <lang> [jichi_lang]
             "$BIN" --config "$tmp/config.json" doctor < /dev/null \
             > "$tmp/$name" 2>&1
     else
-        env -u JICHI_LANG LC_ALL="$1" LANG="$2" \
-            "$BIN" --config "$tmp/config.json" doctor < /dev/null \
+        ( unset JICHI_LANG; LC_ALL="$1" LANG="$2" \
+            "$BIN" --config "$tmp/config.json" doctor < /dev/null ) \
             > "$tmp/$name" 2>&1
     fi
     echo $? > "$tmp/$name.rc"

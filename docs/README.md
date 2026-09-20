@@ -198,7 +198,11 @@ The curriculum, the reading guides, and the craft tutorials.
 - [`ARCHITECTURE_TUTORIAL.md`](ARCHITECTURE_TUTORIAL.md) — System architecture, and how to show it — a tutorial
 - [`ASSIGNMENTS.md`](ASSIGNMENTS.md) — Assignments — practising the whole software lifecycle
 - [`BENCH_LOCAL_GPU.md`](BENCH_LOCAL_GPU.md) — The local-GPU bench: measuring jichi against a small model on your own hardware
-- [`BIBLIOGRAPHY.md`](BIBLIOGRAPHY.md) — The reading jichi's documentation points at — 78 checked entries on the craft, C, C++, Zig and Rust (M636, M650)
+- [`PLATFORM_TESTING.md`](PLATFORM_TESTING.md) — *Does this work on my machine?* A six-rung ladder from `make check-target` to driving a model on a board, for a self-learner with one laptop. Teaches the judgement rather than the commands: telling an infrastructure failure from a result, proving a check can go red, and saying what you did not test (M682)
+- [`DRIVE_LOG.md`](DRIVE_LOG.md) — *Does this work when somebody uses it?* The counterpart to the page above, and the one that found the defects the gates could not: every gate in this tree is offline, so none of them can see what a caller is told. A recipe, the discipline of getting ground truth FIRST, and the log of drives — which is also the corpus two deferred questions are waiting on.
+- [`ILLUSTRATION.md`](ILLUSTRATION.md) — Pictures in this documentation: what may be captured and what may be generated. A generated screenshot is a fabricated record; the capture recipe, the LocalAI setup, and an honest measurement of what the image model actually produced (M680)
+- [`BIBLIOGRAPHY.md`](BIBLIOGRAPHY.md) — The reading jichi's documentation points at — 149 checked entries on the craft, C, C++, Zig, Rust, Python, Racket, Guile, Elixir, Haskell, Clojure and interfaces (M636, M650, M670, M671, M677)
+- [`INTERFACE_TUTORIAL.md`](INTERFACE_TUTORIAL.md) — Interfaces — designing them, including the ones made of text — a tutorial
 - [`LANGUAGE_COURSE.md`](LANGUAGE_COURSE.md) — Learning a language with jichi, from its official tutorial
 - [`CRAFT_AB_TUTORIAL.md`](CRAFT_AB_TUTORIAL.md) — Grading a craft A/B — a step-by-step tutorial
 - [`CURRICULUM.md`](CURRICULUM.md) — The curriculum — learning software development with an agent at your side

@@ -84,7 +84,7 @@ while read -r field want; do
     # literal": 25 compared / 4 not-literal became 24 / 5. Caught by diffing
     # every field's extraction against the old method rather than by reading
     # the summary line.
-    stmt=$(printf '%s' "$joined" | grep -o "out->$field *=[^;]*;" \
+    stmt=$(printf '%s\n' "$joined" | grep -o "out->$field *=[^;]*;" \
            | grep 'jc_json_get_[a-z]*(root,' | tail -1)
     got=$(printf '%s' "$stmt" \
         | sed -n "s/.*out->$field *= *\(([a-z_ ]*) *\)\{0,1\}jc_json_get_[a-z]*(root, *\"[^\"]*\", *\(lite *? *-\{0,1\}[0-9.]* *: *\)\{0,1\}\(-\{0,1\}[0-9]*\)\(\.[0-9]*\)\{0,1\}).*/\3/p" \
@@ -145,7 +145,7 @@ fi
 # `out->max_retries = (int)jc_json_get_num(...)`, and a pattern demanding the call
 # right after `=` silently found only five. The floor caught that -- which is what
 # a floor is for (M295): fix the extraction, never the floor.
-pairs=$(printf '%s' "$joined" \
+pairs=$(printf '%s\n' "$joined" \
     | grep -oE 'out->[a-z_.]+ = (\([a-z_ ]+\) *)?jc_json_get_[a-z]+\(root, "[a-zA-Z]+", *lite \? *[0-9.]+ *: *[0-9.]+' \
     | sed -E 's/out->([a-z_.]+) = (\([a-z_ ]+\) *)?jc_json_get_[a-z]+\(root, "([a-zA-Z]+)".*/\1 \3/' \
     | sort -u)

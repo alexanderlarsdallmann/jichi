@@ -5188,3 +5188,279 @@ works is the one `CLAUDE.md` already prescribes — **perturb per CHECK**: put t
 real defect back and watch the check fail to notice. Both were caught that way,
 within minutes of being written, by a step that takes one command. A lint written
 to make a fix durable is itself a test, and an untested test is a decoration.
+
+## 85. The paragraph that leaked the machine it told you not to show (2026-09-20)
+
+**Symptom.** `snapshot_lint` — the driver whose whole job is to refuse a
+publishable tree that leaks a person, a machine or an institution — was green on
+16 checks. Seven milestones of it had been green. The tree it scanned contained
+the author's real home directory path.
+
+**Dead ends.** The path sat in `docs/ILLUSTRATION.md`, written earlier the same
+session and already pushed. Checked whether the file was `export-ignore`d: no.
+Whether the regex matched it: yes, on the file directly, first try. Whether the
+corpus contained it: `grep -c` said **3**. So the corpus had the string, the
+pattern matched the string, and the check that ran both said clean.
+
+**Root cause.** Checks 8-13 share one corpus, built by concatenating every
+non-ELF file in the tree. **GNU grep prints matches until the first NUL byte and
+then stops printing** — it does not fail, does not warn on stdout, and `grep -c`
+(which counts differently) keeps answering. The corpus comment already named
+this mechanism, which is why ELF files were excluded. A PNG carries NULs too,
+and `docs/images/doctor.png` had been added earlier in the same session, along
+with the document that leaked.
+
+Measured rather than reasoned about: the first NUL sat **89.1% of the way
+through a 19.5 MB corpus**, so the last 10.9% was never scanned — and in the
+lint's own corpus, the one that includes the `.git/` its `--commit` probe leaves
+behind, the cut came early enough to hide the leak. The blind fraction is
+whatever `find` order makes it.
+
+**What the leak said.** The sentence was about capturing a screenshot under an
+isolated `HOME`, and it read: the first capture *showed* — and then quoted the
+real path — *"one person's machine, not what a reader would see."* The paragraph
+explaining the rule broke it, in the act of explaining it.
+
+**Fix.** Strip the NULs when building the corpus, which is what `_smoke.sh`'s own
+`smoke_bgrep` does for the same reason; exclude the staged `.git/`, whose zlib
+streams read as text produce findings that are noise; and add a floor asserting
+the corpus is NUL-free, so a corpus that silently shortens again is a failure
+rather than a clean scan of less. Two-sided by construction: one NUL anywhere
+makes the two byte counts differ. Proved by removing the strip and watching the
+floor go red at 19,523,238 B raw against 19,517,864 B without NULs.
+
+**Three lessons, and the third is the one that generalises.**
+
+1. **A green check tells you its corpus is clean, not that its corpus is the one
+   you meant.** This is `CLAUDE.md`'s "audit the universe, not the result",
+   arriving through a new door: the universe was right, and the *reading of it*
+   stopped early.
+2. **Excluding a known-bad class is not the same as asserting the property.**
+   "No ELF files" was a proxy for "no NUL bytes". Proxies rot when the tree
+   gains a file nobody thought about — here, one added by the same session, for
+   an unrelated reason.
+3. **The instrument and the subject were written by the same hand on the same
+   day.** The PNG that blinded the check and the document that the check would
+   have caught were both new. A gate is least trustworthy exactly when the work
+   it guards is new, which is when it is most relied on.
+
+**Coda.** Repairing the check turned up two more findings, and both were the
+lint reporting **its own explanation** as the defect: the comment describing the
+leak quoted the path, and the comment describing the zlib garbage quoted the
+garbage. A lint that quotes what it forbids matches itself forever. Check 18 had
+already met this and excludes the driver's own text; the new checks do the same,
+and pay for the hole by proving their matchers on planted positives and
+negatives first — an excluded file plus an unproven matcher is a check that can
+pass while reading nothing.
+
+## 86. Twenty-five minutes of `== pkg_add the toolchain` (2026-09-20)
+
+**Symptom.** The OpenBSD rig printed
+
+```
+== pkg_add the toolchain
+```
+
+and then nothing. Not an error, not a progress line, not a timeout. Twenty-five
+minutes.
+
+**Dead ends, and they are the interesting part** — every one of them was a
+plausible reason to keep waiting:
+
+- **`qemu` was alive**, 2.1 GB resident, 9–21% CPU. Something was running.
+- **The guest had booted**: the console log ended at a `login:` prompt and the
+  rig had already printed `ok - ssh reachable`.
+- **A TCP connection to the CDN was ESTABLISHED**, to a real Fastly address.
+- **The mirror was fine.** `curl https://cdn.openbsd.org/pub/OpenBSD/` from the
+  host answered **HTTP 200 in 0.24 s**.
+- **The rig's own comment said to expect a slow step**: `poppler-utils` pulls
+  cairo → glib2 → python3, and the comment records that it does not install on
+  this row at all. A long, doomed download was the *documented* behaviour.
+
+Every signal said "slow but working". Two said otherwise and were quieter:
+qemu's `rchar` grew by **0 bytes in 30 seconds**, and the guest's own
+`netstat` showed that ESTABLISHED connection with **Recv-Q and Send-Q both
+zero**. Alive, and dead.
+
+**Root cause.** One `ssh` into the guest on a second connection, and one `ps`:
+
+```
+98408   22:47  0.0  /usr/bin/ftp -S session -o - \
+                    https://cdn.openbsd.org/pub/OpenBSD/7.9/packages/amd64/lcms2-2.18pl20260420.tgz
+```
+
+A single package fetch had stalled after opening its connection and never timed
+out. `pkg_add` waits on `ftp`; the rig waits on `pkg_add`; nobody waits with a
+deadline, so the rig would have waited until the session ended.
+
+**The fix took one signal and one line.** `kill 98408` — and the rig went
+straight on: `ok - WERROR=1 build clean on OpenBSD (9s)`, `ok - unit suite: 0
+failures`. Checking first showed why that was safe: **gmake, git and curl were
+already installed**; the stalled package was a dependency of the one the rig
+expects to fail anyway.
+
+**Lessons.**
+
+1. **A step with no deadline is a step that can never fail**, and "cannot fail"
+   and "cannot succeed" look identical from outside. Three rigs had unbounded
+   network installs — OpenBSD, NetBSD, illumos — and each is now wrapped in
+   `timeout`, probed rather than assumed so a system without `timeout(1)` runs
+   unbounded and is no worse off than before.
+2. **This is the INFRASTRUCTURE-versus-FINDING distinction wearing a new coat.**
+   The familiar version is a rig blaming an operating
+   system for a port that was already in use, and recording the verdict. This one had no verdict at all: it just never returned,
+   and a run that never returns gets read as "that platform is slow", which is a
+   claim about the platform.
+3. **Measure the thing that would be zero if it were stuck.** CPU was not zero.
+   Memory was not zero. The connection existed. The *byte counters* were zero,
+   and they were the only honest instrument on the host — the decisive one was
+   inside the guest, one `ps` away, and it took twenty-five minutes to go and
+   look because every cheaper signal said "wait a bit longer".
+
+## 87. Four point nine million tokens, no answer, and an envelope that called it verified (2026-09-20)
+
+**Symptom.** Driving jichi headless on a second project to answer *"which git
+branches are merged into master"*. The run came back like this:
+
+```
+$ jichi --config local/config.json -p "Analyse the git branches ..." \
+        --no-session --edit-scope 'NOTHING_MAY_BE_WRITTEN'
+$ echo $?
+0
+```
+
+stdout: **nothing at all**. Exit code: **0**. On stderr, under the transcript:
+
+```
+[jichi warn] hit max tool iterations (200)
+
+[jichi] checked: verify green · 200 tool calls, 0 errors (0 refused by a fence) · ...
+not checked: (nothing -- a verifier and an edit scope were armed)
+[envelope] verified ok (tokens 4,887,733, tool calls 200)
+```
+
+**Every channel a caller reads said success.** An empty answer is a valid
+answer. Zero is success. `not checked: (nothing)` says everything was checked.
+`verified ok` is a verdict. The one dissenting line was a `warn` log
+indistinguishable in form from the eleven other warnings a run can print.
+
+**What had actually happened.** Reading the transcript: the model got it right
+almost immediately. `git branch -a`, then `git log master..<branch> | wc -l` for
+each branch — the correct method, and by call sixteen it had every number it
+needed. Then it kept going. The last six calls of two hundred were the same
+branches again, re-queried without the `| wc -l`. It looped, the cap fired, and
+the loop had never produced a final message.
+
+**Dead ends.** The first suspicion was the cap being too low — 200 for a
+fifteen-branch repository seems generous but the task did involve per-branch
+queries. Wrong direction: raising it would have bought more looping. The second
+was that `maxToolIters` was misconfigured, since the config said 256 and the run
+stopped at 200. Also wrong, and instructive: with an envelope armed
+`jc_agent.c` **forces the cap to at least 200**, and that config set no
+`maxToolIters` at all, so 200 was the floor rather than the ceiling.
+
+**Root cause, and it is not the model.** A model that loops is a model that
+loops; that is what caps are for. The defect is that **the cap is invisible in
+the text path**. M322 had already found this exact problem and fixed it — for
+`--output json`, where a capped turn reports `stop_reason: "max_iters"`. Its
+own commentary is almost the sentence that describes this incident:
+
+> a machine driver was told `stop_reason: "done"` with an EMPTY answer, which is
+> indistinguishable from "finished and had nothing to say"
+
+M322 set `app->turn_capped`, wired it into the JSON output, and stopped.
+Nothing carried it into the reach footer, which is the artifact whose entire job
+is to say what was **not** checked — and a turn cut off mid-task is the largest
+possible instance of that.
+
+**Fix.** `struct jc_reach` gains `turn_capped`, and the footer's not-checked
+half names it — **first**, ahead of everything else, and in **both** of that
+function's branches. The second half of that matters more than it looks: the
+no-envelope branch is a single sentence with an early return, so a notice added
+only to the richer branch would be missing from exactly the runs that arm the
+least, where a silent truncation is hardest to notice. The `[envelope]` verdict
+line, which is the last thing a reader sees, now says *"verifier ok, but the
+turn hit the tool-call cap"* instead of *"verified ok"* — a footer that says
+"cut short" above an unqualified "ok" is worse than either alone.
+
+**What was deliberately NOT changed: the exit code.** It is still 0. M322 chose
+that on purpose — the cap is a circuit breaker, the history is intact, another
+prompt resumes from it, and returning an error would invite callers to discard
+work that is fine. There is a real counter-argument, and it is recorded in
+`DEFERRED.md` rather than acted on: a `--no-session` one-shot has no "next
+prompt", so for that shape the work really is lost. Flipping a currently-zero
+exit code is a stable-interface change, and this project has already withdrawn
+one such proposal for being made ahead of its measurement.
+
+**Three lessons.**
+
+1. **A fix that names its own failure mode can still leave it standing.** M322
+   wrote down precisely what was wrong — "indistinguishable from finished and
+   had nothing to say" — fixed one output format, and the sentence stayed true
+   of the other. The register of a defect is not the same as its extent.
+2. **"Nothing was left unchecked" and "nothing was checked" print the same on a
+   run that did nothing.** `not checked: (nothing -- a verifier and an edit
+   scope were armed)` was literally true about the fences and completely false
+   about the run. A negative claim needs to know what it is negating.
+3. **The channel a fix belongs in is the one the reader already trusts.** stdout
+   could not take it — M73 makes stdout the raw answer so scripts can pipe it,
+   and prose there would break every such caller. The footer already existed,
+   was already read, and already meant "here is what this run does not
+   establish". The fix was to tell it something it did not know.
+
+**Coda, on the model.** Two more runs, same question. Fenced to 25 tool calls,
+the same coder model answered in **two calls and four seconds** — and silently
+dropped **eleven of twelve** items from a list its own command had printed in
+full. The 27B thinking model got it exactly right in **one** call. Neither
+outcome is jichi's to fix, but the first one is worth remembering next to this
+entry: the run that *looked* worst burned 4.9 million tokens and returned
+nothing, and the run that looked fine returned a confident, wrong, short answer.
+
+## 88. A struct field whose zero value was an accusation (2026-09-21)
+
+**Symptom.** Two unit checks in `test_reach.c` went red on a refactor that had
+nothing to do with either of them:
+
+```
+FAIL tests/test_reach.c:23: strstr(buf, "not checked: no envelope armed") != NULL
+FAIL tests/test_reach.c:39: strstr(buf, "not checked: (nothing") != NULL
+```
+
+**Root cause, in one line of the test.** Both tests begin
+
+```c
+struct jc_reach r;
+memset(&r, 0, sizeof r);
+```
+
+The refactor had added `int answer_complete` to that struct. Zero-filled, it
+reads **false** — "the answer is not complete" — so every default-initialised
+footer in the codebase began announcing a truncated answer, including two tests
+that had been passing for fifty milestones and were not about truncation at all.
+
+**Why it is worth an entry.** The field was *semantically* right: the surfaces
+genuinely want to know whether the answer is complete, and the enum that feeds
+it always sets it explicitly. Nothing about the classifier was wrong. What was
+wrong was that the field's **zero value made a claim**, in a struct whose
+documented filling method is `memset`. Every other member of `jc_reach` is a
+count or a flag where zero means *nothing to report*: `tool_errors`,
+`scope_violations`, `shell_ran`, `plan_drift`. The new one inverted that, and
+inverted it invisibly.
+
+Renaming it to `answer_truncated` fixed all of it — same information, same
+call site, one negation moved from the reader to the writer.
+
+**Lesson.** **In a struct that is filled by `memset`, the zero of every field
+must be the benign value.** Not a style preference: zero is what a caller gets
+for *not knowing about the field*, and the only safe thing to tell a caller who
+does not know is "nothing to report". A field whose default is an accusation
+converts every existing construction site into a new bug, silently, at a
+distance.
+
+**Coda.** The tests that caught it were not testing this. They were testing the
+no-envelope and fully-armed footers from M630, and they failed because their
+fixtures were honest — a real `memset`, not a hand-filled struct with every
+field considered. A fixture that sets only the fields it cares about would have
+passed and shipped the defect. *Construct your fixtures the way your callers
+do.*
+

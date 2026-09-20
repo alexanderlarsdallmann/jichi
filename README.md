@@ -41,6 +41,84 @@ What state the project is in, and what changed when: [Status](#status) ·
 (per milestone, with the reasoning). Everything below this line is reference —
 read it when you need it, not in order.
 
+## Why this exists, and who it is for
+
+**jichi is built for self-learners who want to learn software development.**
+That is not a use case discovered afterwards; it is the principle the project
+was steered by, and it shows up in what got built. There is a graded curriculum,
+where every grader has been shown to reject an unfinished answer as well as
+accept a finished one. There are reading guides that walk jichi's own source.
+There is a course that teaches you to download a language's official
+documentation and work through it with the agent beside you. `doctor` answers
+*"you are here, and this is what you can do here"* on a machine that is not set
+up yet, instead of refusing to start.
+
+Where the program has to choose between being clever and being explicable, it is
+meant to choose explicable — and where it has failed at that, the failure is
+written down rather than tidied away.
+
+### The experiment, in the author's words
+
+> I started jichi on my own, out of curiosity and out of necessity.
+>
+> I needed to learn AI-supported software development — not read about it, but
+> do it long enough to have opinions I could defend. I wanted to understand what
+> AI coding agents actually are, how they behave over months rather than demos,
+> and what they do to a software project: to a new one, and to one that already
+> exists and has to keep working.
+>
+> I had been using the Continue dev CLI and opencode for a while on a complex
+> Python project, and that taught me to *use* agentic tools. Building one was a
+> different question, and I chose it out of curiosity and out of the necessity
+> of walking on as a developer in a landscape of changing systems and tools.
+>
+> **jichi was written with an AI coding agent — Claude Code, and later jichi
+> itself.** That is not incidental to what it is. The program and the method
+> were learned at the same time, and the documentation records both.
+>
+> I am interested in systems programming languages and functional programming
+> languages, in user interface design, and in the engineering side of software:
+> design, re-use, and refactoring — from C89 towards modern C, or C++, or Zig,
+> and how those compare with a rewrite in something else entirely.
+>
+> jichi is the result of that experiment. It is a real program that does a real
+> job, and it is also the notebook I kept while learning.
+>
+> My background is not the usual one. I trained as a teacher — art education
+> and English language teaching — and passed the First State Examination
+> (1. Staatsexamen) for Haupt- und Realschulen in Hesse; then picked up music
+> education, musicology and philosophy. I did not pass the Second State
+> Examination, which is the one that makes you a teacher. So I trained instead
+> as a software developer, through a German apprenticeship. I walked that path,
+> failed, stumbled, and got up again.
+>
+> I took Peter Norvig's [*Teach Yourself Programming in Ten
+> Years*](https://norvig.com/21-days.html) seriously. I started in earnest in
+> 2014, began the apprenticeship in 2016, finished it in 2018, and have worked
+> as a software developer since.
+>
+> Teaching and building are not separate skills here. A program you cannot
+> explain to a learner is one you have not finished understanding yourself. And
+> I am still learning.
+>
+> I had begun learning Japanese, and visited Kobe twice in the year before this
+> work started. That is where the name comes from, and it is why the
+> documentation was translated into other languages. May it help learners
+> elsewhere.
+>
+> jichi is what it is: honest, and frail, and with strengths of its own. I would
+> rather you saw all three than only the third.
+>
+> So, to all self-learners: I would like jichi to be free, as you are free to
+> learn. Walk on, step by step.
+>
+> — Alexander-Lars Dallmann
+
+**What follows from this**, and it is visible throughout the documentation: the
+analyses, the plans, the dialogues and the anecdotes ship in full, including
+every mis-diagnosis and dead end. A project that only publishes its successes
+teaches nobody how the work is actually done.
+
 ## The name
 
 **jichi** is Japanese. Written **自治（じち）** it means *autonomy* / *self-government* —
@@ -102,7 +180,7 @@ opencode, and Claude Code) configurations —
 
 **Never compiled from source before?** [`docs/PREPARE_AND_BUILD.md`](docs/PREPARE_AND_BUILD.md) walks you from an empty terminal to a working build on Linux, macOS, or Windows/WSL. Linux and **WSL2** are both verified paths — the WSL2 walkthrough has been executed end to end, by a non-root user, against pristine HEAD. **macOS is the one door nobody has opened**, and [`docs/PLATFORMS.md`](docs/PLATFORMS.md) is the one page that states, per platform, what was actually compiled and gate-run.
 
-Built incrementally in milestones — **666 of them**, 656 written up in full (the
+Built incrementally in milestones — **682 of them**, 666 written up in full (the
 gap is numbers merged, split or skipped) — each with its design and its failures
 recorded. **The documentation ships in full, on purpose** — the analyses, plans,
 dialogues and anecdotes, including every recorded failure, mis-diagnosis and dead
@@ -1068,7 +1146,7 @@ Use `--model <selector>` to override the role-default model for `embed`/`rerank`
 
 ## Roadmap
 
-**Where we stand: latest milestone M668.** The engineering loop is healthy; the
+**Where we stand: latest milestone M690.** The engineering loop is healthy; the
 **first public release shipped 2026-08-27**: **v0.9.0**, one curated commit,
 published to the HRZ GitLab (`jichi-public/jichi`) and to GitHub, tag `v0.9.0`
 on both ([`docs/plans/2026-08-public-snapshot.md`](docs/plans/2026-08-public-snapshot.md),
@@ -1077,9 +1155,11 @@ executed as written); the public tree was **advanced to the M639 state on
 so it still read 0.9.0), and then **to the M655 state on 2026-09-17/18** — public
 commit `573ccce` = private `a64cc4b3`, 1,968 files compared byte for byte with 0
 differing, **tag `v0.9.1`** on both remotes, and both the branch push and the tag
-push green on the hosted runner. **The development tree reads 0.9.2** as of M668; **the public tree still reads
-0.9.1** until the next snapshot is cut, and saying which is which is the point
-of this sentence;
+push green on the hosted runner. the public tree was **advanced to the M668 state on 2026-09-19** — public commit
+`3e6a242` = private `f8ead53a`, **1,987 files compared byte for byte with 0
+differing**, **tag `v0.9.2`** on both remotes, and both the branch push and the
+tag push green on the hosted runner. **Public and development trees both read
+0.9.2**;
 the milestones after M655 ride out with the next curated state. The release checklist, as it
 landed:
 
@@ -1087,7 +1167,7 @@ landed:
   projects); the **curriculum**, complete and still growing (all four shu-ha-ri
   stages, the nine standalone language courses — five functional: Racket, Guile,
   Elixir, Haskell, Clojure; four systems: C, Zig, C++, Rust — and a toolchain-free
-  process track from requirements through scheduling, for **84 graded tasks and 71
+  process track from requirements through scheduling, for **88 graded tasks and 75
   trap cases**, every grader proven red-first in CI, plus the instructor guide);
   **versioning + a user-facing CHANGELOG** (0.9.0, with 1.0.0 reserved for the
   release); and the **platform verdict**, stated honestly

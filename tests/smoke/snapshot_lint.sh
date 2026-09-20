@@ -50,7 +50,7 @@ if ! git -C "$SMOKE_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
     t_skip "not a git repository -- the snapshot's manifest is the index"
 fi
 
-t_plan 15
+t_plan 16
 
 if [ ! -f "$SNAP_SH" ]; then
     t_fail "scripts/make-snapshot.sh is missing -- the snapshot has no producer"
@@ -175,7 +175,21 @@ elf_magic() { od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n'; }
 printf '\177ELF\1\1\1' > "$TMP/plant.elf"
 if [ "$(elf_magic "$TMP/plant.elf")" = "7f454c46" ]; then
     _elf=""
-    find "$TREE" -type f > "$TMP/files"
+    # `.git/` IS EXCLUDED, and finding out why took a measurement (M683). When
+    # check 2b's --commit probe succeeds it leaves a real repository in $TREE,
+    # so `find` picks up 2,300 loose objects on top of the 2,017 published
+    # files. Those are zlib streams: read as text they are noise, and once the
+    # corpus stopped being cut short at the first NUL that noise became
+    # FINDINGS: two five-character fragments of a zlib stream reported as email
+    # addresses, plus the committer identity out of the object store reported
+    # as a leak in the published tree. None of them is a file anybody
+    # publishes; all of them would have trained a reader to ignore this check.
+    # (The fragments are not quoted here on purpose -- written out, check 8
+    # finds them in this comment and reports the explanation as the defect.)
+    #
+    # What is published is the WORKING TREE. The history the public repository
+    # carries is curated separately and has its own identity flags.
+    find "$TREE" -type f ! -path "$TREE/.git/*" > "$TMP/files"
     while IFS= read -r f; do
         if [ "$(elf_magic "$f")" = "7f454c46" ]; then
             _elf="$_elf
@@ -196,11 +210,48 @@ fi
 # is not wanted. ELF files are left out -- grep reports "Binary file matches" and
 # stops reading them, which would make check 6 blind to exactly the DWARF paths
 # that motivate it; check 4 already refuses them outright.
+#
+# EXCLUDING ELF WAS NOT ENOUGH, and the gap was measured rather than reasoned
+# about (M683). ELF is not the only thing in a publishable tree that carries a
+# NUL: `docs/images/*.png` is one, and when this lint runs after the --commit
+# probe the staged tree contains a real `.git/` whose objects are another. GNU
+# grep prints matches until the FIRST NUL and then goes silent -- so checks 5-8
+# did not fail, they STOPPED READING, somewhere in the middle, at a point
+# determined by `find` order.
+#
+# Measured on this tree: the first NUL sat 89.1% of the way through a 19.5 MB
+# corpus, and `/home/bench` -- a real account in the last 10.9% -- was invisible
+# to check 8. In the lint's own 28.3 MB corpus (the one with `.git/` in it) the
+# cut came early enough to hide a real account path in docs/ILLUSTRATION.md, a
+# file committed earlier in the same session that added the PNG -- in the very
+# paragraph explaining that a screenshot must not show one person's machine.
+# The check reported "every /home/ path names a placeholder" while reading
+# neither. (Not quoted here, for the reason check 8's note gives.)
+#
+# Stripping the NULs is what _smoke.sh's own smoke_bgrep does, for this reason:
+# a NUL is the ONLY thing that makes grep treat input as binary. Check 5b below
+# then floors the result, because a corpus that silently shortens again is
+# exactly the failure this comment is describing.
 CORPUS="$TMP/corpus"
 : > "$CORPUS"
 while IFS= read -r f; do
-    [ "$(elf_magic "$f")" = "7f454c46" ] || cat "$f" >> "$CORPUS" 2>/dev/null
+    [ "$(elf_magic "$f")" = "7f454c46" ] ||
+        LC_ALL=C tr -d '\000' < "$f" >> "$CORPUS" 2>/dev/null
 done < "$TMP/files"
+
+# --- 7: the corpus is whole -- checks 8-13 read all of it ---------------------
+# Not "the corpus is non-empty": check 3 already floors the file count. This
+# floors the property that makes the SCAN complete, and it is two-sided by
+# construction -- a single NUL anywhere makes the two byte counts differ.
+_cb=$(wc -c < "$CORPUS" | tr -d ' ')
+_cs=$(LC_ALL=C tr -d '\000' < "$CORPUS" | wc -c | tr -d ' ')
+if [ "$_cb" = "$_cs" ] && [ "$_cb" -gt 1000000 ]; then
+    t_ok "the scan corpus is $_cb B and NUL-free, so checks 8-13 read all of it"
+else
+    t_fail "the corpus carries NUL bytes ($_cb B raw, $_cs B without NULs) -- GNU
+grep stops printing matches at the first one, so every check below reports clean
+on the part it never read. Strip them, or exclude the file that carries them."
+fi
 
 # --- 5: every email address is on the allowlist -------------------------------
 # Example and no-reply domains only. A real address in a published tree is a

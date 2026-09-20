@@ -109,7 +109,7 @@ You need these to read the source-reading guides, the tests, or any analysis not
   output format the smoke tier prints. A plan line (`1..8`) says how many checks
   to expect, so a suite that dies early cannot look green.
 - **smoke tier** — the POSIX-sh test suite (`tests/smoke/`) that drives the real
-  binary end to end: 305 drivers, ~1,733 checks, no Python, so it runs on a
+  binary end to end: 315 drivers, ~1,835 checks, no Python, so it runs on a
   256 MB box and on four kernels.
 - **two-sided proof** — a new test must be shown **failing** without its fix and
   passing with it. A test that has never been red proves nothing about the bug it

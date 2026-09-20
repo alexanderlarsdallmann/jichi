@@ -3692,6 +3692,158 @@ SOLUTIONS += [
 ]
 
 
+# The graded PYTHON language-course track (M674): the graded half of
+# docs/LANGUAGE_COURSE.md. Gated on `python3` with a loud skip like every other
+# language course here -- although this is the one gate that is essentially
+# always open, since the e2e harness is itself Python.
+PY_TAGS_FIXED = '''"""A tiny tag collector."""
+
+
+def add_tag(tag, tags=None):
+    """Append `tag` to `tags` and return the list."""
+    if tags is None:
+        tags = []
+    tags.append(tag)
+    return tags
+'''
+
+PY_CONFIG_FIXED = '''"""A `key=value` configuration reader."""
+
+
+def read_config(lines):
+    """Parse `key=value` lines into a dict."""
+    out = {}
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            raise ValueError("malformed config line: %r" % (line,))
+        key, value = line.split("=", 1)
+        out[key.strip()] = value.strip()
+    return out
+'''
+
+PY_TEST_READ_CONFIG = '''import unittest
+
+from config import read_config
+
+
+class TestReadConfig(unittest.TestCase):
+    def test_parses_pairs(self):
+        self.assertEqual(read_config(["a=1", "b = 2 "]), {"a": "1", "b": "2"})
+
+    def test_skips_blanks_and_comments(self):
+        self.assertEqual(read_config(["", "# note", "a=1"]), {"a": "1"})
+
+    def test_malformed_line_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            read_config(["oops"])
+        self.assertIn("oops", str(ctx.exception))
+
+
+if __name__ == "__main__":
+    unittest.main()
+'''
+
+# The hollow half: three tests that pass against the BROKEN config.py. The
+# assertion count and the suite both go green, so the independent acceptance
+# probe is the only thing standing between this and an undeserved pass.
+PY_TEST_READ_CONFIG_HOLLOW = '''import unittest
+
+from config import read_config
+
+
+class TestReadConfig(unittest.TestCase):
+    def test_empty(self):
+        self.assertEqual(read_config([]), {})
+
+    def test_one_pair(self):
+        self.assertEqual(read_config(["a=1"]), {"a": "1"})
+
+    def test_comment(self):
+        self.assertEqual(read_config(["# note"]), {})
+
+
+if __name__ == "__main__":
+    unittest.main()
+'''
+
+PY_REPORT_COMPREHENSIONS = '''"""Three small transformations, all written as comprehensions."""
+
+
+def even_squares(numbers):
+    """The squares of the even numbers, in order."""
+    return [n * n for n in numbers if n % 2 == 0]
+
+
+def name_lengths(names):
+    """A mapping from each name to its length."""
+    return {name: len(name) for name in names}
+
+
+def unique_initials(names):
+    """The set of first letters, upper-cased."""
+    return {name[0].upper() for name in names}
+'''
+
+# The half that LOOKS like the refactor and is a loop in a costume: a
+# comprehension built for its side effect, accumulator still there.
+PY_REPORT_SIDE_EFFECT = '''def even_squares(numbers):
+    return [n * n for n in numbers if n % 2 == 0]
+
+
+def name_lengths(names):
+    return {name: len(name) for name in names}
+
+
+def unique_initials(names):
+    out = set()
+    [out.add(name[0].upper()) for name in names]
+    return out
+'''
+
+PY_FREQ_IMPL = '''"""Word-frequency report."""
+import re
+
+
+def word_counts(text):
+    """Return {word: count} -- lower-cased, split on anything not a letter."""
+    counts = {}
+    for word in re.findall(r"[a-z]+", text.lower()):
+        counts[word] = counts.get(word, 0) + 1
+    return counts
+
+
+def top_n(counts, n):
+    """The n most common (word, count) pairs, ties broken alphabetically."""
+    ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    return ordered[:n]
+'''
+
+PY_FREQ_DESIGN = ("A dict of word -> count, then `sorted` with the key "
+                  "`(-count, word)` so ties break alphabetically.\n")
+
+HAVE_PYTHON3 = usable("python3", "--version")
+if HAVE_PYTHON3:
+    SOLUTIONS += [
+        ("81-python-make-it-pass.md",
+         lambda: write("81-python-make-it-pass/tags.py", PY_TAGS_FIXED)),
+        ("82-python-test-first.md",
+         lambda: (write("82-python-test-first/config.py", PY_CONFIG_FIXED),
+                  write("82-python-test-first/test_read_config.py",
+                        PY_TEST_READ_CONFIG))),
+        ("83-python-loops-to-comprehensions.md",
+         lambda: write("83-python-loops-to-comprehensions/report.py",
+                       PY_REPORT_COMPREHENSIONS)),
+        ("84-python-capstone.md",
+         lambda: (write("84-python-capstone/freq.py", PY_FREQ_IMPL),
+                  write("84-python-capstone/DESIGN.md", PY_FREQ_DESIGN))),
+    ]
+else:
+    print("ok - skipped the Python language-course track 81-84 (python3 not usable here)")
+
+
 def main():
     if not shutil.which("cc"):
         print("ok - skipped (no cc on PATH)")
@@ -3703,6 +3855,28 @@ def main():
         grade(spec, 0, "solution accepted")
 
     # Half-solutions must still fail (compound graders are not hollow).
+    #
+    # The Python track's three compound graders, each probed with the half that
+    # would sail past a weaker one (M674). All three are the same shape: the
+    # visible half of the work done, the half that costs something skipped.
+    if HAVE_PYTHON3:
+        fresh()
+        write("82-python-test-first/config.py", PY_CONFIG_FIXED)
+        grade("82-python-test-first.md", 1, "py: fix without the test rejected")
+        fresh()
+        write("82-python-test-first/test_read_config.py",
+              PY_TEST_READ_CONFIG_HOLLOW)
+        grade("82-python-test-first.md", 1,
+              "py: three GREEN tests that never touch the bug rejected")
+        fresh()
+        write("83-python-loops-to-comprehensions/report.py",
+              PY_REPORT_SIDE_EFFECT)
+        grade("83-python-loops-to-comprehensions.md", 1,
+              "py: a comprehension built for its side effect rejected")
+        fresh()
+        write("84-python-capstone/freq.py", PY_FREQ_IMPL)
+        grade("84-python-capstone.md", 1, "py: capstone without DESIGN.md rejected")
+
     fresh()
     fix_07()
     grade("07-write-the-test-first.md", 1, "fix without a test rejected")
@@ -4124,9 +4298,9 @@ def main():
 
     shutil.rmtree(ws, ignore_errors=True)
     print("ok: curriculum sets A+B+C+D + Racket + Guile + Elixir + Haskell + "
-          "Clojure + C-systems + Zig + C++ + Rust + PROCESS + PLAIN -- every grader "
-          "two-sided through `jichi grade` (M174b/M176/M177/M221/M228/M229/"
-          "M238/M244/M245/M246/M247/M248/M249/M250/M251/M253/M309)")
+          "Clojure + C-systems + Zig + C++ + Rust + Python + PROCESS + PLAIN -- "
+          "every grader two-sided through `jichi grade` (M174b/M176/M177/M221/"
+          "M228/M229/M238/M244/M245/M246/M247/M248/M249/M250/M251/M253/M309/M674)")
 
 
 main()

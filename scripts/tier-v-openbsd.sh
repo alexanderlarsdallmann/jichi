@@ -55,10 +55,15 @@ set -u
 
 # The one implementation of JC_SMOKE_TIMEOUT_MULT, and why it is not inline here.
 . "$(dirname "$0")/_rig_mult.sh"
+. "$(dirname "$0")/_rig_live.sh"
 
 REL="${TIER_V_OPENBSD_RELEASE:-7.9}"
 DIR="${TIER_V_OPENBSD_DIR:-$HOME/.cache/jichi-tier-v-openbsd}"
-PORT="${TIER_V_OPENBSD_PORT:-2222}"
+# 2225, not 2222: tier-v-vm.sh defaults to 2222 and the two rigs collided
+# (M678). A leftover VM from either one made the other report a FALSE boot-floor
+# finding rather than an error -- measured, and the reason rig_ports_lint.sh
+# now holds every rig's default port distinct.
+PORT="${TIER_V_OPENBSD_PORT:-2225}"
 # The live step is OPT-IN: a row without it is Verified, not Driven, and says so.
 LIVE_PORT=""
 LIVE_MODEL="local"
@@ -115,7 +120,16 @@ note() { echo "$*" >> "$RESULTS"; }
 g()  { ssh $SSH_OPTS -i "$KEY" -p "$PORT" tierv@127.0.0.1 "$@"; }
 # gl -- g() carrying a REVERSE forward, so the guest reaches the host's
 # loopback LM Studio for exactly the lifetime of this one command.
-gl() { ssh $SSH_OPTS -R "$LIVE_PORT:127.0.0.1:$LIVE_PORT" -i "$KEY" -p "$PORT" tierv@127.0.0.1 "$@"; }
+# -o ExitOnForwardFailure=yes IS THE POINT, and it was missing (M677). `ssh -R`
+# whose forward cannot bind prints "Warning: remote port forwarding failed for
+# listen port N" and RUNS THE COMMAND ANYWAY, exit 0. Measured on the Pi 400
+# this session: the rig's own forward failed, the turn answered regardless --
+# through a STALE forward left bound by an ssh session more than a day old --
+# and the row reported two green live turns. The model calls were real; the
+# transport under test was never exercised, and on a machine without that
+# leftover the same rig would have failed. A pass that depends on something
+# nobody knew was there is the shape of evidence this project refuses.
+gl() { ssh $SSH_OPTS -o ExitOnForwardFailure=yes -R "$LIVE_PORT:127.0.0.1:$LIVE_PORT" -i "$KEY" -p "$PORT" tierv@127.0.0.1 "$@"; }
 # shellcheck disable=SC2086
 gr() { ssh $SSH_OPTS -i "$KEY" -p "$PORT" root@127.0.0.1 "$@"; }
 
@@ -339,7 +353,22 @@ say "pkg_add the toolchain"
 #
 # NetBSD installs it cleanly, so the shell-out path IS covered on a non-Linux
 # userland -- which was the point of adding it.
-if gr 'pkg_add -I gmake git curl poppler-utils >/dev/null 2>&1; command -v gmake >/dev/null' 2>/dev/null; then
+# A NETWORK INSTALL WITH NO DEADLINE CAN HANG THIS RIG FOREVER, and did
+# (M685, measured). On the 2026-09-20 run OpenBSD's `ftp` sat on
+# `lcms2-2.18pl20260420.tgz` from cdn.openbsd.org for **22 minutes 47 seconds**
+# at 0.0% CPU with the TCP connection ESTABLISHED and both queues at zero --
+# alive, and dead. The rig printed `== pkg_add the toolchain` and nothing else;
+# there was no diagnostic, no progress line, and no end. From outside it is
+# indistinguishable from a slow mirror, which is exactly the INFRASTRUCTURE-vs-
+# FINDING confusion this tier exists to refuse: a stall in the fetch looks like
+# a platform that cannot build.
+#
+# The deadline is generous (900 s) because the honest failure here is
+# "the mirror stopped", not "this took longer than I guessed". `timeout` is
+# probed rather than assumed -- an absent one must not turn a working mirror
+# into a failed row, so the command runs unbounded there and the rig is no
+# worse off than before.
+if gr 'P="gmake git curl poppler-utils"; T=""; command -v timeout >/dev/null 2>&1 && T="timeout 900"; $T pkg_add -I $P >/dev/null 2>&1; command -v gmake >/dev/null' 2>/dev/null; then
     ok "toolchain present (gmake, not make: OpenBSD's make is BSD make)"
 else
     bad "pkg_add failed"; gr 'cat /etc/installurl' >> "$RESULTS" 2>&1; exit 1
@@ -514,74 +543,14 @@ for s in "--version" "doctor" "describe" "context"; do
 done
 
 # ------------------------------------------------------------- live turns
-# WHY THIS STEP EXISTS (2026-09-18/19). Every step above this line is OFFLINE:
-# build, unit suite, smoke tier and the four surfaces all pass on a kernel where
-# jichi has never called a model. `PLATFORMS.md` calls a row that HAS **Driven**,
-# and the honest position before this was that neither BSD row had been.
-#
-# TWO TURNS, because the first proves only the wire. `reply with OK` exercises
-# the provider, the request and the SSE framing; it chooses no tool, executes
-# none, and consumes no result. Every documented failure in this area lives past
-# that point -- a model that DESCRIBES tool calls terminates cleanly with an
-# empty workspace (AUTONOMOUS_LOOPS.md, "done is not a success verdict").
-#
-# THE TUNNEL IS THE POINT OF `gl`. The guest is behind QEMU user-mode NAT and LM
-# Studio binds 127.0.0.1 on the host, so rather than exposing the model server on
-# the LAN the rig carries a REVERSE forward on the very connection that runs the
-# turn: the forward lives exactly as long as the command does.
-#
-# THE PROMPTS CROSS AS BASE64 and the fixture goes over STDIN. Both were quoted
-# strings first, and both lost their quotes inside the remote `sh -c`: jichi got
-# `-p reply` and swallowed `--output json`, and the fixture file was never
-# written, so the check blamed the model for a file that did not exist. jichi
-# ships --prompt-b64 for exactly this. (tier-b-device.sh, the same day.)
-#
-# THE ASSERTION IS A PHRASE, NOT A SENTENCE: quotes drift -- measured, a model
-# quoted three passages and dropped an article from one -- but a random token can
-# only be produced by having read the file.
+# The DRIVEN step. Its definition, and every reason behind it, is in ONE place:
+# scripts/_rig_live.sh. Do not re-explain it here -- three copies of the prose
+# is the same defect as three copies of the code, one level down.
 say "live turns"
 if [ -z "${LIVE_PORT:-}" ]; then
-    # NOT a failure and NOT a pass: the step did not run. Saying so out loud is
-    # the difference between "this row is Verified" and "this row is Driven",
-    # and a rig that stays silent here is how the matrix came to look emptier
-    # than the work actually done.
-    note "    live turns NOT attempted (no --live-port) -- every step above is offline"
-    echo "-- live turns not attempted: this row is Verified, not Driven"
+    jc_rig_live_skip
 else
-    _lurl="http://127.0.0.1:$LIVE_PORT/v1"
-    g "cat > \$HOME/live.json" <<LIVECFG 2>/dev/null || true
-{"models":[{"name":"live","provider":"openai","model":"$LIVE_MODEL",
- "apiBase":"$_lurl","apiKey":"unused","roles":["chat"]}],
- "snapshots":false,"repoMap":false,"maxRetries":1,"lowResource":false}
-LIVECFG
-    _phrase="TIER-V-$(od -An -N3 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' | tr 'a-f' 'A-F')"
-    [ "$_phrase" != "TIER-V-" ] || _phrase="TIER-V-FALLBACK"
-    g "mkdir -p \$HOME/ws" >/dev/null 2>&1 || true
-    g "cat > \$HOME/ws/note.txt" <<NOTEFIX 2>/dev/null || true
-The pass phrase is $_phrase.
-NOTEFIX
-    _p_live=$(printf '%s' 'reply with OK' | base64 | tr -d '\n')
-    _p_tool=$(printf '%s' 'Use the read_file tool to read note.txt in this directory, then report the pass phrase.' | base64 | tr -d '\n')
-
-    if gl "cd \$HOME/jichi && ./jichi --config \$HOME/live.json --prompt-b64 $_p_live --output json" \
-            > "$DIR/live-openbsd.txt" 2>&1 && grep -q '"text"' "$DIR/live-openbsd.txt"; then
-        ok "live turn answered over the reverse tunnel ($LIVE_MODEL)"
-        note "    $(grep -o '"text":"[^"]*"' "$DIR/live-openbsd.txt" | head -1)"
-    else
-        bad "live turn did not answer -- see $DIR/live-openbsd.txt"
-        tail -5 "$DIR/live-openbsd.txt" 2>/dev/null | sed 's/^/    /' >> "$RESULTS"
-    fi
-
-    if gl "cd \$HOME/ws && \$HOME/jichi/jichi --config \$HOME/live.json --auto -q --prompt-b64 $_p_tool" \
-            > "$DIR/live-tool-openbsd.txt" 2>&1 && grep -q "$_phrase" "$DIR/live-tool-openbsd.txt"; then
-        ok "agentic turn: the model called a tool and reported $_phrase"
-        note "    the tool ran and its result was consumed by a second turn"
-    else
-        bad "agentic turn did NOT return $_phrase -- the model may have described \
-the tool call instead of invoking it (doctor --live calls that \`text\`), or the \
-loop does not execute tools on this platform"
-        tail -8 "$DIR/live-tool-openbsd.txt" 2>/dev/null | sed 's/^/    /' >> "$RESULTS"
-    fi
+    jc_rig_live openbsd "$LIVE_PORT" "$LIVE_MODEL" "$DIR"
 fi
 
 

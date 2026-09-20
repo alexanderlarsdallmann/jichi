@@ -45,12 +45,17 @@ mk_cfg() {  # $1 = path, $2 = port
 EOC
 }
 
+# The skip test precedes the plan (M672): `t_plan` then `t_skip` emits TWO TAP
+# plan lines and a runner reads that as malformed output, failing a driver that
+# exited 0. progress_write_fails was the last red driver on the OpenBSD row for
+# exactly that, and it was not a defect -- it was a skip the harness could not
+# parse.
+command -v git >/dev/null 2>&1 || t_skip "needs git (snapshots back the checkpoint)"
 t_plan 3
 smoke_home
 tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
 
-command -v git >/dev/null 2>&1 || t_skip "needs git (snapshots back the checkpoint)"
 
 # A workspace whose gate is a script we control, so "green" and "red" are exact.
 ( cd "$ws" && git init -q . && git config user.email t@t && git config user.name t )
