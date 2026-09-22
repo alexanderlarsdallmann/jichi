@@ -200,10 +200,12 @@ The curriculum, the reading guides, and the craft tutorials.
 - [`BENCH_LOCAL_GPU.md`](BENCH_LOCAL_GPU.md) — The local-GPU bench: measuring jichi against a small model on your own hardware
 - [`PLATFORM_TESTING.md`](PLATFORM_TESTING.md) — *Does this work on my machine?* A six-rung ladder from `make check-target` to driving a model on a board, for a self-learner with one laptop. Teaches the judgement rather than the commands: telling an infrastructure failure from a result, proving a check can go red, and saying what you did not test (M682)
 - [`DRIVE_LOG.md`](DRIVE_LOG.md) — *Does this work when somebody uses it?* The counterpart to the page above, and the one that found the defects the gates could not: every gate in this tree is offline, so none of them can see what a caller is told. A recipe, the discipline of getting ground truth FIRST, and the log of drives — which is also the corpus two deferred questions are waiting on.
+- [`HAIKU.md`](HAIKU.md) — 自治の八句 — eight haiku for jichi
 - [`ILLUSTRATION.md`](ILLUSTRATION.md) — Pictures in this documentation: what may be captured and what may be generated. A generated screenshot is a fabricated record; the capture recipe, the LocalAI setup, and an honest measurement of what the image model actually produced (M680)
-- [`BIBLIOGRAPHY.md`](BIBLIOGRAPHY.md) — The reading jichi's documentation points at — 149 checked entries on the craft, C, C++, Zig, Rust, Python, Racket, Guile, Elixir, Haskell, Clojure and interfaces (M636, M650, M670, M671, M677)
+- [`BIBLIOGRAPHY.md`](BIBLIOGRAPHY.md) — The reading jichi's documentation points at — 159 checked entries on the craft, C, C++, Zig, Rust, Python, Racket, Guile, Elixir, Haskell, Clojure and interfaces (M636, M650, M670, M671, M677)
 - [`INTERFACE_TUTORIAL.md`](INTERFACE_TUTORIAL.md) — Interfaces — designing them, including the ones made of text — a tutorial
 - [`LANGUAGE_COURSE.md`](LANGUAGE_COURSE.md) — Learning a language with jichi, from its official tutorial
+- [`GAME_DEVELOPMENT.md`](GAME_DEVELOPMENT.md) — Learning game development with jichi — Godot's own docs as the corpus, and a gate that runs the game headless
 - [`CRAFT_AB_TUTORIAL.md`](CRAFT_AB_TUTORIAL.md) — Grading a craft A/B — a step-by-step tutorial
 - [`CURRICULUM.md`](CURRICULUM.md) — The curriculum — learning software development with an agent at your side
 - [`DATA_STRUCTURES.md`](DATA_STRUCTURES.md) — Choosing a data structure — jichi has one, and that is an argument (M636f)
@@ -211,9 +213,11 @@ The curriculum, the reading guides, and the craft tutorials.
 - [`DOMAIN_MODELLING_TUTORIAL.md`](DOMAIN_MODELLING_TUTORIAL.md) — Domain modelling — a tutorial
 - [`ORG_MODE.md`](ORG_MODE.md) — Emacs org-mode for a software project
 - [`PROJECT_RECORDS.md`](PROJECT_RECORDS.md) — Keeping a project's records in plain text
+- [`ADA_AND_C.md`](ADA_AND_C.md) — Ada, SPARK and C — proving what this project tests
 - [`PSEUDOCODE_TUTORIAL.md`](PSEUDOCODE_TUTORIAL.md) — Pseudocode — writing it, and turning it into real code — a tutorial
 - [`READING_OPEN_SOURCE.md`](READING_OPEN_SOURCE.md) — Reading open-source C — with the agent as your reading partner
 - [`SDLC.md`](SDLC.md) — The software development lifecycle in jichi: five journeys
+- [`STATE_MACHINE_TUTORIAL.md`](STATE_MACHINE_TUTORIAL.md) — State machines — designing them, writing them, and knowing when not to — a tutorial
 - [`TEACHING.md`](TEACHING.md) — Teaching with jichi: walk it before you assign it — the teacher's progression
 - [`TEACHING_ASSIGNMENTS.md`](TEACHING_ASSIGNMENTS.md) — Teaching with jichi assignments
 - [`TESTING_RUNBOOK.md`](TESTING_RUNBOOK.md) — The ten-step procedure for adding a test, each step naming the failure it prevents
@@ -250,6 +254,7 @@ Why jichi is the way it is, including everything that went wrong. This ships on 
 - [`DEFERRED_LOCAL_GPU.md`](DEFERRED_LOCAL_GPU.md) — Deferred until a local-model + GPU bench
 - [`DOC_REVIEW.md`](DOC_REVIEW.md) — Reviewing the documentation — the rubric, and how to run a pass
 - [`CODE_REVIEW.md`](CODE_REVIEW.md) — Reading code for review — five readings of one piece of code, and how to run one (M627)
+- [`GROUNDED_DISCOURSE.md`](GROUNDED_DISCOURSE.md) — Discussing with a model — five moves, and the record that makes them checkable
 - [`ARGUMENT.md`](ARGUMENT.md) — The argument you were already making — the house vernacular mapped to its names (rationale, warrant, defeater, qualifier), and `/predict` (M635)
 - [`DRIVING.md`](DRIVING.md) — Driving jichi at a real project: what 28 runs measured
 - [`JOURNEY.md`](JOURNEY.md) — The journey — from first step to master's rest

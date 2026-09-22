@@ -1,0 +1,68 @@
+== tier-v-msys2, 2026-09-22T08:27:07Z
+uname: MSYS_NT-10.0-26200 HRZNB-U020390 3.6.10-8fbd9808.x86_64 2026-08-13 11:15 UTC x86_64 Msys
+tree: WORKING TREE (--dirty), 4 path(s) differ from 83775025 -- NOT a commit
+reference bench: 9.65s serial make WERROR=1
+
+ok   - msys2: no process is running from C:\cygwin64
+    (Git for Windows also maps msys-2.0.dll and is deliberately NOT
+    counted: it is a separate installation from C:\msys64.)
+ok   - msys2: diff, cmp, git, make, awk, sed all present
+!! msys2: pgrep is ABSENT (procps-ng not installed).
+   scripts/preflight.sh will print "tree is quiet" WITHOUT CHECKING,
+   because busy_pids sends pgrep's error to /dev/null and reads the
+   empty result as zero. Treat its verdict here as unmeasured, not as
+   a green. Install procps-ng to get a preflight that can fail.
+ok   - msys2: tree present at /home/u/jichi
+
+    MSYS=<unset>   (unset means `ln -s` copies directories)
+    /etc/fstab acl lines:
+      5:none / cygdrive binary,posix=0,noacl,user 0 0
+      10:C:/msys64/tmp /tmp ntfs binary,acl 0 0
+      11:C:/msys64/home /home ntfs binary,acl 0 0
+ok   - msys2 (user home): chmod is honoured in /home/u (-rw-------)
+ok   - msys2 (tier tmp): chmod is honoured in /tmp (-rw-------)
+ok   - msys2: $HOME honours chmod, so jichi's privacy guarantees hold here
+    msys2: `ln -s` to a non-existent target FAILS here, so
+    pathfence_dangling skips. It does not report a fence hole any more:
+    until M697 it tested the fence against a path that was not the link
+    it thought it had made, and blamed jichi for its own fixture.
+
+    build 1: 99s, 0 warning(s)
+    build 2: 97s, 0 warning(s)
+    build 3: 98s, 0 warning(s)
+ok   - msys2: build median 98s over three clean builds
+ok   - msys2: JC_SMOKE_TIMEOUT_MULT=11 (ceil 98s / 9.65s)
+    State the denominator with the multiplier, always.
+
+FAIL - msys2: unit suite failed -- see /home/u/tier-v/msys2/unit.log
+
+ok   - msys2: smoke tooling builds
+    tier wall clock: 8826s at multiplier 11 (deadlines x11)
+    drivers reached: 317   killed at deadline: 3   failed: 2
+FAIL - msys2: smoke tier not green -- 2 failed, 3 killed, of 317
+    A KILLED driver is not a failed one and its output is not evidence:
+    a killed shell continues past a command substitution the kill
+    emptied and can print 'not ok' lines that accuse the product.
+    the ten dearest drivers on this platform (seconds):
+    A driver at or near 660s did not take that long -- it was
+    STOPPED there. That is a bound, not a duration, and its output is
+    not evidence about jichi.
+
+    --version rc=0 : build: 83775025-dirty
+    doctor rc=0 : 24 ok, 5 warnings, 0 problems
+    describe rc=0 : For the full machine-readable contract: jichi describe --output json
+    context rc=0 : Process: 11456 KB resident (peak 0 KB).
+    doctor: 24 ok, 5 warnings, 0 problems
+ok   - msys2: all four offline surfaces answered
+
+    transport: https://api.hrz.uni-giessen.de/v1 reached DIRECTLY -- no tunnel, no guest.
+    This row is not a VM: the platform under test is this machine, so
+    there is nothing to forward from. Every other Driven row used the
+    loopback + ssh -R arrangement; this one did not, and says so.
+ok   - model jlu/qwen3.8-27b is listed in the free namespace (8 ids under jlu/)
+ok   - msys2: live config written with apiKeyEnv=JICHI_API_KEY (no secret in the file)
+ok   - msys2: wire turn answered against https://api.hrz.uni-giessen.de/v1 (jlu/qwen3.8-27b)
+ok   - msys2: agentic turn -- the model called a tool and reported TIER-V-msys2-D1A043
+    the tool ran and its result was consumed by a second turn
+
+== totals: 14 ok, 2 failed

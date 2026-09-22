@@ -316,6 +316,15 @@ taught): [`docs/PLATFORMS.md`](docs/PLATFORMS.md); RAM tiers and hardware in
   the probe said yes (M449). `CC ?= cc` means a system shipping neither `cc` nor
   `c99` reports every feature absent rather than the compiler missing — pass
   `CC=gcc` there (M458).
+- **A POSIX success contract is not always "returns 0", and the platforms that
+  agree will not tell you.** `uname()` is specified to return a **non-negative**
+  value on success; illumos returns a positive one. Four call sites written
+  `== 0` were right on Linux, three BSDs and both Windows layers and read a
+  working call as a failure on the first SysV kernel they met — which left
+  M695's platform-verdict table unreachable there and `doctor` telling an
+  illumos user jichi had never been compiled on their system. Read the wording,
+  not the six agreeing platforms; `portability_lint` check 24 enforces this one.
+  ANECDOTES #97.
 - **A row is not tested until a MODEL has been driven on it.** Every gate a rig
   runs — build, unit suite, smoke tier, `--version`/`doctor`/`describe`/`context`
   — is **offline**, so all of them go green on a kernel where jichi has never

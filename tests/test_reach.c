@@ -112,9 +112,45 @@ static void test_refused_and_plan_shell(void)
     JC_CHECK(strstr(buf, "unaccounted") == NULL);
 }
 
+
+static void test_capped_answer_says_the_ceiling_not_a_failure(void)
+{
+    struct jc_reach r;
+    char buf[700];
+
+    /* THE TRAP THIS PINS. Making a capped answer `answer_truncated` is only
+     * half a fix: the clause renders "the run %s" from `stop_clause`, which is
+     * NULL for a clean stop -- so the footer would have read "the run DID NOT
+     * FINISH" about a run that finished perfectly well and kept its work. A
+     * true flag rendered through a false sentence is worse than the silence it
+     * replaced, because it reads as a diagnosis. */
+    memset(&r, 0, sizeof r);
+    r.tool_calls = 2;
+    r.answer_truncated = 1;
+    r.answer_capped = 1;
+    r.stop_clause = NULL;              /* JC_STOP_DONE has no clause */
+    jc_reach_line(&r, buf, sizeof buf);
+    JC_CHECK(strstr(buf, "THE ANSWER IS INCOMPLETE") != NULL);
+    JC_CHECK(strstr(buf, "OUTPUT CEILING") != NULL);
+    JC_CHECK(strstr(buf, "did not finish") == NULL);
+
+    /* The control: truncated for an ORDINARY reason still reads the old way,
+     * so the branch above cannot be a rewrite of the only sentence there is. */
+    memset(&r, 0, sizeof r);
+    r.tool_calls = 2;
+    r.answer_truncated = 1;
+    r.answer_capped = 0;
+    r.stop_clause = "ran out of tool calls";
+    jc_reach_line(&r, buf, sizeof buf);
+    JC_CHECK(strstr(buf, "THE ANSWER IS INCOMPLETE") != NULL);
+    JC_CHECK(strstr(buf, "ran out of tool calls") != NULL);
+    JC_CHECK(strstr(buf, "OUTPUT CEILING") == NULL);
+}
+
 void test_reach(void)
 {
     test_refused_and_plan_shell();
+    test_capped_answer_says_the_ceiling_not_a_failure();
     test_no_envelope();
     test_verifier_green_and_scope();
     test_red_violation_shell();

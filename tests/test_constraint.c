@@ -56,6 +56,35 @@ static void test_scan(void)
     n = jc_constraint_scan("go ahead and build it", cs, JC_CONSTRAINT_MAX, a);
     JC_CHECK(n == 0);
 
+    /* A DESCRIPTION of a broken build is not an instruction to avoid building.
+     * Found by driving jichi on a real project (2026-09-21): the prompt opened
+     * "Two tests ... do not compile:" -- a statement of the state the agent was
+     * asked to fix -- and that inferred "do not run build commands", which then
+     * REFUSED the agent's own `zig build test` for the rest of the session.
+     * Measured: the same tool call ran with 0 refused without the sentence and
+     * 1 refused with it. The agent could not verify its own work, looped, and
+     * the run ended verify_failed after 42 tool calls and 2,215,762 tokens.
+     * "the tests do not compile" is the most natural way there is to tell a
+     * coding agent what is wrong, so this is not an exotic phrasing. */
+    n = jc_constraint_scan("the tests do not compile", cs, JC_CONSTRAINT_MAX, a);
+    JC_CHECK(n == 0);
+    n = jc_constraint_scan("Two tests do not compile:", cs, JC_CONSTRAINT_MAX, a);
+    JC_CHECK(n == 0);
+    n = jc_constraint_scan("the build does not compile", cs, JC_CONSTRAINT_MAX, a);
+    JC_CHECK(n == 0);
+
+    /* ...and the IMPERATIVE forms must still be heard. A guard that silences
+     * the line above by silencing these has not fixed anything. */
+    n = jc_constraint_scan("do not compile anything", cs, JC_CONSTRAINT_MAX, a);
+    JC_CHECK(n == 1);
+    n = jc_constraint_scan("please do not run the build", cs, JC_CONSTRAINT_MAX, a);
+    JC_CHECK(n == 1);
+    /* two, and both are right: the TOOL `git_commit` and the shell command. */
+    n = jc_constraint_scan("do not commit", cs, JC_CONSTRAINT_MAX, a);
+    JC_CHECK(n == 2);
+    n = jc_constraint_scan("make the change, but do not push", cs, JC_CONSTRAINT_MAX, a);
+    JC_CHECK(n == 1);
+
     jc_arena_free(a);
 }
 

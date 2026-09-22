@@ -1,0 +1,59 @@
+== tier-v-cygwin, 2026-09-22T04:42:52Z
+uname: CYGWIN_NT-10.0-26200 HRZNB-U020390 3.6.10-1.x86_64 2026-07-13 20:20 UTC x86_64 Cygwin
+tree: WORKING TREE (--dirty), 4 path(s) differ from 83775025 -- NOT a commit
+reference bench: 9.65s serial make WERROR=1
+
+ok   - cygwin: no process is running from C:\msys64
+    (Git for Windows also maps msys-2.0.dll and is deliberately NOT
+    counted: it is a separate installation from C:\msys64.)
+ok   - cygwin: diff, cmp, git, make, awk, sed all present
+!! cygwin: pgrep is ABSENT (procps-ng not installed).
+   scripts/preflight.sh will print "tree is quiet" WITHOUT CHECKING,
+   because busy_pids sends pgrep's error to /dev/null and reads the
+   empty result as zero. Treat its verdict here as unmeasured, not as
+   a green. Install procps-ng to get a preflight that can fail.
+ok   - cygwin: chmod is honoured in /cygdrive/c/Users/u (-rw-------)
+ok   - cygwin: tree present at /home/u/jichi
+
+    build 1: 128s, 0 warning(s)
+    build 2: 123s, 0 warning(s)
+    build 3: 125s, 0 warning(s)
+ok   - cygwin: build median 125s over three clean builds
+ok   - cygwin: JC_SMOKE_TIMEOUT_MULT=13 (ceil 125s / 9.65s)
+    STATE THE DENOMINATOR WITH THE MULTIPLIER, always. The old published
+    figure of 10 came from 130s/13s with both operands compile-inclusive,
+    so it was not a runtime ratio at all. And on this row the per-driver
+    ratio spans 1.5x to ~300x, so no single number describes it.
+
+ok   - cygwin: unit suite green -- 13438 checks, 0 failures
+
+ok   - cygwin: smoke tooling builds
+    tier wall clock: 10970s at multiplier 13 (deadlines x13)
+    drivers reached: 317   killed at deadline: 3   failed: 4
+FAIL - cygwin: smoke tier not green -- 4 failed, 3 killed, of 317
+    A KILLED driver is not a failed one and its output is not evidence:
+    a killed shell continues past a command substitution the kill
+    emptied and can print 'not ok' lines that accuse the product.
+    the ten dearest drivers on this platform (seconds):
+    A driver at or near 780s did not take that long -- it was
+    STOPPED there. That is a bound, not a duration, and its output is
+    not evidence about jichi.
+
+    --version rc=0 : build: 83775025-dirty
+    doctor rc=0 : 25 ok, 4 warnings, 0 problems
+    describe rc=0 : For the full machine-readable contract: jichi describe --output json
+    context rc=0 : Process: 12032 KB resident (peak 0 KB).
+    doctor: 25 ok, 4 warnings, 0 problems
+ok   - cygwin: all four offline surfaces answered
+
+    transport: https://api.hrz.uni-giessen.de/v1 reached DIRECTLY -- no tunnel, no guest.
+    This row is not a VM: the platform under test is this machine, so
+    there is nothing to forward from. Every other Driven row used the
+    loopback + ssh -R arrangement; this one did not, and says so.
+ok   - model jlu/qwen3.8-27b is listed in the free namespace (8 ids under jlu/)
+ok   - cygwin: live config written with apiKeyEnv=JICHI_API_KEY (no secret in the file)
+ok   - cygwin: wire turn answered against https://api.hrz.uni-giessen.de/v1 (jlu/qwen3.8-27b)
+ok   - cygwin: agentic turn -- the model called a tool and reported TIER-V-cygwin-3C2C3F
+    the tool ran and its result was consumed by a second turn
+
+== totals: 13 ok, 1 failed

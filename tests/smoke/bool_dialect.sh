@@ -27,23 +27,56 @@
 #                   dialect is the one jichi itself writes, and `y` is not it.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 7
+t_plan 8
 smoke_home
 
-# --- 1-4: every spelling of yes must fence the profile ----------------------
+# --- 0: the fixture exists at all ------------------------------------------
+# A profile's IDENTITY is its basename -- jc_agentdef.c: "name is the basename"
+# -- so the fixtures must NOT be named after the values they carry. `ro-True.md`
+# and `ro-true.md` differ only in case, and on a case-insensitive filesystem they
+# are ONE FILE.
+#
+# Measured on Cygwin/NTFS 2026-09-21: four writes produced THREE files. The
+# survivor kept the first name (`ro-True.md`, NTFS preserves the creating case)
+# and the last content (`readonly: true`), so `jichi agents` listed `ro-True`,
+# the case-sensitive grep for `ro-true` found nothing, and this driver reported a
+# product defect -- "readonly: true did NOT fence the profile" -- for a spelling
+# it had never actually tested. jichi was right the whole time; the fixture had
+# collapsed from four cases to three.
+#
+# So the files are numbered and the spelling is carried in the CONTENT and in the
+# failure message, where case costs nothing. The count is then floored, because a
+# fixture that silently collapses is the thing that produced a false accusation:
+# a check whose universe shrank by a quarter reported on the smaller universe
+# without saying so.
 ws=$(smoke_tmp); mkdir -p "$ws/.jichi/agents"
+_i=0
 for v in 1 yes True true; do
-    printf -- '---\nname: ro-%s\ndescription: d\nreadonly: %s\n---\nBody.\n' \
-        "$v" "$v" > "$ws/.jichi/agents/ro-$v.md"
+    _i=$((_i + 1))
+    printf -- '---\nname: ro-%d\ndescription: d\nreadonly: %s\n---\nBody.\n' \
+        "$_i" "$v" > "$ws/.jichi/agents/ro-$_i.md"
 done
+_nf=$(ls -1 "$ws/.jichi/agents" 2>/dev/null | grep -c '\.md$')
+if [ "$_nf" -eq 4 ]; then
+    t_ok "all 4 spelling fixtures exist as distinct files"
+else
+    t_fail "the fixture collapsed: $_nf of 4 profile files exist. Two fixtures \
+whose names differ only in case land on the same file where the filesystem is \
+case-insensitive, and the four checks below would then report on a universe that \
+quietly shrank."
+fi
+
+# --- 1-4: every spelling of yes must fence the profile ----------------------
 out=$(cd "$ws" && with_deadline 30 "$BIN" agents < /dev/null 2>&1)
+_i=0
 for v in 1 yes True true; do
-    if printf '%s' "$out" | grep -A1 "ro-$v" | grep -q readonly; then
+    _i=$((_i + 1))
+    if printf '%s' "$out" | grep -A1 "ro-$_i" | grep -q readonly; then
         t_ok "readonly: $v fences the profile"
     else
         t_fail "readonly: $v did NOT fence the profile -- the presence check fired
  while the value did not match, so this reads downstream as an explicit
- 'writable' and the agent may write: $(printf '%s' "$out" | grep -A1 "ro-$v")"
+ 'writable' and the agent may write: $(printf '%s' "$out" | grep -A1 "ro-$_i")"
     fi
 done
 

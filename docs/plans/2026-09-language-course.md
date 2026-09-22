@@ -251,10 +251,15 @@ reports an improvement it cannot demonstrate.
 6. One complete Python track: templates + graders for the tutorial's sections,
    two-sided in `curriculum_graders.py`.
 
-Bibliography sections for **Python and Racket** (`docs/BIBLIOGRAPHY.md` defers
-six languages: Racket, Guile, Elixir, Haskell, Clojure, Python) supply the
-"important literature and papers" this course points at, and are the natural
-companion piece.
+Bibliography sections for **Python and Racket** supply the "important literature
+and papers" this course points at, and are the natural companion piece.
+
+> **Superseded 2026-09-21.** This paragraph said `docs/BIBLIOGRAPHY.md` *"defers
+> six languages: Racket, Guile, Elixir, Haskell, Clojure, Python"*. It no longer
+> does: Python §6 and Racket §7 landed at **M671** — this plan is why — and Guile,
+> Elixir, Haskell and Clojure followed at **M677**. The companion piece was
+> written. Kept rather than edited away, because a plan is a record of what was
+> true when it was written, and the sentence is only misleading if nobody says so.
 
 ## 7. Open questions
 

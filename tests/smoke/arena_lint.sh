@@ -148,7 +148,7 @@ FNR == 1 {
     if ((name SUBSEP stripped) in A)
         next
     print FILENAME ":" FNR ": " stripped
-}' $targets > "$tmp/offenders"
+}' $targets < /dev/null > "$tmp/offenders"
 
 if [ ! -s "$tmp/offenders" ]; then
     t_ok "no per-call app->arena use outside the audited allowlist"

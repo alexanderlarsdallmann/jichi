@@ -207,6 +207,65 @@ static int is_pronoun_after(const char *s)
     return 0;
 }
 
+/* True when a "do not" cue is DESCRIPTIVE rather than an instruction, judged by
+ * what stands in front of it. "the tests do not compile" is a statement about
+ * the tests; "do not compile anything" is an order. The difference is a subject
+ * before the cue, so this looks BEHIND it -- the mirror of is_pronoun_after,
+ * which looks ahead for "why don't we".
+ *
+ * WHY THIS EXISTS (2026-09-21, found by driving jichi on a real project). A
+ * prompt opened "Two tests at the end of analyzer.zig do not compile:" -- a
+ * statement of the state the agent was being asked to FIX -- and `compile` is a
+ * token of the `build` command key, so the run inferred "do not run build
+ * commands" and enforced it. Measured with the same scripted tool call: 0
+ * refused without that sentence, 1 refused with it. The agent then could not
+ * run `zig build test` to check its own work, looped, and the run ended
+ * verify_failed after 42 tool calls and 2,215,762 tokens. Telling a coding
+ * agent that something does not compile is the most ordinary thing there is to
+ * say to one.
+ *
+ * SCOPED TO THE "do not" FAMILY on purpose. "we never push to master" is
+ * declarative too, and it is also a policy worth honouring; "never" and "must
+ * not" are left alone. Only the third-person "X do not Y" shape is silenced.
+ *
+ * A word before the cue means descriptive, EXCEPT the discourse markers that
+ * legitimately open an imperative clause ("please do not ...", "but do not
+ * ..."). A clause boundary or the start of the message means imperative. */
+static int is_descriptive_before(const char *low, jc_size pos)
+{
+    static const char *OPENERS[] = {
+        "please", "but", "and", "or", "nor", "then", "also", "so",
+        "however", "again", "now", "instead", "just", NULL
+    };
+    jc_size e, b;
+    int i;
+
+    if (pos == 0) {
+        return 0;                       /* start of the message: an order */
+    }
+    e = pos;
+    while (e > 0 && low[e - 1] == ' ') {
+        e--;
+    }
+    if (e == 0) {
+        return 0;
+    }
+    if (!is_word_ch((unsigned char)low[e - 1])) {
+        return 0;                       /* . ; : , ! ? ( - * newline: new clause */
+    }
+    b = e;
+    while (b > 0 && is_word_ch((unsigned char)low[b - 1])) {
+        b--;
+    }
+    for (i = 0; OPENERS[i] != NULL; i++) {
+        jc_size ol = (jc_size)strlen(OPENERS[i]);
+        if (ol == e - b && strncmp(low + b, OPENERS[i], ol) == 0) {
+            return 0;                   /* "please do not ...": still an order */
+        }
+    }
+    return 1;                           /* a subject stands in front: a statement */
+}
+
 /* Word match tolerating a plural/3rd-person 's' ("tests"/"builds"/"pushes"). */
 static int mentions(const char *win, const char *base)
 {
@@ -657,6 +716,10 @@ int jc_constraint_scan(const char *msg, struct jc_constraint *out, int max,
             /* boundary before the cue (avoid matching inside a word) */
             if (i > 0 && is_word_ch((unsigned char)low[i - 1])) continue;
             if (is_pronoun_after(low + i + cl)) continue; /* conversational */
+            /* "the tests do not compile" states a fact; it does not forbid
+             * compiling. Only the "do not" family -- never/must not are
+             * normative even in the third person. */
+            if (c <= 2 && is_descriptive_before(low, i)) continue;
             {
                 char win[96];
                 jc_size wl = len - (i + cl);

@@ -143,6 +143,35 @@ static int enter_raw(int fd, struct termios *saved, int *flushed)
     if (tcsetattr(fd, TCSAFLUSH, &raw) != 0) {
         return -1;
     }
+    /* TCSAFLUSH is SPECIFIED to discard input received but not read, and on
+     * Cygwin it does not. Measured 2026-09-21 with a pty pair, the same code and
+     * flags on both hosts: 18 bytes written to the master, then
+     *
+     *     Linux    pending 18 -> tcsetattr(TCSAFLUSH) -> 0
+     *     Cygwin   pending 18 -> tcsetattr(TCSAFLUSH) -> 18   (survived)
+     *                            tcflush(TCIFLUSH)    -> 0
+     *
+     * So the type-ahead this function announces as discarded was still in the
+     * queue there, and became the user's first prompt --
+     * tests/smoke/preprompt_discard.sh check 3, the safety half, failing on
+     * Cygwin while checks 1 and 2 (the announcement) passed. A guarantee that
+     * silently does not hold, which is the MSYS2 `noacl` shape again.
+     *
+     * The explicit form works on both and is a no-op where TCSAFLUSH already did
+     * the job, so it is called unconditionally rather than behind a platform
+     * name -- a third per-platform ifdef for one call is how the second platform
+     * gets missed.
+     *
+     * And REPORT THE EFFECT, NEVER THE ATTEMPT: `*flushed` is set above from a
+     * readability probe taken BEFORE any flush, so it was a claim about an
+     * intention. It is withdrawn here if the input is somehow still readable,
+     * because "your line was discarded, retype it" is worse than silence when
+     * the line was not discarded and is about to be read. No measured platform
+     * reaches that branch. */
+    (void)tcflush(fd, TCIFLUSH);
+    if (flushed != NULL && *flushed && input_pending(fd)) {
+        *flushed = 0;
+    }
     return 0;
 }
 

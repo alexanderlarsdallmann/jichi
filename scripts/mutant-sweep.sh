@@ -96,6 +96,40 @@ for f in $list; do
     case "$b" in _smoke|run) continue ;; esac
     case " $EXCLUDE " in *" $b "*) nskip=$((nskip + 1)); continue ;; esac
     out=$(JC_SMOKE_BIN="$mutant" timeout "${MUTANT_TIMEOUT:-120}" sh "$f" 2>&1 || true)
+
+    # A SKIP IS NOT A PASS (M698), and counting it as one is this sweep making
+    # the very mistake it exists to catch, one level up.
+    #
+    # MEASURED: `pdf` and `docs_pdf` skip on any host without a working
+    # pdftotext -- the bench has none -- so they never invoke the binary at all.
+    # A driver that runs nothing cannot notice that what it did not run is
+    # hollow, and reporting it as "STAYS GREEN against a binary that does
+    # nothing" accuses it of measuring its own fixtures when it measured
+    # nothing whatsoever. Both were swept for the first time when M698 edited
+    # them, and the sweep failed the gate over a property they had always had.
+    #
+    # DELIBERATELY NOT A STATIC EXCLUSION. On a host that HAS a working
+    # pdftotext those drivers do exercise the binary and must be swept; this
+    # file's own header says a driver excluded while it does exercise the binary
+    # is "a coverage hole hidden by an exclusion". The question therefore
+    # belongs to the HOST and to the moment of sweeping, not to a list.
+    #
+    # And it is asked TWICE, because the two skips are different facts: a driver
+    # that skips only under the mutant has NOTICED it, which is a pass for this
+    # sweep, while one that skips either way was never in a position to notice.
+    if printf '%s' "$out" | grep -q '^1\.\.0'; then
+        real=$(timeout "${MUTANT_TIMEOUT:-120}" sh "$f" 2>&1 || true)
+        if printf '%s' "$real" | grep -q '^1\.\.0'; then
+            nskip=$((nskip + 1))
+            printf 'ok - %s skips on this host with or without the product, so it was not swept\n' "$b"
+            printf '#   %s\n' "$(printf '%s' "$out" | grep '^# skip' | cut -c1-160)"
+            continue
+        fi
+        nrun=$((nrun + 1))
+        printf 'ok - %s notices a hollow binary (it skips rather than passing)\n' "$b"
+        continue
+    fi
+
     nrun=$((nrun + 1))
     if printf '%s' "$out" | grep -q '^not ok'; then
         printf 'ok - %s notices a hollow binary\n' "$b"

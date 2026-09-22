@@ -60,6 +60,28 @@ The check tests four things:
 Number 4 catches a common surprise: a file can gain a blank line at the end
 without anybody meaning it.
 
+## If you get stuck
+
+There are three hints for this task. Take them one at a time.
+
+```sh
+# in a terminal, in your project folder (the one holding docs/) -- not inside jichi
+jichi hint docs/assignments/p3-change-one-line.md
+```
+
+That prints the first one. If you are still stuck, ask for the next by adding
+its number:
+
+```sh
+# in a terminal, in your project folder (the one holding docs/) -- not inside jichi
+jichi hint docs/assignments/p3-change-one-line.md 2
+```
+
+Asking for a hint is not cheating, and it costs nothing. The three go from a
+small nudge to nearly the answer, so take them in order and stop as soon as you
+can carry on by yourself. Which ones you used is written down, so you can look
+back later and see what you needed — nobody is marked down for it.
+
 ## If it fails
 
 Do not guess. Read the file and compare it to the four rules above. Then ask the

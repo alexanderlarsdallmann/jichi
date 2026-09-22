@@ -82,6 +82,14 @@ Not optional, in rough order of how often each is skipped:
    the `checked`/`not_checked` sentences say what the run's *record* tested. A
    supervisor that trusts `text` without reading `reach.verify == "none"` is
    trusting the one artifact nothing checked.
+2c. **`answer_capped` on the terminal object** — present, and true, ONLY when the
+   reply was cut at the model's output ceiling. **`stop_reason: "done"` is not
+   enough to conclude the answer is complete**, and this is the one case where
+   the two come apart: the run finished, the work was kept, and the text stops
+   mid-sentence. It is a separate key rather than a new `stop_reason` precisely
+   so that a supervisor's existing `== "done"` branch keeps its meaning — test
+   for the key, the way `degraded` is tested. `reach.not_checked` says the same
+   thing in prose, and prose is for logs, not for branching.
 3. **Unknown event types.** The jsonl stream gains events (`heartbeat` arrived at
    M165). Ignore what you do not recognise; do not treat it as a protocol error.
 4. **Liveness.** A long model call produces no output. Use `--heartbeat <secs>` to

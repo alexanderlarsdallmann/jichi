@@ -107,7 +107,9 @@ run_driver() {
     # turns a hang into a failure), hence multiply-at-runtime.
     _limit=$((_limit * ${JC_SMOKE_TIMEOUT_MULT:-${JC_E2E_TIMEOUT_MULT:-1}}))
     _log=$(mktemp "${TMPDIR:-/tmp}/jichi_smoke_$_t.XXXXXX")
-    if wd "$_limit" sh "$here/$_t.sh" >"$_log" 2>&1; then
+    wd "$_limit" sh "$here/$_t.sh" >"$_log" 2>&1
+    _drc=$?
+    if [ "$_drc" -eq 0 ]; then
         # TAP accounting: the plan and the emitted ok-count must agree --
         # a green with no denominator is not evidence.
         _plan=$(awk -F'\\.\\.' '/^1\.\.[0-9]+$/ { print $2; exit }' "$_log")
@@ -126,16 +128,67 @@ run_driver() {
         rm -f "$_log"
         return 0
     fi
-    echo "smoke: $_t FAILED (in suite)" >&2
+    # A KILLED driver is not a FAILED driver, and its output is not evidence.
+    #
+    # MEASURED 2026-09-21 on Cygwin, where three drivers exceed their deadline.
+    # `timeout` TERMs the process GROUP, so a `$(...)` command substitution in
+    # flight dies and yields an EMPTY string -- and the driver shell, which
+    # defers the signal while waiting on that foreground child (the same
+    # deferral `wd` documents above), then resumes, compares against the empty
+    # value, and prints `not ok` lines ACCUSING THE PRODUCT before it dies.
+    #
+    # Reproduced deliberately: `timeout -k 5 25 sh tests/smoke/cppcheck_lint.sh`
+    # emits, byte for byte, the failure a full tier reported --
+    # "the generated-header universe changed or the extraction broke ... by
+    # untracked include: none" -- for a universe the kill had erased. `accessible`
+    # under the same treatment reports `rc default=0 accessible=143`, which is
+    # 128+15: the SIGTERM itself, presented as a product defect.
+    #
+    # So a deadline does not merely truncate a driver. It can FABRICATE findings,
+    # and those findings cost a reader hours -- they cost this project hours on
+    # the day this was written. Saying which happened is nearly free.
+    case "$_drc" in
+        124|137|143)
+            echo "smoke: $_t KILLED at its ${_limit}s deadline (rc=$_drc)" >&2
+            echo "smoke:   The output below is NOT EVIDENCE about jichi. A killed" >&2
+            echo "smoke:   shell continues past a command substitution the kill" >&2
+            echo "smoke:   emptied, so any 'not ok' here may be an artifact of the" >&2
+            echo "smoke:   deadline rather than a finding. Re-run this driver alone" >&2
+            echo "smoke:   before believing any of it." >&2
+            _killed=1
+            ;;
+        *)
+            echo "smoke: $_t FAILED (in suite)" >&2
+            _killed=0
+            ;;
+    esac
     sed 's/^/    | /' "$_log" >&2
     rm -f "$_log"
     echo "smoke: retrying $_t standalone to classify the failure..." >&2
     _log2=$(mktemp "${TMPDIR:-/tmp}/jichi_smoke_$_t.XXXXXX")
-    if wd "$_limit" sh "$here/$_t.sh" >"$_log2" 2>&1; then
+    wd "$_limit" sh "$here/$_t.sh" >"$_log2" 2>&1
+    _drc2=$?
+    if [ "$_drc2" -eq 0 ]; then
         echo "smoke: $_t PASSES standalone -> IN-SUITE-ONLY failure;" >&2
         echo "       suspect cross-driver load/resource effects." >&2
     else
-        echo "smoke: $_t ALSO fails standalone -> a real defect:" >&2
+        case "$_drc2" in
+            124|137|143)
+                # NOT "a real defect": it ran out of time twice. The old wording
+                # made a positive claim the retry cannot support -- and it made
+                # it about drivers that were merely slow on this host.
+                echo "smoke: $_t was KILLED again (rc=$_drc2) -> it needs more than" >&2
+                echo "       ${_limit}s on this host. No verdict about jichi follows" >&2
+                echo "       from either run; the checks below may be deadline artifacts." >&2
+                ;;
+            *)
+                if [ "$_killed" -eq 1 ]; then
+                    echo "smoke: $_t was killed in suite but FAILED outright alone -> a real defect:" >&2
+                else
+                    echo "smoke: $_t ALSO fails standalone -> a real defect:" >&2
+                fi
+                ;;
+        esac
         sed 's/^/    | /' "$_log2" >&2
     fi
     rm -f "$_log2"
@@ -197,7 +250,7 @@ for t in smoke_lint snapshot_lint license_lint platform_retest_lint deferred_reg
          dream prune_dreams prune_index prune_worktrees workflow grade improve export output_style learn faults \
          faults_net faults_net_midstream provider_redirect state_root child_fds secret_env_subcommands output_escapes transport_posture \
          acp_load headless_basic headless_tool run_kill_note glob_pattern toolcalling_none \
-         compact_pressed compact_latch accessible slash_leading_space paste_special history_check prefix_churn context_gauge ask_unattended fence_refusal state_reach headless_progress output_json stop_reason_capped capped_turn_says_so run_outcome_agrees shell_wrote_nothing sessions prose_nudge empty_answer notify command_fm \
+         compact_pressed compact_latch accessible slash_leading_space paste_special history_check prefix_churn context_gauge ask_unattended fence_refusal state_reach headless_progress output_json stop_reason_capped capped_turn_says_so run_outcome_agrees shell_wrote_nothing probe_says_why sessions prose_nudge empty_answer notify command_fm \
          slash_unknown expect_header advice \
          ask websearch subagent_itercap subagent_budget learn_on_stop learn_on_stop_cost subtask_persona subtask_language telemetry_default learn_retract learn_checks learn_warrant workflow_refute bg \
          constraints_scope constraint_vs_scope blocked_calls_count context_underdeclared config_jsonc constraints_scan brief_check learn_on_stop_outcome hooks \
@@ -225,7 +278,7 @@ done
 for t in setup degenerate_store pathfence rewind baseline_checkpoint kinetic sound lease \
          enablers route_stall autocontext control acp_cancel \
          parallel_hang parallel_abort parallel_merge parallel_timeout_msg supervisor \
-         sessions_footprint turn_scratch learner_flow \
+         sessions_footprint turn_scratch learner_flow leak_turn \
          setup_keyfile format_command paste typed tui_tool_escapes typeahead typeahead_live stall signals tui_basic tui_context_views tui_learn tui_learn_apply tui_model_name undo_note; do
     echo "--- smoke: $t"
     run_driver "$t" 120 || driver_failed "$t"

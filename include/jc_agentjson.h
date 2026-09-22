@@ -93,6 +93,12 @@ struct jc_agent_econ {
  * M97: `econ` (nullable) adds run economics -- `starved`, `budget:{used,limit}`,
  * `budget_kind`, `peak_input`, `cache:{read,write}`, `tools:{read,write,shell,
  * other}` -- for a driving agent; NULL omits all of it.
+ * `answer_capped` (M334's flag, last hop): the reply was cut at the output
+ * ceiling. Emitted ONLY when true, the way `degraded` is -- test for the key.
+ * It is a top-level field rather than a new `stop_reason`, because the run
+ * finished (see jc_outcome.h), and it is machine-readable rather than left to
+ * the reach footer's prose, because this contract's own advice about prose is
+ * "log it, do not match on it".
  * M630: `reach` (nullable, OWNERSHIP TAKEN) is the reach footer's object from
  * jc_reach_json -- what the run's record checked and did not -- attached as the
  * `reach` member. It is attached HERE rather than by the caller so that the one
@@ -104,6 +110,7 @@ cJSON *jc_agentjson_result(const char *text, const char *model,
                            double in_tok,
                            double out_tok, double cost, int tool_calls,
                            int aborted, const char *stop_reason, int work_kept,
+                           int answer_capped,
                            int err_code, const char *err_type,
                            const char *err_msg,
                            const struct jc_agent_econ *econ, cJSON *reach);

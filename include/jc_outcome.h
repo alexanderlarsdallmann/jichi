@@ -60,14 +60,35 @@ struct jc_run_outcome {
     enum jc_run_stop stop;
     int answer_complete;  /* the model stopped because it was finished      */
     int result_tested;    /* a verifier reached a verdict on what it did    */
+    int answer_capped;    /* the last reply was cut at the OUTPUT CEILING   */
 };
+
+/* WHY `answer_capped` IS NOT A NEW `jc_run_stop` VALUE, since the register
+ * proposed one. The enum above answers "why the RUN stopped", and a reply cut
+ * at the output ceiling does not stop the run: the loop ends normally, the work
+ * is kept, and it is the ANSWER that was cut. Three consequences decided it:
+ *
+ *   * `jc_run_stop_wire` is a stable interface (docs/EMBEDDING.md). A new value
+ *     would reclassify a run that genuinely completed, so every consumer
+ *     branching on `stop_reason == "done"` to mean "finished normally" would
+ *     start seeing a failure where there is none.
+ *   * the cap can fire on a NON-final turn and the loop carry on. A stop reason
+ *     cannot express "something was cut somewhere along the way"; this field
+ *     reports on the answer the caller is about to read, which is what a
+ *     consumer actually asks.
+ *   * the same shape already exists here and for the same reason:
+ *     `result_tested` is separate rather than folded into `answer_complete`.
+ *
+ * It is an INPUT to the derivation rather than a property of the stop reason,
+ * exactly like `verifier_concluded` and by the identical argument: only the
+ * caller knows whether the provider reported a ceiling. */
 
 /* Fill OUT from STOP and whether a verifier concluded. VERIFIER_CONCLUDED is
  * passed in rather than derived because only the caller knows whether one was
  * armed at all -- "no verifier" and "a verifier that never ran" are different
  * facts and this header refuses to guess between them. */
 void jc_run_outcome_set(struct jc_run_outcome *out, enum jc_run_stop stop,
-                        int verifier_concluded);
+                        int verifier_concluded, int answer_capped);
 
 /* The stable machine string for `--output json`'s `stop_reason`. */
 const char *jc_run_stop_wire(enum jc_run_stop stop);

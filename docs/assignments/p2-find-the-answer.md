@@ -68,3 +68,25 @@ Being exact about the second check: it looks for the line, not for the whole fil
 being untouched. So it catches the mistake people actually make — editing the file
 you were asked to read — and would not notice a line added somewhere else in it.
 A check that says what it does is worth more than one you have to trust.
+
+## If you get stuck
+
+There are three hints for this task. Take them one at a time.
+
+```sh
+# in a terminal, in your project folder (the one holding docs/) -- not inside jichi
+jichi hint docs/assignments/p2-find-the-answer.md
+```
+
+That prints the first one. If you are still stuck, ask for the next by adding
+its number:
+
+```sh
+# in a terminal, in your project folder (the one holding docs/) -- not inside jichi
+jichi hint docs/assignments/p2-find-the-answer.md 2
+```
+
+Asking for a hint is not cheating, and it costs nothing. The three go from a
+small nudge to nearly the answer, so take them in order and stop as soon as you
+can carry on by yourself. Which ones you used is written down, so you can look
+back later and see what you needed — nobody is marked down for it.

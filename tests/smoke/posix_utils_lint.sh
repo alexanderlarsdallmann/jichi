@@ -25,7 +25,7 @@
 # It bans a specific, checked list of flags -- not "all non-POSIX usage".
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 26
+t_plan 28
 tmp=$(smoke_tmp)
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 
@@ -588,6 +588,21 @@ fi
 # say "waitpid" and were reported as violations, and the real fourth site put
 # `kill(pid, SIGTERM); waitpid(pid, NULL, 0);` on ONE line, which a
 # next-line-only window steps straight over.
+# THE FILE LIST IS CAPTURED AND FLOORED BEFORE awk SEES IT. An awk with a
+# program but NO file operands reads stdin, and both outcomes are wrong: where
+# stdin never delivers EOF (a terminal, a socket, `make ci` from a tty) the
+# check HANGS FOREVER -- measured 2026-09-21, this one ran 15h47m against a
+# tree whose src/ was absent -- and where stdin is /dev/null it prints a
+# cheerful `ok 19` having read zero source files. A floor turns both into a
+# loud failure. `< /dev/null` below is belt-and-braces: if a future edit
+# bypasses the floor, the check dies instead of hanging the gate.
+_rp_files=$(tracked_files src | grep '\.c$' | sort)
+_rp_n=$(printf '%s\n' "$_rp_files" | grep -c . | tr -d '[:space:]')
+[ -n "$_rp_files" ] || _rp_n=0
+if [ "${_rp_n:-0}" -lt 175 ]; then
+    t_fail "check 19 scanned $_rp_n .c files under \$ROOT/src (floor 175) --
+the universe is empty or the find broke, so a pass here would mean nothing."
+else
 _rp=$(awk '
     { line = $0; sub(/^[ \t]+/, "", line) }
     line ~ /^[*]/ { next }
@@ -600,13 +615,14 @@ _rp=$(awk '
             armed = 6
         } else if (armed > 0) { armed-- }
     }
-' $(find "$ROOT/src" -name '*.c' | sort) 2>/dev/null | head -8)
+' $_rp_files < /dev/null 2>/dev/null | head -8)
 if [ -z "$_rp" ]; then
-    t_ok "no blocking waitpid within six lines of a SIGTERM (use jc_worker_reap_grace)"
+    t_ok "no blocking waitpid within six lines of a SIGTERM, $_rp_n files scanned"
 else
     t_fail "blocking waitpid after SIGTERM -- a child that traps or ignores the
 signal hangs the parent forever. Use jc_worker_reap_grace(pid, JC_WORKER_TERM_GRACE_MS):
 $_rp"
+fi
 fi
 
 # ---- 20: `grep -r` is never pointed at a single named FILE -------------------
@@ -634,6 +650,16 @@ fi
 # `grep -v ':0$'`). What is flagged is only an -r whose operand is a path with a
 # file extension. Flagging the directory form would ban the idiom the tier is
 # built on.
+# Captured and floored before awk sees it, for the reason spelled out at check
+# 19: an awk with no file operands reads stdin, which hangs the gate forever on
+# an open stdin and reports a vacuous `ok` on /dev/null.
+_rf_files=$(tracked_files tests scripts | grep '\.sh$' | sort)
+_rf_n=$(printf '%s\n' "$_rf_files" | grep -c . | tr -d '[:space:]')
+[ -n "$_rf_files" ] || _rf_n=0
+if [ "${_rf_n:-0}" -lt 360 ]; then
+    t_fail "check 20 scanned $_rf_n tracked .sh files under \$ROOT/tests and \$ROOT/scripts
+(floor 360) -- the universe is empty or the find broke, so a pass means nothing."
+else
 _rf=$(awk '
     FILENAME ~ /posix_utils_lint\.sh$/ { next }
     { line = $0; sub(/^[ \t]*/, "", line) }
@@ -655,20 +681,21 @@ _rf=$(awk '
             }
         }
     }
-' $(find "$ROOT/tests" "$ROOT/scripts" -name '*.sh' -type f 2>/dev/null | sort))
+' $_rf_files < /dev/null 2>/dev/null)
 # `grep -c .` prints 0 AND exits 1 on empty input, so a `|| echo 0` fallback
 # appends a SECOND zero and `[ "0
 # 0" -eq 0 ]` is a syntax error, not a pass. wc -l, the idiom check 18 uses.
 _nrf=$(printf '%s' "$_rf" | grep -c . | tr -d '[:space:]')
 [ -n "$_rf" ] || _nrf=0
 if [ "${_nrf:-0}" -eq 0 ]; then
-    t_ok "no \`grep -r\` pointed at a single named file (BSD grep would prefix the filename)"
+    t_ok "no \`grep -r\` pointed at a single named file, $_rf_n scripts scanned"
 else
     t_fail "$_nrf \`grep -r\` invocation(s) whose operand is a FILE, not a directory.
 FreeBSD grep treats -r as -H, so the output gains a \"path:\" prefix that GNU grep
 does not add -- the comparison then fails on a healthy tree. Drop the -r; it does
 nothing on a named file:
 $_rf"
+fi
 fi
 
 # --- 21: no ERE interval {n} inside an awk regex literal --------------------
@@ -863,6 +890,73 @@ $_rs
 illumos one-true-awk splits on the FIRST CHARACTER alone, so the records are
 not the ones the program means. Use index()/substr() and carry the state in a
 global, or a single-character RS. RS=\"\" (paragraph mode) is POSIX and exempt."
+fi
+
+# ---- 27: a filter fed operands from an expansion must CLOSE ITS STDIN -------
+# MEASURED 2026-09-21, twice, and the second time was this check's own fault.
+#
+# An `awk`/`sed`/`grep` given a program and NO file operands reads STDIN. Where
+# stdin never delivers EOF (a terminal, a socket, `make ci` from a tty) the
+# check HANGS FOREVER -- one run sat in pipe_read for 15h47m -- and where stdin
+# is /dev/null it prints a cheerful `ok` having read nothing.
+#
+# WHY THIS CHECK WAS WRONG THE FIRST TIME, which is the useful part. Its first
+# version matched only `$(find ...)` used inline as operands, because that was
+# the spelling of the two sites that had just bitten me. It reported 0 hits and
+# was believed. The commoner spelling is a VARIABLE -- `}' $targets` -- and
+# there were five of those, including `sprintf_lint.sh`, which was measured
+# hanging for 45s on a tree with no src/ and then printing
+# `ok 2 - no raw sprintf outside the audited allowlist` after SIGTERM, having
+# scanned zero files. Enumerating one way and agreeing with myself is exactly
+# what "audit the universe, not the result" is about; the lint found the shape
+# it was built from and nothing else.
+#
+# A FLOOR IS NOT ENOUGH, and that is why the rule is about stdin rather than
+# about counting. `sprintf_lint` DID floor its file count and DID report
+# `not ok 1 - scanned only 0 files` -- and then hung anyway, because `t_fail`
+# records and continues. The floor tells you the universe is empty; only
+# `< /dev/null` stops the filter waiting forever to be told what to read.
+#
+# THE RULE, in one sentence a reader can apply without this comment: if a
+# filter's operands come from an expansion, close its stdin. That is mechanical,
+# it needs no judgement about whether the expansion can be empty, and it is
+# cheap to satisfy.
+_cs_pat='^[[:space:]]*[}]?['\''"][[:space:]]+\$|(awk|sed|grep|cut|tr|sort|wc|head|tail|nl|paste|cat|od)[[:space:]]+['\''"][^'\''"]*['\''"][[:space:]]+\$'
+mkdir -p "$tmp/cs"
+printf "%s\n" "}' \$targets > \"\$tmp/offenders\""            > "$tmp/cs/bad1.sh"
+printf "%s\n" "' \$(find \"\$R/src\" -name '*.c' | sort)"      > "$tmp/cs/bad2.sh"
+printf "%s\n" "awk '{print}' \$files"                          > "$tmp/cs/bad3.sh"
+printf "%s\n" "}' \$targets < /dev/null > \"\$tmp/offenders\"" > "$tmp/cs/good1.sh"
+printf "%s\n" "_f=\$(find \"\$R/src\" -name '*.c' | sort)"     > "$tmp/cs/good2.sh"
+printf "%s\n" "t_fail \"left: \$(find \"\$R\" -name x | tr '\\n' ' ')\"" > "$tmp/cs/good3.sh"
+_csb=$(grep -lE "$_cs_pat" "$tmp/cs"/bad*.sh 2>/dev/null | wc -l | tr -d '[:space:]')
+_csg=$(grep -E "$_cs_pat" "$tmp/cs"/good*.sh 2>/dev/null | grep -vc "/dev/null" | tr -d '[:space:]')
+if [ "${_csb:-0}" -eq 3 ] && [ "${_csg:-0}" -eq 0 ]; then
+    t_ok "the operand matcher flags all three planted shapes and spares a closed stdin, an assignment and a piped display string"
+else
+    t_fail "matcher broken: flagged $_csb/3 planted positives and $_csg/0 clean
+forms -- check 28 below is meaningless until this passes"
+fi
+
+# ---- 28: the real scan ------------------------------------------------------
+_cs_files=$(tracked_files tests scripts | grep '\.sh$' | sort)
+_cs_n=$(printf '%s\n' "$_cs_files" | grep -c . | tr -d '[:space:]')
+[ -n "$_cs_files" ] || _cs_n=0
+if [ "${_cs_n:-0}" -lt 360 ]; then
+    t_fail "check 28 scanned $_cs_n tracked .sh files (floor 360) -- the universe is
+empty or the find broke, so a pass here would mean nothing."
+else
+    _cs=$(grep -nE "$_cs_pat" $_cs_files < /dev/null 2>/dev/null \
+          | grep -v "/dev/null" | head -8)
+    if [ -z "$_cs" ]; then
+        t_ok "every filter fed operands from an expansion closes its stdin, $_cs_n scripts scanned"
+    else
+        t_fail "a filter takes its FILE OPERANDS from an expansion and leaves stdin open:
+$_cs
+When the expansion is empty the filter falls back to stdin -- hanging the gate
+forever where stdin stays open, and reporting a vacuous pass on /dev/null. A
+floor does not prevent this: t_fail records and continues. Add \`< /dev/null\`."
+    fi
 fi
 
 t_done

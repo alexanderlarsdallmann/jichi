@@ -2147,8 +2147,16 @@ static void hl_reach_fill(const struct hl_ctx *c, struct jc_app *app,
         jc_run_outcome_set(&oc, jc_agent_stop_reason(app, st),
                            env != NULL && (env->outcome == JC_ENV_OK ||
                                            env->outcome == JC_ENV_VERIFY_FAILED ||
-                                           env->outcome == JC_ENV_SCOPE_TAINTED));
+                                           env->outcome == JC_ENV_SCOPE_TAINTED),
+                           /* M334 set this on the message and the agent already
+                            * carries it to the tool layer; this is the last hop,
+                            * and its absence is why a capped answer read as a
+                            * clean finish. `last_response_truncated` is the LAST
+                            * reply, which is the answer -- an earlier turn cut
+                            * mid-loop is a different fact and jc_tool.c owns it. */
+                           app->last_response_truncated);
         r->answer_truncated = !oc.answer_complete;
+        r->answer_capped = oc.answer_capped;
         r->stop_clause = jc_run_stop_clause(oc.stop);
     }
     r->tool_calls = c->tool_calls;
@@ -2204,6 +2212,7 @@ static void hl_reach_fill(const struct hl_ctx *c, struct jc_app *app,
     r->scope_violations = env->out_of_scope_seen;
     r->shell_ran = env->shell_ran;
     /* M689: only the proven-quiet case, and only when the sweep really ran. */
+    r->verify_no_count = env->verify_no_count;   /* M692 */
     r->shell_wrote_nothing = (env->shell_ran && env->sweep_ran &&
                               !env->tree_changed) ? 1 : 0;
     r->test_edits = env->test_edits;
@@ -2578,6 +2587,9 @@ static int run_headless(struct jc_app *app, const char *prompt, int fmt)
                 ctx.in_tok, ctx.out_tok,
                 ctx.cost_total, ctx.tool_calls, aborted, stop,
                 (app->env == NULL) ? 1 : !app->env->rolled_back,
+                /* The same struct the footer renders, so the machine-readable
+                 * key and the prose cannot disagree. */
+                reach.answer_capped,
                 errc, errtype, errmsg, &econ, jc_reach_json(&reach));
         }
         s = (root != NULL) ? jc_json_print(root) : NULL;
@@ -5121,7 +5133,7 @@ static void setup_apply_machine(struct jc_setup_answers *ans,
     int lean = 0;
     long ctx = 0;
     struct utsname u;
-    int have_os = (uname(&u) == 0);
+    int have_os = (uname(&u) >= 0);   /* non-negative is success; illumos returns 1 */
 
     if (ans->max_parallel <= 0 && cpu > 0) {
         par = (cpu > 8) ? 8 : cpu;
@@ -5389,8 +5401,12 @@ static int setup_emit(const struct jc_setup_preset *preset,
      * not an advanced skill. */
     printf("\nA config only needs this much:\n\n");
     printf("  {\"models\": [{\"provider\": \"openai\",\n");
-    printf("               \"model\": \"gpt-4o\",\n");
+    printf("               \"model\": \"<the id your endpoint serves>\",\n");
+    printf("               \"apiBase\": \"http://localhost:1234/v1\",\n");
     printf("               \"apiKeyEnv\": \"JICHI_API_KEY\"}]}\n");
+    printf("\n  \"provider\" is the WIRE DIALECT, not a company: \"openai\" "
+           "means\n  OpenAI-compatible, which most endpoints speak. "
+           "`jichi setup` asks your\n  endpoint which models it serves.\n");
 
     printf("\nDone. Next steps:\n");
     /* M326f: only advise supplying the key when it is actually missing, and
@@ -5577,8 +5593,16 @@ static int setup_interactive(struct jc_term *t, struct jc_arena *a,
                              struct jc_setup_answers *ans, char *cfgpath,
                              jc_size cfgcap)
 {
+    /* M709: NO HOUSE VENDOR, and the order is the policy. A menu's first item
+     * is its recommendation whether or not anyone meant it that way, and this
+     * one used to recommend Anthropic and pre-fill `claude-opus-4-8` as the
+     * model -- a priced frontier id, suggested by the program, to a user who had
+     * not chosen a vendor yet. The vendor-neutral option leads now, the two
+     * named vendors follow in alphabetical order, and no model id is
+     * pre-filled: the wizard asks the endpoint what it serves instead. */
     static const char *const PROVS[] = {
-        "anthropic", "openai", "other (OpenAI-compatible apiBase)"
+        "any OpenAI-compatible endpoint (a local server, a gateway, ...)",
+        "anthropic", "openai"
     };
     static const char *const LANGS[] = {
         "default", "c-cli", "python-cli", "zig-cli", "godot",
@@ -5609,13 +5633,29 @@ static int setup_interactive(struct jc_term *t, struct jc_arena *a,
         "here is permanent, and each option below shows the config keys it "
         "writes, so you can watch the file take shape.");
     {
+        /* M695: this asked jc_platform_is_linux(), so it greeted FreeBSD,
+         * NetBSD and OpenBSD users -- every one of them a Verified row running
+         * the FULL gate -- with "jichi is not tested on this system", in the
+         * first paragraph a new user reads. The verdict lives in one place now
+         * and has three values. */
         char plat[160];
-        if (jc_platform_describe(plat, sizeof plat) && !jc_platform_is_linux()) {
+        int verdict = jc_platform_row_verdict();
+        if (jc_platform_describe(plat, sizeof plat)
+            && verdict != JC_PLATFORM_ROW_VERIFIED) {
             printf("\n");
-            setup_wrap(0, "Note: this looks like a system jichi is not tested "
-                          "on. Most of it is plain POSIX and should work, but "
-                          "the memory watchdog (memBudgetMb) needs procfs and "
-                          "will not -- `jichi doctor` says so if you set it.");
+            if (verdict == JC_PLATFORM_ROW_PARTLY) {
+                setup_wrap(0, "Note: jichi is PARTLY verified on this system -- "
+                              "it builds here, and its unit suite and smoke "
+                              "tier have run, but not the full gate. See "
+                              "docs/PLATFORMS.md for what is missing on this "
+                              "row, including anything it says about file "
+                              "permissions.");
+            } else {
+                setup_wrap(0, "Note: this looks like a system jichi is not tested "
+                              "on. Most of it is plain POSIX and should work, but "
+                              "the memory watchdog (memBudgetMb) needs procfs and "
+                              "will not -- `jichi doctor` says so if you set it.");
+            }
             printf("  detected: %s\n", plat);
         }
     }
@@ -5813,15 +5853,55 @@ static int setup_interactive(struct jc_term *t, struct jc_arena *a,
 
     printf("\nModel provider:\n");
     i = setup_menu(t, PROVS, 3, 1);
-    ans->provider = (i == 0) ? "anthropic" : "openai";
-    if (i == 2) {
+    /* Option 0 is OpenAI-compatible-by-wire, which is what a local server, an
+     * institutional gateway and most third-party endpoints speak. */
+    ans->provider = (i == 1) ? "anthropic" : "openai";
+    if (i == 0) {
         ans->api_base = setup_line(t, a, "apiBase URL",
                                    "http://localhost:1234/v1");
         if (ans->api_base == NULL) return -1;
     }
-    ans->model = setup_line(t, a, "model id",
-                            (i == 0) ? "claude-opus-4-8" : "gpt-4o");
-    if (ans->model == NULL) return -1;
+    /* ASK THE ENDPOINT WHAT IT SERVES, rather than suggesting an id. A pre-filled
+     * model id is a recommendation the program is in no position to make: it does
+     * not know what you have access to, what it costs you, or whether the id
+     * still exists. `/v1/models` knows all three better than a string literal
+     * compiled in months ago. Fails soft in every direction -- no server, no
+     * answer, an unparseable answer or an empty list all fall through to a
+     * free-text prompt with NO default, because "type the id you want" is a
+     * worse experience than a menu and a far better one than a wrong guess. */
+    {
+        const char *probe_base = (ans->api_base != NULL && ans->api_base[0] != '\0')
+            ? ans->api_base : jc_config_default_base(ans->provider);
+        struct jc_vec ids;
+        const char *chosen = NULL;
+        jc_vec_init(&ids, sizeof(char *));
+        if (probe_base != NULL && probe_base[0] != '\0') {
+            printf("\nAsking %s which models it serves...\n", probe_base);
+            jc_http_global_init();
+            if (jc_net_list_models(probe_base, NULL, 6, NULL, &ids, a) == JC_OK
+                && ids.len > 0) {
+                jc_size k;
+                const char **opts = jc_arena_alloc(a, sizeof(char *) * (ids.len + 1));
+                if (opts != NULL) {
+                    for (k = 0; k < ids.len; k++) {
+                        opts[k] = *(char **)jc_vec_at(&ids, k);
+                    }
+                    opts[ids.len] = "(none of these -- type an id myself)";
+                    printf("\nModels this endpoint serves:\n");
+                    k = (jc_size)setup_menu(t, opts, (int)ids.len + 1, 1);
+                    if (k < ids.len) {
+                        chosen = opts[k];
+                    }
+                }
+            } else {
+                printf("  (no listing from that endpoint -- type the id "
+                       "instead)\n");
+            }
+            jc_http_global_cleanup();
+        }
+        ans->model = (chosen != NULL) ? chosen : setup_line(t, a, "model id", NULL);
+        if (ans->model == NULL) return -1;
+    }
     ans->model_name = "chat";
     /* M326e: this answer is a variable NAME. The old label ("API key env var")
      * named the secret first and the thing being asked for second, so a user
@@ -6473,7 +6553,7 @@ static int run_setup(struct cli_args *args, struct jc_arena *arena)
             fprintf(stderr,
                 "setup: not a TTY -- pass flags, e.g.\n"
                 "  jichi setup --preset developer --provider openai \\\n"
-                "    --model gpt-4o --key-env OPENAI_API_KEY\n"
+                "    --model <id> --key-env JICHI_API_KEY\n"
                 "for a local or self-hosted server, add the endpoint:\n"
                 "  jichi setup --preset developer --provider openai \\\n"
                 "    --api-base http://localhost:1234/v1 --model my-model\n"
@@ -7029,7 +7109,7 @@ static int run_describe(int json)
         "rss_kb is omitted where the process RSS cannot be read");
     describe_event(arr, "done",
         "v type text model stop_reason error session_id run cost tokens "
-        "tool_calls aborted work_kept starved budget_kind budget "
+        "tool_calls aborted work_kept answer_capped starved budget_kind budget "
         "peak_input cache tools degraded reach",
         "the terminal event, also the whole --output json object; "
         "session_id, run, error, budget, budget_kind and degraded are "
@@ -10768,6 +10848,47 @@ static cJSON *probe_tool_array(void)
 }
 #endif
 
+/* M693: the app-level objects every subcommand already has by the time it can
+ * return, freed in one place.
+ *
+ * WHY. There are 28 early-return subcommand exits in this file, and each one
+ * was freeing a hand-maintained subset -- most just `config` and `arena`, the
+ * `skills` family a few more. `jc_calib_free` appeared on NONE of them; it was
+ * only on the main path, ~700 lines below. So `jichi doctor` under LeakSanitizer
+ * reported two direct leaks, and that is the actual cost: not the bytes (the
+ * process exits immediately) but that the leak CHECKER cannot be used on these
+ * paths, because a real leak would arrive as two more lines in a report that
+ * already has some. A tool that always complains is a tool nobody runs.
+ *
+ * Every one of these frees ends in `jc_vec_free`, which nulls the pointer and
+ * zeroes the length, so all of them are idempotent -- which is why this can be
+ * ADDED at each site without auditing and removing what is already there.
+ * The arena is deliberately NOT here: it is not idempotent, and every site
+ * already frees it last. Same shape as M688's stop reasons: N things times M
+ * exits is a matrix nobody maintains by hand. */
+static void app_free_common(struct jc_app *app)
+{
+    if (app == NULL) {
+        return;
+    }
+    jc_calib_free(&app->calib);
+    jc_board_free(&app->board);
+    jc_agentdef_set_free(&app->agents);
+    jc_command_set_free(&app->commands);
+    jc_skill_set_free(&app->skills);
+    jc_output_style_set_free(&app->output_styles);
+    /* M694: the two read-tracking vectors. Their CONTENTS are arena-owned
+     * (jc_arena_strdup), which is why this was invisible for so long -- the
+     * paths really are freed with the arena. What is not is each vec's own
+     * malloc'd backing array, and jc_vec_init at startup had no jc_vec_free
+     * anywhere to match it. Found by tests/smoke/leak_turn.sh on its first
+     * run: 384 bytes from jc_vec_push <- jc_app_reread_check <- read_run.
+     * A read-only subcommand never calls a tool, so leakcheck.sh's seven
+     * could not have reached it. */
+    jc_vec_free(&app->read_files);
+    jc_vec_free(&app->read_recs);
+}
+
 static int run_doctor(struct jc_app *app, int json, int unattended, int live)
 {
     struct jc_doctor d;
@@ -10792,29 +10913,6 @@ static int run_doctor(struct jc_app *app, int json, int unattended, int live)
     }
 
     jc_doctor_init(&d);
-
-    /* The host platform, and whether jichi has ever been verified on it (M400).
-     *
-     * The setup wizard already told a non-Linux user "this looks like a system
-     * jichi is not tested on"; doctor -- the command every page says to run
-     * first, and the one a support conversation starts with -- did not. So a
-     * macOS user learned it only if they happened to run `setup` interactively
-     * and read a paragraph. It is a WARN, not a FAIL: unverified is not broken,
-     * and a FAIL here would gate `doctor --unattended` on a platform question no
-     * run can answer. Linux says nothing at all -- the verified case must not
-     * cost a line. */
-    if (!jc_platform_verified_row()) {
-        char plat[160];
-        if (jc_platform_describe(plat, sizeof plat)) {
-            jc_doctor_add(&d, JC_DOC_WARN, plat,
-                          "jichi has never been compiled on this platform "
-                          "(docs/PLATFORMS.md); expect to be the first to find "
-                          "what does not work -- and please report it");
-        } else {
-            jc_doctor_add(&d, JC_DOC_WARN, "host platform not recognised",
-                          "docs/PLATFORMS.md lists what was measured where");
-        }
-    }
 
     /* State root (M472). Everything private is rooted at jc_home_dir() -- the
      * config, ~/.jichi.env, sessions, telemetry, the audit log -- so an unset
@@ -10862,19 +10960,11 @@ static int run_doctor(struct jc_app *app, int json, int unattended, int live)
      * escalation set is for. The default itself is left alone -- removing it
      * would change behaviour for configs that rely on it, and this is a
      * reporting defect, not a resolution one (the M503 verify_source argument). */
-    if (app->config.model.model_defaulted) {
-        char detail[420];
-        jc_snprintf(detail, sizeof(detail),
-            "the config names no \"model\" for the active entry, so '%s' was "
-            "substituted from the built-in default for provider '%s'. Name the "
-            "model id you intend -- a defaulted id can be a priced model you "
-            "did not choose, and it goes stale as ids change.",
-            app->config.model.model != NULL ? app->config.model.model : "?",
-            app->config.model.provider != NULL ? app->config.model.provider
-                                               : "(unset)");
-        jc_doctor_add(&d, unattended ? JC_DOC_FAIL : JC_DOC_WARN,
-                      "active model id was DEFAULTED, not configured", detail);
-    }
+    /* M709: the warning that used to live here announced a SUBSTITUTION, and
+     * there is no longer one to announce -- nothing is substituted, so the
+     * single "no model is configured" FAIL below is the whole report. The flag
+     * stays because it still distinguishes "no model key" from "model: \"\"",
+     * which a config author may want told apart. */
 
     /* M503: does `chmod` actually DO anything here? `jc_make_private()` calls it
      * and believes the return value -- its own comment notes a failure is not
@@ -11024,9 +11114,19 @@ static int run_doctor(struct jc_app *app, int json, int unattended, int live)
                   "rebuild with libcurl installed to reach model servers");
 #endif
 
-    /* Config sources (which file(s) were loaded / merged). */
+    /* Config sources (which file(s) were loaded / merged). M709: "built-in
+     * defaults" is not a config, and reporting it green told a first-time user
+     * their setup was fine when jichi had nothing to call. */
     if (app->config.config_sources[0] != '\0') {
-        jc_doctor_add(&d, JC_DOC_OK, "config source", app->config.config_sources);
+        jc_doctor_add(&d, app->config.from_defaults ? JC_DOC_WARN : JC_DOC_OK,
+                      app->config.from_defaults
+                          ? "no config file -- running on built-in defaults"
+                          : "config source",
+                      app->config.from_defaults
+                          ? "the built-in defaults name no provider and no "
+                            "model, so nothing can be called yet. `jichi setup` "
+                            "writes one, or see docs/CONFIG_TUTORIAL.md."
+                          : app->config.config_sources);
     }
 
     /* Config + models. */
@@ -11044,8 +11144,12 @@ static int run_doctor(struct jc_app *app, int json, int unattended, int live)
 
         if (app->config.model.model == NULL ||
             app->config.model.model[0] == '\0') {
-            jc_doctor_add(&d, JC_DOC_FAIL, "active model has no model id",
-                          "set \"model\" on the active model entry");
+            jc_doctor_add(&d, JC_DOC_FAIL, "no model is configured",
+                          "jichi chooses no provider and no model for you. Run "
+                          "`jichi setup`, or set \"provider\", \"model\" and "
+                          "\"apiBase\" on a model entry. Any OpenAI-compatible "
+                          "endpoint works, a local server included -- "
+                          "docs/CONFIG_TUTORIAL.md walks through it.");
         }
         if (app->config.model.api_key != NULL &&
             app->config.model.api_key[0] != '\0') {
@@ -11256,17 +11360,37 @@ static int run_doctor(struct jc_app *app, int json, int unattended, int live)
          *
          * The platform line uses the NAME (for a human); the memBudget check
          * uses a CAPABILITY probe, because /proc can be missing on Linux (a
-         * container or chroot) and the name would lie. */
+         * container or chroot) and the name would lie.
+         *
+         * M400/M486 live here now too. doctor used to make TWO platform
+         * statements: this one, on jc_platform_is_linux(), and a separate
+         * never-compiled WARN on jc_platform_verified_row(). On Cygwin both
+         * fired and both were wrong, and on FreeBSD this one contradicted the
+         * other. One verdict, stated once, in the place already labelled
+         * "platform". It stays a WARN and never a FAIL: unverified is not
+         * broken, and a FAIL would gate `doctor --unattended` on a platform
+         * question no run can answer. A Verified row costs no line at all. */
         {
             char plat[160];
+            int verdict = jc_platform_row_verdict();
             if (jc_platform_describe(plat, sizeof plat)) {
-                if (jc_platform_is_linux()) {
+                if (verdict == JC_PLATFORM_ROW_VERIFIED) {
                     jc_doctor_add(&d, JC_DOC_OK, "platform", plat);
+                } else if (verdict == JC_PLATFORM_ROW_PARTLY) {
+                    jc_doctor_add(&d, JC_DOC_WARN, plat,
+                        "jichi is PARTLY verified on this platform "
+                        "(docs/PLATFORMS.md): it builds, and the unit suite and "
+                        "smoke tier have run -- but not the full gate. That page "
+                        "names what is missing on this row");
                 } else {
-                    jc_doctor_add(&d, JC_DOC_WARN,
-                        "platform is not Linux; jichi is developed and tested "
-                        "there", plat);
+                    jc_doctor_add(&d, JC_DOC_WARN, plat,
+                        "jichi has never been compiled on this platform "
+                        "(docs/PLATFORMS.md); expect to be the first to find "
+                        "what does not work -- and please report it");
                 }
+            } else {
+                jc_doctor_add(&d, JC_DOC_WARN, "host platform not recognised",
+                              "docs/PLATFORMS.md lists what was measured where");
             }
             if (app->config.mem_budget_mb > 0 && !jc_have_proc_rss()) {
                 jc_doctor_add(&d, JC_DOC_WARN,
@@ -11851,11 +11975,34 @@ static int run_doctor(struct jc_app *app, int json, int unattended, int live)
                 cJSON_Delete(tools);
             }
             if (pst != JC_OK) {
-                jc_snprintf(detail, sizeof(detail),
-                            "%s: the probe request did not complete (%s%s)",
-                            m->name != NULL ? m->name : "?",
-                            jc_status_str(pst),
-                            res.http_status >= 400 ? ", HTTP error" : "");
+                /* M692: the STATUS and the SERVER'S OWN WORDS, both of which
+                 * this line used to throw away. It printed
+                 * `(http error, HTTP error)` -- the status string, then the
+                 * literal words "HTTP error" -- for a gateway that had said
+                 * `HTTP 400 ... There are no healthy deployments for this
+                 * model`. From the old message the next move is to check the
+                 * network; from this one it is to fix one string, and telling
+                 * those two apart is the entire value of the row. */
+                char http_part[32];
+                http_part[0] = '\0';
+                if (res.http_status > 0) {
+                    jc_snprintf(http_part, sizeof(http_part), ", HTTP %ld",
+                                res.http_status);
+                }
+                if (res.err_detail != NULL && res.err_detail[0] != '\0') {
+                    jc_snprintf(detail, sizeof(detail),
+                                "%s: the probe request did not complete (%s%s) "
+                                "-- the server said: %s",
+                                m->name != NULL ? m->name : "?",
+                                jc_status_str(pst), http_part, res.err_detail);
+                } else {
+                    jc_snprintf(detail, sizeof(detail),
+                                "%s: the probe request did not complete (%s%s) "
+                                "-- the server gave no reason; check the "
+                                "network, the apiBase and the key",
+                                m->name != NULL ? m->name : "?",
+                                jc_status_str(pst), http_part);
+                }
                 jc_doctor_add(&d, JC_DOC_FAIL,
                               "--live: tool-calling probe failed", detail);
             } else {
@@ -12045,6 +12192,13 @@ static int run_doctor(struct jc_app *app, int json, int unattended, int live)
                 }
             }
         }
+        /* M693: the NAMES are scratch-arena owned, but the vector holding
+         * them is not -- jc_vec_init/jc_vec_push malloc their own backing.
+         * The sibling listing ~220 lines below frees its vec; this one never
+         * did, which is the 512-byte direct leak LeakSanitizer reports on
+         * `jichi doctor`. Freed here rather than at every early return,
+         * because its whole life is this block. */
+        jc_vec_free(&st_names);
         if (n_repo > 0) {
             char sdet[160];
             jc_snprintf(sdet, sizeof(sdet),
@@ -14372,11 +14526,15 @@ int main(int argc, char **argv)
         (app.config.model.api_key == NULL ||
          app.config.model.api_key[0] == '\0')) {
         fprintf(stderr,
-            "No config found and no API key set. Run `jichi setup` for "
-            "a guided setup,\nimport an existing one with `jichi setup "
-            "--import <config>`, or\n`jichi doctor` to see what's "
-            "missing. (Set ANTHROPIC_API_KEY / OPENAI_API_KEY\nto run with no "
-            "config file.)\n");
+            "No model is configured, so jichi cannot call one yet.\n"
+            "  jichi setup              guided setup -- it asks which "
+            "provider and model YOU want\n"
+            "  jichi setup --import <f> import a config you already have\n"
+            "  jichi doctor             what is missing, line by line\n"
+            "Any OpenAI-compatible endpoint works, including a server on your "
+            "own machine\n(LM Studio, llama.cpp, Ollama) and an institutional "
+            "gateway. jichi picks no\nprovider and no model for you -- see "
+            "docs/CONFIG_TUTORIAL.md.\n");
     }
     /* M77: load the persisted per-model token-estimate calibration (kept OUTSIDE
      * any workspace). Learned from usage as the agent runs; applied to every
@@ -14684,6 +14842,7 @@ int main(int argc, char **argv)
         run_index_subcommand(&app, &args, &sub_code);
         jc_http_global_cleanup();
         jc_index_free(app.index);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -14698,6 +14857,7 @@ int main(int argc, char **argv)
         jc_http_global_init();
         sub_code = run_mcp(&app, &args);
         jc_http_global_cleanup();
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -14711,6 +14871,7 @@ int main(int argc, char **argv)
         signal(SIGINT, on_sigint);
         signal(SIGTERM, on_sigint);
         sub_code = run_lsp(&app, &args);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -14724,6 +14885,7 @@ int main(int argc, char **argv)
         signal(SIGINT, on_sigint);
         signal(SIGTERM, on_sigint);
         sub_code = run_test(&app, &args);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -14732,6 +14894,7 @@ int main(int argc, char **argv)
     /* `status` subcommand: print the resolved session config (no provider). */
     if (args.npos > 0 && strcmp(args.pos[0], "status") == 0) {
         int sub_code = run_status(&app, args.output_json == 1);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -14744,6 +14907,7 @@ int main(int argc, char **argv)
         signal(SIGINT, on_sigint);
         signal(SIGTERM, on_sigint);
         sub_code = run_map(&app);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -14757,6 +14921,7 @@ int main(int argc, char **argv)
         } else {
             printf("(no remembered notes in %s/.jichi/memory.md)\n", app.cwd);
         }
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return 0;
@@ -14848,6 +15013,7 @@ int main(int argc, char **argv)
                     "set/telemetry need configEditable\n");
             rc = 1;
         }
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return rc;
@@ -14903,6 +15069,7 @@ int main(int argc, char **argv)
             }
         }
         jc_sb_free(&sb);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return 0;
@@ -14926,6 +15093,7 @@ int main(int argc, char **argv)
         printf("%s", sb.data != NULL ? sb.data : "");
         jc_sb_free(&sb);
         jc_skill_set_free(&app.skills);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return 0;
@@ -14946,6 +15114,7 @@ int main(int argc, char **argv)
         } else {
             sub_code = run_constraints_list(arena, app.cwd);
         }
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -14978,6 +15147,7 @@ int main(int argc, char **argv)
         if (args.npos < 2) {
             fprintf(stderr, "usage: jichi brief-check <file|-> "
                             "[--verify CMD] [--verify-kind invariant|goal]\n");
+            app_free_common(&app);
             jc_config_free(&app.config);
             jc_arena_free(arena);
             return 2;
@@ -14995,6 +15165,7 @@ int main(int argc, char **argv)
             jc_sb_free(&sb);
         } else if (jc_read_file(args.pos[1], &brief, &blen, arena) != JC_OK) {
             fprintf(stderr, "error: cannot read brief '%s'\n", args.pos[1]);
+            app_free_common(&app);
             jc_config_free(&app.config);
             jc_arena_free(arena);
             return 2;
@@ -15100,6 +15271,7 @@ int main(int argc, char **argv)
                        "means only\n  that the model stopped.\n");
             }
         }
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return code;
@@ -15113,6 +15285,7 @@ int main(int argc, char **argv)
             printf("(no glossary; add %s/.jichi/glossary.md or "
                    "~/.config/jichi/glossary.md)\n", app.cwd);
         }
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return 0;
@@ -15123,6 +15296,7 @@ int main(int argc, char **argv)
         int sub_code = run_telemetry(arena,
             args.npos > 1 ? args.pos[1] : NULL, args.telemetry_workspace,
             args.cache_audit, args.since);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -15134,6 +15308,7 @@ int main(int argc, char **argv)
         int sub_code = run_audit(arena,
             args.npos > 1 ? args.pos[1] : NULL, args.since,
             args.output_json == 1);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -15145,6 +15320,7 @@ int main(int argc, char **argv)
         int sub_code = run_runs(arena,
             args.npos > 1 ? args.pos[1] : NULL, args.all, args.since,
             args.output_json == 1);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -15185,6 +15361,7 @@ int main(int argc, char **argv)
                     "| corrections]\n");
             sub_code = 2;
         }
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -15200,6 +15377,7 @@ int main(int argc, char **argv)
         jc_http_global_init();
         sub_code = run_complete(&app, &args);
         jc_http_global_cleanup();
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -15214,6 +15392,7 @@ int main(int argc, char **argv)
         jc_http_global_init();
         sub_code = run_fim(&app, &args);
         jc_http_global_cleanup();
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -15229,6 +15408,7 @@ int main(int argc, char **argv)
         sub_code = run_doctor(&app, args.output_json == 1, args.unattended,
                               args.live);
         jc_http_global_cleanup();
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -15243,6 +15423,7 @@ int main(int argc, char **argv)
         jc_http_global_init();
         sub_code = run_models(&app);
         jc_http_global_cleanup();
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -15258,6 +15439,7 @@ int main(int argc, char **argv)
         jc_http_global_init();
         sub_code = run_docs(&app, &args);
         jc_http_global_cleanup();
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -15267,6 +15449,7 @@ int main(int argc, char **argv)
      * the active model (offline; no provider or network). */
     if (args.npos > 0 && strcmp(args.pos[0], "timeouts") == 0) {
         int sub_code = run_timeouts(&app);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -15291,6 +15474,7 @@ int main(int argc, char **argv)
         } else {
             sub_code = run_snapshot(&app, &args);
         }
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -15304,6 +15488,7 @@ int main(int argc, char **argv)
         signal(SIGINT, on_sigint);
         signal(SIGTERM, on_sigint);
         sub_code = run_rewind(&app, &args);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -15313,6 +15498,7 @@ int main(int argc, char **argv)
     if (args.npos > 0 && strcmp(args.pos[0], "skills") == 0) {
         int sub_code = run_skills(&app, &args);
         jc_skill_set_free(&app.skills);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -15323,6 +15509,7 @@ int main(int argc, char **argv)
     if (args.npos > 0 && strcmp(args.pos[0], "agents") == 0) {
         int sub_code = run_agents(&app);
         jc_agentdef_set_free(&app.agents);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -15330,12 +15517,14 @@ int main(int argc, char **argv)
     if (args.npos > 0 && strcmp(args.pos[0], "commands") == 0) {
         int sub_code = run_commands(&app);
         jc_command_set_free(&app.commands);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
     }
     if (args.npos > 0 && strcmp(args.pos[0], "assignments") == 0) {
         int sub_code = run_assignments(&app, args.output_json == 1, args.stage);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -15343,6 +15532,7 @@ int main(int argc, char **argv)
     if (args.npos > 0 && strcmp(args.pos[0], "board") == 0) {
         int sub_code = run_board(&app, &args);
         jc_board_free(&app.board);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -15350,12 +15540,14 @@ int main(int argc, char **argv)
     if (args.npos > 0 && strcmp(args.pos[0], "output-styles") == 0) {
         int sub_code = run_output_styles(&app);
         jc_output_style_set_free(&app.output_styles);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
     }
     if (args.npos > 0 && strcmp(args.pos[0], "rules") == 0) {
         int sub_code = run_rules(&app);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -15364,6 +15556,7 @@ int main(int argc, char **argv)
         int sub_code = run_sysmsg(&app, args.design_path, args.n_design_path, &args, arena);
         jc_skill_set_free(&app.skills);
         jc_output_style_set_free(&app.output_styles);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -15379,6 +15572,7 @@ int main(int argc, char **argv)
                                    args.all, &args, arena);
         jc_skill_set_free(&app.skills);
         jc_output_style_set_free(&app.output_styles);
+        app_free_common(&app);
         jc_config_free(&app.config);
         jc_arena_free(arena);
         return sub_code;
@@ -15893,11 +16087,12 @@ int main(int argc, char **argv)
     jc_bg_mgr_free(&bgmgr);        /* SIGTERM/KILL + reap background procs */
     jc_lsp_manager_shutdown(&lsp);
     jc_snapshot_manager_shutdown(&snaps);
-    jc_board_free(&app.board);
-    jc_agentdef_set_free(&app.agents);
-    jc_command_set_free(&app.commands);
-    jc_skill_set_free(&app.skills);
-    jc_output_style_set_free(&app.output_styles);
+    /* M694: was five hand-copied frees, which is exactly the matrix this
+     * helper's own comment warns about -- and the proof is that the two
+     * read-tracking vectors added at M231 were never added HERE, and leaked
+     * on every run that read a file. Every free inside is idempotent, so the
+     * main path can share it with the 37 early exits. */
+    app_free_common(&app);
     if (control_open) {
         jc_control_close(&ctl); /* close + unlink the socket */
     }

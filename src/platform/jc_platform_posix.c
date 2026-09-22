@@ -743,6 +743,28 @@ char jc_locale_group_sep(void)
     return c;
 }
 
+/* `uname()` SUCCEEDS WITH ANY NON-NEGATIVE VALUE, and one platform uses that.
+ * POSIX says only "upon successful completion, a non-negative value shall be
+ * returned" -- it does not say zero. Linux, the BSDs and both Windows layers
+ * return 0, so `!= 0` read as "failed" everywhere this project had ever run,
+ * and it was wrong on the first SysV kernel it met: illumos returns a positive
+ * value, so every one of these three call sites took the failure path on a
+ * system where the call had worked perfectly.
+ *
+ * Measured, 2026-09-22, on OmniOS r151058 through `scripts/tier-v-illumos.sh`:
+ * `doctor` printed `! host platform not recognised` -- the branch main.c takes
+ * when this function returns 0 -- while the rig's own `uname -a` on the same
+ * guest, seconds earlier, printed the system fine. The visible cost was that
+ * M695's whole platform-verdict feature was DEAD on illumos:
+ * `jc_platform_row_verdict` below returned UNKNOWN, so the `"SunOS"` entry in
+ * `jc_sys_partly[]` could never be reached and `doctor` told an illumos user
+ * jichi had never been compiled there. `tests/smoke/doctor.sh` is what failed,
+ * and it failed CORRECTLY: PLATFORMS.md partly-verifies SunOS and doctor would
+ * not say so.
+ *
+ * `< 0` is the test POSIX actually licenses. It is identical on every platform
+ * already measured, which is exactly why nothing caught this until a row that
+ * returns something else ran. */
 int jc_platform_describe(char *buf, jc_size cap)
 {
     struct utsname u;
@@ -750,7 +772,7 @@ int jc_platform_describe(char *buf, jc_size cap)
         return 0;
     }
     buf[0] = '\0';
-    if (uname(&u) != 0) {
+    if (uname(&u) < 0) {
         return 0;
     }
     jc_snprintf(buf, cap, "%s %s (%s)", u.sysname, u.release, u.machine);
@@ -760,31 +782,93 @@ int jc_platform_describe(char *buf, jc_size cap)
 int jc_platform_is_linux(void)
 {
     struct utsname u;
-    return (uname(&u) == 0 && strcmp(u.sysname, "Linux") == 0);
+    return (uname(&u) >= 0 && strcmp(u.sysname, "Linux") == 0);
 }
 
-/* Kept in one array so portability_lint check 7c can extract it and compare
- * with docs/PLATFORMS.md. Keep the literals on their own lines for that reason. */
-int jc_platform_verified_row(void)
+/* THE VERDICT THE PRODUCT STATES, and it has three values because
+ * docs/PLATFORMS.md has three for a platform anyone has measured: Verified,
+ * Partly verified, and never compiled. Collapsing the middle one into "never"
+ * is what made doctor and the setup wizard tell three measured platforms --
+ * illumos/Solaris, Cygwin and MSYS2, one of them FULLY DRIVEN -- that jichi had
+ * never been built there (M695).
+ *
+ * Two arrays, one literal per line, because tests/smoke/portability_lint.sh
+ * check 7c extracts both and pins each against its own table on that page: a
+ * name here the page does not carry, or a row on the page this file does not
+ * know, fails the build. M486 did that for the Verified tier only, so the tier
+ * below it was outside the check's universe by construction and drifted for
+ * exactly the same reason, one row down.
+ *
+ * An entry ending in '-' is a PREFIX. The Windows emulation layers append the
+ * host's build number, so uname -s reads CYGWIN_NT-10.0-26200 today and
+ * something else after the next Windows release; a whole-string compare there
+ * would go stale silently, which is the failure this whole function is about.
+ * Every other entry is a complete sysname and must match exactly -- so a
+ * hypothetical "Linuxwhatever" is NOT Linux.
+ *
+ * Names, not capabilities: this decides what to SAY, never what to attempt.
+ * The capability questions have their own probes (jc_have_proc_rss). */
+static const char *const jc_sys_verified[] = {
+    "Linux",
+    "FreeBSD",
+    "NetBSD",
+    "OpenBSD",
+    NULL
+};
+
+static const char *const jc_sys_partly[] = {
+    "SunOS",
+    "CYGWIN_NT-",
+    "MSYS_NT-",
+    NULL
+};
+
+static int jc_sys_listed(const char *sysname, const char *const *list)
 {
-    static const char *verified[] = {
-        "Linux",
-        "FreeBSD",
-        "NetBSD",
-        "OpenBSD",
-        NULL
-    };
-    struct utsname u;
     int i;
-    if (uname(&u) != 0) {
-        return 0;
-    }
-    for (i = 0; verified[i] != NULL; i++) {
-        if (strcmp(u.sysname, verified[i]) == 0) {
+    jc_size n;
+    for (i = 0; list[i] != NULL; i++) {
+        n = (jc_size)strlen(list[i]);
+        if (n > 0 && list[i][n - 1] == '-') {
+            if (strncmp(sysname, list[i], n) == 0) {
+                return 1;
+            }
+        } else if (strcmp(sysname, list[i]) == 0) {
             return 1;
         }
     }
     return 0;
+}
+
+/* Split from the uname() call so the table can be tested on any host: the
+ * mapping is the part that rots, and a test that can only exercise the row it
+ * is running on is how this drifted in the first place (tests/test_platform.c). */
+int jc_platform_row_verdict_for(const char *sysname)
+{
+    if (sysname == NULL || sysname[0] == '\0') {
+        return JC_PLATFORM_ROW_UNKNOWN;
+    }
+    if (jc_sys_listed(sysname, jc_sys_verified)) {
+        return JC_PLATFORM_ROW_VERIFIED;
+    }
+    if (jc_sys_listed(sysname, jc_sys_partly)) {
+        return JC_PLATFORM_ROW_PARTLY;
+    }
+    return JC_PLATFORM_ROW_UNKNOWN;
+}
+
+int jc_platform_row_verdict(void)
+{
+    struct utsname u;
+    if (uname(&u) < 0) {   /* non-negative is SUCCESS -- see jc_platform_describe */
+        return JC_PLATFORM_ROW_UNKNOWN;
+    }
+    return jc_platform_row_verdict_for(u.sysname);
+}
+
+int jc_platform_verified_row(void)
+{
+    return jc_platform_row_verdict() == JC_PLATFORM_ROW_VERIFIED;
 }
 
 int jc_have_proc_rss(void)

@@ -162,9 +162,13 @@ static jc_status jc_convert_claude(const char *base, struct jc_ir *ir,
         return JC_ERR_OOM;
     }
     m->name = jc_arena_strdup(a, "claude");
-    m->model = jc_arena_strdup(a,
-        (model_id != NULL && model_id[0] != '\0') ? model_id
-                                                   : "claude-sonnet-4-5");
+    /* M709: if the source config names no model, the converted config names no
+     * model. This used to substitute `claude-sonnet-4-5` -- the same defect as
+     * the built-in default removed in jc_config.c, one layer down: a priced id
+     * chosen by a string literal for a user who had not chosen one. `doctor`
+     * now says the converted config has no model, which is true and fixable. */
+    m->model = (model_id != NULL && model_id[0] != '\0')
+                   ? jc_arena_strdup(a, model_id) : NULL;
     jc_convert_fill_provider(ir, m, "anthropic", NULL, "ANTHROPIC_API_KEY");
     jc_ir_model_add_role(m, "chat");
     jc_ir_model_add_role(m, "edit");

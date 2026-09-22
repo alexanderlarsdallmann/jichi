@@ -1,6 +1,6 @@
 #!/bin/sh
-# smoke: a model id nobody configured is reported as substituted, not as chosen
-# (M505).
+# smoke: no model id is EVER substituted, and nothing invents a vendor (M709,
+# inverting M505).
 #
 # THE DEFECT THIS EXISTS FOR, found while REVIEWING this project's own new
 # documentation (the DOC_REVIEW §5 pass, which is why the review exists). A
@@ -20,9 +20,16 @@
 # own history (~$10 spent on a model nobody authorised); and a hardcoded id in a
 # fallback is a stale claim by construction.
 #
-# The default is NOT removed here -- that would change behaviour for configs that
-# rely on it. This is a reporting defect, the same shape as M503's verify_source:
-# the value may be right, and its provenance was invisible.
+# M505 kept the default and made it visible, calling this a reporting defect.
+# M709 REMOVED IT, because it was a resolution defect: the operator installed
+# jichi on a second machine and was told, correctly, that it was configured to
+# spend money on `claude-opus-4-8` -- a decision nobody had taken. A config that
+# relies on the old default was relying on a priced frontier id chosen by a
+# string literal, which is the thing not worth preserving.
+#
+# The checks below are inverted from M505's on purpose. What they guard is the
+# same concern, from the other side: a reader must never see a model id the
+# program picked.
 . "$(dirname "$0")/_smoke.sh"
 
 t_plan 4
@@ -39,25 +46,33 @@ cat > "$tmp/named.json" <<'EOS'
  "lowResource":false,"snapshots":false,"repoMap":false}
 EOS
 
-# ---- 1. the substitution is reported ---------------------------------------
+# ---- 1. a config naming no model is a doctor FAILURE, not a green line -----
 out=$(with_deadline 60 "$BIN" --config "$tmp/defaulted.json" doctor \
       < /dev/null 2>&1)
-if printf '%s' "$out" | grep -q 'DEFAULTED, not configured'; then
-    t_ok "a model id filled from the built-in default is reported as such"
+if printf '%s' "$out" | grep -q 'no model is configured'; then
+    t_ok "a config that names no model is reported as having none"
 else
-    t_fail "the substituted id was presented as a configured one -- the reader \
-cannot tell a chosen model from a default: \
-$(printf '%s' "$out" | grep -i model | head_bytes 200)"
+    t_fail "a config naming no model did not say so -- the reader cannot tell \
+it from a working one: $(printf '%s' "$out" | grep -i model | head_bytes 200)"
 fi
 
-# ---- 2. and it names the id AND the provider whose default supplied it ------
-# Without both, the reader cannot tell WHICH default fired, and the two differ:
-# openai gets gpt-4o, everything else a priced Anthropic id.
-if printf '%s' "$out" | grep -q "substituted from the built-in default for provider"; then
-    t_ok "the notice names the id and the provider default that supplied it"
+# ---- 2. AND NO VENDOR MODEL ID APPEARS ANYWHERE IN THE OUTPUT --------------
+# The check the operator's finding turns on, and it is deliberately about the
+# whole output rather than one line: a substitution anywhere -- the loaded line,
+# a warning, a hint -- is a model id the program chose.
+#
+# A LETTER MUST FOLLOW THE DASH, and the match may not be preceded by a path
+# character. Measured while verifying the installed binary: the first version of
+# this pattern was a bare `claude-`, and it fired on doctor's own `state root`
+# line because that run's HOME was under `/tmp/claude-1000/`. A vendor id is
+# always `claude-<letter>` (opus, sonnet, haiku); a path segment that happens to
+# contain the word is not, and neither is a version number. Same defect shape as
+# the `TOS` that matched `CentOS` eleven times the same day.
+if printf '%s' "$out" | grep -qE '(^|[^/A-Za-z0-9_-])(claude-[a-z]|gpt-[0-9][a-z]?)|api\.(anthropic|openai)\.com'; then
+    t_fail "doctor named a vendor model id for a config that names none: \
+$(printf '%s' "$out" | grep -iE 'claude-|gpt-4|gpt-5' | head_bytes 240)"
 else
-    t_fail "the notice does not say where the id came from: \
-$(printf '%s' "$out" | grep -i default | head_bytes 200)"
+    t_ok "no vendor model id appears anywhere in the output for a config naming none"
 fi
 
 # ---- 3. a NAMED model stays silent ----------------------------------------
@@ -65,22 +80,22 @@ fi
 # is worse than no warning at all.
 out2=$(with_deadline 60 "$BIN" --config "$tmp/named.json" doctor \
        < /dev/null 2>&1)
-if ! printf '%s' "$out2" | grep -q 'DEFAULTED'; then
+if ! printf '%s' "$out2" | grep -q 'no model is configured'; then
     t_ok "a config that names its model produces no such notice"
 else
     t_fail "the notice fired on a config that named its model explicitly"
 fi
 
 # ---- 4. --unattended treats it as fatal -----------------------------------
-# A supervisor starting a loop against a model nobody chose is a posture problem
-# of exactly the kind M158b's escalation set exists for -- and the substituted id
-# may be a priced one.
+# A supervisor starting a loop with no model configured cannot do anything
+# useful, and before M709 it would have started against a priced id nobody
+# chose -- the posture problem M158b's escalation set exists for.
 with_deadline 60 "$BIN" --config "$tmp/defaulted.json" doctor --unattended \
     < /dev/null > /dev/null 2>&1; rc=$?
 if [ "$rc" -ne 0 ]; then
-    t_ok "--unattended refuses to start against a defaulted model id (exit $rc)"
+    t_ok "--unattended refuses to start with no model configured (exit $rc)"
 else
-    t_fail "an unattended supervisor would start against a model nobody chose"
+    t_fail "an unattended supervisor would start with no model configured"
 fi
 
 t_done

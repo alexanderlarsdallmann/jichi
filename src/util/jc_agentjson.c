@@ -47,6 +47,7 @@ cJSON *jc_agentjson_result(const char *text, const char *model,
                            double in_tok,
                            double out_tok, double cost, int tool_calls,
                            int aborted, const char *stop_reason, int work_kept,
+                           int answer_capped,
                            int err_code, const char *err_type,
                            const char *err_msg,
                            const struct jc_agent_econ *econ, cJSON *reach)
@@ -137,6 +138,11 @@ cJSON *jc_agentjson_result(const char *text, const char *model,
             }
             cJSON_AddItemToObject(o, "degraded", d);
         }
+    }
+    /* The reply was cut at the output ceiling. Conditional, so the key's
+     * presence is the signal and an ordinary run's object does not grow. */
+    if (answer_capped) {
+        cJSON_AddBoolToObject(o, "answer_capped", 1);
     }
     /* M630: the reach footer's facts -- see the header for why here. */
     if (reach != NULL) {

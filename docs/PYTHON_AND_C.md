@@ -139,6 +139,10 @@ and **engineering judgment**, using Python as the mirror. The families stay what
 they are: **systems** (C, C++, Zig, Rust) and **functional** (Racket, Guile,
 Elixir, Haskell, Clojure). Python's place is *here*, as the lens that shows why.
 The same holds for **Ruby** — MRI is a C program too; if it ever appears, it
-appears the same way, a mirror and not a member. jichi stays C89 by choice, and
+appears the same way, a mirror and not a member. **Ada** arrived on exactly those
+terms at [ADA_AND_C.md](ADA_AND_C.md): a second lens, aimed at a different
+boundary — where Python shows you the C *under* a dynamic language, Ada and SPARK
+show you what a type system and a prover can take *off* the test suite, and where
+they stop. jichi stays C89 by choice, and
 now you have read that choice defended in a language built to make the opposite
 one.

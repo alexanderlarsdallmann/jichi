@@ -17,23 +17,36 @@
 #include <string.h>
 #include <ctype.h>
 
+/* JICHI CHOOSES NO VENDOR. A provider the user NAMED gets its conventional
+ * endpoint, because that is a convenience for a decision already taken. A
+ * provider nobody named gets NULL -- there is no house vendor here.
+ *
+ * Until M709 this returned api.anthropic.com for anything that was not
+ * "openai", so a fresh install with no config at all resolved to Anthropic and
+ * `claude-opus-4-8`. M505 found exactly that, wrote it up, warned about it in
+ * `doctor` -- and deliberately left the default in place, calling it "a
+ * reporting defect, not a resolution one". It was a resolution defect: the
+ * operator installed jichi on a second machine and was told, correctly, that it
+ * was configured to spend money on a model nobody had chosen. */
 const char *jc_config_default_base(const char *provider)
 {
-    if (provider != NULL && strcmp(provider, "openai") == 0) {
+    if (provider == NULL || provider[0] == '\0') {
+        return NULL;
+    }
+    if (strcmp(provider, "openai") == 0) {
         return "https://api.openai.com";
     }
-    /* Default to Anthropic. */
-    return "https://api.anthropic.com";
+    if (strcmp(provider, "anthropic") == 0) {
+        return "https://api.anthropic.com";
+    }
+    return NULL;
 }
 
-/* Pick a default model id for a provider when none is configured. */
-static const char *default_model(const char *provider)
-{
-    if (provider != NULL && strcmp(provider, "openai") == 0) {
-        return "gpt-4o";
-    }
-    return "claude-opus-4-8";
-}
+/* NO MODEL IS EVER SUBSTITUTED. A model id names what a run will spend money
+ * on, and a hardcoded fallback is a stale claim by construction -- newer ids
+ * exist already, and the one this function used to return was a priced frontier
+ * model. If the config names no model, the config names no model, and every
+ * surface says so instead of inventing one (M709). */
 
 /* Resolve the API key: prefer a literal "apiKey", else getenv("apiKeyEnv"),
  * else a provider-conventional environment variable. */
@@ -312,15 +325,15 @@ static void parse_model(const cJSON *model, struct jc_model_cfg *out,
     prov = jc_json_get_str(model, "provider", NULL);
     if (prov == NULL) {
         prov = getenv("JC_PROVIDER");
-        if (prov == NULL || prov[0] == '\0') {
-            prov = "anthropic";
-        }
     }
-    out->provider = jc_arena_strdup(a, prov);
+    /* M709: no house vendor. An unset provider stays unset, and the surfaces
+     * that need one say so rather than picking. */
+    out->provider = (prov != NULL && prov[0] != '\0')
+                        ? jc_arena_strdup(a, prov) : NULL;
 
     s = jc_json_get_str(model, "model", NULL);
-    out->model_defaulted = (s == NULL) ? 1 : 0;      /* M505 */
-    out->model = jc_arena_strdup(a, s != NULL ? s : default_model(prov));
+    out->model_defaulted = (s == NULL) ? 1 : 0;      /* M505; M709: no id is substituted */
+    out->model = (s != NULL) ? jc_arena_strdup(a, s) : NULL;
 
     s = jc_json_get_str(model, "apiBase", NULL);
     out->api_base = jc_arena_strdup(a, s != NULL ? s

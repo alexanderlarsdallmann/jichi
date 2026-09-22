@@ -17,6 +17,32 @@
 # proving the fence -- not a missing directory -- decided it.
 . "$(dirname "$0")/_smoke.sh"
 
+# CAN THIS PLATFORM MAKE A DANGLING SYMLINK AT ALL? Probed before t_plan, because
+# t_skip emits its own plan line and a skip after t_plan emits a second one --
+# smoke_lint check 20 exists for exactly that, and caught this guard's first
+# draft in the gate.
+#
+# MEASURED on MSYS2 2026-09-22: `ln -s /no/such/target x` fails outright with
+# ENOENT, in BOTH the stock configuration and under MSYS=winsymlinks:nativestrict,
+# because the symlink emulation must know whether the target is a file or a
+# directory before it can create the link.
+#
+# Without this the driver tested the fence against a path that was not the symlink
+# it thought it had made, and reported "no refusal in the tool result" -- a hole in
+# the PATH FENCE -- beside a control check admitting the write had failed even with
+# the fence off, which is the fixture saying it could not build its own
+# precondition. A harness defect dressed as a security finding is the worst
+# direction for this to fail in, and the one a reader believes.
+_dl=$(mktemp -d)
+ln -s /jichi/no/such/target "$_dl/probe" 2>/dev/null
+_can_dangle=0
+[ -L "$_dl/probe" ] && _can_dangle=1
+rm -rf "$_dl"
+[ "$_can_dangle" -eq 1 ] || t_skip "this platform cannot create a dangling \
+symlink -- \`ln -s\` to a target that does not exist fails here -- so the fixture \
+this driver is built on, a link the fence must RESOLVE rather than stat, cannot be \
+made. Measured on MSYS2, where it fails with ENOENT under every symlink setting."
+
 t_plan 4
 smoke_home
 tmp=$(smoke_tmp)

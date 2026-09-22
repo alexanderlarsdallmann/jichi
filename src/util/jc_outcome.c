@@ -13,13 +13,14 @@
 #include <stddef.h>
 
 void jc_run_outcome_set(struct jc_run_outcome *out, enum jc_run_stop stop,
-                        int verifier_concluded)
+                        int verifier_concluded, int answer_capped)
 {
     if (out == NULL) {
         return;
     }
     out->stop = stop;
     out->result_tested = verifier_concluded ? 1 : 0;
+    out->answer_capped = answer_capped ? 1 : 0;
 
     /* Does the answer stand on its own? Read this as "did the model stop
      * because it had finished", not "did anything go wrong" -- VERIFY_FAILED
@@ -38,6 +39,14 @@ void jc_run_outcome_set(struct jc_run_outcome *out, enum jc_run_stop stop,
     case JC_STOP_MAX_ITERS:
         out->answer_complete = 0;
         break;
+    }
+
+    /* The two reasons COMPOSE; the cap never resurrects a cut-off answer and is
+     * never overridden by a clean stop reason. This is the whole defect: the
+     * stop reason said DONE, so the answer read as complete, while the provider
+     * had already seen `finish_reason == "length"` and warned about it. */
+    if (out->answer_capped) {
+        out->answer_complete = 0;
     }
 }
 

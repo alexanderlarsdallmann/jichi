@@ -24,8 +24,31 @@ docs/i18n/<lang>/
     00-super-features.md … 06-building-with-ai.md   # the Marp decks
 ```
 
+`ja/` carries one more, added 2026-09-22 and **learner-facing rather than
+outreach**:
+
+```
+docs/i18n/ja/
+  VOCABULARY.md             # tracks ../../VOCABULARY.md
+```
+
+It is a **machine draft awaiting native review**, and it names its own measured
+defect in a comment at the top rather than presenting itself as finished: 18 of
+77 body lines (23%) are still English, and they are two whole sections a
+reviewer can finish in one sitting.
+
+**`TUTORIAL_BEGINNER.md` was drafted the same day and deliberately NOT kept.**
+Four pipelines were measured against it and the best left **51 of 168 body lines
+(30%) in English, spread across all eleven sections** — every section with a
+hole. A glossary missing two sections is still a usable reference; a sequential
+tutorial that drops into English every third line is worse for a learner than
+the English original, and worse to hand a reviewer than nothing. The measurement
+is in
+[`../analysis/2026-09-22-machine-translating-the-learner-pages.md`](../analysis/2026-09-22-machine-translating-the-learner-pages.md).
+
 **Coverage is uneven, and stating it is part of the policy.** `de/`, `es/`, `ja/`
-and `zh/` carry the full set above; `ko/` carries `GETTING_STARTED.md` only. A
+and `zh/` carry the full set above; `ja/` carries two more (the learner pair just
+listed); `ko/` carries `GETTING_STARTED.md` only. A
 partial language is better than none and much better than four unreviewed pages
 presented as complete — but a reader must be able to tell which they are looking
 at, so the list above says so and every translated page carries the machine-draft

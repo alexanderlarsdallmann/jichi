@@ -5464,3 +5464,1099 @@ field considered. A fixture that sets only the fields it cares about would have
 passed and shipped the defect. *Construct your fixtures the way your callers
 do.*
 
+
+## 89. The check that ran for fifteen hours and forty-seven minutes (2026-09-21)
+
+**Symptom.** A background shell launched to prove a tooth — perturb
+`bibliography_lint.sh`, watch `posix_utils_lint.sh` catch it — was still
+running the next day. `ps` put the elapsed time at `15:47:06`.
+
+```
+2108407 sh .../pu/tests/smoke/posix_utils_lint.sh     wchan: pipe_read
+2115787   sh .../pu/tests/smoke/posix_utils_lint.sh   wchan: do_wait
+2115788     awk '{ line = $0; sub(/^[ \t]+/, "", line) } ...'
+2115789     head -8
+```
+
+No CPU, no output, no error. The `awk` was simply sitting there.
+
+**Root cause.** The tooth had copied only `tests/` into the scratch tree, so
+`$ROOT/src` did not exist. Checks 19 and 20 both ended like this:
+
+```sh
+_rp=$(awk '
+    ...the program...
+' $(find "$ROOT/src" -name '*.c' | sort) 2>/dev/null | head -8)
+```
+
+When that `find` matches nothing, the command substitution expands to nothing,
+and `awk` is left holding a program and **no file operands**. At which point it
+does the only thing POSIX says it can: it reads **stdin**. Stdin here was the
+session's socket, which never delivers EOF. So it waited.
+
+**The part worth the entry is what happens when stdin is not a socket.**
+Measured both ways on the same tree:
+
+| stdin | result |
+|---|---|
+| a terminal, a socket, `make ci` from a tty | **hangs forever** (rc=124 under `timeout`) |
+| `/dev/null` (a CI runner that redirects) | **`ok 19 - no blocking waitpid…`**, having read zero files |
+
+The second is worse. It is a green tick, in the gate's own voice, produced by a
+check that examined nothing — and which of the two you get is decided not by the
+code under test but by *how the caller happened to set up stdin*. A gate whose
+verdict depends on its caller's file descriptors is not a gate.
+
+**Fix.** Capture the list, floor it, and never let the filter fall back to
+stdin:
+
+```sh
+_rp_files=$(find "$ROOT/src" -name '*.c' | sort)
+_rp_n=$(printf '%s\n' "$_rp_files" | grep -c . | tr -d '[:space:]')
+[ -n "$_rp_files" ] || _rp_n=0
+if [ "${_rp_n:-0}" -lt 175 ]; then
+    t_fail "check 19 scanned $_rp_n .c files (floor 175) — the universe is empty"
+else
+    _rp=$(awk '...' $_rp_files < /dev/null 2>/dev/null | head -8)
+```
+
+Same tree, same missing `src/`: **6 seconds, `not ok 19`**, instead of fifteen
+hours of silence. The `< /dev/null` is belt-and-braces — if a later edit routes
+around the floor, the check dies instead of hanging the gate.
+
+The floor also caught something the empty case never would have. Run against a
+copy that had `tests/` but not `scripts/`, check 20 reported `382 .sh files
+(floor 400)` — a *partially* missing universe, which is the shape that actually
+ships, and which no zero-check can see.
+
+**Why a lint and not two fixes.** The population was measured, not guessed: 145
+command substitutions across the smoke tier, of which exactly **2** supplied
+file operands to a filter — both in this one file. Every other one was piped
+(`$(ls … | wc -l)`) inside a display string, where there is no stdin to fall
+back to. Two sites is a small enough number to fix by hand and far too small a
+number to trust: the next person to write a multi-line `awk` will reach for the
+same shape, because it reads perfectly well. Check 27/28 now flags it, with a
+planted positive of each shape and an assignment and a piped display string as
+the spared negatives.
+
+**Lesson.** *A filter with no file operands does not do nothing — it reads
+stdin.* `awk`, `sed`, `grep`, `sort`, `wc`, `cut`, `tr`, `head`, `cat`: all of
+them. So a file list that can be empty is not a "no findings" path, it is a path
+whose behaviour is chosen by the caller. This is `docs/GATE_INTEGRITY.md`'s
+"a floor of zero cannot validate" with a second failure mode bolted on: not only
+can zero not validate, zero may not even *return*. Floor the extraction, and
+close stdin.
+
+## 90. The lint that found the shape it was built from (2026-09-21)
+
+**Symptom.** None. Check 28 was green, and it had teeth: a planted positive,
+a spared negative, a driver-level tooth that went red when the guard was
+removed. Everything a new lint is supposed to have.
+
+It had been written that morning to stop a filter being handed an empty
+operand list — the defect in #89, where `awk` with no file operands read stdin
+and a check sat in `pipe_read` for fifteen hours. Two sites had that shape.
+Both were fixed. The lint said 0, and 0 was true.
+
+**What was actually there.** Hours later, writing a tutorial about grounded
+discourse, I needed a worked example of a project claim tested against the
+tree, and picked *"never call `sprintf`"*. Reading `sprintf_lint.sh` to check
+how it enforces that, line 64:
+
+```sh
+}' $targets > "$tmp/offenders"
+```
+
+The same defect. Measured on a tree with no `src/`: **rc=124, hung for 45
+seconds**, and on SIGTERM it printed
+
+```
+not ok 1 - scanned only 0 files -- src/include layout moved?
+ok 2 - no raw sprintf outside the audited allowlist (use jc_snprintf)
+```
+
+A green from a scan of zero files, sitting directly beneath a red saying so.
+
+**Why the lint missed it.** Its pattern matched `$(find …)` used inline as
+operands — *the spelling of the two sites that had just bitten me*. The
+commoner spelling is a **variable**. There were five of those: `arena_lint`,
+`sprintf_lint`, `doc_commands_lint` (twice) and `docs_flags`. The lint had
+found two of seven and reported a clean sweep, because I had enumerated the
+universe by generalising from the example instead of from the mechanism.
+
+This is `docs/TEST_INTEGRITY.md`'s "audit the universe, not the result" with
+the author on the wrong side of it, one commit after writing a check whose own
+header says *"it does not parse shell, so a sufficiently novel spelling escapes
+it."* The escaping spelling was not novel. It was the normal one.
+
+**A floor is not the fix, and `sprintf_lint` proves it.** That driver *did*
+floor its file count and *did* report `not ok 1 - scanned only 0 files` — and
+hung anyway, because `t_fail` records the failure and **continues**. The floor
+tells you the universe is empty; only closing stdin stops the filter waiting
+forever to be told what to read. The two are different guarantees and the first
+does not imply the second.
+
+**The rule that replaced the pattern.** *If a filter's operands come from an
+expansion, close its stdin.* One sentence, mechanical, no judgement about
+whether the expansion can be empty, and cheap to satisfy — `< /dev/null`. The
+check now matches any closing program quote followed by an expansion and
+exempts the lines that already close stdin, which is a rule about the hazard
+rather than a rule about the two examples of it.
+
+**And a second universe defect, found in the same read.** The widened check
+reported `421 scripts scanned` where the old one said 420 — a number that had
+moved for no reason I had changed. 54 of those files are under
+`tests/bench/craft_ab/results/`, gitignored A/B run artifacts: **shell a
+benchmarked model typed into `run_terminal_command`**, not this project's code.
+`posix_utils_lint.sh` already had `tracked_files()` for exactly this, added at
+M546 after `license_lint` learned it the same way — and my three checks did not
+use it. They do now: 181 tracked `.c`, 367 tracked `.sh`, numbers that do not
+drift when somebody runs a benchmark.
+
+**Lesson.** *Generalise from the mechanism, not from the instance that taught
+it to you.* The question to ask a new lint is not "does it catch the bug I just
+fixed" — it will, that is what it was written against — but **"what else has
+this property, and did I enumerate that a second way?"** Here the second way
+was three characters long: search for the hazard's *effect* (a filter with
+operands it did not quote) rather than its *spelling*. And when a file already
+carries a helper for a hazard, the helper is the enumeration somebody else
+already paid for — grep for its family (M475) includes grepping your own file.
+
+## 91. The cap I reached for while quoting the rule against it (2026-09-21)
+
+**Symptom.** A baseline `make ci` on a clean tree at `0c60ba20`, on the WSL2
+bench, failing with exactly one smoke driver red -- and a different driver each
+run. Every other stage clean throughout: gcc and clang at `-Werror`, ASan/UBSan,
+valgrind, fuzz, leakcheck, and unit suites of **13,425 / 13,425 / 13,432 checks,
+0 failures**.
+
+**What I did.** Four full gate runs, changing one knob each time.
+
+| Run | Knob | Failed | The tier's own label |
+|---|---|---|---|
+| 568 s | `make -j12 ci` | `accessible` | *ALSO fails standalone -> a real defect* |
+| 309 s | `make -j6 ci` | `queue_notice_glyph` | *PASSES standalone -> IN-SUITE-ONLY* |
+| 622 s | `make ci`, serial | `accessible` | *ALSO fails standalone -> a real defect* |
+| 974 s | `make ci`, serial, **`JC_SMOKE_TIMEOUT_MULT=2`** | `typeahead_live` | *PASSES standalone -> IN-SUITE-ONLY* |
+
+The fourth row is the one this entry is about. I put a timeout multiplier on a
+run whose entire purpose was to find out what this machine does.
+
+**Why the rule did not fire, which is the actual finding.** `CLAUDE.md` says:
+
+> Caps (`--deadline`, `--budget-tokens`, `stall`/`request` timeouts) bound
+> *duration* and stay **off for measurement runs** -- a cap that fires does not
+> merely hide the answer, it manufactures a plausible different one.
+
+I had read that page that session and quoted the clause back, in writing, before
+the run. It did not fire because I had filed the run under the wrong heading.
+The rule is scoped to *measurement runs*; I had classified this as a **gate
+run** -- because `make ci` is the gate. So under my own filing the rule was not
+about this.
+
+**The invocation named the run; its purpose should have.** The purpose was
+written in the session plan two hours earlier: *establish the baseline before
+the first edit*. A baseline **is** a measurement -- it is the record of what this
+machine does with this tree, and PASS/FAIL is one field of it. The moment I
+started treating PASS as the goal rather than the record, every knob became a
+legitimate means. `SESSION_RUNBOOK.md` §5 asks for that run in those words --
+*"establish the baseline BEFORE changing anything"*, because *"this project has
+twice spent an afternoon debugging an environment difference it had assumed was
+a regression."* I was generating exactly that environment difference and trying
+to make it go away.
+
+**The formula that made a choice look like a measurement.** I did not pick 2 out
+of the air; I computed it. This bench builds in a median **9.65 s** (10.96 /
+9.65 / 9.46), published rows divide by a reference bench's **6.19 s**, and
+`ceil(9.65 / 6.19) = 2`. The arithmetic is right and it is evidence for nothing
+here. `JC_SMOKE_TIMEOUT_MULT` is *device build seconds ÷ **this bench's** build
+seconds*: it exists so a slow **target** is not failed by a fast bench's
+deadlines. There is no target here -- WSL2 on this machine **is** the bench. I
+scaled the bench against somebody else's bench and read the quotient as a
+licence. That is worse than an open guess: an open guess invites the next
+question, and a guess wearing a formula closes it.
+
+**And it produced what the rule predicts, word for word.** The failure moved
+from `accessible` to `typeahead_live`, and `Terminated` went from one occurrence
+to zero. I wrote that the multiplier *"did fix the deadline mechanism"*. That
+sentence is true, and it is the manufactured plausible answer: the
+`with_deadline 60` SIGTERM really had stopped happening, the real cause was
+untouched, and I was one step from recording a bench as green.
+
+**What the measurement said when I finally ran one.** A serial `make smoke`,
+**no multiplier**, sampled every 10 s for host state and tagged with the driver
+running at that moment. Every resource I suspected is **flat**: TIME_WAIT
+0 -> 27 -> 16, open sockets 4 -> 32 -> 23, allocated fds 1,120 -> 1,216,
+MemAvailable 7.28 -> 7.27 GB, processes 39 -> 46, load 0.16 -> 0.09. Nothing
+accumulates. My accumulation hypothesis died on its own evidence, which is what
+measuring is for.
+
+So did the two remaining easy stories. **Not parallelism:** it fails serially.
+**Not slow silicon:** it fails uncapped, and capping only moved which driver
+stood at the line. **Not thermal throttling on a 15 W part:** run alone
+immediately after ten minutes of sustained load, with Windows reporting the
+1.8 GHz base clock, `accessible` passes in **57 s, 22/22, rc=0**. **Not the
+neighbouring driver:** `compact_latch accessible` together passes in 57.5 s.
+**Not lateness:** the tier stops at the first failure, so `accessible` is
+driver 184 of ~317, and the last 40 drivers run as a group pass outright --
+`smoke: OK (40 drivers, 216 checks)`.
+
+**The label I had been trusting could not support itself.** Three of those four
+runs came with a verdict from the tier, and twice it read *"ALSO fails
+standalone -> a real defect"*. Reading `tests/smoke/run.sh` after the
+measurement: the in-suite call is
+
+```sh
+if wd "$_limit" sh "$here/$_t.sh" >"$_log" 2>&1; then
+```
+
+and the "standalone" retry, forty lines down, is
+
+```sh
+if wd "$_limit" sh "$here/$_t.sh" >"$_log2" 2>&1; then
+```
+
+The same command, in the same process, with the same `$HOME` -- `SMOKE_HOME` is
+created once for the whole run at line 33 -- the same environment and the same
+multiplier. The tier is serial, so **nothing differs between the two calls**. It
+is a retry, presented as an isolation test. `PASSES standalone` means the driver
+passed on the second attempt; `ALSO fails standalone` means it failed twice in
+identical conditions. Neither sentence is about isolation.
+
+The second label is the damaging one, because it is a **positive claim**: *a
+real defect*. It is wrong on a measured case -- `accessible` earned it in two
+separate runs and passes in 57 s against a fresh `$HOME` on the same hot
+machine. This is `CLAUDE.md`'s own rule with the tier on the wrong side of it:
+*a classifier's else-branch must not be a finding*, the M519 shape, where a
+probe whose pattern could not cross a newline reported `prose` -- a positive
+claim -- for five capable models. The honest else-branch here says **unknown**,
+and names what it could not vary.
+
+**Still not diagnosed, and said plainly.** Why `accessible` fails inside a full
+tier and passes against a fresh `$HOME` is **open**. What is ruled out, by
+measurement rather than by argument: parallelism, timeout length, thermal state,
+TIME_WAIT/socket/fd/memory/process accumulation, the adjacent driver, and
+position in the run. What remains untested is the suite-wide `$HOME` that 183
+prior drivers have written into -- drivers take per-driver homes *inside* it, so
+it accrues their residue, and the teardown `trap` removes it before it can be
+inspected.
+
+**Why "be more careful" is not the fix** (`docs/analysis/2026-08-22-learning-from-errors.md`).
+The knowledge was present, current, and quoted. Care was not the missing input;
+classification was. So the fix is a classifier cheap enough to apply every time:
+
+> **Does this run's output go into a row, a baseline, a claim or a comparison?
+> Then it is a measurement run -- whatever command starts it, and whoever calls
+> that command a gate.**
+
+`make ci` is a gate when its verdict decides whether something merges. The same
+command is a measurement when its verdict is the thing being written down. The
+command cannot tell you which; only the sentence that made you run it can.
+
+**And the result I spent four runs suppressing is the one the session came
+for.** The 309-driver tier does not complete in one process on this bench, and
+`PLATFORMS.md`'s WSL2 row records *"full `make ci` green in 10m34s"* on this
+same machine, measured when the tier was **209** drivers. A tier that has
+outgrown a Verified row's machine is a finding about the matrix -- which is
+exactly what the session was there to work on.
+
+> **CORRECTION, same day, and it retracts this entry's last paragraph.** The
+> sentence above -- *"the 309-driver tier does not complete in one process on
+> this bench"* -- is **wrong**, and it was written from six attempts that each
+> ended with one driver red. The seventh completed: `make smoke` under
+> `JC_SMOKE_KEEP_GOING=1`, on `63afab23`, reported **`smoke: OK (317 drivers,
+> 1823 checks)`** with rc=0 and zero failures, `accessible` among them at 22 ok
+> / 0 not ok / no `Terminated`. `make e2e` then passed too. So the tier is **not**
+> too large for this machine, `PLATFORMS.md`'s WSL2 row is not contradicted, and
+> there is no finding about the matrix here.
+>
+> What is true is narrower and duller: **the failure is intermittent**, at
+> roughly one tier attempt in seven on this bench, always a pty driver, and the
+> cause is still the open question this entry describes. `JC_SMOKE_KEEP_GOING=1`
+> is not the fix and probably not causal -- it changes only what the runner does
+> *after* a failure, and `accessible` passed on its first attempt in that run.
+>
+> **The shape of the mistake is this entry's own subject, one level up.** I had
+> six samples of a flaky failure and wrote a structural claim -- "does not
+> complete" -- rather than a frequency. That is the same move as reading a cap
+> that fires as a verdict: both take one run's outcome for a property of the
+> system. The rule the entry ends with covers it and I still did it: a baseline
+> is a record, and "six of six failed" is the record. "Cannot complete" is an
+> inference, and it took one more run to break.
+
+> **RESOLVED, same day, and the answer was not a platform property at all.**
+> This entry left open *why `accessible` fails inside a full tier and passes
+> against a fresh `$HOME`*, having ruled out parallelism, timeout length, thermal
+> state, resource accumulation, the adjacent driver and position in the run. All
+> of those exclusions stand. The cause is simpler and it was never on this
+> machine's side of the line.
+>
+> **`accessible` takes 57 s on the bench, and its deadline is 60 s.**
+> Measured 2026-09-21 by running it as a subset with the other nineteen drivers
+> Cygwin could not finish: `accessible` **57 s**, against standalone timings of
+> **53.9 s** and **57.5 s** taken earlier the same day. Its limit comes from
+> `tests/smoke/run.sh`: the driver is named on line 200, inside the block that
+> ends `run_driver "$t" 60` on line 214.
+>
+> That is a **5% margin on the reference machine the deadline was calibrated
+> for**. In-tier, after 180-odd drivers have run, it tips past 60 s, `timeout`
+> sends SIGTERM, and the bare `Terminated` line appears -- while all 22 checks
+> have already printed `ok`, because they grep a log the driver had finished
+> writing. Every symptom this entry describes follows from that one number, and
+> so does the thing that most misled me: at `JC_SMOKE_TIMEOUT_MULT=2` the 120 s
+> budget cleared `accessible`, and the failure moved to `typeahead_live` -- not a
+> different bug, just the next-tightest driver.
+>
+> **So "intermittent, about one attempt in seven" was describing a margin, not a
+> mystery.** A driver running at 95% of its limit is not flaky in any interesting
+> sense; it is scheduled to fail whenever anything is slightly slower or busier,
+> and it will do so on every machine, not only this one.
+>
+> **Why nobody saw it.** Nothing reports a driver's runtime against its limit.
+> The tier records pass or fail, and 57 against 60 reads exactly like 5 against
+> 60 until the day it doesn't. `docs/proposals/2026-09-calibration-tier.md` §4
+> proposes recording `driver,seconds,limit,censored` on every run for precisely
+> this reason, and this is the case that makes the argument: the defect was
+> visible in data nobody was keeping, for as long as the driver has existed.
+>
+> **Not fixed here, and it is a decision rather than a patch.** Raising the limit
+> is the obvious move and is also a cap change, which wants the same scrutiny as
+> the rest of this entry: 60 s was presumably chosen to bound a hang, and 120 s
+> bounds it half as well. The alternatives are making the driver cheaper (it
+> drives five pty sessions), splitting it, or moving it to the 120 s group it
+> already resembles in cost. Recorded in `DEFERRED.md` rather than chosen in
+> passing.
+
+## 92. I wrote the rule down, and broke it again ninety minutes later (2026-09-21)
+
+**Symptom.** None visible. A tier run on Cygwin, started with
+`JC_SMOKE_TIMEOUT_MULT=13`, producing numbers destined for that platform's row
+in [`PLATFORMS.md`](PLATFORMS.md).
+
+**What had just happened.** Ninety minutes earlier I had written
+[#91](#91-the-cap-i-reached-for-while-quoting-the-rule-against-it-2026-09-21),
+whose whole subject is putting a cap on a measurement run, and whose closing
+rule is a classifier meant to make the mistake unrepeatable:
+
+> **Does this run's output go into a row, a baseline, a claim or a comparison?
+> Then it is a measurement run -- whatever command starts it, and whoever calls
+> that command a gate.**
+
+The Cygwin tier's output goes onto a **row**. It is the most literal possible
+instance of that question's "yes", and I had written the question. The operator
+caught it: *"Do not use caps! Measure, and document your findings!"*
+
+**The rationalisation, which is the interesting part.** I did not think "the rule
+does not apply". I thought the multiplier was *this* knob's legitimate use --
+and unlike #91 that belief has real support. `JC_SMOKE_TIMEOUT_MULT` exists so a
+slow **target** is not failed by a fast bench's deadlines, and every non-Linux
+row on the matrix records one: Cygwin 10, MSYS2 8, the Pi Zero 19. Rows *are*
+measured with multipliers. So the sentence "caps stay off for measurement runs"
+looked like it could not mean this run, because then no row could ever be
+measured at all.
+
+**Why that is still wrong, and the distinction worth keeping.** I chose 13 from
+`ceil(117 s build / 9.65 s bench)` -- a **build-time ratio** -- before a single
+Cygwin driver's runtime had been measured. That is the #91 error exactly: a
+number computed rather than observed, doing the work of evidence. The multiplier
+is not forbidden; it is an **output**, not an input. The order that makes a row
+honest is:
+
+1. run the tier with the deadlines as they ship, and record what happens;
+2. read which drivers exceed them, by how much, and what the tier's real
+   per-driver profile is;
+3. *then* a multiplier can be stated on the row, justified by measured runtimes
+   -- which is also the only form in which the next person can check it.
+
+A multiplier chosen in step 0 cannot be falsified by the run it governs. Every
+driver passes, and the row records a number nobody measured. That is how the old
+Cygwin row came to say **10** from `130 s / 13 s` with both figures
+compile-inclusive, so neither was a runtime -- a defect the row itself now
+records, one paragraph above where I repeated it.
+
+**Why #91 did not prevent it, which is the actual finding.** #91's fix was a
+question to ask *about a run*. Asking it requires noticing that a run is
+beginning and that it is the kind of thing the question is about -- and I was not
+starting "a measurement run", I was "setting the multiplier for Cygwin", which is
+a different sentence with the same referent. A rule that must be recalled before
+an activity is weaker than a rule attached to a **keystroke**. So:
+
+> **The trigger is the knob, not the run.** The moment you type
+> `JC_SMOKE_TIMEOUT_MULT=`, `--deadline`, `--budget-tokens`, `timeout `, or any
+> other duration bound, stop and answer #91's question *then*. Not when planning
+> the run; when setting the number.
+
+That version fires at a keystroke rather than at a judgement about what one is
+doing, and the second is exactly what was unreliable both times.
+
+**A third thing the operator had to say, and it belongs here.** *"Do not
+interfere with the test runs by starting a different task unless it is
+documentation only."* I had a `ps`-sampling loop running beside the tier to watch
+its progress, on a platform whose defining characteristic is a **fork penalty** --
+an instrument made of the thing it was measuring. The run also piped through
+`tail`, so its output was buffered and invisible, which is why I had reached for
+the sampler at all. Both were fixed in the re-run: one long-lived `awk` stamping
+each line with `systime()`, no second process, and the timing comes out of the
+run rather than from beside it.
+
+**Measured, and written down rather than summarised:** the discarded capped run
+reached driver **1 of 317** -- `smoke_lint` -- and stayed there for over nine
+minutes before being stopped. Its `timeout -k 5 780` was `60 * 13`: the cap I had
+set, thirteen minutes wide, on the first driver of a measurement. Two of its
+three processes survived the first `kill` because the `timeout` wrapper had
+reparented to init, which is the runbook's *"stop the job and confirm it stopped
+-- never assume a kill worked"* earning its place again.
+
+
+---
+
+## 93. The guard that started the thing it was guarding against (2026-09-22)
+
+**The setting.** M698 gave Cygwin and MSYS2 their rigs, closing the oldest live
+recommendation in `DEFERRED.md`. Both layers emulate POSIX over Win32, and the
+project has carried a ground rule for them since August: **never run the two at
+once.** Their shared-memory regions collide, `fork` begins failing in *both*, and
+a `pacman` lock can be left stranded. A row measured through that collision is a
+row full of defects belonging to neither platform.
+
+So the rigs open with a guard. It went through three versions in forty minutes,
+and each one was corrected by running it rather than by thinking harder.
+
+**Version 1 — it caused the condition it was testing for.** The guard launched
+the *other* layer's `bash` and counted what `ps` reported inside it:
+
+```sh
+_jw_n=$("$_jw_other" -lc 'ps -ef | grep -c .')
+[ "$_jw_n" -gt 3 ] && refuse
+```
+
+Read that again with the rule in mind. **It started MSYS2 in order to find out
+whether MSYS2 was running.** The hazard is two emulation DLLs mapped at once; the
+guard mapped the second one to ask. Worse than useless: a check that creates the
+state it reports will report it *truly*, so it looks like it is working.
+
+It was miscalibrated too, in a way that hid the first flaw. An idle layer answers
+**4**, not 0 — the `ps -ef` header line, the login shell, `ps` itself, and the
+`grep` counting them — so the threshold `> 3` fired on an idle layer, the guard
+refused, and the refusal looked like a true positive. A bug that produces the
+right-looking answer for the wrong reason is the expensive kind.
+
+**Version 2 — correct method, wrong universe.** Ask Windows instead:
+`tasklist /m msys-2.0.dll` names every process with that DLL mapped, starts
+nothing, and does not care where the other layer is installed. It was still
+wrong, and this time the machine said so immediately: it refused *every* run,
+naming two `bash.exe` processes whose PIDs changed on every invocation.
+
+**Git for Windows is built on the MSYS2 runtime.** Every Git Bash shell maps
+`msys-2.0.dll` out of `C:\Program Files\Git`, which is a **third**
+cygwin-family installation, entirely separate from `C:\msys64`. The PIDs kept
+changing because the processes being detected were *my own tooling*, one per
+command I ran. The measured collision this guard exists to prevent was between
+two **installations** — their shared-memory regions are named per installation
+root — so keying on the DLL's *filename* asks a question whose answer is "yes"
+on any developer machine. A guard that always refuses is a guard that gets
+bypassed, and then it is not a guard.
+
+**Version 3 — ask for the installation.** `ps -W` lists every Windows process
+with its full image path, ships with both Cygwin and MSYS2 (both cygwin-family),
+needs no native helper, and parses no localised column title — which matters,
+since `tasklist` on this machine prints `Abbildname`. Matching the other
+installation's **root path** answers the question the hazard is actually about.
+Proved both ways before it shipped: green with nothing from `C:\msys64` running,
+red — naming the exact PIDs — with one `sleep` started there.
+
+**The part worth keeping.** Twenty lines below that guard, in the same file, I
+had written a warning about `scripts/preflight.sh`: on a host without `pgrep` it
+prints *"tree is quiet"* **without having checked**, because `busy_pids` sends
+the error to `/dev/null` and reads the empty result as zero. A missing tool and
+a clean result are the same empty string.
+
+Version 1 of my guard had exactly that shape and I did not see it. It tested
+`[ -x "/c/msys64/usr/bin/bash.exe" ]` — and `/c` is **MSYS2's** mount prefix.
+Cygwin's is `/cygdrive/c`. Run from Cygwin, the path never existed, the `if`
+never ran, and the function fell through to `ok "the other emulation layer is
+idle"`. It would have reported a clean bill of health on every Cygwin run
+forever, **without ever looking**, in the file whose own comments denounce that
+exact failure.
+
+> **Writing down a failure mode does not confer immunity to it.** The check that
+> cannot fail is not a thing other people's code does; it is a shape, and the
+> shape is *"absence and success share a representation."* Look for it wherever a
+> probe's negative result is an empty string, a missing file, or a zero — and
+> especially in the code you wrote right after explaining it to someone else.
+
+The fix generalises past this guard: the function now distinguishes **three**
+outcomes — busy, idle, and **could not look** — and never reports the second when
+it means the third. That third outcome is the one that has no natural
+representation, which is precisely why it has to be given one on purpose.
+
+
+---
+
+## 94. Three restarts in twenty minutes, each cheaper than the run it prevented (2026-09-22)
+
+**The setting.** M698's Cygwin rig had just been written, and the row it measures
+takes between one and four hours depending on the deadline multiplier. The
+operator's instruction was explicit: *"It doesn't matter if they finish before
+dawn. We need the measurement, and the logs for analysis."* So the run was going
+to be long, and a defect discovered at hour three would cost hour three.
+
+It was started three times. Each abort was caused by something that took under a
+minute to see and under five to fix, and each would have been discovered — or,
+worse, **not** discovered — only at the end.
+
+**Abort 1: a counter that printed zero twice.** The log read
+
+```
+    build 1: 127s, 0
+0 warning(s)
+```
+
+`grep -c` **prints** its count, including `0`, and **separately exits 1** when it
+matched nothing. So `n=$(grep -c PATTERN file || echo 0)` captures grep's own
+`0` and then the fallback's `0`, and the variable holds a two-line string. The
+`|| echo 0` is not merely redundant — it *is* the bug, and what actually needed
+a default was the case where the file is missing and grep prints nothing at all.
+
+Harmless in a warning count. The same expression fed the tier's **KILLED** and
+**FAILED** counters, and `0` is exactly the value those hold on the runs worth
+trusting, so the corruption would have appeared only on a clean row.
+
+**Abort 2: the run was bought for a number it did not record.** The multiplier
+was raised to 13 precisely so that drivers previously killed at 60 s would have
+780 s and *finish* — turning bounds into durations. Then: `tests/smoke/run.sh`
+announces each driver with `--- smoke: <name>` and prints **no timing at all**.
+Three and a half hours would have produced a log saying what ran and never what
+anything cost.
+
+The fix is one long-lived `awk` stamping each line with `systime()`, which is
+what ANECDOTES #92 already records the operator asking for — *"the timing comes
+out of the run rather than from beside it"* — after a `ps`-sampling loop had been
+run **beside** a Cygwin tier, an instrument built out of the very thing it was
+measuring. The shell-loop alternative spends a fork per line, on the two
+platforms in the matrix whose defining property is that forking is expensive.
+
+Exercising that pipeline against a **fake** tier — three `echo`s and two
+`sleep`s — immediately caught a second defect the real run would have hidden:
+with stamps in place every line begins with `%6d `, so the driver counter's
+anchored pattern `^--- smoke: ` matched **nothing** and the denominator silently
+became **0**. The rig would have reported `0 drivers` after four hours.
+
+**Abort 3: the provenance line inflated itself.** The row's own stamp read
+`WORKING TREE (--dirty), 7 path(s) differ from 83775025`. Four of those were the
+rig's source; **three were the rig's own scratch logs**, which the helpers were
+writing into the repository being measured. The band plan had already written
+the rule down — *rig output goes to `$TIER_V_DIR`, never the repo tree* — and the
+code did not follow it. A provenance stamp is the one line a reader trusts to
+say what was measured, so a stamp that counts its own litter is worse than none.
+After the fix: `4 path(s) differ`, which is the truth.
+
+**The takeaway, and it is not "test your code".**
+
+> **Before a run you cannot afford to repeat, run the instrument against a
+> fixture you can.** Not the subject — the *instrument*. A fake tier of three
+> echoes and two sleeps exercised the stamping, the status marker, the duration
+> arithmetic and the counters in four seconds, and found two defects that four
+> hours of real work would have reported as a platform result.
+
+There is a second, quieter lesson in which defects these were. Not one was in the
+measurement itself — the compiler, the tier, the platform were all fine. All
+three were in the **recording**: a counter, a timestamp, a provenance line. The
+apparatus that turns a run into evidence is code too, and it is the code nobody
+reviews, because it is "just logging" right up until it is the only thing left of
+a run that cannot be repeated.
+
+**Coda: a fourth instance, in the watcher, within the hour.** The run was finally
+launched detached — `setsid nohup`, reparented to init — after Claude Code's
+background-shell reaper stopped an earlier attempt under system memory pressure.
+Detached means no completion event, so a small poller was armed beside it:
+
+```sh
+until grep -q "^== totals:" "$LOG"; do
+  if [ -f "$SM" ] && [ $(( $(date +%s) - $(stat -c %Y "$SM") )) -gt 1800 ]; then
+    echo "STALLED"; break
+  fi
+  sleep 120
+done
+```
+
+It reported **STALLED within minutes**, while the rig was demonstrably healthy —
+`make WERROR=1` running, its build log written one second earlier. `$SM` was the
+tier log, and the tier had not started yet, so `[ -f "$SM" ]` matched a file left
+behind by the **aborted run four hours before**. Its mtime was four hours old, so
+the freshness test fired at once. The watcher was not reading the run; it was
+reading the previous run's corpse.
+
+Same shape, fourth time in one night: **stale state read as current state**, a
+sibling of *absence and success sharing a representation* from #93. The repair
+was to key liveness on the newest of ALL the run's artifacts rather than one
+named file, and to rename the dead run's files to `*-ABORTED-*` — because the
+general fix is not a cleverer predicate, it is making the stale thing **unable to
+impersonate** the fresh one.
+
+The tell is worth naming, since it is cheap to check and was present every time:
+**a freshness test with no notion of when the current run began.** `stat` answers
+*"when was this file last written"*, never *"was it written by the thing I am
+watching"*. If a check can pass on data that predates the run, it is not watching
+the run.
+
+
+---
+
+## 95. The rig broke the product, and the evidence pointed at the right suspect (2026-09-22)
+
+**The finding, before the correction.** M698 gave Cygwin and MSYS2 rigs and ran
+both rows at a measured deadline multiplier instead of the shipped one. Fourteen
+of M696's seventeen censored drivers turned into real durations — and one driver
+that had never been seen to finish now failed, on **both** emulation layers:
+
+```
+not ok 1  - PTY drive failed (rc=3): in this shell -- nothing to store.
+not ok 3  - key file missing or malformed
+not ok 4  - key file mode is , want -rw-------
+not ok 7  - still reports the key as missing
+not ok 16 - no guidance before the optional questions
+not ok 28 - no sound/notify question in the optional block
+```
+
+`setup_keyfile`, ~400 s on Cygwin and ~350 s on MSYS2, *"also fails standalone"*
+on both. It was written up as the run's headline result: **the shipped 60-second
+deadline had been killing this driver before it could fail, so M696's "zero
+genuine check failures" was an artifact of censoring.** That much was a reasonable
+reading, and it was committed, with a `CHANGELOG` entry warning users of those
+platforms and a named suspect.
+
+**The suspect was excellent, which is what makes this worth writing down.** The
+driver failed on exactly two rows — Windows + Cygwin and Windows + MSYS2 — and
+never on the Linux bench, where `make ci` is green. Those two rows are **Partly
+verified**. And M695, three commits earlier *in this same band*, had changed what
+the setup wizard prints on precisely that verdict class, replacing
+`!jc_platform_is_linux()` with a three-valued `jc_platform_row_verdict()`. A
+change to a class of platforms, failing on that class and no other, with the
+bench structurally unable to show it. Motive, opportunity, and a clean
+correlation.
+
+**It was the rig.**
+
+The rig drives the live turns through a gateway, and jichi takes the key by
+`apiKeyEnv` — the *name* of an environment variable, so no secret sits in a
+config file. So the operator exports `JICHI_API_KEY` before launching the rig.
+That export is inherited by everything the rig runs, including the smoke tier.
+And `setup_keyfile` drives the setup wizard through a pty, telling it to store a
+key in — `JICHI_API_KEY`. jichi looked, found the variable already set, and
+answered correctly:
+
+```
+  $JICHI_API_KEY is already set in this shell -- nothing to store.
+```
+
+It therefore never asked for a key. The pty script waited for a prompt that would
+never come, burned its `expect` timeouts, and returned rc=3; every later check
+cascaded from the key file that was never written. **jichi was right at every
+step.** The wizard declining to overwrite a key the user already has is a feature,
+and it fired.
+
+**The control took four minutes and settles it.** Same tree, same commit, same
+machine, one variable:
+
+| | `setup_keyfile` |
+|---|---|
+| `JICHI_API_KEY` exported (as the rig runs it) | pty timeout, rc=3, 6 checks fail |
+| `JICHI_API_KEY` unset | **28 of 28 pass** |
+
+Check 27 is *"doctor reports the platform"* — the very check M695 was suspected
+of breaking. It passes. M695 is exonerated by the same run that would have
+convicted it.
+
+**Why this is the dangerous shape.** A contaminating rig does not produce noise;
+it produces a **correlated** signal, and it correlates with exactly the thing the
+rig is for. This rig instruments only the Windows-family rows, so its
+contamination appears only on the Windows-family rows — which is
+indistinguishable, from the outside, from a defect specific to those platforms.
+Every instinct that says *"a failure on two related platforms and nowhere else is
+a platform defect"* is ordinarily right, and here it was the trap. The bench
+being green was not evidence of innocence; the bench simply has no gateway key
+exported.
+
+> **Before believing a defect that appears only where one instrument reaches, run
+> the subject without the instrument.** Not a re-run — a run with the apparatus
+> *removed*. If the defect needs your rig to be present, it is your rig's.
+
+**The repair, and why it is not "remember to unset it".** The rig now stashes the
+key under a name jichi has no opinion about, `unset`s the operator's variable for
+the whole offline half, and restores it only inside the live turns. The
+environment the tier sees is now the environment a user has, which is what a tier
+is for. A note in a runbook would have been the same class of fix as the one
+ANECDOTES #92 rejected: a rule that must be recalled at the right moment, rather
+than a property the code holds.
+
+**And it is the fifth instance in one night of a single shape.** The guard that
+started MSYS2 to ask whether MSYS2 was running (#93); the counter that printed
+zero twice; the run raised to a generous deadline that recorded no durations; the
+watcher that read the previous run's corpse (#94); and now the rig whose own
+prerequisite broke the thing it measured. **Not one was in the measurement. All
+five were in the apparatus** — and this one is the worst of them, because the
+other four announced themselves as malfunctions, and this one announced itself as
+a finding.
+
+
+---
+
+## 96. A name on PATH is not a capability, and two emulation layers disagree (2026-09-22)
+
+M698 ran the smoke tier on Cygwin and MSYS2 at measured deadlines. Six drivers
+failed across the two rows. **None was a defect in jichi.** #95 covers the two
+that were the rig's own contamination; these are the other three, and they share
+a different lesson.
+
+### `pdf` and `docs_pdf`: present, and unusable
+
+Both drivers open with what looks like the right guard:
+
+```sh
+command -v pdftotext >/dev/null 2>&1 || t_skip "pdftotext not installed"
+```
+
+On MSYS2 that skipped cleanly. On Cygwin it did **not** skip — it ran, and failed
+with the driver's own accusation of itself: *"the fixture PDF does not extract --
+driver bug, not jichi"*. The fixture was fine. Cygwin's PATH inherits the
+Windows PATH, so `pdftotext` resolved to
+
+```
+/cygdrive/c/Program Files/Git/mingw64/bin/pdftotext
+I/O Error: Couldn't open file '/tmp/tmp.IRTzFQ6Atk/doc.pdf'
+```
+
+a **native Win32 binary shipped with Git for Windows**, which cannot resolve a
+Cygwin path and therefore fails on every fixture ever handed to it.
+
+Note the direction of the injustice: **the tier was harsher on the host that had
+more installed.** MSYS2, with no `pdftotext` at all, skipped and stayed green.
+Cygwin, which had one, failed twice. `command -v` answers *"is there something on
+PATH with that name"*, and the question the driver needed answered was *"can it
+open my file"*. Those differ on any Windows box, and they differ silently.
+
+The probe is now functional and shared (`smoke_pdftotext_works` in `_smoke.sh`):
+build a one-off PDF, extract it, believe the result rather than the name. Cygwin
+now skips with the reason; nothing else changes.
+
+> **Present-but-unusable and absent must not share an answer.** It is the same
+> rule as #93's *absence and success must not share a representation*, one step
+> along: a capability probe that tests for a **name** has not tested the
+> capability. Where a probe is cheap to run for real, run it for real.
+
+### `reading_trace`: the two runtimes disagree about a carriage return
+
+This one failed on MSYS2 and passed on Cygwin, which is the configuration that
+makes a finding attributable. Three traces reported `req.1 drifted`, and the
+diff looked like nothing at all — eight identical-looking lines. At byte level:
+
+```
+expected (committed):  P O S T   / v 1 / ...  H T T P / 1 . 1  
+ 
+
+captured on MSYS2:     P O S T   / v 1 / ...  H T T P / 1 . 1  
+
+```
+
+The carriage returns were gone. `capture.sh` normalises every artifact through a
+`sed` pipeline, and an HTTP head is CRLF by the standard. Three lines isolate it,
+run on one machine carrying all three layers:
+
+```
+printf 'A\r\nB\r\n' | sed -e 's/X/Y/' | od -c
+  WSL2    ->  A \r \n B \r \n
+  Cygwin  ->  A \r \n B \r \n
+  MSYS2   ->  A \n B \n
+```
+
+**MSYS2's `sed` performs CRLF text-mode translation; Cygwin's, on the same
+machine, same filesystem, same user, does not.** jichi was never involved:
+`mockmodel` writes `req.N` with `fopen(..., "wb")` and the bytes reaching it are
+correct. What the platform cannot do is *record* them.
+
+So `reading_trace` now probes for CR survival before `t_plan` and skips with the
+measurement, the same shape as `pathfence_dangling`'s dangling-symlink probe —
+and for the same reason, since asserting would report drift in the documentation
+for a fixture the platform cannot produce.
+
+### Why one row could not have told us any of this
+
+The project's stated reason for measuring both layers is that MSYS2's runtime is
+a fork of Cygwin's, so **agreement** between the rows is evidence about emulating
+POSIX, while **divergence** isolates Cygwin-version behaviour from emulation
+behaviour. This run is that argument paying out, in both directions at once:
+
+- the two layers **killed exactly the same three drivers** — `smoke_lint`,
+  `snapshot_lint`, `posix_utils_lint`, all of which spawn a process per file —
+  at different deadlines, which attributes the cost to emulation rather than to
+  either implementation;
+- and they **disagreed** about `sed` and CR, and about what `pdftotext` on PATH
+  even is, which are facts neither row alone could have established, because
+  neither had anything to be different from.
+
+A single Windows row would have reported three failures and offered no way to
+tell a platform property from an implementation accident.
+
+## 97. `uname()` succeeds with any non-negative value, and one platform uses that (2026-09-22)
+
+**Symptom.** The illumos row, re-run after 39 commits had landed on master, came
+back `18 ok, 1 failed` with two failing drivers: `snapshot_lint` and `doctor`.
+`doctor` itself ran fine and printed `23 ok, 8 warnings, 0 problems` — one of the
+warnings being `! host platform not recognised`.
+
+**The dead end I nearly published.** M695 had shipped
+`jc_sys_partly[] = { "SunOS", "CYGWIN_NT-", "MSYS_NT-" }`, and `uname -s` on
+OmniOS is exactly `SunOS`. So the obvious story wrote itself: the new verdict
+table was broken, and here was the proof. I got as far as reading
+`jc_sys_listed`'s prefix matching — which is correct — before checking whether
+the warning was **new**. It was not. The same line is in the results file from a
+run two days earlier, before M695 existed. A symptom that predates the suspect
+is not evidence against the suspect.
+
+**Root cause, one level down.** `! host platform not recognised` is not the
+verdict table's branch at all. It is `main.c`'s **fallback**, taken when
+`jc_platform_describe()` returns 0 — and that function returns 0 for exactly one
+reason:
+
+```c
+if (uname(&u) != 0) {
+    return 0;
+}
+```
+
+POSIX says of `uname()`: *"upon successful completion, a **non-negative** value
+shall be returned."* It does not say zero. Linux, FreeBSD, NetBSD, OpenBSD,
+Cygwin and MSYS2 all return 0 — six platforms agreeing — and illumos returns a
+positive value. Four call sites written `== 0` were therefore correct on every
+row this project had ever run, and read a working call as a failure on the first
+SysV kernel it met. The rig's own `uname -a` had printed the system fine on the
+same guest seconds earlier, which is what made the contradiction visible.
+
+**What it actually cost.** Not a cosmetic warning. `jc_platform_row_verdict()`
+has the same test, so it returned `UNKNOWN`, and **M695's entire platform-verdict
+feature was dead on illumos**: the `"SunOS"` entry could never be reached, and
+`doctor` told an illumos user jichi had never been compiled there while
+`PLATFORMS.md` partly-verifies the row. `tests/smoke/doctor.sh` had been failing
+correctly the whole time — it derives the expected tier from `PLATFORMS.md`, read
+`partly`, and found `partly=0 never-compiled=0`.
+
+**Lessons.**
+
+1. **A POSIX success contract is not always "returns 0", and the six platforms
+   that agree will not tell you.** `< 0` is the test the standard licenses.
+2. **A feature can be dead on a platform while the table it reads looks perfect.**
+   Nothing was wrong with `jc_sys_partly[]`. The caller never reached it.
+3. **Check whether a symptom predates the suspect before writing the story.**
+   Two minutes with the previous run's results file saved a wrong milestone entry.
+
+`portability_lint` check 24 now refuses a `uname()` result compared against zero
+anywhere in `src/` or `include/`, floored at the four call sites so an empty
+extraction cannot pass. M703.
+
+## 98. `figures-behind: 0` meant the translation was 41 milestones stale (2026-09-22)
+
+**Symptom.** After re-counting `PROJECT_TIMELINE.md`, `i18n_tracks_lint` check 5
+reported 16 figures in `docs/i18n/ja/PROJECT_TIMELINE.md` with no counterpart in
+the English page. That page's own marker read `<!-- figures-behind: 0 -->`.
+
+**What the marker meant, and what it reads as.** Check 5 asks one question: does
+this translation carry a number of three or more digits that appears **nowhere**
+in its English source? At M651 the answer was honestly no — that milestone
+carried the numerals across by hand and set the marker to 0.
+
+Then the English page was re-counted at M686 and the Japanese did not move. The
+marker stayed at 0 anyway, for a reason that is worth the anecdote: **the English
+page preserves its own superseded figures on purpose.** Its recount table is
+
+| | M579 | M620 | M646 |
+|---|--:|--:|--:|
+| tests | ~83,500 | ~87,900 | **~93,700** |
+| unit checks | 12,960 | 13,177 | **13,329** |
+| smoke checks | — | 1,608 | **1,736** |
+
+and the Japanese summary table still said `M1 – M645`, `1,141` commits, `13,329`
+unit checks, `1,736` smoke checks, `466` English pages. **Every one of those
+survived in English**, in a history table written to make drift visible.
+
+So the marker only moved when this recount removed figures from English
+*entirely* — the subsystem pie slices and two grand totals, which no history
+table quotes.
+
+**Lesson.** A document that records its own history makes its translations'
+staleness invisible to a check that asks "does this claim exist in the source".
+The check is not wrong; its question is narrower than its marker's name implies,
+and `figures-behind: 0` reads as *current* when it means *every figure here is
+still quoted somewhere in the English, including in a table of what the figures
+used to be*. A check against the **current** summary table, rather than the whole
+document, would have said so 41 milestones earlier. M706 records the narrowing;
+it was not done in the same session because it is a change to a shared gate file
+that a second machine was editing all evening.
+
+## 99. The same count published as 6, then 24, then 51 (2026-09-22)
+
+**Symptom.** Three figures for one quantity — how many body lines of a machine
+translation were still English — published in three commits on the same day, for
+the same file, each believed at the time.
+
+**What each filter missed.**
+
+| published | the rule used | what it could not see |
+|--:|---|---|
+| **6** | lines over 45 characters | every short lead-in: *"In your project directory:"*, *"Answer the prompts:"*, *"Two commands read it back:"* |
+| **24** | excluded lines starting with `-` or `#` | untranslated **list items and headings** — on a definition-dense page, most of the content |
+| **51** | one rule, written down | — |
+
+None of the three was written dishonestly. Each was written quickly, in a
+different terminal, to answer the question in front of me, and each was a little
+narrower than the last. That is the whole mechanism.
+
+**The direction of the drift is the finding.** A filter gets tightened when its
+output looks alarming and never when it looks reassuring. Nobody sits down to
+loosen a check that is reporting good news. So an instrument that is not written
+down does not drift randomly — **it drifts flattering**, every time, and the
+number it produces gets quoted in a banner and a commit message before anyone
+asks what it counted.
+
+**A second instrument failed the same day in the same family.** A structural
+check reported `8/8 headings, identical figure set` for a page with two entire
+sections left in English. It was true: the headings were all present, and
+untranslated. **A check that counts things cannot see that the things are in the
+wrong language.**
+
+**Lesson.** The rule belongs in the instrument, not in the person running it.
+The audit is now a script with its rule as its docstring — *outside fenced code
+and the banner comments, longer than 12 characters, contains a 4+ letter English
+word, contains no CJK, is not a table row / blockquote / image / mermaid line;
+**headings and list items count, because they are content***. Written down, it
+can be disagreed with. Re-typed each time, it can only be flattered. M706.
+
+## 100. A backtick in a lint's error message created a file called `=` (2026-09-22)
+
+**Symptom.** `make smoke` failed on `snapshot_lint` check 15 — *"untracked
+non-ignored file(s)"* — and printed the offending name as an empty string.
+`git status --porcelain` was blunter:
+
+```
+?? =
+```
+
+A zero-byte file named `=` in the repository root.
+
+**Root cause.** Half an hour earlier I had written `portability_lint` check 24's
+failure message, which explains the `uname()` trap of #97, and wrote the advice
+the natural way:
+
+```sh
+t_fail "... so \`== 0\` reads a successful call as a failure there.
+Use \`< 0\` for the error test and \`>= 0\` for the success test."
+```
+
+Those are backticks inside a **double-quoted** shell string, so each one is a
+command substitution. `` `== 0` `` and `` `< 0` `` failed harmlessly. `` `>= 0` ``
+ran a command with **a redirection and no command**, which is how the shell
+creates an empty file named `=`.
+
+The failing run also shows the damage in the message itself: the check's own
+output read *"so  reads a successful call as a failure there. Use  for the error
+test and  for the success test."* — three holes where the advice should be.
+
+**Where the irony sits.** `scripts/tier-v-illumos.sh` has carried this comment
+since M660:
+
+> *"Single quotes around the word: a backtick inside a DOUBLE-quoted shell string
+> is a command substitution, and the first version of this line ran…"*
+
+So the hazard was already documented, in this repository, by this project, about
+this exact construct — and it caught me in a message I was writing to explain a
+different portability trap.
+
+**Lessons.** In shell, prose inside a double-quoted string is **code**; a message
+is not a safe place to relax. Use `'single quotes'` for the code you are naming,
+or a quoted heredoc. And the reason this cost only five minutes is that
+`snapshot_lint` check 15 refuses to certify a tree with untracked files at all —
+a check about *release hygiene* caught a shell-quoting bug in a *different
+driver*, which is the argument for a tier rather than a test.
+
+## 101. "The tests do not compile" — a statement of fact, enforced as an order (2026-09-21)
+
+**Symptom.** A supervised drive on zigodot ran for **21 minutes**, made **42
+tool calls**, spent **2,215,762 tokens**, and ended `verify_failed` with the
+envelope rolling its work back. Along the way jichi's own loop detector fired:
+`envelope: verify stuck on the same error (2x)`.
+
+The task was not hard. The agent had to make two failing tests compile and pass.
+
+**The line nobody reads.** Third line of the run's stderr, above the noise:
+
+```
+[jichi warn] [constraint] inferred from your request and enforced for THIS
+SESSION (not saved): do not run build commands (make / cmake / compile / ...)
+```
+
+The prompt — mine — opened:
+
+> *Two tests at the end of `src/gdscript/analyzer.zig` do not compile:*
+
+That is a **description of the state the agent was being asked to fix**. It was
+read as an **instruction**, because `compile` is a token of the `build` command
+key and `do not` is a negation cue. So for the rest of the session the agent was
+forbidden to build — and the task was "make it compile".
+
+**It did not merely warn. It refused.** Measured with one scripted tool call,
+`make --version`, held constant and only the prompt changed:
+
+| Prompt | Result |
+|---|---|
+| `Please check the toolchain.` | 1 tool call, **0 refused by a fence** |
+| `The tests do not compile. Please check the toolchain.` | 1 tool call, **1 refused by a fence** |
+
+So the agent could not run `zig build test` to check its own work. It looped,
+the verifier stayed red on the same error, and the envelope did the right thing
+with the wrong material.
+
+**The minimal reproduction is four words:** `the tests do not compile`. Sibling
+phrasings do not fire — `this file does not compile`, `it will not compile`,
+`the build does not compile` — because the cue list has `do not` and not
+`does not`. Which is to say the defect was never about the meaning; it was the
+literal bigram.
+
+**The fix** is the mirror of a guard that was already there. `is_pronoun_after`
+looks *ahead* of a cue for a conversational pronoun ("why don't we"). The new
+`is_descriptive_before` looks *behind* it: a subject in front of "do not" makes
+the sentence a statement, while the start of a clause — or an opener like
+"please" or "but" — keeps it an order. Scoped to the `do not` family only:
+"we never push to master" is declarative too, and it is also a policy worth
+keeping.
+
+Verified end to end, same scripted call: `Do not run any build commands` → 1
+refused, `Please do not run the build` → 1 refused, `The tests do not compile`
+→ **0 refused**. Unit suite 13,449 checks, 0 failures.
+
+**Three measurement errors in the investigation, each caught by a control.**
+This is the part worth keeping.
+
+1. I first reproduced it offline against a dead port and got "no constraint
+   inferred" for every phrase — including a **positive control** that should
+   obviously have fired. The run never reached the scan. Four confident "miss"
+   results, all vacuous. *A probe that cannot produce a positive has not
+   produced a negative.*
+2. With the turn completing, the control still failed: the scan is gated on the
+   envelope being armed. Only `--edit-scope` made the probe real.
+3. With the fix written and the unit suite green, the end-to-end probe still
+   showed the old behaviour — because `make test` builds `run_tests` and **not**
+   `jichi`. I was probing a stale binary, which this project has a standing note
+   about, written after the last time.
+
+Two hypotheses died on the way, both plausible, both wrong: that the phrase
+`zig build test` had triggered it, and that the project's `AGENTS.md` had
+("**Never** `std.debug.print` … `zig build test` runs the test binary"). Neither
+does. The bisect found it in four probes once the harness could fire at all.
+
+**Lesson.** *An inferred constraint is a guess that acquires the force of a
+rule.* This one was inferred from prose, enforced for a whole session, announced
+once in a warning stream nobody reads, and it made the assigned task impossible.
+The guess was cheap; the enforcement was not. Where a system infers an
+instruction from a description, the failure is not that it guessed wrong — it is
+that the wrong guess is indistinguishable, at the point of use, from one the
+operator typed.

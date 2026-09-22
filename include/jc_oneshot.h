@@ -44,6 +44,22 @@ struct jc_oneshot_result {
     int    ncalls;      /* number of native tool calls parsed               */
     double in_tokens;   /* the server's own prompt-token count (0 if absent)*/
     long   http_status; /* 0 when the request never completed               */
+    /* M692: the SERVER'S OWN account of the refusal, when it gave one.
+     *
+     * `doctor --live` used to report `the probe request did not complete (http
+     * error, HTTP error)` -- the status string, then the literal words "HTTP
+     * error" -- for a gateway that had answered:
+     *
+     *   HTTP 400  {"error":{"message":"litellm.BadRequestError: You passed in
+     *   model=hosted_vllm/qwen3-coder-next. There are no healthy deployments
+     *   for this model. ..."}}
+     *
+     * The server named the problem, named the model and gave a status code; all
+     * three were discarded. From jichi's message the next move is to check the
+     * network. From the server's, the next move is to fix one string. That
+     * difference is the whole diagnosis. Owned; freed by
+     * jc_oneshot_result_free. NULL when the server said nothing usable. */
+    char  *err_detail;
 };
 
 void jc_oneshot_result_free(struct jc_oneshot_result *r);

@@ -41,6 +41,21 @@
 #   scripts/minimal-curl.sh --tls mbedtls        # the cheaper-to-cross backend
 #   scripts/minimal-curl.sh --dry-run            # print every step, touch nothing
 #   scripts/minimal-curl.sh --prefix /tmp/mc     # somewhere else
+#   scripts/minimal-curl.sh --tls none \
+#       --target s390x-linux-musl                # a cross rung with NO TLS at all
+#
+# THE CROSS RUNG (--target) exists for scripts/tier-v-arch.sh --drive. Those rows
+# reach the model over a LOOPBACK tunnel in plaintext, so a libcurl with no TLS
+# backend is not a compromise there -- it removes the hardest part of a
+# cross-compile (OpenSSL's perl target triplets, mbedTLS's second CMake tree) and
+# leaves a dependency that `zig cc` builds for any triple in about half a minute.
+# That is the whole of what docs/DEFERRED.md meant by "zig cc bundles libcs, not
+# dependency trees": it does not SHIP libcurl, and it compiles one perfectly well.
+#
+# --build IS LOAD-BEARING on that rung and was not obvious. binfmt_misc lets this
+# host EXECUTE target binaries, so autoconf concludes it is not cross-compiling
+# and RUNS its test programs under qemu -- where curl's `getifaddrs` conftest
+# wedged, measured 2026-09-21. Naming --build explicitly forces cross_compiling=yes.
 #
 # Then measure jichi against it -- the Makefile finds a libcurl through
 # pkg-config alone, so no Makefile change is needed:
@@ -57,6 +72,8 @@ VERSION=8.18.0
 MBEDTLS_VERSION=3.6.2
 TLS=openssl
 MUSL=0
+TARGET=""
+
 DRY=0
 PREFIX=""
 
@@ -68,6 +85,7 @@ while [ $# -gt 0 ]; do
         --version) shift; VERSION="${1:?--version needs a value}" ;;
         --tls)     shift; TLS="${1:?--tls needs openssl or mbedtls}" ;;
         --musl)    MUSL=1 ;;
+        --target)  shift; TARGET="${1:?--target needs a triple}"; MUSL=1 ;;
         --prefix)  shift; PREFIX="${1:?--prefix needs a path}" ;;
         --dry-run) DRY=1 ;;
         -h|--help) awk 'NR>1 && !/^#/{exit} NR>1' "$0"; exit 0 ;;
@@ -79,13 +97,18 @@ done
 case "$TLS" in
     openssl)  TLS_FLAG=--with-openssl ;;
     mbedtls)  TLS_FLAG=--with-mbedtls ;;
-    *) echo "minimal-curl: --tls must be openssl or mbedtls (got '$TLS')" >&2; exit 2 ;;
+    none)     TLS_FLAG=--without-ssl ;;
+    *) echo "minimal-curl: --tls must be openssl, mbedtls or none (got '$TLS')" >&2; exit 2 ;;
 esac
 
 FLAVOUR=$TLS
 [ "$MUSL" -eq 1 ] && FLAVOUR="$TLS-musl"
+[ -n "$TARGET" ] && FLAVOUR="$TLS-$TARGET"
 [ -n "$PREFIX" ] || PREFIX="$DIR/prefix-$FLAVOUR"
+# A cross rung gets its own source tree: the unpack below is destructive, and two
+# targets sharing one would each rebuild the other's objects under a different ABI.
 SRC="$DIR/curl-$VERSION"
+[ -n "$TARGET" ] && SRC="$DIR/curl-$VERSION-$TARGET"
 TARBALL="$DIR/curl-$VERSION.tar.xz"
 URL="https://curl.se/download/curl-$VERSION.tar.xz"
 
@@ -128,14 +151,15 @@ if [ "$MUSL" -eq 1 ]; then
     # sub-libraries). Autoconf has the same problem via $AR. One-line wrapper
     # scripts are the fix that works for both, so generate them rather than
     # trying to smuggle a two-word command through a variable that means one.
-    TC="$DIR/toolchain"
+    TC="$DIR/toolchain${TARGET:+-$TARGET}"
     mkdir -p "$TC"
     # -fno-sanitize=undefined: zig cc turns UBSan on by default, so the
     # dependency's objects reference __ubsan_handle_* and every link fails with
     # "undefined symbol: __ubsan_handle_type_mismatch_v1" from libmbedcrypto.a
     # (measured 2026-08-13 in curl's own conftest). We are cross-building a
     # third-party library for a size measurement, not instrumenting it.
-    printf '#!/bin/sh\nexec zig cc -target x86_64-linux-musl -fno-sanitize=undefined "$@"\n' > "$TC/zcc"
+    printf '#!/bin/sh\nexec zig cc -target %s -fno-sanitize=undefined "$@"\n' \
+        "${TARGET:-x86_64-linux-musl}" > "$TC/zcc"
     printf '#!/bin/sh\nexec zig ar "$@"\n'                           > "$TC/zar"
     printf '#!/bin/sh\nexec zig ranlib "$@"\n'                       > "$TC/zranlib"
     chmod +x "$TC/zcc" "$TC/zar" "$TC/zranlib"
@@ -164,7 +188,15 @@ fi
 # Unpack fresh every time: a configure cache from a different backend is the
 # kind of stale state that makes a measurement quietly wrong.
 run rm -rf "$SRC"
-run tar -C "$DIR" -xf "$TARBALL"
+# --strip-components, so the tree lands at $SRC rather than at the tarball's own
+# curl-$VERSION directory. The first cut of the cross rung omitted it, and the
+# per-target $SRC then did not exist: `cd` failed, and the handler below printed
+# the tail of a configure.log LEFT BY AN EARLIER RUN -- a summary reporting SSL
+# enabled for a build whose whole point was --without-ssl. Hence the per-flavour
+# log names too: a diagnostic that can show another run's output is worse than
+# none, because it is read as evidence.
+run mkdir -p "$SRC"
+run tar -C "$SRC" --strip-components=1 -xf "$TARBALL"
 
 # ------------------------------------------------- 1b. the TLS library, if musl
 # Only for the musl rung: the glibc rung links the system OpenSSL, which is
@@ -205,12 +237,12 @@ if [ "$MUSL" -eq 1 ] && [ "$TLS" = mbedtls ]; then
             -DMBEDTLS_FATAL_WARNINGS=Off \
             -DUSE_SHARED_MBEDTLS_LIBRARY=Off \
             -DUSE_STATIC_MBEDTLS_LIBRARY=On \
-            >"$DIR/mbedtls-cmake.log" 2>&1 \
-          && cmake --build build -j"$JOBS" >>"$DIR/mbedtls-cmake.log" 2>&1 \
-          && cmake --install build >>"$DIR/mbedtls-cmake.log" 2>&1 ) || {
+            >"$DIR/mbedtls-cmake-$FLAVOUR.log" 2>&1 \
+          && cmake --build build -j"$JOBS" >>"$DIR/mbedtls-cmake-$FLAVOUR.log" 2>&1 \
+          && cmake --install build >>"$DIR/mbedtls-cmake-$FLAVOUR.log" 2>&1 ) || {
             echo "minimal-curl: mbedTLS build FAILED for musl." >&2
-            echo "  tail of $DIR/mbedtls-cmake.log:" >&2
-            tail -20 "$DIR/mbedtls-cmake.log" >&2
+            echo "  tail of $DIR/mbedtls-cmake-$FLAVOUR.log:" >&2
+            tail -20 "$DIR/mbedtls-cmake-$FLAVOUR.log" >&2
             echo "  HONEST LABEL if this cannot be fixed cheaply: the musl rung of" >&2
             echo "  the <=64 MB recipe remains UNBUILT, and docs/LOW_MEMORY.md must" >&2
             echo "  keep saying so. The glibc rung (no --musl) is unaffected." >&2
@@ -238,7 +270,8 @@ set -- \
 # programs), static-only, and the mbedTLS prefix. `--with-mbedtls=$PREFIX` points
 # at what step 1b just installed.
 if [ "$MUSL" -eq 1 ]; then
-    set -- "$@" --host=x86_64-linux-musl --disable-shared --enable-static
+    set -- "$@" --host="${TARGET:-x86_64-linux-musl}" --disable-shared --enable-static
+    [ -z "$TARGET" ] || set -- "$@" --build=x86_64-pc-linux-gnu
 fi
 
 say "configure"
@@ -249,9 +282,9 @@ else
         CC="$MUSL_CC"; AR="$MUSL_AR"; RANLIB="$MUSL_RANLIB"
         export CC AR RANLIB
     fi
-    ( cd "$SRC" && ./configure "$@" >"$DIR/configure.log" 2>&1 ) || {
-        echo "minimal-curl: configure FAILED -- tail of $DIR/configure.log:" >&2
-        tail -25 "$DIR/configure.log" >&2
+    ( cd "$SRC" && ./configure "$@" >"$DIR/configure-$FLAVOUR.log" 2>&1 ) || {
+        echo "minimal-curl: configure FAILED -- tail of $DIR/configure-$FLAVOUR.log:" >&2
+        tail -25 "$DIR/configure-$FLAVOUR.log" >&2
         exit 1
     }
 fi
@@ -261,12 +294,12 @@ say "build (make -j$JOBS) and install"
 if [ "$DRY" -eq 1 ]; then
     echo "+ make -C $SRC -j$JOBS && make -C $SRC install"
 else
-    make -C "$SRC" -j"$JOBS" >"$DIR/build.log" 2>&1 || {
-        echo "minimal-curl: build FAILED -- tail of $DIR/build.log:" >&2
-        tail -25 "$DIR/build.log" >&2
+    make -C "$SRC" -j"$JOBS" >"$DIR/build-$FLAVOUR.log" 2>&1 || {
+        echo "minimal-curl: build FAILED -- tail of $DIR/build-$FLAVOUR.log:" >&2
+        tail -25 "$DIR/build-$FLAVOUR.log" >&2
         exit 1
     }
-    make -C "$SRC" install >>"$DIR/build.log" 2>&1 || {
+    make -C "$SRC" install >>"$DIR/build-$FLAVOUR.log" 2>&1 || {
         echo "minimal-curl: install FAILED -- see $DIR/build.log" >&2
         exit 1
     }

@@ -126,6 +126,7 @@ there are enough.
 | 2026-09-20 | zigodot | same | `jlu/qwen3.8-27b` | **exactly right**, 1 call, 15 s | pick the thinking model when the answer is a complete list |
 | 2026-09-20 | zigodot | read the upstream Godot reference | `jlu/qwen3-coder-next` | honest *"that directory does not exist"* | a negative result handled well — worth logging too |
 | 2026-09-20 | zigodot | add a doc comment, out of scope | `jlu/qwen3-coder-next` | refused by the fence, said why | the fence is enforced **and** legible |
+| 2026-09-21 | zigodot | finish `dogfood/parse-time-cast-check`: the branch would not compile, 8 errors, all `isCastValid` | `jlu/qwen3.8-27b` | **build fixed**, 518/518 tests (was 510 on master), 11 tool calls, 309k tokens, 9.5 min, envelope `verified ok` | A reply cut off by the **output ceiling** records `stop_reason: "done"`. The provider knows (`finish_reason == "length"`) and warns on stderr; the outcome classifier never hears, so the JSONL `done` event a script reads says the run finished cleanly. Also: the model **noticed the feature was dead code** and said so, unprompted — it did not claim a working cast check. |
 | | | | | | |
 
 ---

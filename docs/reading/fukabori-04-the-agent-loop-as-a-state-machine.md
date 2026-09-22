@@ -2,6 +2,12 @@
 
 *[深掘り（ふかぼり）*Fukabori* — the deep dive](FUKABORI.md) · chapter 4 of 12*
 
+> **New to state machines as a technique?** This chapter reads one particular
+> machine and assumes the vocabulary. [`STATE_MACHINE_TUTORIAL.md`](../STATE_MACHINE_TUTORIAL.md)
+> teaches the general tool first — states, events, the transition table, and the
+> `-Wswitch` trick this tree runs on — using two much smaller machines from the
+> same source. Read it first if "transition table" is not already a familiar phrase.
+
 ## The decision: one explicit loop, not an event framework
 
 `src/chat/jc_agent.c:run_agent_loop` is a `for` over iterations, each

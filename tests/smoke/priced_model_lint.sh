@@ -41,7 +41,7 @@
 # problem (scripts/mutant-sweep.sh records that negative result).
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 4
+t_plan 6
 G=/usr/bin/grep
 [ -x "$G" ] || G=grep
 tmp=$(smoke_tmp)
@@ -52,8 +52,13 @@ cd "$SMOKE_ROOT" || exit 1
 PRICED='anthropic/|openai/|vertex_ai/|azure/|gemini/|bedrock/'
 GATEWAY='api\.hrz\.uni-giessen\.de'
 
-# Files that may reach a model: harnesses and scripts we run. NOT src/ -- jichi's
-# own code names no model id -- and not docs/, whose subject is history.
+# Files that may reach a model: harnesses and scripts we run. Not docs/, whose
+# subject is history. src/ has its OWN check below (5) -- this comment used to
+# say "NOT src/ -- jichi's own code names no model id", and that was false when
+# it was written: src/config/jc_config.c named `claude-opus-4-8` and
+# api.anthropic.com as the built-in defaults, so a fresh install with no config
+# resolved to a priced frontier model. An exclusion justified by an unverified
+# claim is how a lint misses the thing it was written for (M709).
 FILES=$(ls tests/bench/craft_ab/*.py tests/bench/*.py scripts/*.sh 2>/dev/null)
 
 # ---- 1: the file list is non-empty and the pattern matches something ------
@@ -125,6 +130,77 @@ else
   known: $want
 Each entry must be a parser fixture or a pure predicate -- something that names a
 model without ever calling one. If a new file calls one, that is the defect."
+fi
+
+# ---- 5: jichi's own code names no vendor model id and no vendor endpoint ----
+# THE DEFECT THIS EXISTS FOR (M709). `default_model()` returned
+# `claude-opus-4-8`, `jc_config_default_base()` returned `https://api.anthropic.com`,
+# and the provider fell back to "anthropic" -- so `jichi doctor` on a machine
+# with no config at all reported a priced Anthropic model as the active one.
+# M505 found this, warned about it, and deliberately left it; the operator found
+# it again on a second machine and decided the other way.
+#
+# COMMENTS ARE STRIPPED FIRST, because the files that removed these defaults
+# explain what they removed, and a rule that cannot be discussed in the file it
+# governs is a rule people route around. C comments only -- this tree has no //.
+_pm_strip() {
+    awk 'BEGIN{c=0}
+         {line=""
+          while (length($0) > 0) {
+              if (c == 0) {
+                  i = index($0, "/*")
+                  if (i == 0) { line = line $0; $0 = "" }
+                  else { line = line substr($0, 1, i-1); $0 = substr($0, i+2); c=1 }
+              } else {
+                  i = index($0, "*/")
+                  if (i == 0) { $0 = "" }
+                  else { $0 = substr($0, i+2); c=0 }
+              }
+          }
+          print line}' "$1"
+}
+# The ids the removed defaults used to supply, plus the endpoints they addressed.
+VENDOR_ID='claude-[a-z0-9-]*|gpt-[0-9]'
+VENDOR_EP='api\.anthropic\.com|api\.openai\.com'
+_pm_files=$(smoke_srcfiles src c h; smoke_srcfiles include c h)
+_pm_n=$(printf '%s\n' $_pm_files | "$G" -c .)
+_pm_bad=""
+for f in $_pm_files; do
+    _pm_strip "$f" | "$G" -qE "$VENDOR_ID" && _pm_bad="$_pm_bad $f"
+done
+if [ "$_pm_n" -lt 100 ]; then
+    t_fail "src/include file list is $_pm_n (want >= 100) -- the extraction \
+broke and this check would pass on nothing"
+elif [ -z "$_pm_bad" ]; then
+    t_ok "none of the $_pm_n src/include files names a vendor MODEL ID outside a comment"
+else
+    t_fail "jichi's own code names a vendor model id outside a comment:$_pm_bad
+A model id compiled into the product is a choice made for every user who has not
+made one, and the ids these defaults used to supply were priced frontier models.
+No exception, help text included: an example that names one is a recommendation."
+fi
+
+# ---- 6: a vendor ENDPOINT only where that vendor is the subject -------------
+# Unlike a model id, a vendor's base URL is a legitimate constant -- but only as
+# the answer to "the user said anthropic, where is that?", never as the fallback
+# for "the user said nothing". That distinction is the whole of M709, and it is
+# pinned BY FILE because the file set is small and the shape is hard to grep:
+# the config resolver, which returns one only after strcmp() against a provider
+# the config NAMED, and the two provider backends, each of which may name its
+# own home. A fourth file is either a new fallback or a place that should be
+# calling jc_config_default_base().
+_pm_eplist=$(for f in $_pm_files; do
+                 _pm_strip "$f" | "$G" -qE "$VENDOR_EP" && printf '%s ' "$f"
+             done)
+_pm_epwant="src/config/jc_config.c src/provider/jc_provider_anthropic.c src/provider/jc_provider_openai.c "
+if [ "$_pm_eplist" = "$_pm_epwant" ]; then
+    t_ok "vendor endpoints appear only in the resolver and the two provider backends"
+else
+    t_fail "the set of files naming a vendor endpoint changed.
+  found: ${_pm_eplist:-none}
+  known: $_pm_epwant
+Each is a place where that vendor is the SUBJECT. A fallback for an unnamed
+provider is the defect M709 removed -- jichi chooses no vendor."
 fi
 
 t_done

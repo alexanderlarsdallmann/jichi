@@ -24,6 +24,9 @@
 #include "jc_message.h"
 #include "jc_str.h"
 #include "jc_mem.h"
+#include "jc_patch.h"
+#include "jc_utf8.h"
+#include "jc_jsonrepair.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -373,6 +376,126 @@ static void t_provider_anthropic(const unsigned char *data, size_t len)
 
 /* ---- registry ------------------------------------------------------------ */
 
+/* --- the three pure cores DEFERRED.md named and the suite had not covered ----
+ * `glob` had a target from the start; jc_patch, jc_utf8 and jc_jsonrepair did
+ * not, which is the whole of what that row still asked for once the harness
+ * itself shipped at M658. */
+
+static void t_patch(const unsigned char *data, size_t len)
+{
+    /* text / old_s / new_s, split at the first two newlines -- the same shape
+     * t_glob uses, extended by one field. A mutation that removes a separator
+     * is not a malformed input to reject: it is a two-field or one-field case,
+     * and the parser must survive that too. */
+    char *s = jc_fuzz_dup0(data, len);
+    char *old_s, *new_s, *nl;
+    struct jc_sb out;
+    int n = 0;
+    if (s == NULL) return;
+    old_s = new_s = s;
+    nl = strchr(s, '\n');
+    if (nl != NULL) { *nl = '\0'; old_s = nl + 1; }
+    nl = strchr(old_s, '\n');
+    if (nl != NULL) { *nl = '\0'; new_s = nl + 1; }
+
+    (void)jc_patch_count(s, old_s);
+    /* Both fuzzy settings: the tiers (whitespace, anchored) are separate code
+     * paths and only `fuzzy` reaches them. */
+    jc_sb_init(&out);
+    (void)jc_patch_apply(s, old_s, new_s, 0, 0, &out, &n);
+    jc_sb_free(&out);
+    jc_sb_init(&out);
+    (void)jc_patch_apply(s, old_s, new_s, 1, 1, &out, &n);
+    jc_sb_free(&out);
+    /* The near-match hint scores identifier tokens over an excerpt -- an
+     * index-arithmetic path that never sees malformed input in normal use,
+     * because it only runs after a failed edit. */
+    jc_sb_init(&out);
+    jc_patch_nearmatch_hint(s, old_s, &out);
+    jc_sb_free(&out);
+    free(s);
+}
+
+static void t_utf8(const unsigned char *data, size_t len)
+{
+    /* Walk the buffer with next/prev and exercise the width and validity
+     * helpers. The interesting inputs here are truncated multi-byte sequences,
+     * lone continuation bytes and overlong forms -- exactly what a mutation
+     * produces from a valid seed, and exactly what arrives when a provider's
+     * SSE chunk splits a codepoint. */
+    char *s = jc_fuzz_dup0(data, len);
+    jc_size n, pos, prev_pos, guard;
+    if (s == NULL) return;
+    n = (jc_size)len;
+
+    (void)jc_utf8_valid(s, n);
+    (void)jc_utf8_str_cols(s, n);
+    (void)jc_utf8_trunc_len(s, n);
+
+    /* Forward: jc_utf8_next must always make progress, or this loop hangs and
+     * the fuzzer reports a timeout rather than a wrong answer. The guard makes
+     * that a bounded failure instead of a wedged run. */
+    pos = 0; guard = 0;
+    while (pos < n && guard <= n) {
+        jc_size adv;
+        unsigned long cp = jc_utf8_decode(s, n, pos, &adv);
+        (void)cp;
+        (void)jc_utf8_width(cp);
+        (void)jc_utf8_resync(s, n, pos);
+        prev_pos = pos;
+        pos = jc_utf8_next(s, n, pos);
+        /* A PROPERTY, not a guard. The header says "byte index just past the
+         * codepoint at `pos` (clamped to `len`)", so below `len` it must
+         * advance. A `break` here would have turned the bug into a silent
+         * early exit and the target would pass on a walker that stopped
+         * walking -- which is the shape a floor cannot validate. */
+        if (pos <= prev_pos) {
+            fprintf(stderr, "jc_utf8_next made no progress at %lu of %lu\n",
+                    (unsigned long)prev_pos, (unsigned long)n);
+            abort();
+        }
+        guard++;
+    }
+    /* Backward from the end, same reasoning. */
+    pos = n; guard = 0;
+    while (pos > 0 && guard <= n) {
+        prev_pos = pos;
+        pos = jc_utf8_prev(s, pos);
+        if (pos >= prev_pos) {
+            fprintf(stderr, "jc_utf8_prev made no progress at %lu\n",
+                    (unsigned long)prev_pos);
+            abort();
+        }
+        guard++;
+    }
+    free(s);
+}
+
+static void t_jsonrepair(const unsigned char *data, size_t len)
+{
+    /* TIER 2, a property rather than a crash test, and the header states it:
+     * "Returns a malloc'd string that cJSON_Parse ACCEPTS (the repair is
+     * validated before it is returned), or NULL". So a non-NULL return that
+     * does not parse is a real defect -- a wrong repair would then execute a
+     * tool with arguments the model did not mean, which is the exact failure
+     * this repairer exists to avoid. */
+    char *s = jc_fuzz_dup0(data, len);
+    char *fixed;
+    if (s == NULL) return;
+    fixed = jc_jsonrepair(s);
+    if (fixed != NULL) {
+        cJSON *j = cJSON_Parse(fixed);
+        if (j == NULL) {
+            fprintf(stderr, "jsonrepair returned a string cJSON_Parse rejects\n");
+            abort();
+        }
+        cJSON_Delete(j);
+        free(fixed);
+    }
+    free(s);
+}
+
+
 const struct jc_fuzz_target JC_FUZZ_TARGETS[] = {
     { "json",       t_json,       "{\"a\":[1,2,{\"b\":true}],\"c\":null}" },
     { "sse",        t_sse,        "event: message\ndata: {\"t\":1}\n\n" },
@@ -385,6 +508,9 @@ const struct jc_fuzz_target JC_FUZZ_TARGETS[] = {
     { "glob",       t_glob,       "src/**/*.c\nsrc/util/x.c" },
     { "output_fmt", t_output_format, "jsonl" },
     { "yaml",       t_yaml,       "name: x\ntools:\n  - a\n  - b\n" },
+    { "patch",      t_patch,
+      "line one\nline two\nline three\nline two\nLINE TWO" },
+    { "utf8",       t_utf8,       "a\303\251\344\275\240\360\237\231\202z" },
     { "mcp",        t_mcp,        "{\"result\":{\"contents\":[{\"text\":\"hi\"}]}}" },
     /* Tier 2: property / round-trip (abort on a violated invariant). */
     { "prop_base64",     t_base64_roundtrip,     "the quick brown fox" },
@@ -393,6 +519,8 @@ const struct jc_fuzz_target JC_FUZZ_TARGETS[] = {
     { "prop_constraint", t_constraint_consistency,
       "do not run the tests, do not commit" },
     { "prop_pathfence",  jc_fuzz_pathfence,      "esc/../sub/./f" },
+    { "prop_jsonrepair", t_jsonrepair,
+      "{'a': True, 'b': [1,2,],}" },
     /* Tier 3: adversarial model output through each provider's event parser. */
     { "prov_openai",    t_provider_openai,
       "{\"choices\":[{\"delta\":{\"content\":\"hi\",\"tool_calls\":[{\"index\":0,"

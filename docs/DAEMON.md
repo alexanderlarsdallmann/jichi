@@ -134,7 +134,7 @@ as *Stable* in [EMBEDDING.md](EMBEDDING.md), so a handshake is never required an
 a client that has never heard of `hello` keeps working unchanged. Its reply:
 
 ```json
-{"v":1,"type":"hello.ok","agent":"jichi 0.9.2","proto":[1],
+{"v":1,"type":"hello.ok","agent":"jichi 0.10.0","proto":[1],
  "groups":["session"],
  "limits":{"maxLine":1048576,"maxConcurrent":4},
  "auth":{"transport":"unix","mechanism":"socket-mode","uid":1000,

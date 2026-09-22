@@ -43,6 +43,14 @@ cat > "$tmp/foreign" <<'EOF'
 --listen
 --maxrss
 --data
+# Godot 4, quoted verbatim in GAME_DEVELOPMENT.md. `--path` selects the project
+# directory so the command runs from anywhere, and `--check-only` is the static
+# parse gate that page recommends as the cheap first check -- both are load-bearing
+# in commands a learner copies, so neither can be reworded away.
+--path
+--check-only
+# git, in the clone lines that fetch the Godot documentation snapshot.
+--depth
 --data-binary
 --cflags
 --libs
@@ -125,6 +133,10 @@ cat > "$tmp/foreign" <<'EOF'
 --models-path
 --preview
 --git-dir
+# `git status --porcelain`, quoted verbatim in ANECDOTES.md #100 -- the stray
+# file named `=` is only visible in that output, so the command cannot be
+# reworded without losing the evidence the entry turns on.
+--porcelain
 --work-tree
 --port
 --gpus
@@ -162,6 +174,14 @@ cat > "$tmp/foreign" <<'EOF'
 --bin
 --musl
 --tls
+# scripts/tier-v-arch.sh --drive and scripts/minimal-curl.sh --target: the
+# architecture rows became Driven on 2026-09-21, and the recipe has to be
+# reproducible for that verdict to mean anything. --build is autoconf's, named
+# because binfmt_misc makes autoconf believe a cross build is native and that one
+# flag is the whole fix -- a reader who hits the wedged conftest needs the word.
+--drive
+--target
+--build
 # scripts/tier-b-device.sh --cc, documented in LOW_MEMORY.md's Guix section
 # (M458): Guix ships neither cc nor c99, so a device row there needs CC=gcc and
 # the page must show how. Not a jichi flag.
@@ -300,7 +320,7 @@ BEGIN {
         }
         print FILENAME ":" FNR ": unknown flag " tok
     }
-}' $(cat "$tmp/targets") > "$tmp/problems"
+}' $(cat "$tmp/targets") < /dev/null > "$tmp/problems"
 
 if [ ! -s "$tmp/problems" ]; then
     t_ok "all documented --flags exist ($(grep -c . "$tmp/targets") files scanned)"

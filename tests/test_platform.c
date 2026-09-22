@@ -42,6 +42,48 @@ void test_platform(void)
     JC_CHECK(jc_shell_path() != NULL);
     JC_CHECK(access(jc_shell_path(), X_OK) == 0);
 
+    /* M695: the platform VERDICT table, exercised on any host.
+     *
+     * Table-driven on purpose. The defect this guards was INVISIBLE on the
+     * development platform: Linux answered correctly throughout, while
+     * FreeBSD, NetBSD, OpenBSD, illumos, Cygwin and MSYS2 were told by
+     * `doctor` and by the setup wizard that jichi had never been compiled
+     * there -- on Cygwin, while running a binary it had just compiled there.
+     * A test that can only see the row it runs on cannot see that, which is
+     * why there was no test here at all before this one. */
+    JC_CHECK(jc_platform_row_verdict_for("Linux") == JC_PLATFORM_ROW_VERIFIED);
+    JC_CHECK(jc_platform_row_verdict_for("FreeBSD") == JC_PLATFORM_ROW_VERIFIED);
+    JC_CHECK(jc_platform_row_verdict_for("NetBSD") == JC_PLATFORM_ROW_VERIFIED);
+    JC_CHECK(jc_platform_row_verdict_for("OpenBSD") == JC_PLATFORM_ROW_VERIFIED);
+
+    /* Partly verified is a MEASURED verdict, not a softer kind of unknown:
+     * the matrix carries a row for each of these. */
+    JC_CHECK(jc_platform_row_verdict_for("SunOS") == JC_PLATFORM_ROW_PARTLY);
+
+    /* The Windows emulation layers append the host's build number, so these
+     * match as PREFIXES -- an exact compare would go stale at the next Windows
+     * release, silently, which is the failure mode this whole change is about.
+     * The two concrete strings were measured on this bench 2026-09-21; the
+     * third is a future build that must still resolve. */
+    JC_CHECK(jc_platform_row_verdict_for("CYGWIN_NT-10.0-26200")
+             == JC_PLATFORM_ROW_PARTLY);
+    JC_CHECK(jc_platform_row_verdict_for("MSYS_NT-10.0-26200")
+             == JC_PLATFORM_ROW_PARTLY);
+    JC_CHECK(jc_platform_row_verdict_for("CYGWIN_NT-11.0-99999")
+             == JC_PLATFORM_ROW_PARTLY);
+
+    /* Unknown stays unknown, and a prefix must not swallow a different name:
+     * without the trailing-dash rule "Linux" would match "Linuxish". */
+    JC_CHECK(jc_platform_row_verdict_for("Darwin") == JC_PLATFORM_ROW_UNKNOWN);
+    JC_CHECK(jc_platform_row_verdict_for("Linuxish") == JC_PLATFORM_ROW_UNKNOWN);
+    JC_CHECK(jc_platform_row_verdict_for("SunOSish") == JC_PLATFORM_ROW_UNKNOWN);
+    JC_CHECK(jc_platform_row_verdict_for("") == JC_PLATFORM_ROW_UNKNOWN);
+    JC_CHECK(jc_platform_row_verdict_for(NULL) == JC_PLATFORM_ROW_UNKNOWN);
+
+    /* The back-compat shorthand still means exactly "Verified", nothing wider. */
+    JC_CHECK(jc_platform_verified_row()
+             == (jc_platform_row_verdict() == JC_PLATFORM_ROW_VERIFIED));
+
 
     jc_snprintf(dir, sizeof dir, "%s/jichi_plat_test_%ld", jc_test_tmpdir(), (long)getpid());
     {

@@ -145,15 +145,15 @@ sec() {
 }
 craft=$(sec 1); cc=$(sec 2); cpp=$(sec 3); zig=$(sec 4); rust=$(sec 5)
 py=$(sec 6); rkt=$(sec 7); guile=$(sec 8); elixir=$(sec 9); haskell=$(sec 10)
-clojure=$(sec 11); iface=$(sec 12)
+clojure=$(sec 11); iface=$(sec 12); ada=$(sec 13)
 # Newlines collapsed first: the sentence wraps in the source, and a line-oriented
 # grep found nothing and reported "<no count sentence found>" for a sentence that
 # was there and correct. \s is not ERE either -- that was the second half of the
 # same mistake.
 claim=$(tr '\n' ' ' < "$DOC" | tr -s ' ' \
-        | "$G" -oE '\*\*[0-9]+ entries\*\* below \([0-9]+ craft, [0-9]+ C, [0-9]+ C\+\+, [0-9]+ Zig, [0-9]+ Rust, [0-9]+ Python, [0-9]+ Racket, [0-9]+ Guile, [0-9]+ Elixir, [0-9]+ Haskell, [0-9]+ Clojure, [0-9]+ interfaces\)')
-want="**$entries entries** below ($craft craft, $cc C, $cpp C++, $zig Zig, $rust Rust, $py Python, $rkt Racket, $guile Guile, $elixir Elixir, $haskell Haskell, $clojure Clojure, $iface interfaces)"
-sum=$((craft + cc + cpp + zig + rust + py + rkt + guile + elixir + haskell + clojure + iface))
+        | "$G" -oE '\*\*[0-9]+ entries\*\* below \([0-9]+ craft, [0-9]+ C, [0-9]+ C\+\+, [0-9]+ Zig, [0-9]+ Rust, [0-9]+ Python, [0-9]+ Racket, [0-9]+ Guile, [0-9]+ Elixir, [0-9]+ Haskell, [0-9]+ Clojure, [0-9]+ interfaces, [0-9]+ Ada/SPARK\)')
+want="**$entries entries** below ($craft craft, $cc C, $cpp C++, $zig Zig, $rust Rust, $py Python, $rkt Racket, $guile Guile, $elixir Elixir, $haskell Haskell, $clojure Clojure, $iface interfaces, $ada Ada/SPARK)"
+sum=$((craft + cc + cpp + zig + rust + py + rkt + guile + elixir + haskell + clojure + iface + ada))
 if [ "$claim" = "$want" ] && [ "$sum" -eq "$entries" ]; then
     t_ok "the stated counts match the page: $entries = $craft + $cc + $cpp + $zig + $rust + $py + $rkt + $guile + $elixir + $haskell + $clojure + $iface"
 else

@@ -630,6 +630,85 @@ flowchart TD
 
 ---
 
+## 7b. M693 — a review pass, and the gate gap it found
+
+*2026-09-21. A fresh look rather than a re-read of the register — the
+hardening-relevant rows in `DEFERRED.md` were all already closed or
+deliberately left with their reasoning stated.*
+
+### What it found
+
+**Two direct leaks on paths the gate could not reach.** Running
+`jichi doctor` under LeakSanitizer:
+
+```
+Direct leak of 512 byte(s)  jc_vec_push <- jc_list_dir   <- run_doctor
+Direct leak of 384 byte(s)  jc_vec_push <- jc_calib_load <- main
+```
+
+The bytes do not matter: the process exits immediately and the OS reclaims
+them. **What matters is that a leak checker could not be used on these paths at
+all** — a real leak introduced tomorrow would arrive as two more lines in a
+report that already had some, and a tool that always complains is a tool nobody
+runs. The same argument M689 made about a warning that fires on `ls`.
+
+**And the shape underneath: 36 early-return subcommand exits, each freeing a
+hand-maintained subset.** Most freed `config` and `arena`; the `skills` family a
+few more. `jc_calib_free` appeared on **none** of them — only on the main path,
+~700 lines below. `app_free_common()` now frees the app-level set at every one,
+which is safe to *add* without auditing what each site already does because
+every one of those frees ends in `jc_vec_free`, which nulls the pointer. The
+arena is deliberately excluded: it is not idempotent, and each site already
+frees it last.
+
+### Why `make ci` had never seen it
+
+The sanitizer stage is `make SAN=1 CC=clang test` — **the unit suite**, which
+never enters `main()`'s subcommand dispatch. `scripts/leakcheck.sh` now runs
+seven subcommands under LeakSanitizer and `make ci` calls it.
+
+Two things that script does deliberately, both learned the hard way in the same
+hour:
+
+- **It refuses a non-sanitizer binary.** Without that it runs, finds no
+  LeakSanitizer output because there is no LeakSanitizer, and reports success —
+  a green meaning "nothing was checked".
+- **It resolves the binary to an absolute path before the loop.** The first
+  version used `./jichi` and then `cd`-ed into a temp workspace, so the binary
+  never ran, `|| true` swallowed it, and it reported
+  `OK (7 subcommands, no LeakSanitizer reports)` **against a binary with a
+  deliberately reintroduced leak**. Caught by the tooth, not by review — the
+  script had the exact defect it exists to prevent.
+
+### What the review checked and found sound
+
+- **The hardening flags are all in effect and all probed, not assumed:**
+  `-fstack-protector-strong -fstack-clash-protection -fcf-protection -Wformat
+  -Werror=format-security -fPIE`, linked `-Wl,-z,relro -Wl,-z,now
+  -Wl,-z,noexecstack -pie`. A flag the compiler rejects is simply not used, so a
+  new platform row cannot fail to build because of them.
+- **`_FORTIFY_SOURCE` produces no `__*_chk` symbols even in an optimised
+  build — and that is correct.** The flag *is* passed whenever there is
+  optimisation. It finds nothing to instrument because jichi does not use the
+  patterns it protects: `sprintf`, `strcpy`, `strcat` and `gets` are banned
+  outright (`sprintf_lint.sh`), and everything goes through `jc_snprintf`, which
+  is jichi's own function and therefore invisible to glibc's fortify. **The
+  protection is achieved by construction instead of by instrumentation**, and
+  a reader who greps for `_chk` and finds none should know that before filing it
+  as a gap.
+- One diagnostic was lying about this, and is fixed: `make info` printed
+  `OPT = (none: _FORTIFY_SOURCE inert)` under `SIZE=1`, where the optimisation
+  arrives as `SIZEFLAGS` and the flag is live.
+
+### What this pass did NOT cover, stated so nobody quotes it as more
+
+The TUI, the ACP and MCP peer paths, the daemon socket, and every tool that
+needs a model were **not** run under a sanitizer here — `leakcheck.sh` covers
+the seven subcommands that complete without a server, a TTY or a prompt. Nor
+was any fuzzing beyond the existing `make ci` budget of 2,000 iterations. This
+was a leak-and-flags pass on the reachable surface, not a review of the threat
+model in §1.
+
 ## 8. Testing
 
 - `make test` — 6450 checks, 0 failures. New coverage: `test_proc`

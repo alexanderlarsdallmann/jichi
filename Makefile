@@ -542,6 +542,45 @@ endif
 
 CFLAGS    = $(STD) $(WARN) $(POSIX) $(INCLUDE) $(DEPFLAGS) $(SANFLAGS) $(SIZEFLAGS) $(FAULTFLAGS) $(OPT) $(HARDENFLAGS)
 
+# --- curl's own header, read under THIS build's dialect ----------------------
+# libcurl types `curl_off_t` as `long long` on every non-LP64 target -- the
+# stock <curl/system.h> does it in a block predicated on __i386__ / __arm__ /
+# __mips__ / __powerpc__ / __ILP32__ / __SIZEOF_LONG__ == 4 -- and this build is
+# -std=c89 -pedantic, where `long long` is an extension. So WERROR=1 with
+# libcurl fails INSIDE A THIRD-PARTY HEADER on every 32-bit platform, on a line
+# no first-party source can reach. Measured 2026-09-21 by cross-compiling
+# src/net/jc_http.c alone: x86, riscv32 and powerpc fail, x86_64 is clean --
+# which is why no 64-bit row here ever saw it and a 32-bit board with
+# libcurl-dev cannot run this gate today.
+#
+# Two fixes that do NOT work, measured rather than assumed: the gnu89 fallback
+# warns identically (-pedantic objects in either dialect), and curl 8.18 ignores
+# --disable-largefile for this typedef.
+#
+# So ASK THE QUESTION THE BUILD ASKS (M636's rule, argued above for the C++
+# driver probe): compile a program that includes the header with the dialect,
+# warning set and POSIX level the objects get, under -Werror. The probe runs
+# only when HAVE_CURL said yes, because a probe that cannot tell "the header is
+# unclean" from "there is no header" is the M476 defect, and it answers about
+# the header rather than about a platform name.
+#
+# THE RELAXATION IS DELIBERATELY ONE OBJECT WIDE. src/net/jc_http.c is the only
+# translation unit in the tree that includes <curl/curl.h>, and
+# portability_lint check 19 holds that true -- because tree-wide
+# -Wno-long-long would leave check 6's ban on `long long` in first-party code
+# enforced by nothing but a grep. Scoped, the compiler still refuses the type in
+# every other unit. `make info` prints the verdict: a silent relaxation is the
+# unreported degradation M458 objected to.
+ifeq ($(HAVE_CURL),yes)
+  CURL_HDR_CLEAN := $(shell printf '\043include <curl/curl.h>\nint main(void){return 0;}\n' \
+    | $(CC) $(STD) $(WARN) $(POSIX) -Werror -xc - -c -o $(PROBE_OUT) 2>/dev/null \
+    && echo yes; rm -f $(PROBE_OUT) $(PROBE_OUT).exe)
+  ifneq ($(CURL_HDR_CLEAN),yes)
+    CURL_HDR_CFLAGS = $(call cc_warn_ok,-Wno-long-long)
+  endif
+endif
+src/net/jc_http.o: CFLAGS += $(CURL_HDR_CFLAGS)
+
 LDLIBS   += $(SANFLAGS)
 # Link-time flags. The size profile adds section GC + strip (and -flto with LTO);
 # they sit before the objects on the link line. `-ffunction-sections
@@ -1057,6 +1096,20 @@ ci:
 	$(MAKE) clean && $(MAKE) WERROR=1 CC=gcc test
 	$(MAKE) clean && $(MAKE) WERROR=1 CC=clang test
 	$(MAKE) clean && $(MAKE) SAN=1 CC=clang test
+# M693: the SUBCOMMANDS under LeakSanitizer, using the sanitizer build the line
+# above just made. The unit suite never enters main()'s subcommand dispatch, so
+# nothing in this gate had ever run `jichi doctor` under a leak checker -- and
+# when somebody finally did there were two direct leaks sitting in it. The cost
+# was never the bytes (the process exits); it was that a leak checker could not
+# be USED on these paths, because a new leak would arrive as more lines in a
+# report that already had some.
+	$(MAKE) SAN=1 CC=clang jichi && sh scripts/leakcheck.sh ./jichi
+# M694: and ONE REAL AGENT TURN under the same binary. leakcheck.sh covers
+# seven read-only subcommands; none of them calls a model, so the provider /
+# SSE / tool-execute / loop path -- the part that is actually jichi -- had no
+# leak coverage anywhere in this gate. The driver skips unless the binary is a
+# sanitizer build, which is why it runs HERE and not in the smoke tier.
+	$(MAKE) smoke-tools && sh tests/smoke/leak_turn.sh
 	$(MAKE) clean && $(MAKE) WERROR=1 CC=gcc $(TEST)
 	valgrind --error-exitcode=1 --leak-check=full \
 	         --suppressions=tests/valgrind.supp \
@@ -1090,7 +1143,7 @@ ci:
 	$(MAKE) WERROR=1 smoke
 	$(MAKE) smoke-mutant
 	$(MAKE) e2e
-	@echo "ci: OK (gcc + clang build/test, asan/ubsan, valgrind, curl-free link, faults, smoke, mutant, e2e)"
+	@echo "ci: OK (gcc + clang build/test, asan/ubsan, leakcheck, valgrind, curl-free link, faults, smoke, mutant, e2e)"
 
 # Can a driver notice the product disappearing? `make smoke-mutant`.
 #
@@ -1209,6 +1262,7 @@ info:
 	@echo "STD_DIALECT    = $(STD_DIALECT)"
 	@echo "HAVE_VSNPRINTF = $(HAVE_VSNPRINTF)"
 	@echo "HAVE_CURL      = $(HAVE_CURL)"
+	@echo "CURL_HEADER    = $(if $(filter yes,$(HAVE_CURL)),$(if $(filter yes,$(CURL_HDR_CLEAN)),clean under this dialect,needs $(strip $(CURL_HDR_CFLAGS)) for src/net/jc_http.o),n/a (no libcurl))"
 	@echo "HAVE_MALLOC_TRIM = $(HAVE_MALLOC_TRIM)"
 	@echo "CLOCK_GETTIME  = $(if $(filter yes,$(HAVE_CLOCK)),in libc,$(if $(RT_LIBS),needs -lrt,absent (coarse time() fallback)))"
 	@echo "WINSIZE        = $(if $(filter yes,$(HAVE_WINSZ)),visible under strict POSIX,$(if $(filter yes,$(HAVE_WINSZ_EXT)),needs -D__EXTENSIONS__ (illumos/Solaris),ABSENT))"
@@ -1221,7 +1275,11 @@ info:
 	@echo "HARDEN         = $(HARDEN)"
 	@echo "HARDENFLAGS    = $(HARDENFLAGS)"
 	@echo "HARDENLDFLAGS  = $(HARDENLDFLAGS)"
-	@echo "OPT            = $(OPT)$(if $(strip $(OPT)),, (none: _FORTIFY_SOURCE inert -- see the Makefile note))"
+# M693: the note has to follow the FLAG, not OPT. Under SIZE=1 the optimization
+# arrives as SIZEFLAGS (-Os), so _FORTIFY_SOURCE IS set and this line still said
+# "inert" -- a diagnostic contradicting the build it describes, which is the
+# defect this session kept finding elsewhere.
+	@echo "OPT            = $(OPT)$(if $(strip $(OPT)$(SIZEFLAGS)),, (none: _FORTIFY_SOURCE inert -- see the Makefile note))$(if $(strip $(OPT)),,$(if $(strip $(SIZEFLAGS)), (none, but SIZEFLAGS carries -Os so _FORTIFY_SOURCE is live),))"
 	@echo "LDFLAGS        = $(LDFLAGS)"
 	@echo "LIB_SRC        = $(LIB_SRC)"
 	@echo "TEST_SRC       = $(TEST_SRC)"

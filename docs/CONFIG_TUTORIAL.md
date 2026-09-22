@@ -38,6 +38,73 @@ are options you add when you want them.
 
 ---
 
+## 0a. If this is your first config — start here
+
+**jichi chooses no provider and no model for you.** A fresh install has no
+vendor, no model id and no endpoint, and `jichi doctor` will tell you so:
+
+```
+! no config file -- running on built-in defaults
+x no model is configured
+```
+
+That is not a broken install. Until M709 jichi *did* choose — it resolved to
+`api.anthropic.com` and `claude-opus-4-8`, a **priced** model, for anyone who had
+not configured one. M505 found that, warned about it, and left it in place;
+M709 removed it after the operator installed jichi on a second machine and was
+told it was set up to spend money on a model nobody had picked. A program should
+not pick your vendor.
+
+### The one word that confuses everybody: `provider`
+
+`"provider"` is the **wire dialect**, not a company.
+
+| value | means | who speaks it |
+|---|---|---|
+| `"openai"` | the OpenAI *HTTP protocol* | LM Studio, llama.cpp, Ollama, vLLM, most gateways, OpenAI itself |
+| `"anthropic"` | Anthropic's HTTP protocol | Anthropic |
+
+So `"provider": "openai"` with `"apiBase": "http://localhost:1234/v1"` is a model
+running **on your own laptop**, with no account anywhere. Most endpoints in the
+world speak that dialect, which is why `jichi setup` offers it first.
+
+### The shortest path that costs nothing
+
+1. **Run a server on your own machine.** LM Studio, `llama.cpp`'s
+   `llama-server`, or Ollama — any of them will do. Start it and note the port
+   (LM Studio's default is `1234`).
+2. **Run `jichi setup`.** Choose the first provider option, give it the endpoint,
+   and **it will ask the endpoint which models it serves** and let you pick from
+   that list. It does not suggest one — it cannot know what you have.
+3. **Check it:** `jichi doctor`. You want `ok configuration loaded` and no `x`.
+
+If you would rather write the file yourself, this is the whole of it:
+
+```json
+{"models": [{"name": "local",
+             "provider": "openai",
+             "model": "<the id your server lists>",
+             "apiBase": "http://localhost:1234/v1"}]}
+```
+
+No API key line: a server on your own machine usually wants none.
+
+### If you are using a paid or institutional endpoint
+
+Same shape, plus a key that lives in your environment and never in the file —
+that is §1, and it is worth reading before you paste anything. The examples later
+in this tutorial point at the JLU Gießen gateway because that is what this
+project is developed against; substitute your own.
+
+**One thing to know before you spend anything:** `jichi doctor` warns
+`no pricing for the active model: every cost reads $0.00` when a model declares
+no price. Declare `inputCostPer1M` / `outputCostPer1M` for a priced model, or
+`/cost` and the exit total will read zero while the bill is real. That warning
+exists because roughly $10 went on a priced model during routine work that the
+free local ones then did better — [`ANECDOTES.md`](ANECDOTES.md) #63.
+
+---
+
 ## 0. Where config lives
 
 There are **two** paths, and confusing them is a common (and until M284b, a
@@ -52,7 +119,9 @@ used *alone* — no merge:
 **Otherwise the global and the project config are MERGED.** With neither of the
 above, jichi reads `~/.jichi` (global) and overlays a project config on it —
 `./local/config.json`, else `.jichi/config.json`. Either file alone works;
-neither means built-in defaults. The overlay rule (`jc_config_merge_json`):
+neither means built-in defaults — **and since M709 the built-in defaults name no
+provider and no model**, so with no config at all jichi has nothing to call and
+says so. That is deliberate; see §0a. The overlay rule (`jc_config_merge_json`):
 
 - **scalar keys** — the project value wins (`testCommand`, `contextLimit`, …)
 - **list keys** — the two **union**, with the project's entries **first**

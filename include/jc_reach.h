@@ -42,6 +42,9 @@ struct jc_reach {
      * byte-identical to the run-start baseline. That PROVES the shell wrote
      * nothing; the converse proves nothing, so there is no flag for it. */
     int shell_wrote_nothing;
+    /* M692: the verifier passed and printed no test count, so nothing could be
+     * said about its coverage. Belongs beside the other not-checked facts. */
+    int verify_no_count;
     /* M687, widened at M688: did the model stop because it was FINISHED?
      * Belongs in the NOT-CHECKED half and nowhere else -- the answer is
      * whatever had been said by then, so nothing downstream of it was tested,
@@ -58,6 +61,11 @@ struct jc_reach {
      * first run. A struct filled by memset must not have a field whose zero is
      * an accusation. */
     int answer_truncated;     /* the run stopped before the model finished */
+    /* ...and WHY, for the one reason the stop reason cannot carry: a reply cut
+     * at the output ceiling leaves a run that finished cleanly, so `stop_clause`
+     * is NULL and the sentence below would otherwise say "the run did not
+     * finish" about a run that did. Zero stays the benign value. */
+    int answer_capped;        /* it was cut at the OUTPUT CEILING           */
     const char *stop_clause;  /* NULL when the run ended cleanly            */
     int tool_calls;       /* attempted                                     */
     int tool_errors;      /* results with is_error                         */

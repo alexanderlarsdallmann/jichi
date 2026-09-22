@@ -198,6 +198,17 @@ This is how you check your work:
 jichi grade docs/assignments/p1-ask-for-a-file.md
 ```
 
+If you get stuck, ask for a hint:
+
+```
+jichi hint docs/assignments/p1-ask-for-a-file.md
+```
+
+Each exercise has three. They go from a small nudge to nearly the answer. Ask for
+the next one by adding its number — `jichi hint … 2`. Asking is free and it is not
+cheating: which ones you used is written down only so you can look back later and
+see what you needed.
+
 They are marked **exactly as strictly** as every other exercise. An easier mark would
 be kind and would teach you nothing.
 

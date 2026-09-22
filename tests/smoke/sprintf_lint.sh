@@ -61,7 +61,7 @@ FNR == 1 { inblk = 0; name = FILENAME; sub(/.*\//, "", name) }
     if (code !~ /(^|[^A-Za-z0-9_])sprintf\(/) next
     if ((name SUBSEP stripped) in A) next
     print FILENAME ":" FNR ": " stripped
-}' $targets > "$tmp/offenders"
+}' $targets < /dev/null > "$tmp/offenders"
 
 if [ ! -s "$tmp/offenders" ]; then
     t_ok "no raw sprintf outside the audited allowlist (use jc_snprintf)"

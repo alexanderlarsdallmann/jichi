@@ -93,10 +93,35 @@ jc_rig_live_phrase() {
 # "local live turn" sent a request to Anthropic. It 401'd, so nothing was spent
 # -- but on a box with ANTHROPIC_API_KEY exported it would have quietly billed a
 # priced model for a run the operator believed was local.
+# THE THIRD ARGUMENT, AND WHY IT IS NOT A FOURTH CONFIG (M698). Every transport
+# that existed when this was extracted reached a KEYLESS server: LM Studio on the
+# host's loopback, through a reverse tunnel or an existing forward. `apiKey` could
+# therefore be the literal "unused" and nothing noticed.
+#
+# The Windows-family rows cannot use that transport at all -- they are not guests,
+# there is nothing to tunnel from, and LM Studio is not installed on the machine
+# that has Cygwin and MSYS2 -- so they drive a real gateway over TLS, which wants
+# a key. The choice was between a second config generator in the Windows rigs and
+# one optional argument here. `_rig_ship.sh`'s header settles it: *a second rig is
+# where drift starts, not the fourth.*
+#
+# It is `apiKeyEnv`, never `apiKey`: the NAME of a variable, so the secret stays
+# out of the config file and out of `ps`. jichi's own doctor warns about a literal
+# apiKey in a config, and a rig that generated one would be teaching the habit the
+# product warns against.
+#
+# jc_rig_live_config MODEL URL [KEY_ENV_NAME]
+#   With no third argument this emits what it emitted before, byte for byte --
+#   which is what keeps every existing row's config unchanged.
 jc_rig_live_config() {
+    if [ -n "${3:-}" ]; then
+        _jlc_auth="\"apiKeyEnv\":\"$3\""
+    else
+        _jlc_auth="\"apiKey\":\"unused\""
+    fi
     cat <<JCLIVECFG
 {"models":[{"name":"live","provider":"openai","model":"$1",
- "apiBase":"$2","apiKey":"unused","roles":["chat"]}],
+ "apiBase":"$2",$_jlc_auth,"roles":["chat"]}],
  "snapshots":false,"repoMap":false,"maxRetries":1,"lowResource":false}
 JCLIVECFG
 }

@@ -385,6 +385,44 @@ smoke_make() {
 # smoke_make_pdf PATH TEXT -- a minimal one-page PDF carrying TEXT. All
 # content is ASCII and LC_ALL=C, so ${#var} counts bytes and the xref
 # offsets are exact by construction (M212; shared by pdf.sh/docs_pdf.sh).
+# smoke_pdftotext_works -- can pdftotext actually READ A FILE HERE?
+#
+# WHY THIS IS NOT `command -v pdftotext` (M698, measured on Cygwin). The
+# existence probe answers "is there something on PATH with that name", and on a
+# Windows host the answer can be yes while the answer to "can it open my file"
+# is no. Measured: Cygwin's PATH inherits the Windows one, so `pdftotext`
+# resolved to
+#
+#     /cygdrive/c/Program Files/Git/mingw64/bin/pdftotext
+#
+# -- a NATIVE Win32 binary shipped with Git for Windows, which cannot resolve a
+# Cygwin path and answers every fixture with
+#
+#     I/O Error: Couldn't open file '/tmp/tmp.XXXX/doc.pdf'
+#
+# So `pdf` and `docs_pdf` did not skip; they RAN and failed, reporting "the
+# fixture PDF does not extract -- driver bug, not jichi" on a platform whose
+# fixture was fine. MSYS2, which has no pdftotext at all, skipped cleanly -- so
+# the tier was harsher on the host that had MORE installed.
+#
+# Present-but-unusable and absent must not share an answer, which is the same
+# rule the layer guard in scripts/_rig_win.sh states for absence and success.
+# The probe therefore does the job once, on a real file at a real path, and
+# believes the result rather than the name.
+#
+# Git for Windows is worth naming twice: it also maps msys-2.0.dll, which made a
+# DLL-based guard refuse every run (ANECDOTES #93). It is a third cygwin-family
+# installation on any developer Windows box, and it leaks into both layers.
+smoke_pdftotext_works() {
+    command -v pdftotext >/dev/null 2>&1 || return 1
+    _spw_d=$(mktemp -d) || return 1
+    smoke_make_pdf "$_spw_d/probe.pdf" SMOKEPDFPROBE 2>/dev/null
+    if pdftotext "$_spw_d/probe.pdf" - 2>/dev/null | grep -q SMOKEPDFPROBE; then
+        rm -rf "$_spw_d"; return 0
+    fi
+    rm -rf "$_spw_d"; return 1
+}
+
 smoke_make_pdf() {
     _mp_stream="BT /F1 24 Tf 72 700 Td ($2) Tj ET"
     _mp_o1='<</Type/Catalog/Pages 2 0 R>>'

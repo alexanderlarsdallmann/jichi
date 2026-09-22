@@ -8,6 +8,7 @@
 #include "jc_message.h"
 #include "jc_http.h"
 #include "jc_str.h"
+#include "jc_json.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -27,8 +28,10 @@ void jc_oneshot_result_free(struct jc_oneshot_result *r)
     }
     free(r->text);
     free(r->call_name);
+    free(r->err_detail);      /* M692 */
     r->text = NULL;
     r->call_name = NULL;
+    r->err_detail = NULL;
 }
 
 jc_status jc_oneshot_probe(struct jc_provider *prov, const char *system_msg,
@@ -108,6 +111,45 @@ jc_status jc_oneshot_probe(struct jc_provider *prov, const char *system_msg,
         }
     } else if (st == JC_OK) {
         st = JC_ERR_HTTP; /* completed, but a 4xx/5xx or an empty body */
+    }
+    /* M692: keep what the server said before the body is thrown away. Tried in
+     * order: OpenAI's `{"error":{"message":...}}`, the flatter
+     * `{"error":"..."}`, then the raw first line -- because a proxy that is not
+     * speaking the OpenAI dialect is exactly the case where the reader most
+     * needs to see the literal text. Bounded: this ends up in a doctor detail
+     * line, not a log file. */
+    if (st != JC_OK && resp != NULL && resp[0] != '\0') {
+        cJSON *root = jc_json_parse(resp);
+        const char *msg = NULL;
+        if (root != NULL) {
+            cJSON *e = cJSON_GetObjectItem(root, "error");
+            if (cJSON_IsObject(e)) {
+                cJSON *mm = cJSON_GetObjectItem(e, "message");
+                if (cJSON_IsString(mm)) {
+                    msg = mm->valuestring;
+                }
+            } else if (cJSON_IsString(e)) {
+                msg = e->valuestring;
+            }
+        }
+        if (msg != NULL && msg[0] != '\0') {
+            out->err_detail = jc_strdup(msg);
+        } else {
+            char first[200];
+            jc_size k = 0;
+            while (resp[k] != '\0' && resp[k] != '\n' &&
+                   k + 1 < sizeof(first)) {
+                first[k] = resp[k];
+                k++;
+            }
+            first[k] = '\0';
+            if (k > 0) {
+                out->err_detail = jc_strdup(first);
+            }
+        }
+        if (root != NULL) {
+            cJSON_Delete(root);
+        }
     }
     free(resp);
     jc_history_free(&mini);

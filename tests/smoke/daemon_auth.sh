@@ -119,7 +119,27 @@ esac
 
 # --- 6: the line cap is an error, not a truncation ---------------------------
 # Deliberately no trailing newline: the point is a sender that never frames.
-big=$( (printf '{"type":"ping","pad":"'; awk 'BEGIN{while(i++<70000)printf "0123456789012345"}') \
+#
+# OVERSHOOT THE CAP, NOT THE SOCKET (2026-09-21). This sent 1,120,000 bytes
+# against a 1 MB cap, leaving ~71 KB UNREAD in the daemon's receive queue when it
+# answers and closes. On Linux the answer still arrives. On Cygwin, which
+# implements AF_UNIX over local TCP, a close() with unread data can reset the
+# connection and discard the reply the peer has already received but not read --
+# so the caller gets nothing, and this check reported a product defect for a
+# teardown race. Measured there, 8 repetitions per size:
+#
+#     overrun    1 KB -> answered 8/8
+#     overrun   16 KB -> answered 2/8
+#     overrun   71 KB -> answered 3/8     <- what this driver used to send
+#     overrun  512 KB -> answered 0/8
+#
+# The overrun size is not the property. `daemon_read_line` returns -2 the moment
+# the cap is passed, so one byte over exercises exactly the same path as a
+# megabyte over, and the property under test -- a named error rather than a
+# truncation -- is identical. Overshooting by ~1 KB keeps the test about jichi
+# instead of about the platform's socket teardown, which is recorded separately
+# as a decision nobody has taken.
+big=$( (printf '{"type":"ping","pad":"'; awk 'BEGIN{while(i++<65600)printf "0123456789012345"}') \
        | "$SOCKQ" --deadline 20 "$sock" )
 case "$big" in
     *'"code":"limit.line"'*) t_ok "an over-long request line gets a named limit error" ;;

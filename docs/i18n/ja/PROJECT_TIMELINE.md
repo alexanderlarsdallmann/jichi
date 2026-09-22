@@ -20,6 +20,36 @@
          wrong in the same direction as the row deleted below: `src/json/cJSON.c` is
          this project's original code (M171), not a dependency. Corrected here.
 
+     CARRIED ACROSS A THIRD TIME AT v0.10.0, same rule: the English page was
+     re-counted at the release and the summary table moved with it. Note what
+     the lint could and could not see -- only THREE figures were reported as
+     orphaned, because the English page's own three-column delta table still
+     quotes the M704 values this page carried. That is anecdote #98 exactly,
+     one day later: a page that records its own history hides its
+     translations' staleness. The rest were carried by hand, not by the gate.
+
+     CARRIED ACROSS ON 2026-09-22, same rule, same reason: the English page was
+     re-counted and 16 of this page's figures lost their English counterpart, which is
+     what `i18n_tracks_lint` check 5 reported. Substituted here: the whole summary
+     table (span, commits, milestones, source, tests, documentation), the total
+     authored line, the 13 subsystem pie slices that moved, and the commit count in
+     the AI-hours paragraph. The proportion table's SHARES and BAR LENGTHS were
+     redrawn with it (39/33/28 -> 41/31/28), because a share left alone beside a
+     substituted line count is a contradiction the lint cannot see -- the trap the
+     German note names.
+
+     ALSO CORRECTED, and it is arithmetic rather than translation: the code:test:docs
+     ratio sentence read 1 : 0.36 : 0.35 against its own table, a figure from before
+     the M579 recount. It is now 1 : 0.90 : 1.31.
+
+     WHAT 2026-09-22 ADDED TO THE DEBT, all of it prose: the English page gained two
+     phase narratives (P19, P20), a delta table for the recount, a paragraph saying the
+     September commit bars cover two machines, and a dated correction rewriting the
+     junior-developer scenario as junior -> senior (~9-11.5 years, not ~14-18). The
+     sentence around the commit count here still says the gate held "without
+     regressions"; English now makes the weaker, checkable claim that the mistakes were
+     findable. None of that is a numeral, so none of it is done here.
+
      WHAT IS STILL OWED, and it is prose rather than figures: the paragraphs that
      INTERPRET the two tables. English's now argues "documentation now outweighs
      source" and reads a nineteen-day gap in the commit record; the Japanese around
@@ -65,18 +95,18 @@
 
 | 指標 | 値 |
 |---|---|
-| カレンダー期間 | 2026-06-18 → 2026-09-17（**91日**、**うち54日稼働**） |
-| コミット | **1,141** |
-| マイルストーン | **M1 – M645**（`docs/ROADMAP.md` に635件を記録） |
-| 自作ソース（`src` + `include`） | **約108,700行**（323個の `.c`/`.h` ファイル） |
-| テスト | **約93,700行**（ユニット129ファイル + smoke ドライバ298 + e2e 9モジュール + fuzz ターゲット19）、**13,329ユニットチェック**、smoke **1,736チェック** |
-| ドキュメント | **約131,300行**、466個の英語markdownページ（設計提案43件）。翻訳分は含めず、別途**約8,000行**。 |
+| カレンダー期間 | 2026-06-18 → 2026-09-22（**97日**、**うち59日稼働**） |
+| コミット | **1,303** |
+| マイルストーン | **M1 – M709**（`docs/ROADMAP.md` に701件を記録） |
+| 自作ソース（`src` + `include`） | **約110,600行**（326個の `.c`/`.h` ファイル） |
+| テスト | **約100,000行**（ユニット130ファイル + smoke ドライバ317 + e2e 9モジュール + fuzz ターゲット22）、**13,470ユニットチェック**、smoke **1,854チェック** |
+| ドキュメント | **約149,300行**、513個の英語markdownページ（設計提案45件）。翻訳分は含めず、別途**約8,000行**。 |
 | サブシステム | **20**（`src/*`） |
 | 言語 / ターゲット | C89 / ANSI C、Linux-POSIX。依存は **libcurl のみ**（`src/json/cJSON.c` は本プロジェクトのオリジナルコードであり、第三者ソースではない——M171） |
 | 品質ゲート | `-Wall -Wextra -Werror`（gcc + clang）、ASan/UBSan、valgrind、fuzz、smoke、e2e |
 
-**自作**行数の合計（コード + テスト + 英語ドキュメント）：**約348,800**、
-これに加えて `docs/i18n/` の翻訳**約8,100行**。両者は重複しない。
+**自作**行数の合計（コード + テスト + 英語ドキュメント）：**約359,900**、
+これに加えて `docs/i18n/` の翻訳**約8,200行**。両者は重複しない。
 
 ---
 
@@ -185,22 +215,22 @@ xychart-beta
 %%{init: {'theme':'base','themeVariables':{'pie1':'#0d47a1','pie2':'#1b5e20','pie3':'#b71c1c','pie4':'#4a148c','pie5':'#e65100','pie6':'#006064','pie7':'#880e4f','pie8':'#311b92','pie9':'#33691e','pie10':'#bf360c','pie11':'#004d40','pie12':'#1a237e','pie13':'#3e2723','pie14':'#263238','pie15':'#4e342e','pie16':'#01579b','pie17':'#37474f','pieStrokeColor':'#ffffff','pieStrokeWidth':'2px','pieOuterStrokeWidth':'2px','pieSectionTextColor':'#ffffff','pieSectionTextSize':'14px','pieTitleTextColor':'#111111','pieLegendTextColor':'#111111'}}}%%
 pie showData
     title サブシステム別の自作ソース（src の .c 行数）
-    "main.c (CLIシェル)" : 15822
-    "util (ヘルパー、純粋コア)" : 16338
-    "chat (エージェント/app/エンベロープ/制御)" : 14103
-    "include (公開ヘッダ)" : 14951
-    "tools (コア17 + 条件付23)" : 9456
-    "tui (ラインエディタ + 描画)" : 6513
-    "scaffold + setup" : 6692
-    "index (RAG)" : 3006
+    "main.c (CLIシェル)" : 16048
+    "util (ヘルパー、純粋コア)" : 16498
+    "chat (エージェント/app/エンベロープ/制御)" : 14276
+    "include (公開ヘッダ)" : 15238
+    "tools (コア17 + 条件付23)" : 9579
+    "tui (ラインエディタ + 描画)" : 6551
+    "scaffold + setup" : 7075
+    "index (RAG)" : 3082
     "convert (インポータ)" : 2984
     "snapshot + session" : 3117
     "config" : 2351
-    "net" : 2342
-    "platform + json" : 2211
-    "lsp" : 2100
-    "mcp" : 1996
-    "acp" : 1661
+    "net" : 2455
+    "platform + json" : 2286
+    "lsp" : 2112
+    "mcp" : 2043
+    "acp" : 1696
     "command + skill" : 1602
     "provider" : 1471
 ```
@@ -209,11 +239,11 @@ pie showData
 
 | 種類 | 行数 | 割合 | |
 |------|------:|------:|--|
-| ドキュメント（英語のみ） | ~131,300 | 39% | `████████████████████████▋` |
-| ソース（`src`+`include`） | ~108,700 | 33% | `████████████████████▋` |
-| テスト | ~93,700 | 28% | `█████████████████▊` |
+| ドキュメント（英語のみ） | ~149,300 | 41% | `█████████████████████████▉` |
+| ソース（`src`+`include`） | ~110,600 | 31% | `███████████████████▋` |
+| テスト | ~100,000 | 28% | `█████████████████▊` |
 
-**約1 : 0.36 : 0.35** のコード : テスト : ドキュメント比——C プロジェクトとしては
+**約1 : 0.90 : 1.31** のコード : テスト : ドキュメント比——C プロジェクトとしては
 異例に多いドキュメントと重いテスト量で、いずれも意図的なもの（リリース準備、そして
 教材としての成果物）。テストとドキュメントの割合は P4–P5 を通じて*増加*した：
 後半のバンド（セキュリティ、自律性、ロボティクス）はそれぞれ設計提案、運用マニュアル、
@@ -391,7 +421,7 @@ pie showData
 選ぶ、設計を承認する、レビューで誤った前提を捉える、実行を一時停止または方向転換
 する。*チーム*をスケールさせる規律——引き締まったマイルストーン、コードの前の設計
 メモ、純粋コアのテスト可能性、厳しい品質ゲート、作業単位ごとのドキュメント +
-コミット——こそが、AI を**1,141コミット**にわたってリグレッションなく正しく保った
+コミット——こそが、AI を**1,264コミット**にわたってリグレッションなく正しく保った
 ものだ。これが転用可能な教訓である：**AI 支援は、優れたチームがすでに実践している
 のと同じエンジニアリング衛生に報いる。**
 

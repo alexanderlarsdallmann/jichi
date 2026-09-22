@@ -16,9 +16,9 @@ all. Those three gaps, and fifty more like them, are what follows.
 
 **Who it is for.** The same reader as the rest: a self-learner with a laptop,
 alone ([CURRICULUM.md](CURRICULUM.md)). So **free and freely-readable works are
-marked and come first within each group**: of the **149 entries** below (34 craft,
+marked and come first within each group**: of the **159 entries** below (34 craft,
 18 C, 12 C++, 8 Zig, 9 Rust, 8 Python, 8 Racket, 7 Guile, 9 Elixir, 9 Haskell,
-9 Clojure, 18 interfaces), **103 carry a link to a text you can read for
+9 Clojure, 18 interfaces, 10 Ada/SPARK), **110 carry a link to a text you can read for
 nothing** — including a complete C book, a complete Zig book, SICP, *The Scheme
 Programming Language*, *Clojure for the Brave and True*, and every language
 standard that matters here in its last free working draft. A bibliography a
@@ -944,6 +944,49 @@ entry.*
   small by construction, so a direction is the most it can show* — the two are
   compatible, and the failure mode they share is reporting a magnitude.
 
+## 13. Ada and SPARK — proving what the rest of this list tests
+
+The only section here for a language **no track in this tree uses**, and it earns
+its place by being the counterargument to the rest of the shelf. Every rule this
+project has about the limits of testing — *a floor of zero cannot validate*,
+*perturb per check*, *audit the universe* — circles one question, and Ada answers
+part of it with a type system while SPARK answers more of it with a prover.
+[ADA_AND_C.md](ADA_AND_C.md) is the lens; this is the reading, including the
+honest bound: a proof is only as wide as its model, and this project's two most
+recent defects were a libc return convention and a `tar` behaviour, neither of
+which any prover knows.
+
+### The standard, and the prover's own documentation — free
+
+- **Ada 2022 Reference Manual** — <http://www.ada-auth.org/standards/22rm/html/RM-TOC.html> [probed 2026-09-22: HTTP 200]
+  Read it for: the language definition, free and complete, the way §2's C standards are. Ada's is not paywalled, which is worth noticing beside the ISO note below.
+- **SPARK User's Guide** (27.0w) — <https://docs.adacore.com/spark2014-docs/html/ug/index.html> [read 2026-09-22]
+  Read it for: "Formal Verification with GNATprove" and "Applying SPARK in Practice", which is the adoption story rather than the theory. **Then read appendix G, "GNATprove Limitations", and appendix H, "Portability Issues"** — a tool that ships a chapter on what it cannot do is exactly the instrument this project keeps asking for, and those two appendices are the honest boundary of everything the section above claims.
+- **What is SPARK?** — <https://www.adacore.com/about-spark> [probed 2026-09-22: HTTP 200]
+  Read it for: the adoption levels — Stone, Bronze, Silver, Gold, Platinum. **Silver** is absence of runtime errors, is where most real projects stop, and is the level that would matter to a program like this one.
+
+### Learning — free
+
+- **Introduction to Ada** — <https://learn.adacore.com/courses/intro-to-ada/index.html> [read 2026-09-22]
+  Read it for: a full course in the browser. Two chapters matter most from here — **"Design by contracts"** (`Pre`, `Post`, type invariants, the thing `-Wswitch` and `arena_lint.sh` approximate) and **"Interfacing With C"**, which is where a C programmer can actually check the claims rather than take them.
+- **Introduction to SPARK** — <https://learn.adacore.com/courses/intro-to-spark/index.html> [read 2026-09-22]
+  Read it for: the subset and the prover, worked, with exercises that run in the page. The shortest route from "proof sounds impractical" to having discharged one.
+- **Alire** (the Ada package manager and toolchain installer) — <https://alire.ada.dev/> [probed 2026-09-22: HTTP 200]
+  Read it for: how to get GNAT and `gnatprove` onto a machine without a vendor installer — and, if you are weighing the rewrite [ADA_AND_C.md](ADA_AND_C.md) argues against, for how few of this project's 24 platform rows it covers.
+- **Ada Programming** (Wikibook) — <https://en.wikibooks.org/wiki/Ada_Programming> [probed 2026-09-22: HTTP 200]
+  Read it for: a reference-shaped alternative when the course format is not what you want.
+
+### In print
+
+- **Building High Integrity Applications with SPARK** — John W. McCormick and Peter C. Chapin. Cambridge University Press, 2015. ISBN 978-1-107-04073-1 [ISBN verified 2026-09-22] — Open Library returns that title, both authors, Cambridge University Press, 2015.
+  Read it for: the one book-length treatment of *doing* SPARK rather than admiring it. The closest thing on this shelf to `TESTING_RUNBOOK.md` — a procedure, with the failures that shaped it.
+- **Programming in Ada 2012** — John Barnes. Cambridge University Press. ISBN 978-1-009-18134-1 [ISBN verified 2026-09-22] — Open Library returns that title, John Barnes, Cambridge University Press.
+  Read it for: the standard reference by the person who wrote much of the rationale. Long, and meant to be consulted rather than read through.
+- **Concurrent and Real-Time Programming in Ada** — Alan Burns and Andy Wellings. Cambridge University Press, 2007. ISBN 978-0-521-86697-2 [ISBN verified 2026-09-22] — Open Library returns that title, Burns, Cambridge University Press, 2007.
+  Read it for: tasking as a *language* feature rather than a library. Worth reading against [`proposals/2026-09-sustained-task.md`](proposals/2026-09-sustained-task.md), because the concurrency rung of that design is the one place this tree is arguing about exactly what Ada decided in 1983.
+
+---
+
 ## How to read these with jichi at your side
 
 A bibliography is not a pile of links if you can pull one into a turn. jichi's
@@ -974,7 +1017,10 @@ Three cautions, all of them earned:
 - ~~**The other four languages.**~~ **Closed at M677.** Guile (§8), Elixir (§9),
   Haskell (§10) and Clojure (§11) now have sections, and the list this entry
   existed for is empty: **every language with a track in this tree has
-  literature behind it.** The entry is kept rather than deleted because the
+  literature behind it.** §13 (Ada and SPARK, added 2026-09-22) is the one
+  section for a language with **no** track, and it is here as the argument
+  against the rest of the shelf rather than as a twelfth family member — see
+  [ADA_AND_C.md](ADA_AND_C.md) for why that is a lens and not a course. The entry is kept rather than deleted because the
   reasoning is the useful part — the list was worked through *when there was a
   reason*, never alphabetically. Rust came off at M636c because it was the only
   language with a graded course and nothing to read; Python and Racket at M671

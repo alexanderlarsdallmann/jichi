@@ -101,12 +101,30 @@ void test_agentjson(void)
 
     /* Result: full shape, no error, session id present, work kept. */
     o = jc_agentjson_result("hi", "m", "sid", NULL, 10.0, 5.0, 0.01, 2, 0,
-                            "done", 1, 0, NULL, NULL, NULL, NULL);
+                            "done", 1, 0, 0, NULL, NULL, NULL, NULL);
     JC_CHECK_STR(cJSON_GetObjectItem(o, "type")->valuestring, "done");
     JC_CHECK_STR(cJSON_GetObjectItem(o, "text")->valuestring, "hi");
     /* M630: no reach handed in, no member -- an absence, not an empty object. */
     JC_CHECK(cJSON_GetObjectItem(o, "reach") == NULL);
+    /* `answer_capped` is CONDITIONAL, both ways. A key that is always present
+     * would make `"answer_capped": false` the common case and the signal
+     * invisible in a diff; a key that is never present proves nothing at all,
+     * which is why both directions are asserted here rather than one.
+     * (Read BEFORE the delete below -- the first draft of this asserted on a
+     * freed object and the suite segfaulted on the next run.) */
+    JC_CHECK(cJSON_GetObjectItem(o, "answer_capped") == NULL);
     cJSON_Delete(o);
+    {
+        cJSON *cap = jc_agentjson_result("hi", "m", "sid", NULL, 10.0, 5.0,
+                                         0.01, 2, 0, "done", 1, 1,
+                                         0, NULL, NULL, NULL, NULL);
+        cJSON *f = cJSON_GetObjectItem(cap, "answer_capped");
+        JC_CHECK(f != NULL && cJSON_IsTrue(f));
+        /* ...and the stop reason does NOT move: the run finished. */
+        JC_CHECK_STR(cJSON_GetObjectItem(cap, "stop_reason")->valuestring,
+                     "done");
+        cJSON_Delete(cap);
+    }
     /* M630: a reach object handed in is ATTACHED by the emitter (ownership
      * taken), so the one function describe_fields_lint reads as the done
      * emitter is the one that writes the member. */
@@ -114,7 +132,7 @@ void test_agentjson(void)
         cJSON *r = cJSON_CreateObject();
         cJSON_AddNumberToObject(r, "tool_errors", 1.0);
         o = jc_agentjson_result("hi", "m", "sid", NULL, 10.0, 5.0, 0.01, 2, 0,
-                                "done", 1, 0, NULL, NULL, NULL, r);
+                                "done", 1, 0, 0, NULL, NULL, NULL, r);
         JC_CHECK(cJSON_GetObjectItem(o, "reach") != NULL);
         JC_CHECK(cJSON_GetObjectItem(cJSON_GetObjectItem(o, "reach"),
                                      "tool_errors") != NULL);
@@ -132,14 +150,14 @@ void test_agentjson(void)
 
     /* M92-S1: a budget stop that rolled back reports work_kept:false. */
     o = jc_agentjson_result("", "m", "s", NULL, 0.0, 0.0, 0.0, 0, 0,
-                            "budget", 0, 0, NULL, NULL, NULL, NULL);
+                            "budget", 0, 0, 0, NULL, NULL, NULL, NULL);
     JC_CHECK(!cJSON_IsTrue(cJSON_GetObjectItem(o, "work_kept")));
     JC_CHECK_STR(cJSON_GetObjectItem(o, "stop_reason")->valuestring, "budget");
     cJSON_Delete(o);
 
     /* Result: error object present, session id omitted when NULL/empty. */
     o = jc_agentjson_result("", "m", NULL, NULL, 0.0, 0.0, 0.0, 0, 0,
-                            "error", 0, 5, "error", "boom", NULL, NULL);
+                            "error", 0, 0, 5, "error", "boom", NULL, NULL);
     JC_CHECK(cJSON_GetObjectItem(o, "session_id") == NULL);
     {
         cJSON *e = cJSON_GetObjectItem(o, "error");
@@ -152,7 +170,7 @@ void test_agentjson(void)
 
     /* aborted flag round-trips. */
     o = jc_agentjson_result("x", "m", "s", NULL, 0.0, 0.0, 0.0, 0, 1,
-                            "interrupted", 1, 0, NULL, NULL, NULL, NULL);
+                            "interrupted", 1, 0, 0, NULL, NULL, NULL, NULL);
     JC_CHECK(cJSON_IsTrue(cJSON_GetObjectItem(o, "aborted")));
     JC_CHECK_STR(cJSON_GetObjectItem(o, "stop_reason")->valuestring,
                  "interrupted");
@@ -196,7 +214,7 @@ void test_agentjson(void)
         econ.shells = 2;
         econ.other_tools = 1;
         o = jc_agentjson_result("", "m", "s", NULL, 100.0, 5.0, 0.0, 43, 0,
-                                "budget", 1, 0, NULL, NULL, &econ, NULL);
+                                "budget", 1, 0, 0, NULL, NULL, &econ, NULL);
         JC_CHECK(cJSON_IsTrue(cJSON_GetObjectItem(o, "starved")));
         JC_CHECK_STR(cJSON_GetObjectItem(o, "budget_kind")->valuestring, "tokens");
         JC_CHECK(cJSON_GetObjectItem(o, "peak_input")->valuedouble == 209729.0);
@@ -224,7 +242,7 @@ void test_agentjson(void)
         econ.deg_unanswered = 3;
         econ.deg_privilege = 1;   /* deg_approval deliberately left at 0 */
         o = jc_agentjson_result("", "m", "s", NULL, 0.0, 0.0, 0.0, 0, 0,
-                                "done", 0, 0, NULL, NULL, &econ, NULL);
+                                "done", 0, 0, 0, NULL, NULL, &econ, NULL);
         d = cJSON_GetObjectItem(o, "degraded");
         JC_CHECK(d != NULL);
         if (d != NULL) {

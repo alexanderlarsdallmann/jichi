@@ -560,9 +560,26 @@ static void test_verify_sanity(void)
     JC_CHECK(jc_env_verify_sanity(120, 91, 0) == JC_VERIFY_SANE);
     JC_CHECK(jc_env_verify_sanity(50, -1, 0) == JC_VERIFY_SANE);
 
-    /* Unknown count (no test signal) is never flagged. */
-    JC_CHECK(jc_env_verify_sanity(-1, -1, 0) == JC_VERIFY_SANE);
-    JC_CHECK(jc_env_verify_sanity(-1, 91, 0) == JC_VERIFY_SANE);
+    /* NO COUNT AT ALL is its own verdict since M692, and it is NOT the same as
+     * a count of zero. A negative count means the parser found no test figure
+     * in the verifier's output -- `zig build test` prints nothing on success,
+     * and so do plenty of make targets -- so every check above is unanswerable
+     * rather than passed. Before M692 this returned SANE, which made "the gate
+     * is fine" and "the gate could not be inspected" print identically.
+     *
+     * The old comment here read "unknown count is never flagged", and that is
+     * still true of the thing it was protecting: NO_COUNT produces no warning,
+     * no on_status ping and nothing to the model, because a verifier that is
+     * quiet on success is a normal setup and a per-run warning about it would
+     * fire on every run of every such project. It is reported once, in the
+     * reach footer's NOT-CHECKED half, where "this could not be established"
+     * is the whole subject. */
+    JC_CHECK(jc_env_verify_sanity(-1, -1, 0) == JC_VERIFY_NO_COUNT);
+    JC_CHECK(jc_env_verify_sanity(-1, 91, 0) == JC_VERIFY_NO_COUNT);
+    /* And it does not swallow the two it sits between: a real zero is still
+     * NO_TESTS, and a real count is still judged on its merits. */
+    JC_CHECK(jc_env_verify_sanity(0, 91, 0) == JC_VERIFY_NO_TESTS);
+    JC_CHECK(jc_env_verify_sanity(29, 91, 0) == JC_VERIFY_FEWER_TESTS);
 
     /* No prior baseline (prev_max <= 0) can't trigger a shrink. */
     JC_CHECK(jc_env_verify_sanity(5, 0, 0) == JC_VERIFY_SANE);

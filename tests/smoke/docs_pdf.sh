@@ -7,7 +7,7 @@
 # (Port of tests/e2e/docs_pdf.py, M213.)
 . "$(dirname "$0")/_smoke.sh"
 
-command -v pdftotext >/dev/null 2>&1 || t_skip "pdftotext not installed"
+smoke_pdftotext_works || t_skip "no working pdftotext here: either it is not installed, or the one on PATH cannot open a file at this platform's paths -- measured on Cygwin, where PATH inherits a NATIVE Win32 pdftotext from Git for Windows that answers \"I/O Error: Couldn't open file\" for every POSIX path"
 
 t_plan 3
 smoke_home

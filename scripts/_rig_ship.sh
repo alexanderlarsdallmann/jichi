@@ -38,11 +38,31 @@
 # creates parents as needed in both GNU and BSD tar, and the dirty path is
 # empirically proven -- the M466 fix was built and its full suite run on OpenBSD
 # through it. Counting entries to compare the modes will mislead; compare files.
+# `HEAD^{tree}`, NOT `HEAD` -- the M683 fix, at the site it was not applied to.
+# Archiving a COMMIT makes git write a pax global header: a tar entry named
+# `pax_global_header` with typeflag 'g' carrying the commit id. GNU tar consumes
+# it silently, illumos /usr/bin/tar does not recognise typeflag 'g' and writes it
+# out as a REGULAR FILE. M683 found that through `scripts/make-snapshot.sh` and
+# fixed it there; this function is the SHARED ship path every VM rig uses, has
+# the identical defect, and put the file back on the guest at the root of the
+# shipped tree -- where the rig's own `git init && git add -A` then TRACKED it,
+# so `make-snapshot.sh` archived it into the publishable tree and
+# `snapshot_lint` check 16 reported "unexpected file(s) at the root of the
+# publishable tree: pax_global_header". Measured on OmniOS r151058, 2026-09-22:
+# that was the row's last failing driver, and the fix at the other site could not
+# reach it. One defect, two call sites, and only the second one is on the path
+# every rig takes.
+#
+# Nothing here wants the commit form: this ships FILES. M683 measured the two
+# forms as identical in content (2,332 entries either way) with `export-ignore`
+# still honoured, and the only things the commit form buys -- a commit timestamp
+# and `export-subst` -- are read by nothing in this tree. Provenance is carried
+# by jc_rig_ship_stamp below, which reads the commit directly.
 jc_rig_ship_tar() {
     if [ "${2:-0}" = 1 ]; then
         git -C "$1" ls-files -z | tar -C "$1" --null -T - -cf -
     else
-        git -C "$1" archive --format=tar HEAD
+        git -C "$1" archive --format=tar "HEAD^{tree}"
     fi
 }
 

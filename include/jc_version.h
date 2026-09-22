@@ -36,7 +36,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define JC_VERSION "0.9.2"
+#define JC_VERSION "0.10.0"
 
 #ifdef __cplusplus
 }

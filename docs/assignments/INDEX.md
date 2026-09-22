@@ -240,6 +240,7 @@ Curriculum extras carry points but belong to no stage gate:
 | works on my machine | [`29-works-on-my-machine.md`](29-works-on-my-machine.md) | 3 | a UBSan-capable `cc`/`clang` — see [C_STANDARDS.md](../C_STANDARDS.md) |
 | the signed byte | [`30-the-signed-byte.md`](30-the-signed-byte.md) | 3 | a `cc`/`clang` with `-f{,un}signed-char` — see [C_STANDARDS.md](../C_STANDARDS.md) |
 | read the turn | [`74-read-the-turn.md`](74-read-the-turn.md) | 4 | none — the jichi checkout itself is the subject; see [CODE_REVIEW.md](../CODE_REVIEW.md) (the reading track's review rung, above 24) |
+| grounded discourse | [`85-grounded-discourse.md`](85-grounded-discourse.md) | 4 | none — the jichi checkout itself is the subject; see [GROUNDED_DISCOURSE.md](../GROUNDED_DISCOURSE.md) |
 
 ## Migration tracks (extras): compile → extend → refactor
 
@@ -519,8 +520,9 @@ it is the one graded track you can start on day one.
 | [`72-process-kanban.md`](72-process-kanban.md) | 3 | an honest board: columns, a WIP limit, every Doing card traced to a requirement |
 | [`73-process-scheduling.md`](73-process-scheduling.md) | 3 | milestones with size estimates, and a retro comparing estimate vs actual |
 | [`75-process-decisions.md`](75-process-decisions.md) | 3 | decisions with criteria before options: chose / rejected with why / because — the criterion, traced to a requirement (M629) |
+| [`86-the-register-that-went-stale.md`](86-the-register-that-went-stale.md) | 3 | auditing a register you did not write: which rows went stale, which still stand, and the evidence for each |
 
-20 points. The artifacts form a **chain** — requirements feed use-cases feed the
+23 points. The artifacts form a **chain** — requirements feed use-cases feed the
 design, which the board and plan track — so working them in order *is* the
 capstone: one small idea walked P1→P7 into a portfolio a self-learner can show.
 

@@ -755,6 +755,13 @@ int jc_env_is_test_path(const char *path)
 enum jc_verify_sanity jc_env_verify_sanity(int count_now, int prev_max,
                                            int test_edit)
 {
+    /* M692: NO COUNT AT ALL is not the same as a count of zero. A negative
+     * count means the parser found no test figure in the verifier's output --
+     * `zig build test` prints nothing on success, and so do plenty of make
+     * targets -- so every check below is unanswerable rather than passed. */
+    if (count_now < 0) {
+        return JC_VERIFY_NO_COUNT;
+    }
     if (count_now == 0) {
         return JC_VERIFY_NO_TESTS;
     }

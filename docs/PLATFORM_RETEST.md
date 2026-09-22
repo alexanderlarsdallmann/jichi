@@ -74,6 +74,8 @@ the figure moves with every driver added, which is the point of it):
 | NetBSD 10.1 (M480) | 209 | **94** | 94 drivers unexercised on a BSD that ships GNU userland tools |
 | OpenBSD 7.9 (M481) | 209 | **94** | 94 drivers unexercised under ksh as `/bin/sh` — the axis nothing else in the matrix covers |
 | Windows 11 + WSL2 (M475) | 209 | **94** | same, and this row also carries T5 (the `/mnt/c` translation layer) |
+| **Windows + Cygwin (M698, 2026-09-22)** | **317** | **0** | measured at the 317-driver tree **through a rig** (`scripts/tier-v-cygwin.sh`), so the row is reproducible rather than hand-made. 3 killed at a 780 s deadline and 4 failed. This row had never appeared in this table, though it is one of only two carrying **T5** *and* a documented safety difference |
+| **Windows + MSYS2 (MSYS) (M698, 2026-09-22)** | **317** | **0** | same tree, same day, through `scripts/tier-v-msys2.sh`; 3 killed at 660 s and 2 failed. Measured in the **configured** (`acl`) state, which the rig records, because a row measured only in the configured state is true for nobody |
 | Raspberry Pi Zero 2 W aarch64 (**2026-09-18**) | 302 | **1** | measured at the 303-driver tree, `lite_context_cap` the only failure. That driver was **the driver rather than the board** (M672) — checks 4-5 assumed the absence of `--lite` meant the normal profile, but lite auto-enables below the resource tier and this board reports `tier: minimal (lite)` on 415 MB. Fixed and **verified 5/5 on the board**; the row's full re-run at the current tree is pending and this number is the one that was measured, not the one that is expected. Also **Driven**: text and agentic turns, 17 s each |
 | Raspberry Pi Zero 2 W armhf (**M658**) | 297 | **6** | re-run 2026-09-18; was 194 at M454, debt 106 |
 | Raspberry Pi 400 aarch64 (**2026-09-18**) | 303 | **0** | the whole tier, 0 failures, reproduced three times. The row read *n/a* for months because `tier-b-device.sh` ran the gate **without `JC_SMOKE_KEEP_GOING=1`**, so the tier stopped at the first failing driver and never printed a summary — the missing denominator was a rig defect, not a device one |
@@ -93,6 +95,18 @@ the figure moves with every driver added, which is the point of it):
 > That is why the Pi 400 stood at **n/a** here for months; with the variable set it
 > reports `smoke: OK (303 drivers, 1,761 checks)`, debt **0**. The BSD rig has set
 > it since M466. **The illumos rig still has not been checked for either shape.**
+
+> **A DEBT OF ZERO IS NOT THE WHOLE STORY, AND M698 IS WHY.** Coverage debt counts
+> drivers that *executed*, and a driver killed at its deadline executed. Both
+> Windows rows above read debt **0** while three drivers on each were stopped
+> rather than finished, so their outcome is a bound and their output is not
+> evidence. Worse, the count cannot see what a deadline conceals: at the shipped
+> deadlines this project recorded *"17 killed and zero genuine check failures"* for
+> Cygwin, and at a measured multiplier the same tree reports `setup_keyfile`
+> **failing on both emulation layers** — it needs ~400 s and was being killed at
+> 60 s. **Debt measures reach, not verdicts.** Read it beside the killed count and
+> the multiplier, and treat a row whose multiplier is 1 on slow silicon as
+> unmeasured rather than clean.
 
 **The thresholds, and they are conventions rather than discoveries:**
 

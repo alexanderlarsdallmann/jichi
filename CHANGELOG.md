@@ -25,7 +25,128 @@ the `describe` interface contract.
 
 ## [Unreleased]
 
+*Nothing yet.*
+
+## [0.10.0] — 2026-09-22 — jichi chooses no vendor, and illumos went green
+
+> **Why a MINOR bump and not a patch.** This release **removes a default you may have been relying on**. A config that named no `model` used to resolve to a priced Anthropic id; it now refuses and says so. Under this page's own rule — *MINOR bumps mark a completed capability cluster or a breaking change* — that is a breaking change, and it is the only one here. Everything else is additive or a fix.
+
+> **If you upgrade and jichi stops working**, run `jichi doctor`. If it says
+> `no model is configured`, name the model you intend on the model entry, or run
+> `jichi setup` — it will ask your endpoint which models it serves.
+> [`docs/CONFIG_TUTORIAL.md`](docs/CONFIG_TUTORIAL.md) §0a is written for this.
+
+> **Coverage note, current to M709.** Most of M688–M708 is measurement, rig and
+> register work — platform rows, the two Windows rigs, lints — which changes
+> nothing you run. The exception is below under **Known**, and it is recorded
+> before its cause is understood rather than after, because a user on those
+> platforms is affected today.
+
+> **Correction, same day.** An earlier version of this note reported that the
+> interactive setup wizard fails under a pty on Windows + Cygwin and Windows +
+> MSYS2, and named M695 as the suspected cause. **That was wrong, and the fault
+> was in the measuring rig rather than in jichi.** The rig exports the gateway key
+> so its live turns can use `apiKeyEnv`; the smoke tier inherits that export; and
+> `setup_keyfile` asks the wizard to store a key in `JICHI_API_KEY`. jichi found
+> the variable already set and correctly answered *"already set in this shell --
+> nothing to store"*, so it never prompted, and the pty script timed out waiting.
+> The paired control settles it: with the variable unset, the same driver passes
+> **28 of 28** on the same tree and commit. There is no known setup defect on
+> those platforms, the wizard behaved correctly throughout, and the rig now
+> unsets the key for the offline half and restores it only for the live turns.
+> The original claim is kept here rather than deleted, because a retracted defect
+> report is worth more to a reader than a silent edit.
+
+### Changed
+
+- **jichi no longer chooses a provider or a model for you — and it used to
+  choose a priced one.** With no config at all, a fresh install resolved to
+  `https://api.anthropic.com` and `claude-opus-4-8`, because the provider fell
+  back to `anthropic` and the model id was substituted from a built-in default.
+  `jichi doctor` reported that as a green `configuration loaded` line. Nothing is
+  substituted now: an unset provider stays unset, an unset model stays unset,
+  `doctor` fails with `no model is configured` and says what to do, and a config
+  file that is only built-in defaults is reported as a warning rather than `ok`.
+  **If you relied on the old behaviour**, name the model you intend on the model
+  entry — it was a priced frontier id chosen by a string literal, and a hardcoded
+  fallback goes stale as ids change. `jichi setup` now asks your endpoint which
+  models it serves (`/v1/models`) and offers that list rather than suggesting an
+  id, its provider menu leads with "any OpenAI-compatible endpoint" rather than a
+  vendor, and the `jichi-convert` importer leaves the model unset when the source
+  config names none. See [`docs/CONFIG_TUTORIAL.md`](docs/CONFIG_TUTORIAL.md)
+  §0a, written for a first config. (M709)
+
+### Fixed
+
+- **`doctor` told an illumos user jichi had never been compiled there, on a
+  platform `PLATFORMS.md` partly-verifies.** POSIX specifies that `uname()`
+  returns a **non-negative** value on success — not zero — and illumos returns a
+  positive one. Four call sites written `uname(&u) == 0` therefore read a
+  successful call as a failure on that kernel: `jc_platform_describe` returned
+  nothing, so `doctor` printed `! host platform not recognised`, and
+  `jc_platform_row_verdict` returned UNKNOWN, which made the whole platform
+  verdict table added in the previous wave unreachable on the one row it named
+  that is not a Windows layer. Every other platform this project runs on returns
+  0, which is exactly why nothing caught it. `doctor` now reports
+  `! SunOS 5.11 (i86pc)` and the partly-verified verdict. (M703)
+
+- **On MSYS2, the fix this project documented for its `noacl` mount protects the
+  test suite rather than your key file.** Adding `acl` for `/tmp` makes the smoke
+  tier pass, because its temporary HOME lives there — but `~/.jichi.env`,
+  the daemon socket and the audit log live under `/home`, which stays `noacl` and
+  world-readable. The line that actually works is
+  `C:/msys64/home /home ntfs binary,acl 0 0`; mounting `/` does not. `jichi doctor`
+  was right throughout — it probes the directory your state is really in — so if
+  it says "private files are NOT private on this filesystem", believe it over the
+  mount you just added.
+
+- **Type-ahead typed before the first prompt is now actually discarded on every
+  platform.** jichi entered raw mode with `TCSAFLUSH` and relied on its specified
+  side effect to throw the input away. Cygwin does not implement that side effect
+  — measured, 18 bytes pending before and 18 after — so jichi announced a discard
+  that had not happened and the stray line became the user's first prompt. That is
+  what the flush exists to prevent: stray type-ahead answering an approval prompt
+  nobody has read. The flush is now explicit, and the notice is withdrawn if the
+  input is somehow still there.
+- **The smoke tier no longer reports a killed driver as a failed one.** A driver
+  killed at its deadline can print `not ok` lines drawn from values the kill
+  erased, so the tier was publishing findings that were artifacts. Killed drivers
+  are now named as killed and their output marked as not evidence.
+
+- **`jichi doctor` and `jichi setup` no longer tell a measured platform that
+  jichi has never been compiled on it.** Three places answered the question and
+  none agreed: the setup wizard and doctor's platform line both asked "is this
+  Linux", while doctor's never-compiled warning knew four kernels. On Cygwin
+  **both** platform warnings fired, in a binary Cygwin had just compiled; on
+  FreeBSD, NetBSD and OpenBSD — all running the full gate — the wizard's opening
+  paragraph said the system was untested. The verdict has three values now
+  (verified / partly verified / never compiled), doctor makes **one** platform
+  statement instead of two, and `docs/PLATFORMS.md` states each measured row's
+  `uname -s` so the check that pins them reads the page rather than a second
+  copy of the list.
+
 ### Added
+
+- **A reply cut short at the model's output ceiling now says so**, in the reach
+  footer and as `answer_capped` on the `done` object. Previously a run whose
+  reply hit `maxTokens` ended with a clean stop reason and `answer_complete` set,
+  so every machine-readable channel called it finished; the footer's truncation
+  clause could not fire because a clean stop leaves it empty. The footer now
+  names the output ceiling and the fix (raise this model's `maxTokens`), and
+  `answer_complete` is forced to 0 when the reply was capped. `answer_capped` is
+  a **conditional** top-level key, present only when true, like `degraded` — so
+  existing readers are unaffected; `docs/EMBEDDING.md` item 2c records it. It is
+  deliberately not a new `stop_reason` value: the stop reason answers why the
+  loop ended, and the loop ended normally. (M701)
+
+- **One real agent turn now runs under LeakSanitizer in `make ci`**
+  (`tests/smoke/leak_turn.sh`). The existing leak check covered seven
+  **read-only** subcommands, none of which calls a model, so the provider /
+  SSE / tool-execute / loop path had no leak coverage at all. The new fixture
+  found a 384-byte leak on its first run — see Fixed. It proves the leak
+  detector is armed with a planted leak, and requires the tool round to have
+  actually completed, before it reads any verdict: a clean report from a turn
+  that never ran is not evidence.
 
 - **The run journal records WHY a run stopped**, not just the envelope's verdict.
   Its `end` event carried only `outcome` — `ok` / `running` /
@@ -109,6 +230,50 @@ the `describe` interface contract.
   driver red, agentic phrase `TIER-B-526D6F`.
 
 ### Fixed
+
+- **A memory leak on every run that read a file.** `app->read_files` and
+  `app->read_recs` — the read-tracking vectors behind the re-read advisory —
+  were initialised at startup and never freed. Their *contents* are
+  arena-owned, so the paths really were released; what leaked was each
+  vector's own backing array. The main exit path had five hand-copied frees
+  where the 37 early-return exits share `app_free_common()`, which is why two
+  vectors added later were never added to it; it now calls the shared helper.
+- **A lint check could hang the gate forever instead of reporting zero.** Two
+  checks in `posix_utils_lint.sh` passed their file list as an unquoted
+  command substitution, so when it expanded to nothing `awk` read **stdin** —
+  blocking indefinitely where stdin stays open (observed: 15h47m), and
+  printing a cheerful `ok` after reading no files where stdin is `/dev/null`.
+  Both now capture, floor and print their universe, and a new check refuses
+  the shape anywhere in the test tier.
+
+- **Two leaks on `jichi doctor`, and the gate gap that hid them.** 512 B from
+  `jc_list_dir` and 384 B from `jc_calib_load`. The cost was never the bytes —
+  the process exits — but that a leak checker could not be *used* on those paths,
+  because a new leak would arrive as more lines in a report that already had
+  some. Underneath: 36 early-return subcommand exits each freeing a
+  hand-maintained subset, with `jc_calib_free` on none of them. `make ci` had
+  never seen it because its sanitizer stage runs the unit suite, which never
+  enters the subcommand dispatch; `scripts/leakcheck.sh` now runs seven
+  subcommands under LeakSanitizer and `ci` calls it.
+- **`make info` said `_FORTIFY_SOURCE inert` under `SIZE=1`**, where the
+  optimisation arrives as `SIZEFLAGS` and the flag is live — a diagnostic
+  contradicting the build it describes.
+
+- **`doctor --live` no longer throws away the server's diagnosis.** It printed
+  `the probe request did not complete (http error, HTTP error)` — the status
+  string, then the literal words "HTTP error" — for a gateway that had answered
+  `HTTP 400 … There are no healthy deployments for this model`. Both the status
+  code and the message were in hand. It now prints the status as a number and
+  the server's own text: from the old line the next move is to check the
+  network; from this one it is to fix one string.
+- **The hollow-gate check says when it could not run.** M86 warns that a green
+  verify ran zero tests, or fewer than an earlier green — and all three of its
+  checks need a parseable test count. A verifier that prints nothing on success
+  (`zig build test` is one) gave it none, so it stayed silent and "the gate is
+  fine" read identically to "the gate could not be inspected". The reach
+  footer's not-checked half now says so. **Not a warning**, deliberately: a
+  verifier quiet on success is a normal setup, and a per-run warning would fire
+  on every run of every such project.
 
 - **`doctor` now asks whether the server LISTS the configured model, not just
   whether its base URL answers.** `✓ model server reachable` is a fact about the

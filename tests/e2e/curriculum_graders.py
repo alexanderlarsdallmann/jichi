@@ -2099,6 +2099,22 @@ def reading_74():
     return src.split("<!-- READING.md -->")[1].split("<!-- /READING.md -->")[0]
 
 
+def discourse_85():
+    """The reference DISCOURSE.md for 85-grounded-discourse, extracted from the
+    shipped worked example between its <!-- DISCOURSE.md --> markers -- ONE
+    source of truth for this driver, the focused smoke driver and the
+    learner-facing walkthrough, so the three cannot drift."""
+    src = open(path("85-grounded-discourse.solution.md")).read()
+    return src.split("<!-- DISCOURSE.md -->")[1].split("<!-- /DISCOURSE.md -->")[0]
+def audit_86():
+    """The reference AUDIT.md for 86-the-register-that-went-stale, extracted
+    from the shipped worked example between its <!-- AUDIT.md --> markers --
+    ONE source of truth, so the grader, the walkthrough and this driver cannot
+    drift apart."""
+    src = open(path("86-the-register-that-went-stale.solution.md")).read()
+    return src.split("<!-- AUDIT.md -->")[1].split("<!-- /AUDIT.md -->")[0]
+
+
 SOLUTIONS = [
     ("00-hello.md",
      lambda: write("00-hello/hello.txt", "hello from my bench\n")),
@@ -2172,6 +2188,10 @@ SOLUTIONS = [
     # structural floor -- which is exactly the part that runs everywhere.
     ("74-read-the-turn.md",
      lambda: write("74-read-the-turn/READING.md", reading_74())),
+    ("85-grounded-discourse.md",
+     lambda: write("85-grounded-discourse/DISCOURSE.md", discourse_85())),
+    ("86-the-register-that-went-stale.md",
+     lambda: write("86-the-register-that-went-stale/AUDIT.md", audit_86())),
 ]
 
 # The zig-gated extras (25/26) prove two-sided only where zig exists --

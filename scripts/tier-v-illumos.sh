@@ -367,7 +367,17 @@ say "smoke tier (KEEP_GOING: a remote row costs a boot, so report every failure)
 if g "cd ~/jichi && LC_ALL=C CC=gcc TMPDIR=/var/tmp JC_SMOKE_TIMEOUT_MULT=$_mult \
       JC_SMOKE_KEEP_GOING=1 gmake smoke >/tmp/smoke.log 2>&1; echo smoke_rc=\$?" \
         2>/dev/null | tee -a "$RESULTS" | grep -q 'smoke_rc=0'; then
-    ok "smoke tier: OK"
+    # THE DENOMINATOR ON THE SUCCESS PATH TOO. M665's finding was that a rig
+    # which fails must still report its driver count, because the count is free
+    # at the time and unrecoverable afterwards. The fix went into the FAILURE
+    # branch only, and the inverse gap survived: a row that PASSES came back
+    # "smoke tier: OK" with no numbers at all, so the one thing a green row is
+    # cited for -- how many drivers it ran, which is the coverage-debt
+    # denominator in docs/PLATFORM_RETEST.md -- had to be read out of a guest
+    # that no longer exists. Measured 2026-09-22: the first fully green illumos
+    # run in the project's history reported no count.
+    _line=$(g 'grep -E "^smoke: OK" /tmp/smoke.log | tail -1' 2>/dev/null)
+    ok "smoke tier: OK -- ${_line:-count not extracted}"
 else
     # NOT a bare failure: at M658 this row was 238 of 300, which is a RESULT.
     _line=$(g 'grep -E "^smoke: \(|^smoke: OK" /tmp/smoke.log | tail -1' 2>/dev/null)
@@ -375,6 +385,18 @@ else
     note ""
     note "--- failing drivers ---"
     g 'grep "^smoke: FAILED -- " /tmp/smoke.log | tail -1' >> "$RESULTS" 2>&1
+    # AND THE CHECKS, not just the driver names. M665 made this rig report its
+    # DENOMINATOR on failure, for the reason that a row which failed is the one
+    # whose count a reader wants. The same argument applies one level down and
+    # was not made: on 2026-09-22 this row came back "2 driver(s): snapshot_lint
+    # doctor" and nothing else, so diagnosing it needed a SECOND BOOT of a guest
+    # that had just been torn down -- and the guest's /tmp/smoke.log went with
+    # it. The failing check text is free at this moment and unrecoverable after.
+    # Bounded with head: a tier that fails wholesale must not paste itself into
+    # the results file.
+    note ""
+    note "--- failing checks (free now, gone with the guest) ---"
+    g 'grep -E "not ok|KILLED at its" /tmp/smoke.log | head -40' >> "$RESULTS" 2>&1
 fi
 
 say "offline surfaces"

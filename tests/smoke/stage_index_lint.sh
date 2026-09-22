@@ -5,7 +5,7 @@
 # UNIVERSE, STATED, TWICE (CLAUDE.md "audit the universe"):
 #   A. frontmatter route -- docs/assignments/*.md minus INDEX.md and
 #      *.solution.md must each carry exactly one `stage:` line whose value is
-#      in the closed vocabulary below; floored at today's exact count (88).
+#      in the closed vocabulary below; floored at today's exact count (90).
 #   B. INDEX route -- the section tables of docs/assignments/INDEX.md, parsed
 #      here (awk over `## ` headings + `|` table rows, first spec link per
 #      row). The LINT parses the prose tables so the BINARY never has to --
@@ -60,10 +60,10 @@ for f in "$AD"/*.md; do
 done
 
 # --- 1: floor at today's exact count ----------------------------------------------
-if [ "$na" -eq 88 ]; then
-    t_ok "enumerated 88 shipped specs (today's exact count)"
+if [ "$na" -eq 90 ]; then
+    t_ok "enumerated 90 shipped specs (today's exact count)"
 else
-    t_fail "enumerated $na specs, not 88 -- recount and refloor"
+    t_fail "enumerated $na specs, not 90 -- recount and refloor"
 fi
 
 # --- 2: every spec carries exactly one vocabulary stage ---------------------------
@@ -107,10 +107,10 @@ awk '
 ' "$SMOKE_ROOT/docs/assignments/INDEX.md" | sort -u > "$tmp/set_b"
 
 nb=$(wc -l < "$tmp/set_b")
-if [ "$nb" -eq 88 ]; then
-    t_ok "INDEX's tables list 88 specs, each in exactly one section"
+if [ "$nb" -eq 90 ]; then
+    t_ok "INDEX's tables list 90 specs, each in exactly one section"
 else
-    t_fail "INDEX route found $nb spec rows, not 88 -- a table moved, a spec is unlisted, or one is listed twice; read $tmp/set_b"
+    t_fail "INDEX route found $nb spec rows, not 90 -- a table moved, a spec is unlisted, or one is listed twice; read $tmp/set_b"
 fi
 
 # --- 4: the two routes agree, spec by spec ----------------------------------------

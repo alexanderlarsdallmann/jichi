@@ -292,7 +292,23 @@ int jc_platform_is_linux(void);
  * Verified table in both directions. A name here that the page does not verify,
  * or a verified kernel missing here, fails the build.
  *
- * Names, not capabilities: this decides what to SAY, never what to attempt. */
+ * Names, not capabilities: this decides what to SAY, never what to attempt.
+ *
+ * M695: three values, not two. docs/PLATFORMS.md distinguishes Verified (the
+ * full gate ran) from Partly verified (it compiles and SOME gate ran green,
+ * with the incomplete part named), and a product that knows only "verified or
+ * never compiled" must call the middle tier never-compiled. It did, to three
+ * measured platforms, one of which has run a live agentic task. */
+#define JC_PLATFORM_ROW_UNKNOWN   0
+#define JC_PLATFORM_ROW_PARTLY    1
+#define JC_PLATFORM_ROW_VERIFIED  2
+
+int jc_platform_row_verdict(void);
+
+/* The table without the uname() call, so it is testable on any host. */
+int jc_platform_row_verdict_for(const char *sysname);
+
+/* Back-compat shorthand: verdict == JC_PLATFORM_ROW_VERIFIED. */
 int jc_platform_verified_row(void);
 
 /* Can the RSS watchdog behind `memBudgetMb` actually work here? Probes

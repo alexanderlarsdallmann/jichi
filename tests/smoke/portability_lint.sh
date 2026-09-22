@@ -20,7 +20,7 @@
 # Compiles nothing and runs no jichi (hence *_lint.sh).
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 18
+t_plan 24
 
 mk="$SMOKE_ROOT/Makefile"
 plat="$SMOKE_ROOT/src/platform/jc_platform_posix.c"
@@ -161,6 +161,41 @@ verified_tables() {
     awk '/^### Verified/{f=1} /^### /{ if (f && $0 !~ /^### (Verified|Partly verified)/) exit } f' "$plats"
 }
 
+# The two tiers SEPARATELY (M695). verified_tables() above deliberately spans
+# both, because checks 7a/7b ask "does the page claim this platform works at
+# all", for which Partly counts. Check 7c asks which VERDICT the page gives,
+# and for that the tiers must not be merged -- merging them is what let the C
+# hold a name the page only partly verifies and still pass.
+verified_only_table() {
+    awk '/^### Verified/{f=1;next} f&&/^### /{exit} f' "$plats"
+}
+partly_table() {
+    awk '/^### Partly verified/{f=1;next} f&&/^### /{exit} f' "$plats"
+}
+
+# The SAME relation the product uses (jc_sys_listed): an entry ending in '-' is
+# a PREFIX, anything else is a whole sysname. Written twice, once per direction,
+# because a single helper would have to guess which argument is the pattern.
+_entry_matches_token() {        # $1 = C entry, $2 = uname token
+    case "$1" in
+        *-) case "$2" in "$1"*) return 0 ;; esac ;;
+        *)  [ "$2" = "$1" ] && return 0 ;;
+    esac
+    return 1
+}
+_any_line_matches() {           # $1 = C entry, $2 = file of uname tokens
+    while IFS= read -r _t; do
+        _entry_matches_token "$1" "$_t" && return 0
+    done < "$2"
+    return 1
+}
+_any_entry_matches() {          # $1 = uname token, $2 = file of C entries
+    while IFS= read -r _e; do
+        _entry_matches_token "$_e" "$1" && return 0
+    done < "$2"
+    return 1
+}
+
 # A verdict phrase: the closed set of ways this project says "we have not run it".
 # Matched case-INSENSITIVELY throughout, because docs/BUILD.md shouts it inside a
 # mermaid node ("NEVER COMPILED") and the first draft of this check, which used
@@ -270,6 +305,117 @@ else
     fi
 fi
 
+# --- 7f: the phrase doctor.sh greps for is the phrase doctor prints ---------
+# THE DEFECT THIS EXISTS FOR, and it happened twice in one hour.
+#
+# doctor's partly-verified sentence has TWO consumers that never see each other:
+# tests/smoke/doctor.sh greps the verdict wording, and tests/smoke/setup_keyfile.sh
+# check 27 counts the lowercase word "platform" in doctor's whole output. Neither
+# exercises that branch on this bench, because the bench is Verified.
+#
+#   M695 wrote "jichi is PARTLY verified here (docs/PLATFORMS.md)"
+#        -> setup_keyfile 27 went from 2 matches to 0. Shipped.
+#   The fix wrote "PARTLY verified on this platform"
+#        -> doctor.sh, grepping 'partly verified here', went red. Shipped.
+#
+# One sentence, two consumers, opposite directions, and no gate that sees either.
+# So the COUPLING is pinned here rather than each side alone: whatever phrase
+# doctor.sh greps for must actually appear in main.c. That is a property this
+# bench CAN check, about a branch it cannot run.
+_dsh="$SMOKE_ROOT/tests/smoke/doctor.sh"
+_dmain="$SMOKE_ROOT/src/main.c"
+if [ ! -f "$_dsh" ] || [ ! -f "$_dmain" ]; then
+    t_fail "doctor.sh or main.c is missing -- cannot check the verdict-phrase coupling"
+else
+    _phrase=$(grep -oE "grep -ci '[^']*partly[^']*'" "$_dsh" | head -1 \
+              | sed "s/.*'\(.*\)'/\1/")
+    if [ -z "$_phrase" ]; then
+        t_fail "could not extract the partly-verified phrase doctor.sh greps for -- \
+the extraction broke, so this check compares nothing. It expects a line shaped \
+like: grep -ci '<phrase containing partly>'"
+    elif grep -qi "$_phrase" "$_dmain"; then
+        t_ok "doctor.sh greps '$_phrase', and main.c prints it"
+    else
+        t_fail "doctor.sh greps for '$_phrase' and main.c does not contain it. That \
+sentence has two consumers -- this driver and setup_keyfile check 27 -- and neither \
+runs on this bench in the branch that prints it, so a reword ships green and fails \
+on Cygwin, MSYS2 and illumos at once. It has already done so twice."
+    fi
+fi
+
+# --- 7e: entering raw mode flushes EXPLICITLY, not by side effect -----------
+# THE DEFECT THIS EXISTS FOR. jichi discards type-ahead by entering raw mode with
+# TCSAFLUSH and relying on its specified side effect. POSIX does specify it;
+# Cygwin does not implement it. Measured 2026-09-21 on one machine, same code and
+# flags: 18 bytes pending, tcsetattr(TCSAFLUSH), and Linux reports 0 pending while
+# Cygwin reports 18. tcflush(TCIFLUSH) clears it on both.
+#
+# The consequence was not cosmetic: jc_term announced "discarded -- retype" and
+# the stray line went on to become the user's first prompt, so
+# preprompt_discard check 3 -- the SAFETY half, the reason the flush exists --
+# failed on Cygwin while the two announcement checks passed.
+#
+# This is pinned in the SOURCE because the bench cannot see it: TCSAFLUSH works
+# here, so every behavioural test passes on Linux whether or not the explicit
+# flush is present. A check that can only go red on a platform no gate runs is
+# not a gate, which is the same lesson as 7d one file over.
+_tsrc="$SMOKE_ROOT/src/tui/jc_term.c"
+if [ ! -f "$_tsrc" ]; then
+    t_fail "src/tui/jc_term.c is missing -- cannot check the raw-mode flush"
+else
+    _rawset=$(grep -c 'tcsetattr(fd, TCSAFLUSH, &raw)' "$_tsrc")
+    _explicit=$(grep -c 'tcflush(fd, TCIFLUSH)' "$_tsrc")
+    if [ "$_rawset" -ge 1 ] && [ "$_explicit" -ge 1 ]; then
+        t_ok "entering raw mode flushes input explicitly (tcflush), not by relying on TCSAFLUSH alone"
+    else
+        t_fail "jc_term enters raw mode $_rawset time(s) and calls tcflush(TCIFLUSH) \
+$_explicit time(s). TCSAFLUSH alone does not discard input on Cygwin (measured: 18 \
+bytes in, 18 still pending), so the type-ahead jichi announces as discarded becomes \
+the user's next prompt -- and no test on this bench can see it, because TCSAFLUSH \
+works here."
+    fi
+fi
+
+# --- 7d: every doctor platform verdict names the platform -------------------
+# THE DEFECT THIS EXISTS FOR (M695, found the same day by measuring on Cygwin).
+# doctor's platform verdict has three branches and any given host executes
+# exactly ONE of them. The bench is Verified, so `make ci` here can only ever
+# see that branch -- the partly-verified and never-compiled wordings are, from
+# this machine, unreachable code that no gate reads.
+#
+# M695 rewrote the partly branch and dropped the lowercase word "platform" from
+# it: "jichi is PARTLY verified here (docs/PLATFORMS.md)" contains PLATFORMS in
+# capitals and nothing else. tests/smoke/setup_keyfile.sh check 27 counts
+# `doctor | grep -c "platform"`, case-sensitively, and went from 2 matches to 0
+# on Cygwin -- a regression that shipped because the only check covering it runs
+# only on the platforms the gate never reaches. It was found by running the tier
+# on Cygwin, which is not a gate and cannot be relied on to be run.
+#
+# So the property is checked HERE, in the source, where all three branches are
+# visible at once regardless of which one this host would execute. It is
+# deliberately a weak property -- the word must appear -- because that is
+# exactly what the downstream driver greps for, and a check that asserts
+# something stronger than its consumer needs would fail for the wrong reasons.
+_dsrc="$SMOKE_ROOT/src/main.c"
+if [ ! -f "$_dsrc" ]; then
+    t_fail "src/main.c is missing -- cannot check doctor's platform verdicts"
+else
+    # The three verdict wordings, by the distinctive phrase each one owns.
+    _v_ok=$(grep -c 'JC_DOC_OK, "platform"' "$_dsrc")
+    _v_partly=$(grep -c 'PARTLY verified on this platform' "$_dsrc")
+    _v_never=$(grep -c 'never been compiled on this platform' "$_dsrc")
+    _v_total=$((_v_ok + _v_partly + _v_never))
+    if [ "$_v_total" -lt 3 ]; then
+        t_fail "doctor's platform verdicts: verified=$_v_ok partly=$_v_partly \
+never=$_v_never (want one each). A branch that does not name the platform in \
+lowercase is invisible to setup_keyfile check 27, and that check only runs on \
+the platforms this gate never reaches -- which is how M695 shipped a regression \
+to Cygwin, MSYS2 and illumos at once."
+    else
+        t_ok "all three of doctor's platform verdicts name the platform in lowercase (verified/partly/never)"
+    fi
+fi
+
 # --- 7b: the matcher for check 7 flags a planted contradiction --------------
 # A clean result from a broken matcher is what check 7 spent three milestones
 # producing. Two-sided on purpose: the planted page must fail AND the corrected
@@ -300,7 +446,7 @@ else
     t_fail "check 7's matcher is broken (prose=$_p1 mermaid=$_p2 bullet=$_p3 spared=$_c1/$_c2/$_c3) -- check 7 above is meaningless"
 fi
 
-# --- 7c: the product's own verdict list matches PLATFORMS.md -----------------
+# --- 7c: the product's own verdict TABLE matches PLATFORMS.md ----------------
 # THE DEFECT THIS EXISTS FOR (M486). `jichi doctor` told a FreeBSD user "jichi has
 # never been compiled on this platform" for months after FreeBSD started passing
 # 1,068 smoke checks there -- the binary asserting a verdict its own documentation
@@ -308,37 +454,76 @@ fi
 # had even written the staleness down and deferred the decision to PLATFORMS.md;
 # PLATFORMS.md made it, and nothing carried the answer back into the C.
 #
-# So the kernel list in jc_platform_verified_row() is pinned here, BOTH WAYS: a name
-# in the C that the page does not verify, and a kernel the page verifies that the C
-# does not know. The floor guards the extraction itself -- an empty list would make
-# both directions vacuously agree, which is how this family of check fails.
+# WIDENED AT M695, because the same defect was live one verdict tier down for the
+# whole of that time and this check could not see it. Its universe was the
+# **Verified** table, so the three rows under **Partly verified** -- illumos/Solaris,
+# Cygwin and MSYS2 -- were outside it BY CONSTRUCTION. All three were told by
+# `doctor`, and by the setup wizard, that jichi had never been compiled there; on
+# Cygwin that sentence was printed by a binary Cygwin had just compiled, and illumos
+# has run a live agentic task. Audit the universe, not the result: a check that
+# covers one tier of a three-tier verdict reports on one tier of a three-tier verdict.
+#
+# The page now carries the machine-readable half itself. Every measured row states
+# `uname -s = <token>`, so this check reads the page's own declaration instead of
+# holding a second copy of the answer -- the previous version hardcoded
+# "FreeBSD NetBSD OpenBSD" as its page-side universe, which is the same staleness
+# this check exists to catch, one level up. Both tiers are pinned BOTH WAYS, each
+# with its own floor: an empty extraction on either side makes both directions
+# vacuously agree, which is how this family of check fails.
 _vsrc="$SMOKE_ROOT/src/platform/jc_platform_posix.c"
 if [ ! -f "$_vsrc" ]; then
-    t_fail "src/platform/jc_platform_posix.c is missing -- cannot check the product's verdict list"
+    t_fail "src/platform/jc_platform_posix.c is missing -- cannot check the product's verdict table"
 else
-    sed -n '/jc_platform_verified_row(void)/,/^}/p' "$_vsrc" \
-      | sed -n 's/^ *"\([A-Za-z]*\)",$/\1/p' | sort -u > "$tmp/csys"
-    _nc=$(grep -c . < "$tmp/csys")
-    if [ "$_nc" -lt 2 ]; then
-        t_fail "extracted only $_nc kernel(s) from jc_platform_verified_row -- the extraction broke, so this check compares nothing"
+    # The C side: two arrays, one literal per line, extracted by name.
+    sed -n '/^static const char \*const jc_sys_verified\[\]/,/^};/p' "$_vsrc" \
+      | sed -n 's/^ *"\([A-Za-z0-9_.-]*\)",$/\1/p' | sort -u > "$tmp/csys_v"
+    sed -n '/^static const char \*const jc_sys_partly\[\]/,/^};/p' "$_vsrc" \
+      | sed -n 's/^ *"\([A-Za-z0-9_.-]*\)",$/\1/p' | sort -u > "$tmp/csys_p"
+    # The page side: the uname token each measured row declares about itself.
+    verified_only_table > "$tmp/vonly"
+    partly_table        > "$tmp/ptab"
+    grep -o 'uname -s = [A-Za-z0-9_.-]*' "$tmp/vonly" | sed 's/^uname -s = //' \
+      | sort -u > "$tmp/psys_v"
+    grep -o 'uname -s = [A-Za-z0-9_.-]*' "$tmp/ptab"  | sed 's/^uname -s = //' \
+      | sort -u > "$tmp/psys_p"
+    _ncv=$(grep -c . < "$tmp/csys_v"); _ncp=$(grep -c . < "$tmp/csys_p")
+    _npv=$(grep -c . < "$tmp/psys_v"); _npp=$(grep -c . < "$tmp/psys_p")
+    # Floors at today's exact counts: 4 verified kernels, 3 partly-verified rows.
+    if [ "$_ncv" -lt 4 ] || [ "$_ncp" -lt 3 ] \
+       || [ "$_npv" -lt 4 ] || [ "$_npp" -lt 3 ]; then
+        t_fail "verdict-table extraction came up short (C: $_ncv verified, $_ncp partly; \
+PLATFORMS.md: $_npv verified, $_npp partly; floors 4/3/4/3) -- one side is empty or a \
+format moved, and this check compares nothing until both sides read"
     else
         _mismatch=""
-        # C says verified -> the page must carry a Verified row for it.
-        while IFS= read -r k; do
-            [ "$k" = "Linux" ] && continue          # the development platform, row 1
-            grep -qE "^\| \*\*$k\*\*" "$tmp/vtab" \
-              || _mismatch="$_mismatch
-  the C claims $k is verified; PLATFORMS.md has no Verified row for it"
-        done < "$tmp/csys"
-        # The page verifies a BSD -> the C must know it, or doctor lies there.
-        for k in FreeBSD NetBSD OpenBSD; do
-            grep -qE "^\| \*\*$k\*\*" "$tmp/vtab" || continue
-            grep -qx "$k" "$tmp/csys" \
-              || _mismatch="$_mismatch
-  PLATFORMS.md verifies $k; jc_platform_verified_row does not, so doctor calls it never-compiled there"
-        done
+        # A token may not sit in both tiers: the verdict would be ambiguous and
+        # the product would answer whichever array it happened to scan first.
+        _both=$(comm -12 "$tmp/psys_v" "$tmp/psys_p")
+        [ -n "$_both" ] && _mismatch="$_mismatch
+  PLATFORMS.md declares the same uname -s in BOTH tiers: $_both"
+        # page -> C, per tier. This is the direction M486 and M695 both failed.
+        while IFS= read -r _t; do
+            _any_entry_matches "$_t" "$tmp/csys_v" || _mismatch="$_mismatch
+  PLATFORMS.md VERIFIES a row reporting uname -s '$_t'; jc_sys_verified has no entry \
+matching it, so doctor does not call that platform verified"
+        done < "$tmp/psys_v"
+        while IFS= read -r _t; do
+            _any_entry_matches "$_t" "$tmp/csys_p" || _mismatch="$_mismatch
+  PLATFORMS.md PARTLY verifies a row reporting uname -s '$_t'; jc_sys_partly has no \
+entry matching it, so doctor and the setup wizard call that platform never-compiled"
+        done < "$tmp/psys_p"
+        # C -> page, per tier: a name compiled in that the page does not carry.
+        while IFS= read -r _e; do
+            _any_line_matches "$_e" "$tmp/psys_v" || _mismatch="$_mismatch
+  jc_sys_verified holds '$_e', which no Verified row on PLATFORMS.md declares"
+        done < "$tmp/csys_v"
+        while IFS= read -r _e; do
+            _any_line_matches "$_e" "$tmp/psys_p" || _mismatch="$_mismatch
+  jc_sys_partly holds '$_e', which no Partly verified row on PLATFORMS.md declares"
+        done < "$tmp/csys_p"
         if [ -z "$_mismatch" ]; then
-            t_ok "the product's verdict list ($_nc kernels) matches PLATFORMS.md"
+            t_ok "the product's verdict table matches PLATFORMS.md both ways \
+($_ncv verified + $_ncp partly in the C, $_npv + $_npp declared on the page)"
         else
             t_fail "doctor's platform verdict has drifted from PLATFORMS.md:$_mismatch"
         fi
@@ -637,6 +822,53 @@ $_orph
 Move them into the table they belong to, and keep a blank line before a heading."
 fi
 
+# --- 16b: ...and no row whose TAIL became prose ------------------------------
+# THE OTHER DIRECTION, and check 16 is green throughout it. Its rule is "a row
+# whose PREVIOUS line is not a row", which catches a row stranded AFTER prose.
+# This is the mirror: a row that OPENS with `|` and never closes, so everything
+# from its last `|` onward renders as a paragraph below the table. The cell is
+# cut off mid-word and a paragraph begins mid-sentence.
+#
+# It was live on this page for six milestones. The illumos row was whole at
+# M661 and split at M661b, which appended to the cell and let the text run past
+# the line; M678, M681 and M683 then appended MORE prose to the orphan, so the
+# page grew a 28-line paragraph that a reader could only understand as part of
+# a table cell they could not see. A second orphan dated to M479, where an
+# OpenBSD row in the Partly-verified table was written the same way.
+#
+# Mechanically detectable, which is why it is a check and not a convention: in
+# a table region, a line that starts with `|` must end with `|`. Trailing
+# whitespace is tolerated because an editor adds it and it changes nothing.
+_sev=$(awk '
+    { line[NR] = $0 }
+    END {
+        n = 0
+        intable = 0
+        for (i = 1; i <= NR; i++) {
+            l = line[i]
+            sub(/[ \t]+$/, "", l)
+            if (l ~ /^\|[ :|-]+\|?[ :|-]*$/) { intable = 1; continue }  # separator
+            if (l == "") { intable = 0; continue }
+            if (substr(l,1,1) != "|") continue
+            if (!intable) continue
+            if (substr(l, length(l), 1) == "|") continue
+            n++
+            printf "  line %d opens a row and never closes it: %.55s...\n", i, l
+        }
+        exit (n > 0 ? 1 : 0)
+    }' "$SMOKE_ROOT/docs/PLATFORMS.md") || true
+if [ -z "$_sev" ]; then
+    t_ok "no severed table cells in PLATFORMS.md (every row that opens, closes)"
+else
+    t_fail "table row(s) in PLATFORMS.md that open with | and never close:
+$_sev
+Everything after the last | renders as a paragraph BELOW the table, and the
+cell itself is cut off mid-word. Either keep the cell on one line, or move the
+long material into a \`###\` sub-section the way the Cygwin, WSL2 and FreeBSD
+rows already do -- and do not guess which row a stray paragraph belongs to:
+\`git log -S\` on a distinctive phrase names the commit that wrote it."
+fi
+
 # --- 17: the Driven register covers EVERY platform row ----------------------
 # WHY THIS IS A CHECK AND NOT A CONVENTION. The `Driven` verdict was added
 # because evidence that a platform had run the agent loop existed in analysis
@@ -743,6 +975,105 @@ A platform the matrix says jichi BUILDS on, with no build instructions on the
 build page, is a reader on that platform being told nothing -- including that
 their \`make\` is not GNU make. Add a section, or say plainly why there is none.
 (A universe under 6 means the register parse broke; fix that before the prose.)"
+fi
+
+# --- 19: curl's own header is read under a relaxation of EXACTLY one TU -------
+# THE DEFECT THIS EXISTS FOR, measured 2026-09-21 while driving the emulated
+# architecture rows. libcurl's public header types `curl_off_t` as `long long`
+# on every non-LP64 target -- the STOCK header says so, in a block predicated on
+# __i386__ / __arm__ / __mips__ / __powerpc__ / __ILP32__ / __SIZEOF_LONG__ == 4
+# -- and this tree compiles -std=c89 -pedantic, where `long long` is an
+# extension. So `make WERROR=1` with libcurl fails INSIDE A THIRD-PARTY HEADER,
+# on a line no first-party source can reach, on EVERY 32-bit platform. Measured
+# by cross-compiling src/net/jc_http.c alone: x86, riscv32 and powerpc all fail,
+# x86_64 is clean -- which is why no 64-bit row here has ever seen it, and why a
+# 32-bit board with libcurl-dev cannot run the project's own gate today.
+#
+# Two fixes that do NOT work, both measured rather than assumed, so nobody
+# retries them: the gnu89 fallback warns identically (-pedantic objects in
+# either dialect), and libcurl 8.18 ignores --disable-largefile for the typedef.
+#
+# WHY THIS IS A LINT AND NOT A COMMENT. The fix has the M326u shape exactly --
+# parts that are individually inert. A probe with no consumer relaxes nothing; a
+# consumer with no probe relaxes it everywhere, unconditionally; and BOTH stay
+# correct-looking while a second translation unit starts including <curl/curl.h>
+# and silently falls outside the relaxation. That third part is the one no
+# compiler on this bench can fail on, because the header is clean at 64 bits.
+#
+# The relaxation is scoped to ONE object for a reason worth stating: check 6
+# forbids `long long` in first-party code by grep, and -Wno-long-long applied
+# tree-wide would leave that rule enforced by nothing but that grep. Scoped, the
+# compiler still refuses the type in all ~180 other units.
+# The pattern spells the dot as [.] rather than \. on purpose: smoke_lint's
+# forbidden-tool rule matches (curl)([ \t]|$), and inside a POSIX bracket
+# expression \t is the two characters backslash and t -- so a BACKSLASH after
+# `curl` reads to that rule as an invocation. Caught by the tier, on this file.
+_curl_includers=$(grep -rl 'curl/curl[.]h' "$SMOKE_ROOT/src" "$SMOKE_ROOT/include" 2>/dev/null \
+                  | sed "s#^$SMOKE_ROOT/##" | sort)
+_ncurl=$(printf '%s\n' "$_curl_includers" | grep -c . | tr -d ' ')
+[ -n "$_curl_includers" ] || _ncurl=0
+_mk_probe=0; _mk_consumer=0
+grep -q 'CURL_HDR_CLEAN' "$mk" && _mk_probe=1
+grep -q '^src/net/jc_http\.o: CFLAGS' "$mk" && _mk_consumer=1
+if [ "$_ncurl" -eq 1 ] && [ "$_curl_includers" = "src/net/jc_http.c" ] \
+   && [ "$_mk_probe" -eq 1 ] && [ "$_mk_consumer" -eq 1 ]; then
+    t_ok "curl's header is included by src/net/jc_http.c alone, and the Makefile carries both the probe and its one consumer"
+else
+    t_fail "the scoped curl-header relaxation is not intact.
+  first-party files including <curl/curl.h>: $_ncurl [$(printf '%s' "$_curl_includers" | tr '\n' ' ')]
+  Makefile has the probe (CURL_HDR_CLEAN): $_mk_probe
+  Makefile has the consumer (src/net/jc_http.o: CFLAGS): $_mk_consumer
+All three must hold together. The probe decides whether curl's header is clean
+under this build's dialect and warning set; the consumer applies -Wno-long-long
+to the ONE object that reads that header; and the count is what keeps the
+scoping true -- a second includer compiles outside the relaxation and breaks
+\`make WERROR=1\` on every 32-bit platform, where nothing on this bench compiles.
+(A count of 0 means the extraction broke, not that the problem is solved.)"
+fi
+
+# --- 20: uname() SUCCEEDS WITH ANY NON-NEGATIVE VALUE, so it is never tested
+#         against zero ------------------------------------------------------
+#
+# THE DEFECT, measured 2026-09-22 on OmniOS r151058 and found only by running
+# there. POSIX: "upon successful completion, a non-negative value shall be
+# returned" -- it does not say zero, and illumos returns a POSITIVE value.
+# Linux, FreeBSD, NetBSD, OpenBSD, Cygwin and MSYS2 all return 0, so four call
+# sites written as `uname(&u) == 0` were right on every row this project had
+# ever run and wrong on the first SysV kernel it met. The visible cost: doctor
+# said "host platform not recognised" on illumos, which made M695's whole
+# platform-verdict feature dead there -- `jc_sys_partly[]` names "SunOS" and
+# that entry could not be reached. `tests/smoke/doctor.sh` failed correctly.
+#
+# WHY A LINT AND NOT A FIX ALONE. The four sites were written months apart by
+# the same reflex, and `== 0` for a syscall is the correct idiom for most of
+# them -- so the next `uname()` will be written the same way, on a bench where
+# it passes. This is the M449 shape: a probe that answers correctly for the
+# wrong reason on every platform you own.
+#
+# THE UNIVERSE is first-party C under src/ and include/. The floor is today's
+# exact call-site count: a pattern that reads nothing would otherwise pass with
+# an empty set, which is the failure mode this tier has a rule against.
+_un_files=$(grep -rl 'uname(&' "$SMOKE_ROOT/src" "$SMOKE_ROOT/include" 2>/dev/null | sort)
+_un_sites=$(grep -rhn 'uname(&' "$SMOKE_ROOT/src" "$SMOKE_ROOT/include" 2>/dev/null | grep -c .)
+# The offenders: a uname() call compared against zero, either direction.
+_un_bad=$(grep -rn 'uname(&[A-Za-z_]*)[ ]*[!=]=[ ]*0' "$SMOKE_ROOT/src" "$SMOKE_ROOT/include" 2>/dev/null \
+          | sed "s#^$SMOKE_ROOT/##")
+_un_nbad=$(printf '%s\n' "$_un_bad" | grep -c . | tr -d ' ')
+[ -n "$_un_bad" ] || _un_nbad=0
+if [ "$_un_sites" -lt 4 ]; then
+    t_fail "uname() call-site extraction found $_un_sites sites (floor 4) -- the \
+pattern reads nothing, so this check would pass on an empty set. Fix the \
+extraction, not the floor. Files seen: $(printf '%s' "$_un_files" | tr '\n' ' ')"
+elif [ "$_un_nbad" -eq 0 ]; then
+    t_ok "all $_un_sites uname() call sites test the result as < 0 / >= 0, never against zero"
+else
+    t_fail "$_un_nbad of $_un_sites uname() call site(s) test the result against ZERO:
+$(printf '%s' "$_un_bad" | sed 's/^/    /')
+POSIX returns a NON-NEGATIVE value on success and illumos returns a positive
+one, so '== 0' reads a successful call as a failure there. Use '< 0' for the
+error test and '>= 0' for the success test. Measured on OmniOS r151058: this
+made doctor report \"host platform not recognised\" on a platform PLATFORMS.md
+partly-verifies, and silently disabled the M695 verdict table."
 fi
 
 t_done

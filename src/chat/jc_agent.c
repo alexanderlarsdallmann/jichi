@@ -1260,6 +1260,19 @@ static void env_verify_sanity_check(struct jc_app *app,
     }
     v = jc_env_verify_sanity(count, app->env->verify_max_tests,
                              app->env->test_file_written);
+    /* M692: green, but the verifier printed no test figure at all, so none of
+     * the three hollow-gate checks below could run. Recorded on the envelope
+     * (the reach footer reports it as NOT CHECKED) and in the journal, but
+     * deliberately NOT as a warning and NOT to the model: a verifier that is
+     * silent on success is a normal setup -- `zig build test` is one -- and a
+     * per-run warning about it would fire on every run of every such project,
+     * which is how a warning stops being read. */
+    if (v == JC_VERIFY_NO_COUNT) {
+        app->env->verify_no_count = 1;
+        if (jrec != NULL) {
+            cJSON_AddStringToObject(jrec, "sanity", "no_count");
+        }
+    }
     if (v == JC_VERIFY_NO_TESTS) {
         msg = "verify passed but ran 0 tests -- is the gate wired?";
     } else if (v == JC_VERIFY_FEWER_TESTS) {

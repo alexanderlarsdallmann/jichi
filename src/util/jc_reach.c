@@ -92,7 +92,16 @@ static void reach_halves(const struct jc_reach *r, char *checked,
      * is now `answer_truncated` -- one question that covers the cap, a budget,
      * a deadline, an interrupt and an error, and cannot be left empty for the
      * next one. Placed ahead of the rest so it is not read as a footnote. */
-    if (r->answer_truncated) {
+    if (r->answer_truncated && r->answer_capped) {
+        /* The run FINISHED; the reply did not fit. Saying "the run did not
+         * finish" here would be false, and it is the branch a NULL stop_clause
+         * would otherwise take -- see tests/test_reach.c. The remedy is named
+         * because it is actionable and the provider already knows it. */
+        m += jc_snprintf(unchecked + m, ucap - m,
+                         "THE ANSWER IS INCOMPLETE -- the reply hit the OUTPUT "
+                         "CEILING, so what the model had said by then is the "
+                         "whole of it; raise this model's maxTokens");
+    } else if (r->answer_truncated) {
         m += jc_snprintf(unchecked + m, ucap - m,
                          "THE ANSWER IS INCOMPLETE -- the run %s, so what the "
                          "model had said by then is the whole of it and the "
@@ -121,6 +130,13 @@ static void reach_halves(const struct jc_reach *r, char *checked,
         if (!r->scope_armed) {
             m += jc_snprintf(unchecked + m, ucap - m, "%sno edit scope -- "
                              "writes were not fenced", m > 0 ? " · " : "");
+        }
+        if (r->verify_no_count) {
+            m += jc_snprintf(unchecked + m, ucap - m, "%sthe verifier passed "
+                             "but printed no test count, so nothing could be "
+                             "checked about what it ran (a gate that is silent "
+                             "on success hides a gate that ran nothing)",
+                             m > 0 ? " · " : "");
         }
         if (r->shell_ran && !r->shell_wrote_nothing) {
             m += jc_snprintf(unchecked + m, ucap - m, "%sa shell command ran "

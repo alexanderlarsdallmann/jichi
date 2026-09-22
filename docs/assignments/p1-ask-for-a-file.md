@@ -77,6 +77,28 @@ same three lines with `FAIL`, `(exit 2)` and `score: 0%`.
   understand the `grep` on the second line — it is the check, shown so you can see
   there is no magic.
 
+## If you get stuck
+
+There are three hints for this task. Take them one at a time.
+
+```sh
+# in a terminal, in your project folder (the one holding docs/) -- not inside jichi
+jichi hint docs/assignments/p1-ask-for-a-file.md
+```
+
+That prints the first one. If you are still stuck, ask for the next by adding
+its number:
+
+```sh
+# in a terminal, in your project folder (the one holding docs/) -- not inside jichi
+jichi hint docs/assignments/p1-ask-for-a-file.md 2
+```
+
+Asking for a hint is not cheating, and it costs nothing. The three go from a
+small nudge to nearly the answer, so take them in order and stop as soon as you
+can carry on by yourself. Which ones you used is written down, so you can look
+back later and see what you needed — nobody is marked down for it.
+
 ## One warning
 
 The agent will show you a preview before it writes. Read it. It is easy to press

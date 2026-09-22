@@ -22,19 +22,31 @@
  * `claude-opus-4-8` -- a PRICED frontier id from a built-in default -- and
  * `config validate` said OK while doctor rendered it as a green
  * "configuration loaded" line, indistinguishable from a config that named it.
- * The substitution is deliberate and stays; being unable to SEE it is the bug,
- * the same argument M503's verify_source makes. */
+ *
+ * M505 called the substitution deliberate and kept it, treating this as a
+ * reporting defect. M709 removed it: the operator installed jichi on a second
+ * machine and was told it was configured to spend money on a model nobody had
+ * chosen. NOTHING IS SUBSTITUTED NOW -- the flag survives because it still
+ * distinguishes "no model key" from `"model": ""`, and the assertion below is
+ * inverted from what M505 wrote, on purpose. */
 static void test_model_defaulted_flag(void)
 {
     struct jc_arena *a = jc_arena_new(0);
     struct jc_config c;
 
 
-    /* No "model" key: the id is substituted, and the flag says so. */
+    /* No "model" key: NO id is substituted, and the flag says the key was
+     * absent. `model` stays NULL -- every surface must say "no model" rather
+     * than name one the user did not choose. */
     JC_CHECK(jc_config_load_json("{\"models\":[{\"name\":\"a\"}]}", 0, &c, a)
              == JC_OK);
     JC_CHECK(c.model.model_defaulted == 1);
-    JC_CHECK(c.model.model != NULL && c.model.model[0] != '\0');
+    JC_CHECK(c.model.model == NULL);
+    /* And no vendor is invented either: provider and apiBase stay unset, so a
+     * config naming nothing addresses nobody. This is the assertion the
+     * operator's finding turns on. */
+    JC_CHECK(c.model.provider == NULL);
+    JC_CHECK(c.model.api_base == NULL || c.model.api_base[0] == '\0');
     /* M519: each load allocates HEAP vectors (the models vector, via
      * push_model) that the arena does not own, and the next load overwrites the
      * handles -- so a free per load, not one at the end. Found by `make ci`,

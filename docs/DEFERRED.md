@@ -111,7 +111,7 @@ done and the row never noticed.**
 
 | Row | What it claimed | What the check found |
 |---|---|---|
-| A seeded fuzz-lite harness for the pure cores | no such harness exists | **It exists.** `tests/fuzz/` — a deterministic seeded generator (xorshift32), a committed corpus, a libFuzzer front end, **19 targets**, and a lint already holding the documented count. Three of the four *named* cores still lack a target; that is the remaining work, and it is three targets, not a harness |
+| A seeded fuzz-lite harness for the pure cores | no such harness exists | **It exists.** `tests/fuzz/` — a deterministic seeded generator (xorshift32), a committed corpus, a libFuzzer front end, **19 targets**, and a lint already holding the documented count. Three of the four *named* cores still lack a target; that is the remaining work, and it is three targets, not a harness. **Done 2026-09-22 — 19 -> 22, each proven against a planted bug** |
 | Fukabori is thin on code, Annai is not | Fukabori's twelve chapters carry **one** block each | **1–4, mean 2.1**, with exactly two still at one — and those two are the two the neighbouring row argues should be. The inversion is gone |
 | A diagram lint would encode a two-item allowlist | three chapters have no mermaid | **Exactly two**, chapters 1 and 11. Reason confirmed, not eroded |
 | The system-prompt writer object | 38 appends in `build_parts`, 57 in the file | **38 and 81.** The number the cost rests on has not moved in 300 milestones; the decorative one rotted |
@@ -245,12 +245,39 @@ what stands in the way named.*
    predicted — because the recorded mechanism was wrong. See the closed row
    below. One more illumos driver passes; seven remained at the time, and none
    of them shared this cause — **all seven closed at M683**, see 1b above.
-4. **Give Cygwin and MSYS2 a rig.** Both are *partly verified* and both were
-   measured **by hand** (M476/M477), which means neither is reproducible and
-   neither can be re-run when something changes. They are also the only rows
-   where a documented **safety** difference exists — MSYS2's `noacl` mount makes
-   `chmod` a no-op — so a row that silently stops being true there costs more
-   than a row that stops being true elsewhere.
+4. ~~**Give Cygwin and MSYS2 a rig.**~~ **Done at M698.**
+   `scripts/tier-v-cygwin.sh` and `scripts/tier-v-msys2.sh`, sharing
+   `scripts/_rig_win.sh`, and **written only after both rows ran by hand** —
+   M696 for Cygwin, M697 for MSYS2 — which is the Guix rule this item was held
+   open under for four months.
+
+   **They are not shaped like the other rigs, and the reason is in the helper's
+   own header.** Every other `tier-v-*` boots a guest and drives it over ssh;
+   these two layers are not guests but emulation runtimes installed on the
+   machine running the rig, so there is nothing to boot and nothing to reach.
+   `_rig_live.sh` had already written the answer down — *"the transport is each
+   rig's own business… a rig with a different shape calls the task functions
+   directly"* — so they share the **task** (both prompts, the per-run nonce, the
+   fixture) and supply a local `sh` as the **transport**. `jc_rig_live` is
+   untouched, so `rig_live_commands_lint`'s golden-command comparison still pins
+   it byte for byte.
+
+   **What the rigs encode that was previously memory.** Refuse when the other
+   installation has live processes (the two runtimes' shared-memory regions
+   collide and `fork` starts failing in *both*); refuse a shell that is not the
+   row's own `uname -s`; refuse without a measured `--ref-secs`; refuse a model
+   outside the free namespace and refuse an empty key, both *before* the first
+   request. And they report `pgrep`'s absence loudly rather than inheriting
+   `preflight.sh`'s false green — see item 7 below, which these rows are the
+   standing proof of.
+
+   **The safety difference this item named is now a check.** MSYS2's `noacl`
+   mount makes `chmod` a no-op, and the fix this project documented protects the
+   *tests* rather than the *user*: adding `acl` for `/tmp` makes the tier pass,
+   because its isolated HOME lives there, while `~/.jichi.env` under `/home`
+   stays world-readable. `tier-v-msys2.sh` probes **both** locations and fails
+   the row when they diverge, because a green gate over an exposed key file is
+   the worst of the four combinations and nothing else in the tree looks for it.
 5. ~~**Record trackedness in the run journal**~~ **— done at M684.** The
    `out_of_scope` record keeps `paths` and gains a `tracked` array naming the
    subset git knows about (`jc_git_tracked_paths`, `tests/smoke/journal_trackedness.sh`).
@@ -274,10 +301,11 @@ what stands in the way named.*
    closed at M689, two remain.** `doctor` now probes `/v1/models` and says when
    the configured id is not listed (failing open when the listing cannot be
    read), and a shell command that provably changed nothing is reported as such
-   instead of as an unattributed change. **Still open:** the live probe's error
-   message still discards the server's own diagnosis (it has the HTTP status and
-   the body's first line and prints neither), and the M86 hollow-gate check is
-   still silent when a verifier prints no test count. Original entry:
+   instead of as an unattributed change. ~~**Still open:**~~ **the remaining two closed at M692.** The live probe now
+   prints the HTTP status as a number and the server's own message; the
+   hollow-gate check now reports, in the reach footer's not-checked half, that
+   it could not run when the verifier printed no test count. **All four seams
+   from that drive are closed.** Original entry:
 
    **Four seams found by driving jichi on somebody else's project** (zigodot,
    2026-09-20, M683 — the full account with the measurements is
@@ -292,13 +320,31 @@ what stands in the way named.*
    | **The envelope cannot tell a reading shell command from a writing one.** `not checked: a shell command ran -- changes it made are not attributed to the run` | fired identically on a run whose 14 shell calls were `grep`/`find`/`ls`, and on one whose single call was `zig fmt` (which rewrites the file) | jichi keeps a snapshot per snapshotted turn, so "a shell command ran and the tree is byte-identical" is a measurement it *could* make. That is the fix worth having, and it is bigger than the warning. Until then the warning is honest but unselective — and it is attached to the one sentence a reader should never skip, which is the argument for doing it |
    | **The hollow-gate detector needs a parseable count, and says nothing when it has none.** | zigodot's `zig build test` prints **nothing** on success; three consecutive run journals recorded no `tests` key, while `zig build test --summary all` recorded `{"tests": 29}` | M86's machinery is right; it is simply disarmed. One line — *"verify passed but printed no test count, so the hollow-gate check could not run"* — would turn a silent blindness into advice. Deferred because "no count" is also the normal state for verifiers that legitimately print nothing, so the note needs a rate limit or it becomes noise on every run |
 
-   **What the same session found in the project being driven**, recorded because
-   it is what a second project is for: zigodot's `AGENTS.md` sends the agent to
-   an absolute path under a **different account** than the machine has, and its
-   `zig build test` gate runs **29 of 202** `test` blocks, reaching neither the
-   editor, physics, shader, profiler nor platform subsystems — the physics one
-   having arrived in the second-most-recent commit. jichi reported `verify
-   green` on that, correctly and uselessly. *(jichi handled the dead path well:
+   **CORRECTED 2026-09-21 — the paragraph that follows was about the wrong
+   checkout.** The original text is kept because striking it out silently is the
+   habit this register exists to refuse:
+
+   > ~~**What the same session found in the project being driven**, recorded
+   > because it is what a second project is for: zigodot's `AGENTS.md` sends the
+   > agent to an absolute path under a **different account** than the machine
+   > has, and its `zig build test` gate runs **29 of 202** `test` blocks,
+   > reaching neither the editor, physics, shader, profiler nor platform
+   > subsystems — the physics one having arrived in the second-most-recent
+   > commit. jichi reported `verify green` on that, correctly and uselessly.~~
+
+   There were two zigodot checkouts on this machine sharing a root commit, and
+   the session surveyed the abandoned one (69 commits, no remote, last touched
+   2026-06-30) rather than the live one (416 commits, with an `origin`). The
+   abandoned copy sits one directory level shallower, so a glob reaches it
+   first. Measured against the **live** repository on 2026-09-21: **109** `.zig`
+   files not 81, **558** `test` blocks not 202, of which the gate reaches
+   **510** (91%) not 29, and `AGENTS.md` points at
+   `/home/<this-account>/development/godotengine/godot` — this account, and a path that
+   exists. Its jichi config needed nothing. **The four jichi seams below are
+   unaffected**: they are properties of jichi's output, which is the same
+   whichever tree it ran in. The stale copy is now archived and deleted.
+   Full account: the CORRECTION banner at the top of
+   [`analysis/2026-09-20-driving-jichi-on-zigodot.md`](analysis/2026-09-20-driving-jichi-on-zigodot.md). *(jichi handled the dead path well:
    nine tool calls, two errors, and a plain "the directory does not exist"
    rather than an invented function name.)*
 
@@ -353,9 +399,10 @@ what stands in the way named.*
    in a register is a name somebody tries.)*
 
 **And what I recommend *not* doing yet**, so the list is a judgement rather than
-a wish: the **14 `qemu-user` architecture rows** cannot be driven as built —
+a wish: ~~the **14 `qemu-user` architecture rows** cannot be driven as built —
 they link `HAVE_CURL=`, so there is no HTTP in the binary, and
-both rigs say so themselves; **macOS**, still blocked on hardware, where no
+both rigs say so themselves~~ **(done, 2026-09-21 — see the correction below)**;
+**macOS**, still blocked on hardware, where no
 amount of willingness moves it; the **frontier craft A/B**, superseded by the
 standing local-and-free-models rule; a **blind sweep of the remaining bare-`make`
 sites**, which is how a portability fix becomes a portability bug; and **notebook
@@ -373,15 +420,89 @@ undecided — the honest trigger is somebody saying notebooks *are* the workflow
 >
 > What is actually missing on that row is narrower and is now item 2 of the
 > list above: the M430 turn ran against a **mock** model with a one-line probe,
-> so the row is not *Driven* in this page's sense. **The qemu-user sweep is a
+> so the row is not *Driven* in this page's sense. ~~**The qemu-user sweep is a
 > different case and the exclusion stands there**: ~20 target triples would each
-> need a cross-built libcurl, which is what `zig cc` does not give you. One
+> need a cross-built libcurl, which is what `zig cc` does not give you.~~ One
 > simplification worth recording for whoever tries: the driven task talks to
 > `http://127.0.0.1:1234/v1` over a loopback tunnel — **plaintext, no TLS** — so
 > a libcurl configured with no TLS backend at all removes the hardest part of
 > that cross-compile.
 
+> **Correction (2026-09-21): the exclusion above is retired — all 19 runnable
+> triples are Driven.** The simplification the previous paragraph suggested was
+> the whole trick, and it was cheaper than the paragraph guessed. `zig cc` does
+> not *ship* libcurl; it *builds* one, TLS-free, in about **33 s per triple**.
+> The sweep — libcurl, a curl-enabled second binary, and both turns on every
+> target — took **13m09s** end to end, and every row reported a phrase minted
+> that second. It runs as `scripts/tier-v-arch.sh --drive`, over
+> `scripts/minimal-curl.sh --tls none --target <triple>`.
+>
+> **The premise nobody had checked was the transport.** `qemu-user` has no
+> guest: it translates syscalls and hands them to the host kernel, so the
+> emulated process shares this machine's loopback and needs **no tunnel at
+> all** — the thing every other driven row spends its complexity on. Measured
+> before anything was built: 19 of 20 triples opened a socket to the model
+> server and read a response, the six MIPS rows included, although `pipe()`
+> fails there.
+>
+> **It also found a live defect in the build, which is what the sweep is for.**
+> libcurl types `curl_off_t` as `long long` on every non-LP64 target — the
+> stock header, not a hand-built one — so `make WERROR=1` with libcurl fails
+> **inside a third-party header on every 32-bit platform**, reachable today on
+> a 32-bit Pi and invisible to `make ci` here. The Makefile now probes curl's
+> header under the build's own dialect and relaxes exactly one object;
+> `portability_lint` holds the scoping, because `src/net/jc_http.c` is the only
+> translation unit that includes `<curl/curl.h>`.
+>
+> **Two traps worth the ink.** `binfmt_misc` makes autoconf believe it is a
+> native build — it can execute target binaries — so configure ran its test
+> programs under emulation and curl's `getifaddrs` conftest wedged; an explicit
+> `--build` fixes it. And a flag change without `make clean` produced a *mixed*
+> binary whose `doctor` reported `✓ libcurl available` over the curl-free stub,
+> so every driven row now proves the stub string is absent before its turns are
+> believed.
+>
+> **What these rows still do not say:** not a machine (no cache coherency, no
+> timing, and RSS measures the emulator), no TLS by construction, and `armeb`
+> passing does not retire M542's variadic-double finding, because the shared
+> task configures no `temperature`.
+
 ---
+
+## Closed 2026-09-21/22 — the reply that was cut, and the page that was severed
+
+The measurement stood and the proposed fix did not, which is the useful half.
+
+| Row | What closed it | Where |
+|---|---|---|
+| ~~**A seeded fuzz-lite harness for the pure cores**~~ **Closed 2026-09-22 — and the row's own correction was right: it was three targets, not a harness.** The harness shipped at M658; what was missing were targets for `jc_patch`, `jc_utf8` and `jc_jsonrepair` (`glob` had one from the start). **19 -> 22.** `jsonrepair` is a Tier-2 PROPERTY target, because its header states one: *"Returns a malloc'd string that cJSON_Parse ACCEPTS"* — so a non-NULL return that does not parse aborts, and a wrong repair executing a tool with arguments the model never meant is exactly what that repairer exists to prevent. `utf8` walks the buffer with next/prev and **asserts progress** rather than breaking out of the loop: the header says *"byte index just past the codepoint at `pos`"*, so below `len` it must advance, and a `break` would have passed a walker that stopped walking. **Teeth, per the row's own rule that a generator which has never found a planted bug has never been seen working:** a planted no-progress in `jc_utf8_next` -> *"made no progress at 10 of 11"*; a planted invalid repair -> *"jsonrepair returned a string cJSON_Parse rejects"*; a planted out-of-bounds read in `jc_patch_count` -> **ASan heap-buffer-overflow**, under `make fuzz SAN=1`. All three planted bugs removed and the tree verified clean. | Was: three targets remaining. | `tests/fuzz/jc_fuzz_targets.c` |
+| ~~**Two cells on `PLATFORMS.md` are severed, and their tails render as prose below the table.**~~ **Closed 2026-09-22.** The ambiguity the row parked on was resolvable, and by the method the row itself named: ask the commits. The illumos row was WHOLE at M661 and split at **M661b**, which appended to the cell and let the text run past the line; M678, M681 and M683 then appended more to the orphan. The second orphan dates to **M479**, where the block followed `| **OpenBSD** | **Partly verified -- 207 of 209 smoke drivers**` -- a row written unterminated from the start, which is why its tail ends in OpenBSD's own *"Needs `gmake`"* and reads as FreeBSD's. Neither join was guessed. Both tails now sit in `###` sub-sections, the pattern the same page already uses for the Cygwin, WSL2 and FreeBSD rows, with a note saying what they were and nothing but their placement changed. `portability_lint` **check 16b** now refuses the direction check 16 cannot see -- in a table region, a row that opens with `|` must close with one -- and it was born red on this exact damage, naming line 144. | Was: ambiguous ownership; widen check 16 in the same pass. | `docs/PLATFORMS.md`, `tests/smoke/portability_lint.sh` |
+| ~~**A reply truncated by the OUTPUT CEILING is recorded as a clean finish.**~~ **Closed 2026-09-21.** The measurement stood; the proposed fix did not. Nothing needed to cross provider -> agent: M334 already carried the flag to `msg->truncated` and `jc_agent.c` already carried that to `app->last_response_truncated` for the tool layer. Only the LAST hop was missing. And it is **not** a new `JC_STOP_*` value -- the enum records why the RUN stopped, and this run finished; a new wire value would reclassify a completed run on an interface EMBEDDING.md declares stable, and could not represent a cap on a non-final turn. It is carried beside the stop reason, the way `verifier_concluded` is, composing with it rather than overriding it. Making `answer_truncated` true was only half: the footer renders `the run %s` from a `stop_clause` that is NULL for a clean stop, so it would have said *"the run did not finish"* about a run that did -- a true flag through a false sentence. The footer now names the ceiling and the remedy. Proven on live capped runs: `stop_reason: done`, `answer_capped: true`, and the control (`maxTokens` 4096) carries no key. | Was: a new stop value, the reach footer's clause, the `done` event's field. | `include/jc_outcome.h`, `src/util/jc_reach.c`, `src/util/jc_agentjson.c` |
+
+**The design decision, because it is the part worth keeping.** `DEFERRED.md`
+proposed a new `JC_STOP_*` value, and `-Wswitch` would indeed have forced every
+renderer to handle it. It is still the wrong shape: the enum answers *why the
+RUN stopped*, and this run did not stop — it finished, kept its work, and
+returned. A new wire value would have reclassified a completed run on an
+interface `EMBEDDING.md` declares stable, and it could not have represented a
+cap on a **non-final** turn at all. Truncation is a property of the **answer**,
+so it is carried beside the stop reason exactly as `verifier_concluded` already
+is, and the two compose: a capped answer is incomplete whatever the stop reason
+says, and a clean stop reason no longer overrides it.
+
+**What the register had wrong about the plumbing.** The row said the fix
+*"crosses provider → agent → outcome and wants its own milestone"*. Two of those
+three hops already existed: M334 put the flag on `msg->truncated` for both
+providers through one funnel (`jc_prov_flush`), and `jc_agent.c` already carried
+it to `app->last_response_truncated` for the tool layer. Only the last hop was
+missing. Read the tree before pricing the work.
+
+**And the half that would have been missed.** Setting `answer_truncated` is not
+the fix on its own: the footer renders *"the run %s"* from `stop_clause`, which
+is NULL for a clean stop — so a correct flag would have printed *"the run did
+not finish"* about a run that finished. A true fact rendered through a false
+sentence is worse than the silence it replaced, because it reads as a diagnosis.
+`tests/test_reach.c` pins both directions.
 
 ## Closed at M680 — `bibliography_lint` check 3, and an awk without intervals
 
@@ -431,6 +552,7 @@ problem that is item 3 of the list above.
 |---|---|---|
 | **A workflow stage's model call is invisible to telemetry.** Measured 2026-09-17: a plain `-p` call adds one `model_call` event to the telemetry stream; the same call made from a workflow `synthesize` stage adds **nothing**, because that path goes through `jc_oneshot_ex` while the sink is wired into the agent loop. A multi-agent workflow's cost, latency and model attribution are therefore unmeasured, and `jichi telemetry` under-reported a strong model as one call when several were made. | The fix is not one line: `jc_oneshot_ex` has no app handle, so either the sink is threaded into it or the runner emits the event around it -- and the second risks double-counting the stages that DO go through the loop (`map`, `refute`). M643 fixed the model SELECTION and deliberately left the measurement gap open rather than guess at the shape. **Revisit when** a workflow is run for a measurement rather than for an answer; that is the first time the missing numbers are actually needed. | [ROADMAP M643](ROADMAP.md) |
 | **The same craft A/B on a frontier model**, with a task whose deliverable is unstated and whose output a human grades. | M318 measured one 31B model and shipped the conclusion its evidence licenses (off under `--lite` only). The frontier case is where the section's claimed value lives. **Checked (M326b): no frontier model is reachable from this machine** — all five configured endpoints are HRZ-hosted (`jlu/gemma-4-31b-it`, `jlu/qwen3-coder-next`, plus embed/rerank), so this was genuinely resource-blocked and not merely unattempted.<br>**Operator's statement (2026-08-06): they will supply an API key with frontier-model access for this test.** So the blocker moves from *"no such model here"* to *waiting on the key* — and the entry is kept rather than closed, because the key is only **one of three** things the experiment needs. The other two do not arrive with it: a task whose deliverable is genuinely **unstated** (every graded curriculum task names its deliverable, which is exactly why M318's pass-rate result was uninformative), and **a grader who is not the author of the section under test** — blind pairs for the operator to grade is the clean form. **Harness and tasks built 2026-08-07** (M326g): `tests/bench/craft_ab/`, three unstated-deliverable tasks, blind pairwise grading, pre-registered in [proposals/2026-08-craft-ab-frontier.md](proposals/2026-08-craft-ab-frontier.md). What remains is the operator running and **grading** it.<br>**Run attempted 2026-08-10 (`session-01`): 18/18 errored on the key budget.** Two runs answered (~96k input) and consumed the key's remainder; sixteen then failed in under a second each with the gateway's own `429 budget_exceeded`, which named the key, the spend and the cap (machine-verifiable, and far more actionable than a bare 429). The 2026-08-07 pilot ran under a different key (`JC_DEV_KEY`, not on this machine). So the blocker is now **the key budget, not the harness**: reachability had been checked, the per-key budget had not — the M326b shape, again, in our own register. Unblock is either a budget raise/reset on that key (the operator report should carry the quota finding) or the pilot's dev key; then the session is one command (a fresh three-pair run under a new label, then the blinding step, then the operator grades). The over-budget key 429s **every** model including `jlu/*`, so ordinary jichi work on this key is blocked with it.<br>**Run completed 2026-08-10 (`session-02`, on the dev key the operator supplied): 18/18 runs `done`, zero truncations** — ~3.73M input / ~54k output on `anthropic/claude-opus-4-5`, ~20 minutes, preflight proving the arms differ (+1316 bytes in ON). The blinded pack was built, and **that pack is gone (checked 2026-08-22, M545).** `results/` is in `.gitignore`, nothing committed it, and the directory exists on no machine here — so ~3.73M input tokens of frontier data produced **no result**, because the one step a machine cannot do was also the slowest and the artifact did not outlive the wait. A writer produced something its reader could never read, and this row went on naming the path as "exactly one thing remaining" for twelve days. The spend is unrecoverable; the frontier question is **open again and now costs money to reopen**. M545 makes `blind` print that the pack is the only copy, with the one command that preserves it (archiving `grading/` alone keeps the blind, since the arm mapping lives in `.sealed/`).<br>**Superseded in practice (M545):** the operator's standing rule is local and free models only, so the frontier arm is not re-run. A **fresh pre-registration on `jlu/qwen3-coder-next`** asks the question that is actually actionable — the craft section ships **on** by default for every non-`--lite` model, that model is one, and nothing has tested it there. M318 measured a 31B (`jlu/gemma-4-31b-it`, no benefit) and this proposal registered a frontier class; the new run is neither, and says so. | [analysis](analysis/2026-08-06-craft-ab.md), [§7](analysis/2026-08-09-hrz-gateway-findings.md) |
+| **`reread_ratio.py` can never be fed by ordinary driving.** Measured 2026-09-21: it takes its paths from the `--output jsonl` stream, because `tool_call` events carry `args` — and the run journal **deliberately** does not record them. So every interactive session, every TUI run and every headless run without `--output jsonl` contributes nothing, and the corpus stays below the tool's own `SMALL_N = 50` floor, at which it prints `NOT EVIDENCE` rather than a percentage. | The fix is not in the tool. Either driving adopts `--output jsonl` as a habit (cheap, and what the supervised zigodot drives now do), or the journal starts recording tool-call paths — which was decided against on purpose, since a journal that records every path read is a different privacy proposition from one that records what changed. That trade is a decision, not a bug, and wants the operator. | `tests/measure/reread_ratio.py:30-34` |
 
 ## Open — the graded-attempt cost chain
 
@@ -467,12 +589,16 @@ measurement** — which is why it outlived the others.
 |---|---|---|
 | **Flipping `--strict-green` on by default.** | M332 shipped it opt-in because the flip changes a currently-zero exit code (a stable interface) and the false-positive rate was unmeasured. **Measured (M343, retroactively from 138 existing journals): 0 downgrades in 21 scoped green runs** — the incidental lock-file FP never occurred; the two flagged runs ended non-ok, which strict-green ignores. Still deferred because the evidence is one project and one operator's gates, and the change is to a stable-tier contract — **the operator's call now, with a number instead of a fear**. Re-run `tests/measure/strict_green_fp.py` as corpora grow; a second project's corpus at 0 FPs is the natural strengthening. **Re-run (2026-08-10 sweep): 94 local journals, 16 completed runs, 0 with an edit scope -- nothing strict-green could downgrade either way; the M343 0/21 stands as the only number.** **Re-run (M459, a genuinely second and third project): jichi driven headless against **chrtext** and **zigodot**, each fenced to one named file — **0/2 downgrades**. Small, and said plainly: two runs, each a single-file documentation edit, so this strengthens M343's 0/21 without transforming it. Combined 0/23. **The more useful half of that re-run was a defect in the measurement itself:** the journal recorded only the *count* of edit-scope globs, so `--edit-scope AGENTS.md` and `--edit-scope '**'` were indistinguishable — and seven concurrent fleet runs, all `'**'`, would have contributed seven free zeroes to a rate that cannot be falsified. The journal now records `edit_scope_globs` and the script excludes vacuously-scoped runs from the denominator (older journals are counted as before rather than guessed at). A rate computed over fences that fence nothing is the shape of evidence this row was right to distrust.<br>**MEASURED AGAIN AT M662, AND THE ANSWER REVERSED.** The M657 recommendation below is **withdrawn**, and it is left in place because a withdrawn recommendation that leaves no trace gets re-proposed (M406/M407's rule). On the corpus as it stands — 91 journals, 63 completed runs, 42 with an edit scope, **35 ending `ok`** — strict-green would downgrade **16 of 35: a 46% rate**, against M343's 0/21 and M459's 0/2. Flipping the default would have failed nearly half of the operator's successful driven runs.<br>**And the classification says why.** Of 1,158 flagged paths (663 distinct): **35% downloaded or generated binaries** (an arxiv run's `.papers/cs_AI/*.pdf`), **30% build artifacts and temporaries** (`*.o`, `*.so`, `*.beam`, `test_0.tmp`), 10% jichi's own `.jichi/` state, 5% ignore files the run itself wrote — **85% is the work's own output**, and only 15% is source at all. M332's own words name the plausible false positive as *"an incidental shell-written file"* and the genuine one as *"the gate edited through the shell"*; **strict-green cannot tell them apart**, and that is the finding rather than the rate.<br>**Why 0/21 looked safe:** that corpus was this project's own tidy gates, and M459's two additions were single-file documentation edits. The moment jichi drives real work on another project, its build writes files.<br>**So: not the default flip, and not a `doctor --unattended` escalation either** — the second was additionally wrong on its own terms, since `--unattended` is a *doctor* flag and the escalation would have meant doctor DEMANDING a setting that fails 46% of real runs. **What the data asks for instead** is a rule that discriminates, and the sharp line is **tracked vs untracked**: a gate file is in version control, a downloaded PDF is not. The journal does not record trackedness, so that is the next step and the measurement's own output now says so. `tests/measure/strict_green_fp.py` classifies the paths as of M662, because telling a reader to "read the flagged paths" meant reading 663 of them.<br><br>*Withdrawn M657 recommendation, kept for the record:* **Recommendation (M657), because this row has said "the operator's call now" since M343 and a question nobody is asked has not been deferred, it has been dropped:** do **not** flip the global default. The objection stands — it changes a currently-zero exit code on a stable-tier contract — and 0/23 is a small denominator that would get cited as though it were large. Flip it **under `--unattended` only**, joining M158b's escalation set, which already holds `privilegedAudit: false` and, since M503, the private-files probe, for exactly this reason: an unattended run has nobody to read a warning, and its exit code is the whole interface. Interactive behaviour is untouched, so the contract a human depends on does not move; the runs where a silent hollow green actually costs something get the stricter rule. The measurement stays what it is (0/23, three projects, two of them single-file edits) and the change no longer needs it to be more. That is a milestone with its own teeth, and it is the operator's to take — but with a proposal in front of it rather than an open question. | [GATE_INTEGRITY.md](GATE_INTEGRITY.md) §8b |
 | **A gate rehearsal that proves a goal gate satisfiable** — run the verifier against a stub or hand-completed fixture and confirm green, then red without it (the curriculum's two-sided grader bar, ported to working gates; TEST_INTEGRITY recommendation #1 is its unit-suite sibling). | M343's declaration checks the red side for free (a declared goal must be red at start) but cannot prove the green side: that needs a *reference completion*, which only the operator can supply. The manual discipline is a standing rule (ANECDOTES #38: prove the gate green by hand first). **Revisit when** a run has a natural artifact to rehearse against — e.g. `attempt`'s reference solutions, or an operator-supplied stub patch. | [TEST_INTEGRITY.md](TEST_INTEGRITY.md) |
+| **The universe floors are calibrated far below the universe.** Measured 2026-09-21 while fixing the empty-operand-list family: `sprintf_lint` floors at **100** files and actually scans **327**, so a 70% loss of its corpus passes the floor and the check reports green on a third of the tree. `arena_lint` floors at 174 against 180, which is tight; the two are not consistent with each other. | A floor exists to catch *the extraction breaking*, and for that a near-exact number is right — the loose ones catch only total collapse, which is the case a `< /dev/null` guard now handles anyway. The fix is a sweep: for each floored check, re-measure and set the floor near today's count, the way `curriculum_universe_lint` does ("floor 88 -- today's exact count"). Deferred because it is ~20 drivers and each needs its own measurement; doing it by estimate would reproduce the defect. | `tests/smoke/sprintf_lint.sh:34`, `tests/smoke/arena_lint.sh:101` |
+| **`accessible` runs at 95% of its deadline on the reference bench.** Measured 2026-09-21: **57 s** against the **60 s** limit it gets from `tests/smoke/run.sh` (named line 200, in the block ending `run_driver "$t" 60` on line 214), with standalone timings of 53.9 s and 57.5 s the same day. In-tier it tips past the limit, is killed, and reports FAILED while all 22 of its checks have printed `ok`. | **It is a decision, not a patch, which is why it is here.** Raising the limit is the obvious move and is also a cap change: 60 s presumably bounds a hang, and 120 s bounds it half as well -- on a driver that already fails in a way no check reports. The alternatives are making it cheaper (it drives five pty sessions), splitting it, or moving it to the 120 s group it already resembles in cost. Picking one in passing, while re-measuring a platform row, is how a margin becomes a number nobody chose. **Revisit with** [`proposals/2026-09-calibration-tier.md`](proposals/2026-09-calibration-tier.md) §4, which would make this class of defect visible on every run instead of on the day it fails. | `tests/smoke/run.sh:200`, `tests/smoke/accessible.sh` |
+| **The daemon's error replies are not reliably delivered where AF_UNIX is TCP-backed.** `run_daemon` writes its `limit.line` refusal and calls `close(connfd)` immediately (`src/main.c`), with the rest of the oversized request still unread. Measured on Cygwin 2026-09-21, 8 repetitions per size against the 1 MB cap: a 1 KB overrun is answered **8/8**, 16 KB **2/8**, 71 KB **3/8**, 512 KB **0/8** -- the caller simply gets nothing. Linux delivers in every case. The daemon itself stays healthy throughout (a normal ping answers `pong` immediately after). | **Draining before close is the obvious fix and is a decision, not a patch.** The reply is lost because the close resets a connection with unread data, so delivering it means reading and discarding the remainder first -- and this accept loop is **single threaded**, so an unbounded drain hands an attacker a stall and a bounded one may still reset. `SO_LINGER` is a third shape with its own platform variation. None is obviously right, and the failure is **degraded rather than dangerous**: the caller gets silence instead of a named error, while the case that actually matters -- a truncated request served as a valid one -- does not happen. `tests/smoke/daemon_auth.sh` no longer depends on it: it now overshoots the cap by ~1 KB, which tests the same code path without a large unread backlog. **Revisit if** the daemon ever gets a real TCP transport, where this stops being a Cygwin curiosity, or if the accept loop stops being single-threaded and a bounded drain becomes cheap. | `src/main.c` (`limit.line`, and the `bad request` reply below it) |
 
 ## Open — invariants known to be incomplete
 
 | Deferred | Why | Where |
 |---|---|---|
 | **A writer object for the system prompt**, where every append names its section, so a section *cannot* be added anonymously. | Today `sum(parts) == total` catches a section appended after the last mark, and the zero-slot assertions catch most of the rest; an insertion between two *active* slots is credited to a neighbour. **Counted (M326b): the "~40 call sites" is accurate — 38 `jc_sb_append` calls inside `jc_sysmsg_build_parts` (57 in the file, counting the helpers).** **Re-counted 2026-09-18 (M658), and the halves aged differently:** inside `jc_sysmsg_build_parts` it is still **exactly 38**, so the number this row's cost estimate rests on has not moved in over 300 milestones; the file-wide figure is now **81**, and `mark()` is **18** rather than 16. The decision-relevant count held and the decorative one rotted, which is worth knowing about counts in general.** But the count overstates the *labelling* work: only 16 are section boundaries, which is exactly what the existing `mark()` calls already are.** So the real cost is 38 mechanical call-site changes to route through the writer, not 38 decisions — weaker than the entry claimed, and still not obviously worth converting a misattribution in a diagnostic report into a compile error. | [jc_sysmsg.h](../include/jc_sysmsg.h) |
+| **The setup wizard offers macOS's sound commands to every non-Linux host.** `src/main.c` seeds `aplay` / `notify-send` when `jc_platform_is_linux()` and **`afplay` / `osascript -e 'display notification'`** otherwise -- so FreeBSD, NetBSD, OpenBSD, illumos, Cygwin and MSYS2 are all offered Darwin commands none of them has. Found at M695 while removing the other two `jc_platform_is_linux()` callers. | The call is **not** the M695 defect and was deliberately left alone: those two were stating a *verdict* about a platform, which the matrix owns, while this one picks a *default command*, which is a real OS-family question. But two-way branching on "is this Linux" gets the second answer wrong for six measured rows. The reason it is deferred rather than patched is that the right default per platform is a decision nobody has made: FreeBSD has no `aplay` either, illumos has `audioplay`, and seeding a wrong command is worse than seeding none, because writing a `sound` key **registers the play_audio/record_audio tools** and advertises two mutating tools to a project that never asked for sound (the comment at that site says so). **Revisit when** a row is being driven anyway -- the cheapest form is to offer nothing outside the families whose command is known, and let `doctor` say the key is unset. | `src/main.c` (`linux_host` in the setup wizard's sound block) |
 
 ## Open — what a gateway charges that jichi cannot see (M663)
 
@@ -531,19 +657,55 @@ they are a register entry rather than a memory.
 
 | Deferred | Why | Where |
 |---|---|---|
-| **Learning a language with jichi, from its official tutorial.** | **Designed, not built.** Feasibility measured first: the Python 3.14 text archive is 537 files / 16 MB, the tutorial alone **17 files**; `jichi docs search` answered a list-comprehension question in **4 s** with a resolving `file:line` anchor, and a grounded agentic turn quoted `controlflow.txt` in **27 s**. Decisions fixed: local snapshot + manifest, deterministic committed graders (the model personalises framing only), ships inside jichi, and the learner-facing tutorial is written against **today's** jichi so every published command is one that runs. | [`plans/2026-09-language-course.md`](plans/2026-09-language-course.md) |
-| **Complete the bibliography for the six deferred languages** — Racket, Guile, Elixir, Haskell, Clojure, Python. | One language per sitting, official sources first, every entry checked with the date it was checked, `bibliography_lint`'s floor raised as each lands. **Racket and Python first**, because they are what the language-course design points at for "important literature and papers" — the two pieces of work feed each other. | `docs/BIBLIOGRAPHY.md` §"What is deliberately absent" |
-| **A tutorial for grounded discourse with a model** — citations, cross-references, argumentation theory; on documentation, literature and source. | Should be built on [`plans/2026-09-argumentation-program.md`](plans/2026-09-argumentation-program.md), whose central move fits exactly: take reasoning **down a tier**, from prose in a prompt to an **artifact a script can check**. So the tutorial should produce an artifact — claim, evidence that resolves, warrant, counter-argument, revision — rather than give advice about good discussion, which makes it gradeable. Topics named: how an agent supports a self-learner in software development, language learning, writing, reading texts/papers/source, comprehension, analysis, editing, and giving feedback to other writers. | undesigned |
 | **Music creation, robotics and game development for self-learners and advanced users.** | **Game development first** (operator's choice): the zigodot precedent exists and the driving surface is solved. Each domain needs **two** surfaces and the second decides whether this is engineering or a demo: a *driving* surface (how jichi acts — the Godot protocol, a board over ssh, a score format) and a *verification* surface (what "it worked" means — a scene loads, a program runs in simulation, a score renders to audio a test can measure). Robotics has hardware here (UNO Q, `hardware bench machines`); **music has neither surface today**, and its verification surface is the open problem. | undesigned |
+
+
+## Closed — the 2026-09-21 register sweep, and what it cost to find
+
+Found by walking the register against the tree rather than by anyone reporting
+them, which is the point: **all three had shipped and none had been struck**.
+Two were two milestones stale, and in one case a second register in this same
+repository — `BIBLIOGRAPHY.md`'s own *"What is deliberately absent"* — had said
+so in writing since M677 while this page went on listing the work as open.
+
+The sweep that found them checked the *checkable* part of each open row, in the
+M657/M658 way. Worth recording what that cost and what it did not: the
+mechanical half was free and found **nothing** — all 27 file paths the open rows
+cite still resolve, and there are no stale `file.c:symbol` anchors. The drift was
+entirely in **claims**, and the shape that was wrong every time was *"X is not
+built"* where X is built. Two further rows looked stale to a first grep and were
+not: ACP's `allow_once` is a tool-approval option and not the path-fence grant
+that row means, and a `retention` comment in `jc_snapshot.c` is not a `prune`
+scope. **A correction made on a substring match would have been worse than the
+stale row** — so each was opened and read before anything was struck.
+
+| Deferred | Why | Where |
+|---|---|---|
+| ~~**Learning a language with jichi, from its official tutorial.**~~ **— BUILT, and this row was two milestones out of date (corrected 2026-09-21).** All six milestones of the plan shipped: `docs/LANGUAGE_COURSE.md` (275 lines, every command run in the form published), `scripts/fetch-course-corpus.sh` (229 lines, names the archive rather than guessing the version), `tests/smoke/course_citations_lint.sh` (171 lines), `jichi init course`, the `course-coach` scaffolded skill, and the graded Python track — **tasks 81–84**, two-sided in `curriculum_graders.py`, closed at **M674** whose ROADMAP entry is titled *"the language course's graded half, in Python — done"*. The row is kept rather than deleted because the **feasibility measurement** in it is still the useful part, and because how it went stale is worth seeing: the work was recorded in the ROADMAP and never struck here. Original text: *"Designed, not built. Feasibility measured first: the Python 3.14 text archive is 537 files / 16 MB, the tutorial alone **17 files**; `jichi docs search` answered a list-comprehension question in **4 s** with a resolving `file:line` anchor, and a grounded agentic turn quoted `controlflow.txt` in **27 s**. Decisions fixed: local snapshot + manifest, deterministic committed graders (the model personalises framing only), ships inside jichi, and the learner-facing tutorial is written against **today's** jichi so every published command is one that runs. "* | [`plans/2026-09-language-course.md`](plans/2026-09-language-course.md), ROADMAP M674 |
+| ~~**Complete the bibliography for the six deferred languages** — Racket, Guile, Elixir, Haskell, Clojure, Python.~~ **— DONE, and this row outlived the work (corrected 2026-09-21).** All six have sections: Python §6, Racket §7 (both at **M671**), Guile §8, Elixir §9, Haskell §10, Clojure §11 (all four at **M677**). `bibliography_lint` counts **149 entries across 12 sections**, and `BIBLIOGRAPHY.md`'s own *"What is deliberately absent"* has said since M677 that *"every language with a track in this tree has literature behind it"* — so two registers in the same repository disagreed about the same work for two milestones. That is the failure `DEFERRED.md`'s opening rule names: a register carrying a reason known to be false is worse than one missing the row. | The reasoning is kept because it is the useful part: the list was worked through **when there was a reason**, never alphabetically — Rust came off at M636c for being the only language with a graded course and nothing to read; Python and Racket at M671 because the language course points at them for *"the important literature"*; the last four together, because by then the gap itself had become the anomaly. | `docs/BIBLIOGRAPHY.md` §"What is deliberately absent", ROADMAP M671/M677 |
+| ~~**A tutorial for grounded discourse with a model** — citations, cross-references, argumentation theory; on documentation, literature and source.~~ **— BUILT 2026-09-21.** [`GROUNDED_DISCOURSE.md`](GROUNDED_DISCOURSE.md) is the instrument, the third beside `DOC_REVIEW.md` (prose coherent and untrue of the program) and `CODE_REVIEW.md` (a *reading* coherent and untrue of it); this one is for a **discussion** that is coherent and resolves to nothing. Five moves — claim, grounds that resolve, warrant, counter-argument, revision — and [`85-grounded-discourse`](assignments/85-grounded-discourse.md) grades the floor: `Objection:` before `Reply:`, four or more `file.c:symbol` citations that **resolve** against the tree, a page cited by name, and a Revision that is not a byte-copy of the Claim. Eight teeth, two-sided in `curriculum_graders.py`. The row's own instruction — build it on the argumentation program, whose central move is taking reasoning down a tier into an artifact a script can check — is what the grader implements. | **The milestone number is still owed**, and deliberately: a second machine held the next one while this was written, so the work sits on branch `docs/grounded-discourse` with no ROADMAP entry and no `Mnnn` cited anywhere — which is what keeps `milestone_currency_lint` and `changelog_coverage_lint` green. Number it, write the ROADMAP and CHANGELOG entries, and merge. | `docs/GROUNDED_DISCOURSE.md`, `docs/assignments/85-grounded-discourse.md` |
+| ~~**Literature for the other six tracks** — Racket, Guile, Elixir, Haskell, Clojure, Python.~~ **— DONE, and the SECOND row in this register to say so (corrected 2026-09-21).** It claimed *"each has a reading or graded track and no bibliography section"*. All six have sections — Python §6 and Racket §7 at **M671**, Guile §8, Elixir §9, Haskell §10, Clojure §11 at **M677**. | **Why the first sweep missed it, which is the useful part.** That sweep searched for the phrasing *"not built" / "undesigned" / "no … yet"* and this row says *"no bibliography section"* — the same claim in words the regex did not cover. Two rows in different sections asserting the same false thing, and a keyword sweep found one. The lesson is the one the sweep itself recorded: **enumerate a second way.** Here the second way is cheap and was not run — for each register row naming a deliverable, ask the tree whether that deliverable exists, rather than asking the row how it phrased its absence. | `docs/BIBLIOGRAPHY.md` §6–§11, ROADMAP M671/M677 |
+| ~~**A per-spec "if you are stuck alone" line**~~ **— the premise was stale, and the real gap was one tenth the size (measured 2026-09-21).** The row priced this at *"70 small edits"* on the belief that *"the stuck path … lives on the module pages"*. Measured across the 89 graded specs: **86 already mention `/hint` or `jichi hint`** in their own footer. The three that did not were **p1, p2 and p3 — the plain-register tier**, which shipped a three-rung hint ladder in frontmatter that *the learner was never told about*, on the pages written for absolute beginners; `PLAIN_LANGUAGE.md` did not mention it either. All four now do, in the plain voice, with the ladder explained and the recording said to be for the learner rather than against them. | **What the row got right, and is kept for:** hand-writing a bespoke line into 80 specs would have been filler, and it said so. What it got wrong is the count — and the count was checkable the whole time. The bespoke *"If you are stuck alone:"* line remains a process-track (67–75) convention, deliberately, because those eight lines say something specific to their task and a generic one would not. | `docs/assignments/p1-ask-for-a-file.md`, `docs/PLAIN_LANGUAGE.md` |
 
 ## Open — teaching and documentation
 
 | Deferred | Why | Where |
 |---|---|---|
 | **An `init` option that scaffolds the records tree as `.org` instead of markdown.** | The format itself is a one-line change in the scaffold tables; the *cost* is that shipping `.org` assets pushes users toward one editor, which is exactly what M326s decided against. **Revisit when** two users ask for it — an observable trigger, per this page's own rule, and cheap to honour once someone has. (Deliberately described without inventing a flag spelling: `docs_flags.sh` scans this page — unlike `DECISIONS.md`, which is excluded — so naming a switch here would document one that does not exist. The first draft did, twice: once in the entry and once in the note explaining why not to.) | ROADMAP M326s |
-| **A graded assignment for the records practice.** | Designed as `74-your-own-registers` and dropped at M326s — **note (M658) that the number is now taken: task 74 is `74-read-the-turn` (M627), so acting on this row means choosing a free number, not resurrecting that name** — the checker could only grade the *shape* of a register — it cannot know whether a decision was real, whether the dates are true, or whether `Where:` points anywhere. **Revisit when** there is a way to grade the habit rather than the headings; a fixture check is not one, and adding it would cost two count bumps, a grader entry and an INDEX row for a check nobody should trust. | [DECISIONS.md](DECISIONS.md) |
-| **A seeded fuzz-lite harness for the pure cores** (`jc_patch`, `jc_utf8`, `jc_jsonrepair`, `jc_glob_match`): a tiny C89 LCG with fixed committed seeds, so "random" inputs are byte-reproducible and every failure becomes a permanent regression case. | **Substantially overtaken, M658.** The harness the row asks for **exists**: `tests/fuzz/` holds a deterministic seeded generator (`jc_fuzz_main.c`, xorshift32, "no dependencies: a seeded PRNG + a mutation loop over each target's seed"), a committed corpus, a libFuzzer front end, and **19 targets** — and `docs_counts_lint` check 17 already holds the documented count to `JC_FUZZ_TARGETS`. So "a tiny C89 LCG with fixed committed seeds" is shipped. What is *not* covered is three of the four pure cores this row names: **`glob` has a target; `jc_patch`, `jc_utf8` and `jc_jsonrepair` do not.** That is the remaining work, and it is three targets rather than a harness. Original reason, kept because it is why the harness came later and by another route: The 2026-08-10 procedural-generation determination: the pure cores' current failure findings come from real workloads — the honest source — and a fuzz harness deserves its own milestone with its own teeth (a generator that has never found a planted bug has never been seen working). **Revisit when** a pure-core defect ships that seeded input generation would plausibly have caught. | [analysis/2026-08-10-guidance-and-crown.md](analysis/2026-08-10-guidance-and-crown.md) |
 
+
+## Closed 2026-09-21 — the records practice, graded
+
+The row was not stale; it was **right**, and it named the condition under which
+it should be revisited. It refused a grader that could "only grade the SHAPE of a
+register" and asked for one that grades "the HABIT rather than the headings".
+That condition was met rather than waved past, and the design follows from it:
+auditing a register beats writing one, because an audit has a checkable answer
+and writing has only a shape.
+
+| Deferred | Why | Where |
+|---|---|---|
+| ~~**A graded assignment for the records practice.**~~ **— BUILT 2026-09-21 as `86-the-register-that-went-stale`, by meeting the row's own revisit condition rather than ignoring it.** The row refused a grader that could "only grade the SHAPE of a register" and said to revisit "when there is a way to grade the HABIT rather than the headings". The way is to stop asking the learner to *write* a register and ask them to **audit** one: five rows over a small tree, two of them gone stale, and a verdict required for every row. | **Why this is the habit and not the shape.** The grader refuses **both directions** — a missed stale row and a wrongly retired standing one are the same defect, and the spec says why the false positive is not the safer mistake: a missed row gets re-walked, a deleted row does not. One row is a trap: `grep -i rate` returns four hits in `upload.c`, every one a *sampler's* rate whose own comment says it is "not anything we control or limit here". A learner who greps without opening the file retires work that still needs doing. And a `STALE` verdict must cite **the file that makes it stale**, not any file that exists — `GROUNDED_DISCOURSE.md`'s *grounds that resolve*, met in a register. Two-sided in `curriculum_graders.py`; six teeth. | `docs/assignments/86-the-register-that-went-stale.md` |
 ## Open — JupyterHub and notebooks (M478)
 
 | Deferred | Why | Where |
@@ -641,7 +803,6 @@ does not yet support well").
 | Deferred | Why | Where |
 |---|---|---|
 | **A cohort view for teachers** — one command that reads many learners' `progress.jsonl`. | `jichi assignments` reads exactly one workspace, so thirty students are thirty benches with no aggregate; the documented answer is a shell loop collecting `--output json`. **Not done because it is a gradebook**, i.e. someone else's software: it needs identity, storage and a policy about grades, none of which belong in a coding agent (the M165 web-frontend reasoning applies — jichi provides the machine surface, a sidecar owns the aggregation). **Revisit as** a documented recipe or an `examples/` script rather than a subcommand. | [SCRIPTING.md](SCRIPTING.md) |
-| **A per-spec "if you are stuck alone" line** — present in 7 of 77 specs (the process track only). **Re-counted 2026-09-18 (M658): 8 of 87.** Both numbers moved and the ratio barely did; the "70 small edits" the row prices is now 79. | The stuck path is complete but lives on the module pages, so it reaches a learner who navigates module-first and misses one who arrives from `jichi assignments` or the index. The escalation ladder is now documented once in TEACHING_ASSIGNMENTS (M398), which is the cheap half; putting one line in each spec is 70 small edits and wants a template pass rather than hand-editing. **Revisit with** the next assignment-authoring milestone, so the footer template changes once. | [analysis](analysis/2026-08-12-docs-review.md) |
 | **Per-facet reading tasks** — one graded task each for abstraction→concrete, control flow, data flow and execution, beyond the single integrated `74-read-the-turn` (M627). | The integrated task exercises all five readings on one unit and ships the instrument (`CODE_REVIEW.md`) and the coaching skill; splitting it into a set costs four reference readings, four graders and four trap cases before anyone has run the first. **Revisit when** a learner has graded 74 and the record (their READING.md against the reference) shows which reading they get wrong most — that is the facet worth its own task, and the evidence for which one is not available yet. | ROADMAP M627 |
 
 ## Open — unit-suite integrity
@@ -707,7 +868,7 @@ rule) is now three-for-three this month.
 | **A `doctor` line for the BSDs, illumos, and any other POSIX host** | **Declined, on the row's own evidence.** It already said the M400 note fires on any non-Linux `uname`, that no BSD-specific code exists, and that "inventing conditionals for a platform nobody has is how the Darwin branch got into the state M400 found it in". Then M460/M461 measured it: FreeBSD and OpenBSD found **ten real defects between them and none of them wanted a BSD conditional** — every fix was a capability probe, a portable flag, or POSIX-correct signal discipline. A row whose reason has been confirmed by measurement is not deferred work; it is a decision. |
 | **Identify the unit check that failed once during M407's gate** | **Closed as unidentifiable.** One occurrence, never reproduced, no artefact kept, and nothing left to examine. The honest action is to say so rather than carry a row nobody can act on — and to point at the mechanism that would catch the next one: *the M201 re-ask for the unit suite* (still open below), which labels a failure "in-suite only" or "also alone" instead of leaving it a mystery. |
 
-## Open — the source-reading guides
+## Closed 2026-09-21 — the source-reading guides, both rows
 
 From the M399 review of `docs/reading/` (25 files measured against their own
 documented chapter skeleton; Annai measured complete and uniform, Fukabori
@@ -715,8 +876,8 @@ measured thin in one specific way).
 
 | Deferred | Why | Where |
 |---|---|---|
-| **Bring the remaining Fukabori chapters to Annai's code density.** | **Largely closed by measurement, M658 — nobody noticed, because the row was never re-counted.** Today Annai's nine chapters carry 2–4 blocks (mean 3.1) and Fukabori's twelve carry **1–4, mean 2.1**, with exactly **two** still at one: chapter 1 ("why C89") and chapter 11 ("AI-supported coding examined"). Those are the same two the row below argues are *arguments rather than mechanisms*, where a block added to hit a quota would be decoration. So the inversion this row was filed for — the expert guide showing less code than the beginner guide — is gone, and what remains is two chapters that are deliberately at one. It should close with the next reading-guide pass rather than carry a premise that expired. Original measurement, kept because the row's own prediction is the point: Measured: Annai's nine numbered chapters carry **2–3 code/pseudocode blocks each**; Fukabori's twelve carry **one** (and chapter 3 carried none until M399 fixed it). The *expert* guide shows less code than the *beginner* guide, which is inverted — and FUKABORI.md's own conventions promise "the invariants first, then **the code that carries them**, then the failure that taught them". **Not done wholesale because the fix is per-chapter judgement, not a sweep:** each needs the *one* excerpt that carries its argument (chapter 3 wanted the wrong-arena line and its fix; chapter 7's would be the fork/select shape; chapter 8's the read-callback), and a block added to hit a quota would be decoration, which the house diagram rule already forbids. **Revisit** one chapter at a time, cheapest first, whenever that subsystem is being touched anyway. | [FUKABORI.md](reading/FUKABORI.md) |
-| **A lint that each reading chapter carries a diagram or is a stated exception.** | Three Fukabori chapters have no mermaid (1 "why C89", 11 "AI-supported coding examined", 12 — the last now has one). **Re-counted 2026-09-18 (M658): exactly two, chapters 1 and 11, every other chapter at one.** The row's reason is confirmed rather than eroded — the exception list is still a two-item allowlist and a lint over it would check almost nothing. By the M503 precedent (*"a row whose reason has been confirmed by measurement is not deferred work; it is a decision"*) this is a candidate for `DECISIONS.md` at the next pass, and it is left here only because the same pass should close the row above with it. **Checked before parking:** 1 and 11 are *arguments*, not mechanisms, and a diagram restating prose is decoration — the UML tutorial's own rule is "one diagram, one question", so the honest state is an exception list, not a missing diagram. A lint would therefore encode a two-item allowlist and check almost nothing, which is the "checks zero things and reports success" shape this project's lints are written to avoid. **Revisit if** the exception list ever grows past a handful — that would mean the convention had actually drifted. | [reading_refs_lint.sh](../tests/smoke/reading_refs_lint.sh) |
+| ~~**Bring the remaining Fukabori chapters to Annai's code density.**~~ **— CLOSED, the premise expired and the row said so.** Re-measured 2026-09-21: Annai 11 chapters mean **2.7** blocks, Fukabori 12 chapters mean **2.1** — the inversion this row was filed for, the expert guide showing less code than the beginner guide, is gone. Each guide has exactly **two** chapters at one block, and in both they are the chapters that argue or point rather than explain. | The row itself asked to *"close with the next reading-guide pass rather than carry a premise that expired"*. This is that pass. | `docs/reading/`, DECISIONS "Documentation and teaching" |
+| ~~**A lint that each reading chapter carries a diagram or is a stated exception.**~~ **— CLOSED as a DECISION, not as work.** Measured across all 27 chapters, which no earlier count did: Annai 9/11, Fukabori 10/12, **Tsuiseki 0/4**. The row scoped itself to Fukabori and was right there; widening the count does not show drift, it shows structure — the four missing in Annai and Fukabori are *the same four* at one code block, and Tsuiseki is a whole guide whose form is a replayed trace. | A lint would encode 8 exceptions across 27 files and check 19 for a property they already have. Recorded in `DECISIONS.md` instead, with the revisit condition sharpened: drift is a **mechanism** chapter without a diagram, not another argument chapter. | `DECISIONS.md` "Documentation and teaching" |
 
 ## Open — platforms never DRIVEN (M665, 2026-09-18)
 
@@ -740,9 +901,47 @@ the platform rows do not carry driven-ness, not that it never happened.
 
 | Deferred | Why | Where |
 |---|---|---|
-| **Record driven-ness ON the platform rows, and drive the rows that have not been.** | Documented today: **WSL2** (chat, reasoning, tool use, embeddings), the **M459 fleet** — Pi, Android tablet, proot guest, a fenced `--auto` task that executed tools — **illumos** (a text turn only, M663 — no tool call), **FreeBSD** (text turn 4 s *and* a native `read_file` tool call, 7 s, M665). Only WSL2, illumos and FreeBSD say so on their rows. The rest — OpenBSD, NetBSD, the Pis, Termux/proot, Guix, musl-static, the 14 emulated architectures — have **never made a model call**. For the `qemu-user` architecture sweep it is not merely undone but currently impossible as built: those rows link `HAVE_CURL=`, so there is no HTTP at all; driving them needs a different rig, not a longer run. | `docs/PLATFORMS.md`, the **Driven** verdict |
+| **Record driven-ness ON the platform rows, and drive the rows that have not been.** | Documented today: **WSL2** (chat, reasoning, tool use, embeddings), the **M459 fleet** — Pi, Android tablet, proot guest, a fenced `--auto` task that executed tools — **illumos** (a text turn only, M663 — no tool call), **FreeBSD** (text turn 4 s *and* a native `read_file` tool call, 7 s, M665). **Updated 2026-09-22 (M697): the Driven table now covers every row on the page, and Windows + Cygwin and Windows + MSYS2 are DRIVEN** — both turns, agentic phrases `M697-cygwin-3FF107` and `M697-msys2-63B3BA`, over the HRZ gateway rather than a loopback tunnel, and their rows say which transport carried it. This sentence also listed OpenBSD and NetBSD as never having made a model call, which was already wrong when written: both were driven 2026-09-19. What remains undriven: the Pis other than the two rig rows, Termux/proot, Guix, musl-static, and the emulated architectures. For the `qemu-user` sweep it is not merely undone but impossible as built. Those `qemu-user` rows link `HAVE_CURL=`, so there is no HTTP at all; driving them needs a different rig, not a longer run. | `docs/PLATFORMS.md`, the **Driven** verdict |
 | **Decide what the minimum driven task IS**, so rows are comparable. | FreeBSD's *read a file and report its contents* exercises request build, SSE framing, a native tool call, tool execution and the second turn — that is a defensible floor and it is what the FreeBSD row used. It is **not** yet written down as the standard, and rows measured against different tasks are not comparable, which is the same mistake `JC_SMOKE_TIMEOUT_MULT` was introduced to stop people making with build times. A candidate: one text turn, one tool-calling turn, one refused-by-a-fence turn. | undecided |
-| **The reverse-tunnel arrangement is not in any rig.** | Both driven VM rows were set up by hand: `ssh -R 1234:127.0.0.1:1234` so LM Studio stays loopback-bound while the guest reaches it. It works, it is written down in two analysis pages, and it is in **no** `scripts/tier-v-*.sh` — so the next row does it from memory or not at all. | `scripts/` |
+
+## Closed at M698 — the transport rows: one gap that had already closed, one that had not
+
+**This section exists because a register went stale and nobody re-read it.** The
+row here said *"the reverse-tunnel arrangement is not in any rig"*: both driven VM
+rows were set up by hand with `ssh -R 1234:127.0.0.1:1234`, it was written down in
+two analysis pages, and it was in no `scripts/tier-v-*.sh`.
+
+**It was true when written and untrue from M677.** `jc_rig_live` carries the
+forward; **seven** rigs use it; and `rig_live_lint` check 5 now *enforces*
+`-o ExitOnForwardFailure=yes` on every one of them — because a forward that
+cannot bind otherwise WARNS and runs the command anyway, which once produced two
+green live turns through a stale forward nobody knew was there. The register went
+on claiming the gap for two milestones after it closed, which is the same defect
+as an out-of-date platform row and is worth more than the row itself: **a register
+is only as good as the pass that re-reads it.**
+
+**The genuine gap was the other direction, and M698 closes it.** Every transport
+that existed when the driven task was extracted reached a **keyless** server — LM
+Studio on the host's loopback, through a tunnel or an existing forward — so the
+config could carry `"apiKey":"unused"` and nothing noticed. The Windows-family
+rows cannot use that transport at all: they are not guests, there is nothing to
+forward from, and LM Studio is not installed on the machine that has Cygwin and
+MSYS2. They drive a real **gateway over TLS**, which wants a key.
+
+`jc_rig_live_config` now takes an optional third argument, the **name** of an
+environment variable, emitted as `apiKeyEnv` so no secret reaches the config file
+or `ps` — jichi's own doctor warns about a literal `apiKey`, and a rig that
+generated one would teach the habit the product warns against. With no third
+argument it emits what it always emitted, **byte for byte**, so no existing row's
+config changed. The alternative was a second config generator inside the Windows
+rigs, and `_rig_ship.sh`'s header settles that: *a second rig is where drift
+starts, not the fourth.*
+
+Both halves are now exercised by rigs that have run: the tunnel by the three VM
+rows, the gateway by `tier-v-cygwin.sh` and `tier-v-msys2.sh`, each of which also
+refuses a model outside the free namespace and refuses an empty key **before** the
+first request — because the failure mode of guessing is a charge, and the failure
+mode of refusing is a message.
 
 ## Open — platforms never compiled
 
@@ -1267,4 +1466,3 @@ reader should meet as a decision rather than as a surprise.
 | **A "modern C" reading track**, in the reading-guide genre rather than as more graded tasks. | Modern C is currently taught as a **fence**: the constructs named in the docs are the ones CONTRIBUTING.md forbids (`<stdint.h>` 8 files, designated initializers 5, VLA 3), while the ones a modern-C programmer would simply use appear **zero** times (`uint32_t`, `_Static_assert`). A learner finishes able to write 1989's C and to name what jichi may not use. Spine: per construct, what jichi does instead and what that costs. *Revisit when:* a track exists, or the gap is argued closed — Gustedt's *Modern C* is now cited for exactly this and a book may be the right answer. | [C_STANDARDS.md](C_STANDARDS.md); [analysis](analysis/2026-09-16-language-teaching-coverage.md) §2.1 |
 | **Extend the C++ course, or stop letting the reader read "modern" into it.** | Tasks 59–62 teach RAII, containers and exceptions — a fair curriculum, and **C++98/11 C++**. Across 505 files: `RAII` 15, `std::vector` 8, `C++20` 1, `unique_ptr` 1, `std::span` **0**. The curriculum's own words are accurate; the overstatement happens in the reader's head. Renaming to "C++ fundamentals" is two words and honest; a fifth task on move semantics and `unique_ptr` is better and is a milestone. *Revisit when:* either is done. | [CURRICULUM.md](CURRICULUM.md); [analysis](analysis/2026-09-16-language-teaching-coverage.md) §2.2 |
 | **A "what this course does not teach" section in `CURRICULUM.md`** (the second half, "data structures" → "manual memory" in the 51–54 line, was done at M636g). **Narrowed at M636k:** the premise moved — a hash table (78), a linked list (79) and an ordered map / BST (80) are now taught, each built to a contract and measured, so the section would today name balancing, deletion in a tree, sorting algorithms and graphs, not "data structures". Whether to write it at all stays the operator's call about what this course is. | `CURRICULUM.md` states **no scope boundary at all** (zero matches for "does not teach", "out of scope", "not a course in" — **re-checked 2026-09-18 (M658): still zero, all three**; the corpus is 524 markdown files now, not the 505 the review counted), so a learner can finish four stages believing data structures were covered. They were not: taught are a growable array (52), a ring buffer (04), an arena (54), an RPN stack (50, 62) and the C++ containers (60–61); **never taught are linked list, hash table, tree, binary search or any sorting algorithm**. The boundary is *correct* — jichi has exactly one general container (`jc_vec`) and a course that reads its own source cannot teach what the source lacks — but the page's own words ("manual memory & **data structures**") let a reader infer more than one task delivers. Same species as the "modern" C++ finding. *Revisit when:* the section exists and the line says the smaller true thing. **Planned 2026-09-16**, and the plan resolves it better than by softening: splitting off a real **"C: files & structures"** course (tasks 76–80) makes the old course's title true by deleting one word rather than by editing a claim down. | [analysis](analysis/2026-09-16-language-teaching-coverage.md) §3b.2; [plan](plans/2026-09-files-and-structures.md) |
-| **Literature for the other six tracks** — Racket, Guile, Elixir, Haskell, Clojure, Python. | Each has a reading or graded track and no bibliography section. Worth doing **only at the M636 standard**, or not at all: a thin section per language is worse than an honest gap, which is why the page names the absence instead of padding. Rust came off this list at M636c because it was the only one with a *graded course* and nothing to read; none of these six is in that position. *Revisit when:* someone wants a specific one, rather than all six as a sweep. | [BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) |

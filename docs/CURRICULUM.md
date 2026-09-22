@@ -86,7 +86,7 @@ are in [`assignments/INDEX.md`](assignments/INDEX.md).
 (18 tasks, 47 points) plus **set D — memory & lifetimes** (3 tasks, born
 from this project's own 2026-08 hardening wave) and the extras and
 migration tracks below: [`docs/assignments/INDEX.md`](assignments/INDEX.md)
-— **88 graded tasks** in all, every grader two-sided (it provably rejects the
+— **90 graded tasks** in all, every grader two-sided (it provably rejects the
 untouched fixtures and accepts a reference solution;
 `tests/e2e/curriculum_graders.py` enforces this on every change, including
 **75 trap cases** — lazy checkers, half-fixes, hollow gates, leaky
@@ -177,7 +177,7 @@ real section, in the wrong file.
 
 **Reading outside this tree.** Everything above teaches from jichi's own source,
 which is the design and also a closed world.
-[BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) is the door out of it: 149 checked entries on
+[BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) is the door out of it: 159 checked entries on
 the craft, C, C++, Zig, Rust, Python, Racket, Guile, Elixir, Haskell, Clojure and
 interfaces, each saying which question in *these* pages it answers, and **most of
 them free to read** — complete books on C, Zig and Rust, SICP, *The Scheme
@@ -265,6 +265,51 @@ languages such as Japanese — follows the maintainer's trigger (likely late
 August 2026 or after the first public release); meanwhile, set `language`
 and the *agent* tutors you in your language over the English briefs
 ([LANGUAGE.md](LANGUAGE.md)).
+
+## What this course does not teach
+
+Counted from the 89 shipped specs, not estimated. **Zero** of them teach:
+
+| Absent | Counted |
+|---|---|
+| **Concurrency** — threads, locks, data races | 0 specs. Four mention the word *incidentally* — a merge conflict on a concurrent append, a paradigm aside, a requirement that deliberately does not ask for it — and none teaches it. No spec names a mutex, a deadlock or a data race |
+| **Networking and protocols** | 0 specs mention HTTP, a socket or TCP |
+| **Security** | 0 specs mention injection, privilege or a threat model |
+| **Persistence** — databases, schemas, migrations | 0 specs |
+| **User-interface work** | 0 specs. [`ACCESSIBILITY.md`](ACCESSIBILITY.md) and [`INTERFACE_TUTORIAL.md`](INTERFACE_TUTORIAL.md) describe how *jichi* was built; neither is graded |
+
+**These are absences of scope, not oversights.** The subject, stated above, is
+software development as *craft and engineering* with the language as a
+parameter. A course that added a concurrency module would be teaching a second
+subject, less well, and the honest move is to say so rather than let a reader
+discover it at task 60.
+
+**Two things that look absent and are not.** The words are missing; the teaching
+is not.
+
+- **Performance** appears in no spec title as such, yet *The scan that was fast
+  enough*, *The invisible growth*, *Slope lies — keep the peak* and *The order
+  you didn't sort* are exactly it — measured cost, and the trap of optimising
+  the thing you did not measure.
+- **Code review** appears nowhere as a phrase, yet
+  [`CODE_REVIEW.md`](CODE_REVIEW.md) is the instrument and task 74 grades it on
+  jichi's own source.
+
+*(Worth saying because it is a lesson the project keeps relearning: a keyword
+count is a signal that correlates with the answer, not the answer. Both rows
+above scored zero on the first pass of the very search that produced this
+table, and both are taught.)*
+
+**Where to go instead.** [`BIBLIOGRAPHY.md`](BIBLIOGRAPHY.md) carries the
+reading for several of these — it is 159 entries across thirteen sections, and it
+names what it deliberately omits for the same reason this section exists. For
+concurrency and distributed work specifically, the honest answer is that this
+course does not cover them and a dedicated one should.
+
+**Why this section exists at all.** It is the curriculum's own *not checked*
+half — the same discipline as the reach footer under a headless answer, and as
+`jichi grade`'s refusal to claim more than its `verify` command tested. A course
+that lists only what it covers has told you half of what you need to choose it.
 
 ## Getting started
 

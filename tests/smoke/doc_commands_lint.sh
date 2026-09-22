@@ -89,7 +89,7 @@ ninv=$(awk '
         if (match(line, /(^|[|;&][ \t]*|\([ \t]*)(\.\/)?jichi[ \t]/)) n++
     }
     END { print n + 0 }
-' $files)
+' $files < /dev/null)
 
 if [ "$ninv" -ge 50 ]; then
     t_ok "inspected $ninv fenced jichi invocations across the reader-facing docs"
@@ -168,7 +168,7 @@ forms=$(awk '
     /^[ \t]*(\.\/)?jichi[ \t]/ {
         sub(/^[ \t]*/, ""); sub(/^\.\//, ""); sub(/[ \t]*#.*$/, "")
         print
-    }' $files |
+    }' $files < /dev/null |
   grep -E '^jichi (assignments|ls|export|telemetry|runs|audit|context|config|models|status|board|constraints|attempts|checkpoints) ' |
   grep -- '--' | grep -vE '[|<>&`$\\]' | sort -u)
 

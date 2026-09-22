@@ -9,6 +9,42 @@ engine and GDScript in Zig: 81 `.zig` files, 202 `test` blocks, its own
 `AGENTS.md`, its own `jichi` config. It is the third project jichi has been
 driven against, and the first where the task was *use it*, not *gate it*.
 
+> ## CORRECTION (2026-09-21) — this session surveyed the wrong checkout
+>
+> **Everything in this document that describes *zigodot as a project* is wrong.**
+> There were two checkouts on this machine sharing a root commit:
+> `/home/<this-account>/development/zigodot`, abandoned 2026-06-30 at 69 commits with no
+> remote, and the live `/home/<this-account>/development/journey/zigodot`, 416 commits with
+> an `origin`. The abandoned one sits one directory level shallower, so a glob
+> reaches it first. Every run in this document went to it.
+>
+> Measured against the **live** repository on 2026-09-21:
+>
+> | Claim in this document | Actually |
+> |---|---|
+> | 81 `.zig` files | **109** |
+> | 202 `test` blocks, the gate runs **29** | **558** blocks, the gate runs **510** (91%) |
+> | `AGENTS.md` points under a *different account* | points at `/home/<this-account>/development/godotengine/godot` — **this** account, and the path exists |
+> | retired model ids in its config | the config was already correct |
+>
+> **What survives.** The four seams are properties of *jichi*, not of zigodot:
+> `doctor` validating an endpoint rather than a model id, the live probe
+> discarding the server's own diagnosis, the envelope unable to tell a reading
+> shell command from a writing one, and the hollow-gate detector silent without a
+> parseable count. All four were real, all four are now closed (M689, M692). What
+> does not survive is every number and every judgement about the project being
+> driven — including the sentence above this box promising that "every claim below
+> is a measurement", which was true and beside the point.
+>
+> **The lesson is not "check your paths".** It is that a measurement can be
+> perfectly executed against the wrong subject and carry no internal sign of it:
+> the tree built, the gate ran, the tests passed, the agent behaved sensibly. The
+> cheap check that would have caught it is `git remote -v` and
+> `git rev-list --count HEAD` before believing anything about a checkout — one
+> command, and it distinguishes a live repository from an abandoned copy in a way
+> that reading the source never will. The stale copy is now archived and deleted,
+> with a marker file left where it stood. ANECDOTES #89's neighbour in kind.
+
 **Why a second project is worth the trouble.** Everything in jichi's own tier is
 tuned by people who know what it means. A stranger's repository supplies the one
 thing a self-test cannot: configuration nobody checked, written months ago,

@@ -33,6 +33,42 @@
 #   scripts/tier-v-arch.sh --all                   # every runnable target
 #   scripts/tier-v-arch.sh --dry-run               # print the plan, touch nothing
 #   scripts/tier-v-arch.sh --arch X --keep         # keep the build tree
+#   scripts/tier-v-arch.sh --all --drive \
+#       --live-port 1234 --live-model <id>         # ...and DRIVE every row
+#
+# ------------------------------- --drive ------------------------------------
+# WHAT IT ADDS. Without it a row proves the core, the arenas, the JSON and the
+# unit suite -- everything that never opens a socket. With it the row runs the
+# shared driven task (scripts/_rig_live.sh): a text turn, then an agentic turn
+# whose answer is a phrase minted that second and reachable only by a real tool
+# call. That is the distance between Verified and Driven, taken across byte
+# order and word size.
+#
+# WHY THIS RIG NEEDS NO TRANSPORT. Every other driven rig ssh's into a guest
+# behind QEMU NAT carrying a reverse forward, because the guest cannot see the
+# host's loopback. `qemu-user` has no guest: it translates syscalls and hands
+# them to THIS kernel, so the emulated process shares this machine's loopback
+# and reaches the model server directly. Measured 2026-09-21 before any of this
+# was built -- 19 of the 20 candidate triples opened a socket to the server and
+# read a response, the six MIPS rows included, even though `pipe()` fails there.
+# So this rig calls the task functions directly, as tier-b-device.sh does.
+#
+# THE DEPENDENCY, AND WHY THE DEFAULT STAYS CURL-FREE. Driving needs libcurl,
+# which zig does not ship -- so `--drive` builds one per triple through
+# scripts/minimal-curl.sh's cross rung (TLS-free: the task talks plaintext to
+# loopback), cached under $DIR/curl. It is a THIRD-PARTY DOWNLOAD the first time
+# and that is why it is opt-in. The curl-free build and its unit-suite count are
+# left exactly as they were, and the driven step adds a SECOND binary rather
+# than changing the first: every number this rig has ever recorded stays
+# comparable, and the new claim is separable from the old one.
+#
+# THE POSITIVE CONTROL IS PART OF THE ROW. Building with a flag change and no
+# `make clean` once produced a MIXED binary here -- main.o kept JC_HAVE_CURL
+# from a failed first attempt while the rebuilt jc_http.o did not, so `doctor`
+# printed "libcurl available" over the curl-free stub and the row failed for a
+# reason that had nothing to do with the platform. Every driven row therefore
+# proves the stub string is ABSENT from the binary before its turns are
+# believed, and the tree it builds is shipped fresh.
 #
 # Exit codes, matching the other tier-V rigs:
 #   0 every row ran (read the RESULT lines for the verdict)
@@ -48,9 +84,13 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 # already been three separate mistakes in this campaign.
 RESULTS="$DIR/results-arch.txt"
 DRY=0; KEEP=0; ONE=""; ALL=0; LIST=0
+DRIVE=0; LIVE_PORT="1234"; LIVE_MODEL="local"
 
 # The one implementation of "put the tree somewhere to build it" (M466).
 . "$(dirname "$0")/_rig_ship.sh"
+# ...and the one definition of the DRIVEN task (M676). This rig supplies no
+# g/gl: there is no guest to reach, so it calls the task functions directly.
+. "$(dirname "$0")/_rig_live.sh"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -60,6 +100,9 @@ while [ $# -gt 0 ]; do
         --dry-run) DRY=1 ;;
         --keep)    KEEP=1 ;;
         --dirty)   TIER_V_ARCH_DIRTY=1 ;;
+        --drive)      DRIVE=1 ;;
+        --live-port)  LIVE_PORT="$2";  shift ;;
+        --live-model) LIVE_MODEL="$2"; shift ;;
         # Print the header block rather than a hardcoded line range: a
         # `sed -n '2,40p'` silently loses its last lines the first time an option
         # is added above, which is how tier-v-vm.sh's help lost a row (M430).
@@ -279,6 +322,87 @@ note "# qemu-user: $(qemu-aarch64 --version 2>/dev/null | head -1 || echo 'versi
 jc_rig_ship_stamp "$REPO" "${TIER_V_ARCH_DIRTY:-0}" >> "$RESULTS"
 note ""
 
+
+# ---------------------------------------------------------------- driving
+# drive_curl_prefix TRIPLE -- a TLS-free libcurl for this triple, on stdout.
+# Built once per triple into $DIR/curl and reused; ~30 s each, measured.
+drive_curl_prefix() {
+    _dcp_t="$1"
+    _dcp_p="$DIR/curl/$_dcp_t"
+    if [ ! -f "$_dcp_p/lib/libcurl.a" ]; then
+        sh "$(dirname "$0")/minimal-curl.sh" --tls none --target "$_dcp_t" \
+           --prefix "$_dcp_p" >"$DIR/curl-$_dcp_t.log" 2>&1 || return 1
+    fi
+    printf '%s' "$_dcp_p"
+}
+
+# drive_row TRIPLE HANDLER -- the M676 task on an emulated binary.
+#
+# A SECOND binary, deliberately: the curl-free one above keeps this rig's unit
+# numbers comparable with every row it has ever recorded, and this one answers a
+# different question. Both come from the same shipped tree.
+drive_row() {
+    _dr_t="$1"; _dr_h="$2"
+    _dr_p=$(drive_curl_prefix "$_dr_t") || {
+        norun "$_dr_t: no libcurl for this triple -- see $DIR/curl-$_dr_t.log"; return; }
+    _dr_w="$DIR/live/$_dr_t"
+    rm -rf "$_dr_w"; mkdir -p "$_dr_w/ws" || { norun "$_dr_t: could not create $_dr_w"; return; }
+    cp -a "$SRC/." "$_dr_w/" || { norun "$_dr_t: could not copy the snapshot"; return; }
+
+    # No -Wno-long-long here on purpose: the Makefile's own curl-header probe
+    # adds it where curl's `long long` needs it (every 32-bit row) and nowhere
+    # else. If this build starts failing in curl/system.h, that probe is what
+    # broke, and passing the flag here would hide it.
+    if ! (cd "$_dr_w" && make CC="zig cc -target $_dr_t" \
+            CURL_CFLAGS="-I$_dr_p/include" CURL_PC_LIBS="-L$_dr_p/lib -lcurl" \
+            LDFLAGS=-static WERROR=1 jichi >live-build.log 2>&1); then
+        bad "$_dr_t: curl-enabled build FAILED -- $( (cd "$_dr_w" && grep 'error' live-build.log | head -1 | cut -c1-70) )"
+        return
+    fi
+
+    # THE POSITIVE CONTROL. The curl-free stub's own message must be ABSENT, or
+    # the turns below would be testing a binary that cannot open a socket and
+    # the row would blame the platform for the build. `tr` splits the binary
+    # into printable runs and grep reads them on STDIN: no binutils needed, and
+    # no `grep -a`, which is GNU-only and exits 2 on illumos with "illegal
+    # option" -- a failure that would read as "the stub is present". This rig is
+    # Linux-only today, and the tier's rule is about the tier, not the host.
+    _dr_stub=$(tr -cs '[:print:]' '\n' < "$_dr_w/jichi" 2>/dev/null \
+               | grep -c 'built without libcurl')
+    if [ "${_dr_stub:-1}" != "0" ]; then
+        norun "$_dr_t: built, but the binary still carries the curl-free stub ($_dr_stub hit(s)) -- a RIG result, not a platform verdict"
+        return
+    fi
+
+    jc_rig_live_config "$LIVE_MODEL" "http://127.0.0.1:$LIVE_PORT/v1" > "$_dr_w/live.json"
+    _dr_ph=$(jc_rig_live_phrase TIER-A)
+    jc_rig_live_fixture "$_dr_ph" > "$_dr_w/ws/note.txt"
+
+    # Turn 1: the wire. An EMPTY text is rejected as well as a missing one --
+    # `{"text":""}` with a transport error beside it satisfies a bare
+    # grep '"text"' and proves nothing.
+    (cd "$_dr_w" && ./jichi --config live.json \
+        --prompt-b64 "$(jc_rig_live_prompt_wire)" --output json) >"$_dr_w/live.txt" 2>&1
+    if grep -q '"text":"[^"]' "$_dr_w/live.txt"; then
+        ok "$_dr_t: live turn answered under $_dr_h ($LIVE_MODEL)"
+    else
+        bad "$_dr_t: live turn did not answer -- $( (grep 'error' "$_dr_w/live.txt" | head -1 | cut -c1-60) )"
+        return
+    fi
+
+    # Turn 2: the loop. This is the one the Driven verdict is named for.
+    (cd "$_dr_w/ws" && ../jichi --config ../live.json --auto -q \
+        --prompt-b64 "$(jc_rig_live_prompt_tool)") >"$_dr_w/live-tool.txt" 2>&1
+    if grep -q "$_dr_ph" "$_dr_w/live-tool.txt"; then
+        ok "$_dr_t: agentic turn -- the model called a tool and reported $_dr_ph"
+    else
+        bad "$_dr_t: agentic turn did NOT return $_dr_ph -- the model may have described the
+tool call instead of invoking it, or the loop does not execute tools on this architecture"
+        note "    $(tail -3 "$_dr_w/live-tool.txt" 2>/dev/null | tr '\n' ' ' | cut -c1-120)"
+    fi
+    [ "$KEEP" -eq 1 ] || rm -rf "$_dr_w"
+}
+
 for line in $(printf '%s\n' "$TARGETS" | tr ' ' '@'); do
     t=$(printf '%s' "$line" | cut -d@ -f1)
     h=$(printf '%s' "$line" | cut -d@ -f2)
@@ -343,6 +467,18 @@ for line in $(printf '%s\n' "$TARGETS" | tr ' ' '@'); do
 
     note "  file(run_tests): $( (cd "$W" && file run_tests 2>/dev/null | cut -d: -f2-) )"
 
+    # DRIVE BEFORE THE UNIT SUITE, and the ordering is the point. Every path
+    # below this that classifies the suite ends in `continue`, and the rows that
+    # take those paths are exactly the ones whose driven verdict still stands:
+    # all six MIPS rows report `pipe=FAIL select=FAIL`, so the EMULATOR cannot
+    # run the subprocess tests -- and the agent loop, which needs a socket and
+    # not a pipe, closes there anyway. Measured: the first version of this rig
+    # called drive_row at the end of the loop body and silently skipped every
+    # MIPS row, while a hand-run sweep had already driven all six. A step placed
+    # after a `continue` is a step that does not run, and the rows it skips are
+    # never the easy ones.
+    [ "$DRIVE" -eq 1 ] && drive_row "$t" "$h"
+
     # A target that BUILT but cannot EXECUTE is a rig result (exit 3), not a
     # jichi failure -- the M451 exit-code contract, applied per row.
     if ! (cd "$W" && ./run_tests >test.log 2>&1); then
@@ -382,6 +518,7 @@ for line in $(printf '%s\n' "$TARGETS" | tr ' ' '@'); do
 done
 
 note ""
+[ "$DRIVE" -eq 1 ] || jc_rig_live_skip
 note "# $N_OK ok, $N_FAIL failed, $N_NORUN could-not-run"
 echo
 echo "tier-v-arch: $N_OK ok, $N_FAIL failed, $N_NORUN could-not-run -- $RESULTS"

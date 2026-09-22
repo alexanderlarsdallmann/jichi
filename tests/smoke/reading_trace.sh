@@ -34,6 +34,39 @@ TRACES=$(cd "$TDIR_ROOT" 2>/dev/null && for d in */; do
          done)
 ntr=$(printf '%s\n' $TRACES | grep -c .)
 
+# CAN THIS PLATFORM RECORD CRLF AT ALL? Probed before t_plan, because t_skip
+# emits its own plan line and a skip after t_plan emits a second one
+# (smoke_lint check 20).
+#
+# MEASURED 2026-09-22 (M698), on one machine carrying all three layers:
+#
+#     printf 'A\r\nB\r\n' | sed -e 's/X/Y/' | od -c
+#       WSL2    ->  A \r \n B \r \n
+#       Cygwin  ->  A \r \n B \r \n
+#       MSYS2   ->  A \n B \n          <-- the CR is gone
+#
+# MSYS2's sed does CRLF text-mode translation; Cygwin's, on the same machine,
+# same filesystem and same user, does not. capture.sh normalises every artifact
+# through a sed pipeline, and an HTTP head is CRLF by the standard -- so on
+# MSYS2 the RECORDING loses the carriage returns and the byte-for-byte
+# comparison below reports `req.1 drifted` for three traces at once.
+#
+# That is a defect in what this platform can record, not in what jichi sent:
+# mockmodel writes req.N with fopen(..., "wb") and the bytes reaching it are
+# correct. Asserting here would report drift in the documentation for a fixture
+# the platform cannot produce -- the same direction of error as
+# pathfence_dangling's, where a harness limit was reported as a hole in the
+# path fence.
+_crlf=$(printf 'A\r\n' | sed -e 's/X/Y/' | od -An -c | tr -d ' \n')
+case "$_crlf" in
+    *'\r'*) ;;
+    *) t_skip "this platform's sed strips CR from a CRLF stream (measured on \
+MSYS2: \`printf 'A\\r\\nB\\r\\n' | sed\` returns LF only), so capture.sh cannot \
+record an HTTP head byte-for-byte and every trace would report false drift. The \
+traces themselves are unaffected -- jichi puts correct CRLF on the wire and \
+mockmodel captures it in binary mode." ;;
+esac
+
 # Two suite-wide checks, then three per trace.
 t_plan $((2 + ntr * 3))
 smoke_home

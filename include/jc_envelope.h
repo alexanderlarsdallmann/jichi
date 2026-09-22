@@ -278,6 +278,10 @@ struct jc_envelope {
      * all changed since the baseline. `tree_changed == 1` proves nothing about
      * the shell -- the run's own file tools change the tree too -- so the
      * warning is kept unchanged in that case rather than guessing. */
+    /* M692: a green verify whose output carried no parseable test count, so
+     * the hollow-gate checks could not run. Reported in the reach footer, not
+     * as a warning -- see the JC_VERIFY_NO_COUNT comment above. */
+    int           verify_no_count;
     int           sweep_ran;      /* the baseline diff could be taken at all */
     int           tree_changed;   /* it found at least one changed path      */
 
@@ -446,8 +450,20 @@ enum jc_verify_sanity {
     JC_VERIFY_SANE = 0,     /* nothing suspicious (or no test signal at all)   */
     JC_VERIFY_NO_TESTS,     /* green but an observed test count of 0           */
     JC_VERIFY_FEWER_TESTS,  /* green but ran fewer tests than an earlier green */
-    JC_VERIFY_TESTS_NOT_WIRED /* green, a TEST FILE was edited, and the count did
-                               * not grow -- the new test probably never runs   */
+    JC_VERIFY_TESTS_NOT_WIRED, /* green, a TEST FILE was edited, and the count
+                                * did not grow -- the new test probably never
+                                * runs                                          */
+    /* M692: green, and the verifier printed NO PARSEABLE TEST COUNT at all --
+     * so none of the three checks above could run. Distinct from NO_TESTS,
+     * which is a count of zero and a positive claim; this is the absence of
+     * one. Measured on a real project: `zig build test` prints nothing on
+     * success, so the hollow-gate machinery had nothing to read and stayed
+     * silent -- and "the gate is fine" and "the gate could not be inspected"
+     * printed identically, which is the failure this whole cluster exists to
+     * refuse. Reported in the reach footer's NOT-CHECKED half rather than as a
+     * warning, because a verifier that is quiet on success is a normal, common
+     * setup and a per-run warning about it would be noise on every run. */
+    JC_VERIFY_NO_COUNT
 };
 
 /* Does `path` look like a test file? The M88 heuristic, exposed so the

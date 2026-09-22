@@ -51,6 +51,15 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/select.h>
+/* FIONREAD, used below to prove the pre-send bytes are READABLE and not merely
+ * written, is not a POSIX ioctl and each libc files it somewhere else. Measured
+ * on Cygwin 3.6.10 under this build's own -D_XOPEN_SOURCE=600: <sys/ioctl.h>
+ * does NOT declare it (with or without the feature macro) and neither does
+ * <sys/filio.h>; <sys/socket.h> does. It is a POSIX header present everywhere
+ * this tree builds, so it is included unconditionally rather than behind a
+ * platform name. Without it the smoke TOOLING does not compile on Cygwin at
+ * all, so the row cannot run its tier -- found while re-measuring that row. */
+#include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <termios.h>

@@ -430,7 +430,10 @@ fi
 # properties when a driver gates itself on a build flag.
 _fault_drivers=""
 for f in $drivers; do
-    if grep -q 'needs a FAULT=1 binary' "$f" 2>/dev/null; then
+    # ANY special-build gate, not just FAULT=1 (M694). leak_turn.sh gates on a
+    # SAN=1 binary and would have been invisible in exactly the M482 way: listed
+    # in run.sh, skipping in every ordinary run, named by nothing.
+    if grep -qE 'needs a (FAULT=1 binary|SAN=1 build)' "$f" 2>/dev/null; then
         _fault_drivers="$_fault_drivers $(basename "$f")"
     fi
 done
@@ -446,14 +449,14 @@ for d in $_fault_drivers; do
     grep -q "tests/smoke/$d" "$_mk" 2>/dev/null || _missing="$_missing $d"
 done
 if [ "$_nfd" -eq 0 ]; then
-    t_fail "no driver requires a FAULT=1 binary -- either the skip wording moved \
+    t_fail "no driver requires a special build -- either the skip wording moved \
 (so this check is scanning for something it cannot find) or the tier was deleted"
 elif [ -n "$_missing" ]; then
-    t_fail "$_nfd FAULT-gated driver(s), but the Makefile names none of:$_missing \
+    t_fail "$_nfd build-gated driver(s), but the Makefile names none of:$_missing \
 -- they will SKIP in every build and nothing will say so (M482). Add them to the \
 smoke-faults target."
 else
-    t_ok "all $_nfd FAULT-gated drivers are named in the Makefile gate"
+    t_ok "all $_nfd build-gated drivers (FAULT=1, SAN=1) are named in the Makefile gate"
 fi
 
 # ---- 17: `make` with no target must build the BINARIES -----------------------

@@ -9,7 +9,85 @@ both (M620, the plan executed as written; M621 mended what the first hosted CI r
 found). The loop keeps running -- **design, test, develop, dogfood, harden**. The
 checklist, with what remains:
 
-> **Where we stand** — updated **2026-09-21**, latest milestone **M690**:
+> **Where we stand** — updated **2026-09-22**, latest milestone **M709**:
+> **jichi chooses no provider and no model.** A fresh install used to resolve
+> to `api.anthropic.com` and `claude-opus-4-8` — a priced model nobody had
+> chosen — because three built-in defaults fired together. M505 found exactly
+> that, warned about it and kept it, calling it a reporting defect; the
+> operator found it again on a second machine and it is removed (M709).
+> `setup` now asks the endpoint which models it serves instead of suggesting
+> one, `doctor` fails with `no model is configured`, and `priced_model_lint`
+> covers `src/` — its exclusion comment had claimed jichi's own code named no
+> model id, which was false when written.
+>
+> **Previously — M708:**
+> **illumos is green for the first time, and getting there cost two defects.**
+> `uname()` returns a NON-NEGATIVE value on success and illumos returns a
+> positive one, so four call sites written `== 0` read a working call as a
+> failure — which made M695's whole platform-verdict table dead on that row
+> (M703). The shared rig ship path archived a commit rather than a tree, so
+> illumos `tar` materialised `pax_global_header` as a real file at the root of
+> the publishable tree; M683 had fixed the other call site. The row now reports
+> **19 ok, 0 failed**, 317 of 317 drivers, coverage debt **0**, both turns
+> driven. Alongside it: **19 of 19 emulated architecture triples driven** and the
+> 32-bit `WERROR=1` curl build they exposed (M699); a second driven task designed
+> and **two of its three rungs corrected by telemetry before any rig existed**
+> (M700); and a documentation wave — the retrospective re-counted with the
+> junior-developer scenario allowed to learn (M704), a state-machine tutorial
+> (M705), four measured translation pipelines of which one page shipped and one
+> was deleted (M706), Ada and SPARK as a lens (M707) and eight haiku (M708).
+>
+> **Previously — M698:**
+> **Cygwin and MSYS2 have rigs, and the deadline was hiding a defect.** Both rows
+> are reproducible in one command and both were driven by the rig itself. Run at a
+> measured multiplier rather than the shipped deadlines, fourteen of M696's
+> seventeen bounds became durations — and `setup_keyfile` failed identically on
+> both layers, which a 60 s deadline had killed before it could fail. **That
+> failure was the rig's own**: it exported the gateway key, the tier inherited it,
+> and the wizard correctly refused to store a key that was already set. With the
+> variable unset the driver passes 28 of 28. Two independently
+> maintained runtimes kill the **same three drivers**, all of which spawn a
+> process per file, which is what measuring both layers was for; and MSYS2 runs
+> about 0.65–0.78× of Cygwin's time on the same machine.
+>
+> **Previously — M697:**
+> **MSYS2 measured in both configurations, and both Windows rows driven.** The
+> nine failures a stock MSYS2 shows are jichi's fences firing correctly on a
+> filesystem where `chmod` does nothing: the daemon refuses to start rather than
+> expose a socket that runs shell commands. And the fix this project has
+> documented since August protects the *tests* rather than the *user* -- it makes
+> the tier's `/tmp`-based HOME honour modes while a real `~/.jichi.env` under
+> `/home` stays world-readable; `C:/msys64/home /home ntfs binary,acl` is the line
+> that works. `doctor` was right throughout, because it probes the state root and
+> not the mount the tests use. Cygwin and MSYS2 are now **Driven** -- both turns,
+> nonces minted that second, over the HRZ gateway rather than a loopback tunnel,
+> and the rows say which.
+>
+> **Previously — M696:**
+> **A deadline does not merely truncate a driver — it can fabricate findings, and
+> the tier reported them as real.** Re-measuring the Cygwin row turned up seven
+> failing checks. Four were genuine, one of them a safety property: `TCSAFLUSH`
+> does not discard input there, so jichi announced a type-ahead discard that had
+> not happened and the stray line became the user's first prompt. The other three
+> were invented by the kill itself — `timeout` TERMs the process group, a `$(...)`
+> substitution yields an empty string, and the shell resumes and prints `not ok`
+> lines accusing the product. `run.sh` now reports KILLED rather than FAILED and
+> marks that output not evidence. The row also could not be reproduced at all:
+> `ptydrive` had not compiled there since M683, so the whole tier was unrunnable
+> and nothing could say so.
+>
+> **Previously — M695:**
+> **Three places in the product answered "is jichi tested here", and none of
+> them agreed.** `doctor` told a Cygwin user jichi had never been compiled on
+> this platform while running a binary Cygwin had just compiled, and the setup
+> wizard told every BSD user the same thing in its opening paragraph. M486 fixed
+> this for the **Verified** tier and wrote a lint to hold it; the lint's universe
+> was the Verified table, so the three **Partly verified** rows were outside it by
+> construction and one of them has run a live agentic task. One verdict with three
+> values now, the page declares each row's `uname -s` so the lint reads the page
+> instead of a second copy of the answer, and the fix is verified on Cygwin.
+>
+> **Previously — M694:**
 > **The last two red drivers were both the DRIVER, and finding that needed the
 > hardware.** `lite_context_cap` assumed the absence of `--lite` meant the normal
 > profile — but lite **auto-enables** below the resource tier, and the 415 MB Pi
@@ -2732,7 +2810,7 @@ checklist, with what remains:
 >
 > **Measured, not incremented** — the M259 discipline. Four figures below are
 > **counted by `tests/smoke/docs_counts_lint.sh`**, which since M326t also reads
-> *this banner*: the curriculum stands at **88 graded tasks and 75 trap cases**, over
+> *this banner*: the curriculum stands at **90 graded tasks and 75 trap cases**, over
 > **33** scaffold packs, and the latest milestone above must be this file's newest
 > entry — the four that had drifted here while the same lint held them correct in
 > `CURRICULUM.md`. The suite sizes are deliberately **lower bounds**, per M307, so
@@ -40022,3 +40100,1026 @@ The log's first five rows are that session, including two entries that are not
 defects: a stale rules path handled honestly, and a fence that was enforced
 *and* legible. A log of only failures is a log nobody trusts.
 
+### M691 -- the public tree advanced to the M690 state -- done
+
+Plan item 5. Public `0f86415` = private `a61d832d`, covering **M669-M690** --
+twenty-two milestones, and the first re-cut since v0.9.2 (M668, public
+`3e6a242`).
+
+**No new tag, deliberately.** `JC_VERSION` is still `0.9.2`: nothing in the
+interface moved, and the rule is to tag only when the version does. So this is
+a state advance with **one** hosted CI run rather than the two a tag push
+produces.
+
+**Verified before committing, not after.** `make ci` green on the exact commit
+being snapshotted -- `ci: OK`, `smoke: OK (315 drivers, 1,836 checks)` -- then
+a two-way file-list diff and a per-file `cmp`: **2,026 files compared byte for
+byte, 0 differing**, with the only entries on the snapshot side being the two
+known omissions (`.jichi/agents/docs-reviewer-{junior,tutor}.md`, private since
+v0.9.0). The exact-commit rule is not ceremony: at the 0.9.2 cut the gate was
+green two commits earlier and the intervening edit failed `docs_flags`.
+
+Hosted CI green on the first run. That runner has caught four things local `ci`
+did not (M621-M624), which is why it is waited for rather than assumed.
+
+**What the band is about**, and the commit message says it plainly: almost
+everything here is **an instrument that failed in the shape of a result**. A
+lint that stopped reading at a NUL byte. A cap that reported success on every
+channel a caller reads. Three rigs with no deadline, so a stalled mirror was
+indistinguishable from a slow one. Two pages that disagreed about this
+project's own smallest result. A register that claimed the journal recorded
+something it did not. Ten illumos drivers, every one a defect in this project's
+own test tooling rather than in jichi.
+
+It also carries README.md's new section -- the author's own account of why
+jichi exists and who it is for -- which is the first part of the public tree
+written in his voice rather than about the program.
+
+### M692 -- when something cannot be checked, say which thing and why -- done
+
+The last two seams from the zigodot drive, closing `DEFERRED.md` item 6. Both
+are the same shape: jichi holding the answer and printing something vaguer.
+
+**1. The live probe discarded the server's own diagnosis.** It printed
+`the probe request did not complete (http error, HTTP error)` -- the status
+string, then the *literal words* "HTTP error" -- for a gateway that had
+answered:
+
+```
+HTTP 400  {"error":{"message":"litellm.BadRequestError: You passed in
+model=hosted_vllm/qwen3-coder-next. There are no healthy deployments for this
+model. ..."}}
+```
+
+The status code was in `res.http_status` and unused; the body was in scope and
+freed. From the old line the next move is to check the network; from the
+server's, it is to fix one string, and telling those apart is the entire value
+of the row. `struct jc_oneshot_result` gains `err_detail`, filled from
+`{"error":{"message":…}}`, then `{"error":"…"}`, then the raw first line --
+because a proxy that is not speaking the OpenAI dialect is exactly the case
+where the literal text matters most. Verified against the live gateway.
+
+**2. The hollow-gate check was silent when it could not run.** M86 warns that a
+green verify ran zero tests, or fewer than an earlier green, or that an edited
+test file did not raise the count. All three need a **parseable test count**,
+and `zig build test` -- a real project's real verifier -- prints nothing on
+success. With no count the machinery returned `JC_VERIFY_SANE` and said
+nothing, so *"the gate is fine"* and *"the gate could not be inspected"* printed
+identically.
+
+`JC_VERIFY_NO_COUNT` is now its own verdict, distinct from `NO_TESTS`: a count
+of zero is a positive claim, the absence of one is not. **Reported in the reach
+footer's not-checked half and NOT as a warning** -- a verifier quiet on success
+is a normal setup, and a per-run warning would fire on every run of every such
+project. That is the same argument M689 used for `ls`, and it is why the M688
+footer exists as a home for facts like this.
+
+**A pinned test had to change, and the reason is recorded rather than
+overwritten.** `test_envelope.c` asserted `jc_env_verify_sanity(-1, …) ==
+JC_VERIFY_SANE` under the comment *"unknown count is never flagged"*. That
+reason is still honoured: NO_COUNT produces no warning, no `on_status` ping and
+nothing to the model. What changed is that the verdict can now be *expressed*,
+which the old enum could not do.
+
+**Tests.** `tests/smoke/probe_says_why.sh`, five checks, teeth proved per check
+-- and tooth A found a defect in the driver rather than in the product: check 2
+grepped the whole `doctor` output for `HTTP 400` and passed under a perturbation
+that removed the status from the probe row entirely, because the model-**limits**
+check prints the same status a few rows above. Anchored to the probe's own line,
+it fails as it should. *A check whose universe is the whole page tests whichever
+row happens to mention the string.*
+
+**Also found, not fixed here.** Running the new path under ASan/LSan turned up
+two pre-existing direct leaks -- 512 B from `jc_list_dir` under `run_doctor`,
+384 B from `jc_calib_load` under `main`. Both are lost `jc_vec` pointers in a
+process that exits immediately, and both survived because `make ci`'s valgrind
+stage runs the **unit suite**, not `doctor`. Carried into the hardening review.
+
+### M693 -- a hardening pass, and the gate gap that hid its findings -- done
+
+Asked for as "review the codebase regarding hardening". The register was the
+wrong place to start: every hardening-relevant row in `DEFERRED.md` was already
+closed or deliberately left with its reasoning (the path fence's TOCTOU window,
+the popen descriptor total, the MCP/LSP blocking `waitpid`). So this was a fresh
+pass, and it started from a leak found while testing something else.
+
+**Two direct leaks on `jichi doctor`**, 512 B from `jc_list_dir` under
+`run_doctor` and 384 B from `jc_calib_load` under `main`. The bytes do not
+matter -- the process exits. **What matters is that a leak checker could not be
+used on those paths at all**: a new leak would arrive as two more lines in a
+report that already had some. A tool that always complains is a tool nobody
+runs, which is M689's argument about `ls` in different clothes.
+
+**The shape underneath.** 36 early-return subcommand exits, each freeing a
+hand-maintained subset -- most `config` and `arena`, the `skills` family a few
+more, and `jc_calib_free` on **none** of them. `app_free_common()` now covers
+the app-level set at every one. Safe to *add* rather than audit-and-replace
+because every one of those frees ends in `jc_vec_free`, which nulls the pointer
+and zeroes the length; the arena is excluded because it is not idempotent. Same
+matrix as M688's stop reasons, in a different dimension.
+
+**Why `make ci` had never seen it.** Its sanitizer stage is
+`make SAN=1 CC=clang test` -- the **unit suite**, which never enters `main()`'s
+subcommand dispatch. `scripts/leakcheck.sh` runs seven subcommands under
+LeakSanitizer and `ci` now calls it.
+
+**The script had the defect it exists to prevent, and the tooth caught it.**
+First version resolved the binary as `./jichi` and then `cd`-ed into a temp
+workspace, so it never ran; `|| true` swallowed the failure and it reported
+`OK (7 subcommands, no LeakSanitizer reports)` **against a binary with a
+deliberately reintroduced leak**. Fixed with an absolute path, plus an output
+floor -- a subcommand that produced nothing on either stream did not run -- and
+a refusal to accept a non-sanitizer binary at all, because a clean result there
+would mean "nothing was checked".
+
+**Checked and found sound.** All the hardening flags are in effect and probed
+rather than assumed. And `_FORTIFY_SOURCE` emits no `__*_chk` symbols even in an
+optimised build **because there is nothing for it to instrument**: `sprintf`,
+`strcpy`, `strcat` and `gets` are banned outright and everything goes through
+`jc_snprintf`, which is jichi's own function and invisible to glibc's fortify.
+The protection is by construction rather than instrumentation -- worth writing
+down, because a reader who greps for `_chk`, finds none and files a gap would be
+wrong. One diagnostic *was* wrong about it: `make info` said
+`_FORTIFY_SOURCE inert` under `SIZE=1`, where the optimisation arrives as
+`SIZEFLAGS` and the flag is live.
+
+**What this pass did not cover**, in `HARDENING.md` §7b rather than implied: the
+TUI, the ACP/MCP peer paths, the daemon socket, and anything needing a model
+were not run under a sanitizer, and no fuzzing beyond `ci`'s existing 2,000
+iterations. A leak-and-flags pass on the reachable surface, not a review of the
+threat model.
+
+**The three measurements, taken and reported rather than answered.** All three
+are corpus-starved, each for a different reason, and saying so is the result:
+`capped_oneshot.py` -- 2 post-M690 journals, 0 capped, floor 20: **NOT
+EVIDENCE**. `strict_green_fp.py` -- 16 of 46 scoped-and-ok runs flagged (35%,
+against M662's 46% on a smaller corpus), but **all 1,158 flagged paths predate
+M684**, so the trackedness field that was supposed to settle it has no data yet.
+`reread_ratio.py` -- **0 measurable calls, and for a structural reason**: it
+reads `read_file` paths from the `--output jsonl` STREAM, and a run journal
+alone cannot answer it, so no amount of ordinary driving will feed it.
+
+
+### M694 -- the leak checker meets the part that is actually jichi -- done
+
+M693 ended with a leak checker that could be *used*, and a gap it named without
+closing: `scripts/leakcheck.sh` drives seven subcommands -- `--version doctor
+models describe context assignments skills` -- and **every one of them is
+read-only and none of them calls a model**. The path that is jichi (build_request
+-> jc_http -> SSE framing -> on_event -> jc_tool_execute -> the loop back around)
+had no leak coverage anywhere in the gate, because `make ci`'s sanitizer stage is
+the unit suite and the unit suite never enters `main()`'s dispatch either.
+
+**`tests/smoke/leak_turn.sh` runs one real agent turn with a full tool round
+under LeakSanitizer**, against `mockmodel`, hermetically. It found a leak on its
+first run:
+
+```
+Direct leak of 384 byte(s) in 1 object(s)
+    realloc -> jc_vec_reserve -> jc_vec_push
+    -> jc_app_reread_check -> read_run (jc_tool_read.c) -> jc_tool_execute
+```
+
+`app->read_files` and `app->read_recs` are `jc_vec_init`'d at startup and had
+**no `jc_vec_free` anywhere in the tree**. It stayed invisible because their
+*contents* are arena-owned (`jc_arena_strdup`) and genuinely are freed -- what
+leaked was each vec's own malloc'd backing array. And no read-only subcommand
+calls a tool, so M693's seven could not have reached it however long they ran.
+
+**The cause was the matrix M693's own comment warned about.** `app_free_common()`
+covers 37 early exits; the main path had **five hand-copied frees** instead of
+calling it, so the two vectors added at M231 were never added there. The main
+path now calls `app_free_common()` like everything else -- safe because every
+free inside ends in `jc_vec_free`, which nulls and zeroes.
+
+**Three floors before the verdict, and they are the point.** A clean leak report
+from a turn that never ran is the same vacuous green as a lint scanning zero
+files. So check 1 compiles and runs a *planted* 64-byte leak and requires the
+runtime to report it (leak detection is off by default on some platforms, which
+is exactly the silent-pass shape); check 2 requires **two** captured requests,
+which is the cheapest proof that the tool result was fed back and the request
+rebuilt rather than the first half of a turn happening; check 3 requires the
+answer on stdout. Only check 4 reads the leak verdict.
+
+**And the driver was nearly invisible in the M482 way.** It gates on a SAN=1
+binary, so it skips in every ordinary `make smoke`. `smoke_lint.sh` check 16
+existed for precisely this -- but matched the literal string `needs a FAULT=1
+binary`, so a SAN-gated driver walked straight past it. The check now matches
+any special-build gate and reports `all 4 build-gated drivers (FAULT=1, SAN=1)`;
+the Makefile's leakcheck stage runs the new driver against the binary it has
+just built.
+
+**Also in this milestone, and found the same way -- by something hanging.**
+`posix_utils_lint.sh` checks 19 and 20 ended `' $(find "$ROOT/src" ...)`, and
+when that find matched nothing `awk` was left with a program and no file
+operands, so it read **stdin**. One tooth run sat in `pipe_read` for **15 hours
+47 minutes**; the same check with stdin on `/dev/null` printed a cheerful `ok`
+having read zero files. Both sites now capture, floor and print their universe
+(`181 files scanned`, `420 scripts scanned`), and checks 27/28 are the lint that
+keeps the shape from returning -- measured first: 145 command substitutions in
+the tier, exactly 2 of them supplying file operands. ANECDOTES #89.
+
+**Corrected, not quietly.** `analysis/2026-09-20-driving-jichi-on-zigodot.md`
+and `DEFERRED.md` item 6 both described zigodot from the **wrong checkout** --
+an abandoned 69-commit copy one directory level shallower than the live
+416-commit repository. Every number about the project was wrong (81 `.zig` files
+for 109; 202 `test` blocks running 29, for 558 running 510; an `AGENTS.md` under
+"a different account" that in fact names this one). The four *jichi* seams are
+unaffected, being properties of jichi's output. Both documents now carry the
+correction with the original text intact.
+
+### M695 -- three places answered "is jichi tested here", and none of them agreed -- done
+
+`doctor` told a Cygwin user **"jichi has never been compiled on this platform"**
+while running a binary Cygwin had just compiled, and the setup wizard opened by
+telling FreeBSD, NetBSD and OpenBSD users -- every one of them a **Verified** row
+running the full gate -- that this "looks like a system jichi is not tested on".
+Reproduced verbatim on Cygwin 3.6.10 at `658657a6`, `make WERROR=1` clean in
+119 s, 0 warnings:
+
+```
+ 7:    jichi has never been compiled on this platform (docs/PLATFORMS.md); expect
+       to be the first to find what does not work -- and please report it
+25: !  platform is not Linux; jichi is developed and tested there
+       24 ok, 9 warnings, 0 problems
+```
+
+Two platform warnings, both wrong, in the command every page says to run first.
+
+**This is M486 exactly, one verdict tier down.** M486 fixed `doctor`'s
+never-compiled line for the **Verified** tier and wrote `portability_lint`
+check 7c to hold it there. The check's universe was the Verified table, so the
+three rows under **Partly verified** -- illumos/Solaris, Windows + Cygwin,
+Windows + MSYS2 -- were outside it *by construction*, and one of them, illumos,
+has since run a live agentic task. A check that covers one tier of a three-tier
+verdict reports on one tier of a three-tier verdict.
+
+**Five sites, four different notions of "tested here", and nothing reconciling
+them.** The setup wizard asked `jc_platform_is_linux()`. `doctor`'s platform line
+asked `jc_platform_is_linux()`. `doctor`'s never-compiled line asked
+`jc_platform_verified_row()`, which knew four sysnames. `portability_lint` check
+7c cross-checked that array against the Verified table only. `doctor.sh` held a
+**fourth** copy of the list in a `case`, in the driver whose own header says
+*"this driver asserts the BEHAVIOUR and the lint owns the membership question"*.
+No test asserted either of the first two at all, which is why M486 walked past
+them.
+
+**The fix is one verdict with three values**, not a wider list. Adding Cygwin and
+MSYS2 to the verified array would have been a one-line change trading a false
+statement for a weaker one: `PLATFORMS.md` defines *Verified* strictly, and these
+rows are not it. So `jc_platform_row_verdict()` returns
+`VERIFIED` / `PARTLY` / `UNKNOWN`, `jc_platform_verified_row()` survives as
+`verdict == VERIFIED`, and `doctor` makes **one** platform statement where it
+used to make two. Matching is by prefix for the Windows layers, because `uname -s`
+there carries the host build number -- `CYGWIN_NT-10.0-26200` today, something
+else after the next Windows release, and an exact compare would go stale in
+exactly the silent way this milestone is about.
+
+**The page now carries the machine-readable half.** Every measured row states
+`uname -s = <token>`, so check 7c reads the page's own declaration rather than
+holding a second copy of the answer -- the old version hardcoded
+`FreeBSD NetBSD OpenBSD` as its page-side universe, which is the same staleness
+one level up. Both tiers are pinned both ways, each with its own floor, plus a
+check that no token claims both tiers at once. `doctor.sh` derives its
+expectation from the page too, comparing on the family (the token up to its
+first `-`), and gained a check that the retired second statement has not come
+back.
+
+**Teeth, per check rather than per driver.** Fourteen new unit checks, and two
+perturbations, each fired exactly its own subset with the build still succeeding:
+emptying the partly array turned **4** red (the four PARTLY assertions);
+dropping the trailing dash so the Windows rows match exactly turned **3** red
+(the three Windows strings, SunOS still passing). The first attempt at this proof
+was void twice over and both faults were in the harness: it rebuilt with
+`make WERROR=1`, which does not rebuild `run_tests`, so a perturbed source was
+compiled and a **stale test binary** was run and reported 0 failures; and it
+restored with `git checkout --`, which for an uncommitted fix means *delete the
+fix*.
+
+**Verified on the platform it was written for.** Same tree on Cygwin: build clean
+0 warnings, unit suite **13,438 checks / 0 failures**, and
+
+```
+24:    jichi is PARTLY verified here (docs/PLATFORMS.md): it builds, and the unit
+       suite and smoke tier have run -- but not the full gate. That page names
+       what is missing on this row
+       24 ok, 8 warnings, 0 problems
+```
+
+with the wizard's opening note changed to match. `doctor.sh` reads `verified` on
+Linux and `partly` on Cygwin from the same code -- the partly branch cannot be
+reached on the development platform at all, which is the whole reason it was
+missing.
+
+**Found and not fixed**, both recorded in `DEFERRED.md`: two cells on
+`PLATFORMS.md` are severed mid-sentence, their tails rendering as paragraphs
+below the table (`portability_lint` check 16 catches a row *after* prose, not a
+row whose *tail became* prose); and the setup wizard seeds macOS's `afplay` and
+`osascript` as the sound defaults for every non-Linux host, FreeBSD and illumos
+included. Neither is this milestone's subject and guessing at either would be
+worse than recording it.
+
+### M696 -- the Cygwin row re-measured, and the deadline that fabricated findings -- done
+
+Named for what happened rather than for what was planned. The band plan reserved
+M696 for *"the Cygwin and MSYS2 rows, re-measured and driven"*; MSYS2 is not
+re-run and neither row is driven, and that work moves to M697. What this milestone
+is actually about is a row that could not be reproduced, three defects it found,
+and a deadline that invented four more.
+
+**The row was not reproducible at all, and that came first.** `ptydrive` had not
+compiled on Cygwin since **M683**, whose illumos pty fix introduced
+`ioctl(FIONREAD)`. FIONREAD is not a POSIX ioctl, so each libc files it elsewhere;
+M683 added `<sys/filio.h>` behind `JC_HAVE_STREAMS_PTY` for illumos and nothing
+for anyone else. Measured here, one header per probe, with the build's real flags:
+`<sys/ioctl.h>` no, `<sys/filio.h>` no, **`<sys/socket.h>` yes**. `ptydrive` is
+what the tier drives a terminal with, so `make smoke-tools` failed and the
+**entire tier** was unrunnable -- not one driver, all of them. The row's published
+"209 drivers / 1,081 checks" had therefore been unreproducible for weeks with
+nothing able to say so, because no gate builds that tooling anywhere except the
+platform where it already works.
+
+**Measured, at `bac4c535` and again at `aa87bce8`.** Build **117 s** median of
+three against the bench's **9.65 s**, zero warnings, full feature set with nothing
+compiled out. Unit suite **13,438 / 0**. The tier at shipped deadlines with
+`KEEP_GOING`: **317 drivers**, 20 driver-level failures, 95m59s; median driver
+**10 s**, p90 29 s, 17 drivers over 60 s.
+
+**The ratio is a property of what a driver does, not of the host.** The twenty
+drivers that could not finish were re-run with the deadline widened so it could
+not fire -- removing the censor rather than manufacturing a pass -- with bench
+figures taken as a subset on the bench so the comparison was like for like:
+
+| driver | bench | Cygwin | ratio |
+|---|---|---|---|
+| `posix_utils_lint` | 4 s | 1218 s | **~300x** |
+| `license_lint` | 2 s | 565 s | 283x |
+| `smoke_lint` | 8 s | 1072 s | 134x |
+| `accessible` | 57 s | 84 s | **1.5x** |
+
+`accessible` is the control the table needed: the slowest of the twenty on the
+bench and the fastest relative to it here, because it is **wall-clock and pty
+bound** -- it waits on timers, and waiting costs the same everywhere -- while the
+lints spawn a process per file and process creation is what this platform charges
+for. **1.5x to ~300x on one host**, against the build-time ratio of 12.1x that
+conventionally sets the multiplier. No single number is correct for that
+distribution, which is `proposals/2026-09-calibration-tier.md` reached by
+measurement rather than argument. **No multiplier is proposed for the row**, and
+the completed data is the reason rather than a gap in it.
+
+**`accessible` runs at 95% of its deadline on the reference bench.** 57 s against
+60 s (`run.sh` line 200, in the block ending `run_driver "$t" 60`), with standalone
+timings of 53.9 s and 57.5 s the same day. That 5% margin is the whole of an
+intermittent tier failure this project spent a morning attributing to resource
+accumulation: in-tier it tips past the limit and is killed while all 22 of its
+checks have printed `ok`. Recorded in `DEFERRED.md` as a decision, not patched --
+raising the limit is a cap change on a driver that already fails in a way no check
+reports.
+
+**Four real findings, one of them a safety property.**
+
+- **`TCSAFLUSH` does not discard input on Cygwin.** POSIX specifies that it does.
+  Measured with a pty pair, same code and flags on both hosts: 18 bytes pending,
+  and Linux reports 0 after `tcsetattr(TCSAFLUSH)` while Cygwin reports 18.
+  `jc_term`'s `enter_raw` relied on that side effect to discard type-ahead, so it
+  **announced a discard that had not happened** and the stray line became the
+  user's first prompt -- which is exactly what the flush exists to prevent. Fixed
+  with the explicit `tcflush(fd, TCIFLUSH)`, which the probe shows works on both;
+  and the announcement is now withdrawn if input is still readable, because
+  "your line was discarded" is worse than silence when it was not.
+- **`bool_dialect` tested three spellings and blamed jichi for the fourth.** A
+  profile's identity is its basename, and the fixtures were named after the values
+  they carry: `ro-True.md` and `ro-true.md` differ only in case, so on NTFS four
+  writes produce **three files** -- the survivor keeping the first name and the
+  last content. jichi was right throughout. Numbered fixtures now, and a floor
+  asserting all four exist, because a fixture that collapses from four cases to
+  three does not announce it and accused the product instead.
+- **`daemon_auth` overshot the socket, not the cap.** The driver sent 1,120,000
+  bytes against a 1 MB cap, leaving ~71 KB unread when the daemon answers and
+  closes. Cygwin implements AF_UNIX over local TCP, where a close with unread data
+  can reset and discard a reply the peer already received. Measured, 8 repetitions
+  per size: a 1 KB overrun answered 8/8, 16 KB 2/8, 71 KB 3/8, 512 KB 0/8. One byte
+  over the cap exercises the same path, so the driver now overshoots by ~1 KB. The
+  product side -- draining before close -- is in `DEFERRED.md` as a decision, since
+  the accept loop is single threaded.
+- **`setup_keyfile` 27 was this band's own regression.** M695's new wording,
+  "PARTLY verified **here** (docs/PLATFORMS.md)", dropped the lowercase word
+  *platform* that check 27 counts; the count went 2 to 0 on every Partly verified
+  row. Fixing that to "on this platform" then broke `doctor.sh`, which grepped for
+  "here". One sentence, two consumers, opposite directions, both shipped, neither
+  visible on a Verified bench. `portability_lint` check **7f** now pins the
+  coupling rather than either side.
+
+**And three findings that were not findings.** The remainder were fabricated by
+the deadline. `timeout` TERMs the process **group**, so a `$(...)` substitution in
+flight dies and yields an **empty string** -- and the driver shell, which defers
+the signal while waiting on that foreground child, resumes, compares against the
+empty value, and prints `not ok` lines **accusing the product** before it dies.
+Reproduced deliberately and byte for byte: `timeout -k 5 25 sh
+tests/smoke/cppcheck_lint.sh` emits the same "by untracked include: none" a
+96-minute tier reported, for a universe the kill had erased. `accessible` under the
+same treatment reports `rc default=0 accessible=143` -- 128+15, the SIGTERM itself,
+presented as a defect. `wd`'s own header documents that deferral for a driver
+*absorbing* a TERM; what it does not say is that the same deferral lets the shell
+publish conclusions drawn from values the kill erased.
+
+**So `run.sh` now says which happened.** A killed driver is reported as KILLED
+rather than FAILED, with its output marked **not evidence**, and the M201 retry no
+longer claims "ALSO fails standalone -> a real defect" for a driver that merely ran
+out of time twice -- it says it needs more than N seconds on this host.
+
+**And "in-suite-only" was never about the suite.** `run.sh` gives a named subset
+**120 s** and the full tier **60 s** for this group, deliberately and with a comment
+saying why. `cppcheck_lint` takes 95-98 s, `accessible` 84 s here,
+`install_no_build` similar -- all three sit **between the two limits**. So "run it
+standalone to check" is a *more generous test*, not an isolated one, and the
+difference it measures is the deadline. The tier's own retry uses the same limit,
+so its "PASSES standalone" is a real signal; a human re-running by hand is doing
+something else and will disagree for a reason unrelated to either.
+
+**Three lints, all pinning properties this bench cannot execute.** `doctor`'s
+platform verdict has three branches and any host runs exactly one, so on a Verified
+bench two of the three wordings are unreachable text no gate reads: check **7d**
+asserts all three name the platform in lowercase, **7e** that entering raw mode
+flushes explicitly rather than trusting `TCSAFLUSH`, and **7f** that the phrase
+`doctor.sh` greps for is one `main.c` prints. Each proved red per branch with the
+build still succeeding.
+
+**A measurement error of mine, corrected in place.** The first tier run was
+reported as "TAP not ok: **0**", and a conclusion drawn from the zero: *"Cygwin
+finds no defect in jichi."* The counter was anchored to the timestamp tab, and
+`run.sh` indents a failing driver's captured output before printing it -- so the
+count excluded exactly the drivers it was investigating. Counted properly that run
+had **six** drivers emitting failing checks, two of which had never been seen. The
+tell was available and unread: a tier reporting twenty failed drivers and zero
+failed checks is describing either twenty timeouts or a broken counter, and only
+one of those was checked. The analysis page now quotes **no TAP totals at all**,
+because a failing driver's output is printed twice and any total double-counts
+precisely the drivers under discussion.
+
+**NOT DONE.** MSYS2 is not re-run and neither platform is driven, so by this
+project's own rule neither row is tested; both move to M697. `PLATFORMS.md` is not
+restated. `make ci` cannot run on Cygwin at all -- no valgrind, no clang. And the
+seventeen drivers that cannot finish in 60 s there remain a fact about the deadline
+and the host rather than a defect in either.
+
+### M697 -- MSYS2 measured twice, and both Windows rows driven -- done
+
+The half M696 did not do. MSYS2 re-measured **in both configurations**, and Cygwin
+and MSYS2 driven with a model -- the first Windows-family rows other than WSL2 to
+close the agent loop.
+
+**MSYS2, stock, which is what a new install gives you** (`noacl`, `MSYS` unset):
+build **115 s** median of three with zero warnings; unit suite **13,428 / 4**;
+tier **317 drivers, 14 killed at their deadline, 9 failed**, 98m48s. **All nine
+failures have one cause and none is a defect.** `chmod` reports success and does
+nothing, so the daemon **refuses to start** rather than expose a socket that runs
+shell commands -- `d.sock is group/other bits set -- must be 0600` -- and the API
+key file and audit log land at `-rw-r--r--`. Those are fences firing correctly on
+a filesystem that cannot honour modes.
+
+**With the mount honouring modes, eight of the nine clear.** The ninth was not
+about the mount at all: **MSYS2 cannot create a dangling symlink**, `ln -s` to a
+non-existent target failing with ENOENT under every symlink setting. That is the
+fixture `pathfence_dangling` is built on, so the driver tested the fence against a
+path that was not the link it thought it had made and reported *"no refusal in the
+tool result"* -- a hole in the **path fence** -- beside a control check admitting
+its own fixture had failed. A harness defect dressed as a security finding is the
+worst direction for this to fail in, and the one a reader believes. It skips now,
+with the reason.
+
+**AND THE DOCUMENTED FIX PROTECTS THE TESTS, NOT THE USER.** The MSYS2 row has
+recorded since August that adding `C:/msys64/tmp /tmp ntfs binary,acl` clears the
+privacy failures. It does -- because the tier's isolated HOME lives under `/tmp`.
+A real user's `~/.jichi.env` is under `/home`, still `noacl`, still world-readable.
+Measured, one line per attempt:
+
+| fstab line | user's home file after `chmod 600` |
+|---|---|
+| `C:/msys64/tmp /tmp ... acl` (documented) | **644** |
+| `C:/msys64 / ... acl` | **644** -- the installation root is handled specially |
+| **`C:/msys64/home /home ... acl`** | **600** |
+
+So the advice that made the gate green leaves the key file readable by other local
+users, and nobody would know. **`doctor` is right in both cases**, because it
+probes the actual state root rather than the mount the tests use: it warns
+*"private files are NOT private on this filesystem"*, naming the mount, the
+affected files and the fix, and reports *"private files really are private"* once
+the mount honours modes. That is M503's probe meeting a genuine `noacl` mount for
+the first time -- until now it could only be proved with a `JC_FAULT_CHMOD`
+injection site, because there is no such mount on the bench.
+
+**Both rows are DRIVEN.** Two turns each, following `scripts/_rig_live.sh`: a wire
+turn, then a loop turn whose pass phrase is a **nonce minted that second**, written
+into a file the model can only reach by calling `read_file`. A phrase that existed
+before the run could be guessed or remembered; this one could not.
+
+| row | wire | agentic | phrase |
+|---|---|---|---|
+| Windows + Cygwin | 2 s | **3 s** | `M697-cygwin-3FF107` |
+| Windows + MSYS2 | 1 s | **2 s** | `M697-msys2-63B3BA` |
+
+`jlu/qwen3.8-27b`, checked against the free-namespace listing before the first
+request -- 8 free ids of 376 -- with the key supplied through `apiKeyEnv` so it
+stays out of the config file and out of `ps`.
+
+**The transport is not the one every other Driven row used, and the rows say so.**
+LM Studio is not installed on this machine and the JLU instance is unreachable
+from it, so these turns went to the HRZ gateway over TLS rather than to a
+loopback-bound server through `ssh -R`. A row that implies a transport it did not
+use is worth less than no row.
+
+**Registers corrected.** `DEFERRED.md`'s driven-ness row claimed Cygwin and MSYS2
+had never made a model call, and listed OpenBSD and NetBSD among them -- which was
+already wrong when written, both having been driven 2026-09-19. The Driven table
+now covers every row on the page and both Windows rows read **yes**.
+
+**NOT DONE.** Neither row has a rig, so neither is reproducible by anyone else --
+that is `DEFERRED.md` recommendation 4 and it is M698. UCRT64 and MINGW64 remain
+unmeasured and absent from the never-compiled register -- that is the next
+band on this machine, and its milestone number is not this machine's to mint
+(the other machine's merges consume numbers first). `make ci`
+still cannot run on either layer: no valgrind, no clang. And the 14 drivers that
+cannot finish in 60 s on MSYS2, like Cygwin's 17, remain a fact about the deadline
+and the host rather than a defect in either.
+
+### M698 -- a rig for Cygwin and MSYS2, and what the deadline was hiding -- done
+
+`DEFERRED.md` recommendation 4, the oldest live item on that page, closed. Both
+Windows-family rows are now reproducible in one command, and both were **driven
+by the rig itself** rather than by hand.
+
+**The rigs.** `scripts/tier-v-cygwin.sh` and `scripts/tier-v-msys2.sh` over a
+shared `scripts/_rig_win.sh` -- written only **after** both rows ran by hand
+(M696, M697), which is the Guix rule this item was held open under for four
+months. They are not shaped like the other rigs and the helper's own header says
+why: every other `tier-v-*` boots a guest and drives it over ssh, while these two
+layers are *installed on the machine running the rig*, so there is nothing to
+boot and nothing to reach. They share the **task** -- both prompts, the per-run
+nonce, the fixture -- and supply a local `sh` as the **transport**, exactly as
+`_rig_live.sh` prescribes for a rig of a different shape. `jc_rig_live` is
+untouched, so `rig_live_commands_lint`'s golden-command comparison still pins it
+byte for byte.
+
+| | **Windows + Cygwin** | **Windows + MSYS2 (MSYS)** |
+|---|--:|--:|
+| rig result | **13 ok, 1 failed** | **14 ok, 2 failed** |
+| build median of 3 | **125 s** (128/123/125) | **98 s** (99/97/98) |
+| multiplier | **13** = ceil(125/9.65) | **11** = ceil(98/9.65) |
+| unit suite | **13,438 / 0** | **13,425 / 1** |
+| smoke tier | 317 drivers, **3 killed, 4 failed**, 10,970 s | 317 drivers, **3 killed, 2 failed**, 8,826 s |
+| doctor | 25 ok, 4 warnings, 0 problems | 24 ok, 5 warnings, 0 problems |
+| agentic turn | **`TIER-V-cygwin-3C2C3F`** | **`TIER-V-msys2-D1A043`** |
+
+**THE DEADLINE WAS HIDING SOMETHING, AND IT TURNED OUT TO BE THE RIG.** M696
+published this row at the shipped deadlines: *"17 killed at 60 s and zero genuine
+check failures"*. Run at a measured multiplier, fourteen of those seventeen bounds
+became durations -- and `setup_keyfile` failed, identically on Cygwin and MSYS2:
+`not ok 1 - PTY drive failed (rc=3)` plus five cascading checks, ~400 s,
+reproducible standalone on both. Every symptom pointed at the product: it failed
+on exactly the two **Partly verified** rows and never on the Linux bench, so M695
+-- which changed what the wizard prints on precisely that class -- was the
+suspect.
+
+**It was the rig, and the control proves it.** The rig exports the gateway key so
+its live turns can use `apiKeyEnv`; the tier inherits that export; and
+`setup_keyfile` drives the wizard to store a key in `JICHI_API_KEY`. jichi found
+it already set and correctly answered *"already set in this shell -- nothing to
+store"*, so it never prompted and the pty script timed out. **With the variable
+unset, the same driver passes 28 of 28 on the same tree** -- including check 27,
+*"doctor reports the platform"*, which clears M695 outright. The rig now stashes
+the key out of the environment for the whole offline half and restores it only
+inside the live turns.
+
+So the honest result of raising the multiplier is narrower than it first looked,
+and still worth the 1.9x wall clock: it converted fourteen bounds into durations,
+and it surfaced a defect **in the measuring apparatus** that the shipped deadline
+had been concealing. A rig that fails only on the platforms it alone instruments
+is the hardest kind of false positive to catch, because the correlation it
+produces -- *fails on Partly verified rows, never on the bench* -- is exactly the
+shape of a real platform defect.
+
+**Two independently maintained runtimes kill the SAME three drivers.**
+`smoke_lint`, `snapshot_lint`, `posix_utils_lint` -- on Cygwin at a 780 s deadline
+and on MSYS2 at 660 s. All three spawn a process per file scanned. One row cannot
+separate *"Cygwin is slow at this"* from *"emulating POSIX over Win32 is slow at
+this"*; two rows agreeing can, and this is what measuring both layers was for.
+Everything whose cost is work rather than process count finishes on both.
+
+**MSYS2 is consistently faster than Cygwin** on the same machine, same NTFS, same
+user: build 98 s vs 125 s, `license_lint` 358 s vs 553 s, `docs_locators_lint`
+96 s vs 147 s -- about 0.65-0.78x. The first clean like-for-like comparison of the
+two emulation layers this project has.
+
+**ALL SIX FAILURES WERE DIAGNOSED, AND NONE WAS A DEFECT IN JICHI.** Two were
+the rig's own (above). The rest are platform properties the harness had not
+probed for, each now fixed in the house idiom -- probe the capability, skip with
+the measurement:
+
+* **`pdf`/`docs_pdf` on Cygwin.** `command -v pdftotext` answered yes, and the
+  binary it found was `/cygdrive/c/Program Files/Git/mingw64/bin/pdftotext` -- a
+  **native Win32** program from Git for Windows that cannot open a Cygwin path
+  and fails every fixture. The tier was thus harsher on the host with MORE
+  installed: MSYS2, having none, skipped. `_smoke.sh` gains a **functional**
+  probe, `smoke_pdftotext_works`, which builds a PDF and extracts it.
+* **`reading_trace` on MSYS2.** `printf 'A\r\nB\r\n' | sed -e 's/X/Y/'` returns
+  `A \n B \n` on MSYS2 and `A \r \n B \r \n` on Cygwin and WSL2 -- **MSYS2's
+  `sed` does CRLF text-mode translation and Cygwin's does not**, on one machine.
+  `capture.sh` normalises through `sed` and an HTTP head is CRLF, so the
+  *recording* lost the carriage returns. `mockmodel` writes with `"wb"` and the
+  bytes on the wire were correct throughout. The driver now probes CR survival.
+* **`predict_record` on Cygwin** fails in-suite-only and passes alone in 10 s --
+  the harness's own load classification, and it passes on MSYS2.
+* **The MSYS2 unit failure** is `test_path.c:197`, the documented `MSYS=<unset>`
+  symlink case; the `acl` mounts have cleared the file-privacy failures M697
+  measured in the stock state, leaving symlink emulation alone.
+
+**That is the whole point of two rows.** They **agreed** on the three killed
+drivers, which attributes that cost to emulating POSIX rather than to either
+implementation; and they **disagreed** about `sed` and about what `pdftotext` on
+PATH even is, which neither row alone could have established, having nothing to
+differ from.
+
+**A killed driver costs TWICE its deadline**, because the M201 retry re-runs it
+standalone -- diagnostic gold for a *failed* driver, and for a *killed* one a
+second full deadline to re-learn what the first kill established. Recorded as
+`docs/proposals/2026-09-calibration-tier.md` §1.3a with two candidate remedies
+and **no decision**, because the retry's value under load is exactly what §6 says
+must be measured first and never has been. The same section records that the
+ceil boundary sits *inside* the build-median noise: 123/125/126/127 s against a
+9.65 s reference puts the 13/14 threshold at 125.45 s, and two runs of the same
+rig an hour apart chose differently.
+
+**Registers corrected.** `DEFERRED.md`'s *"the reverse-tunnel arrangement is not
+in any rig"* row was **stale** -- true when written, untrue since M677, when
+`jc_rig_live` took the forward and `rig_live_lint` check 5 began *enforcing*
+`ExitOnForwardFailure=yes` on all seven rigs that carry one. A register claiming
+a gap two milestones after it closed is the same defect as an out-of-date
+platform row. The real remaining gap was the other direction -- a **keyed gateway
+over TLS** was in no rig, because every transport that existed reached a keyless
+loopback server -- and this closes it: `jc_rig_live_config` takes an optional
+`apiKeyEnv` (the variable's *name*, so no secret reaches the config or `ps`), and
+with no third argument emits what it always emitted, byte for byte.
+
+**Five defects in the rig's own apparatus, all found before the long run, none in
+the measurement** -- a counter where `grep -c || echo 0` printed zero twice and
+fed the KILLED/FAILED tallies; a run raised to a generous multiplier that
+recorded no per-driver timing at all; scratch logs written into the tree being
+measured, inflating its provenance stamp to "7 path(s) differ"; `jcw_surfaces`
+overwriting one log four times and discarding `doctor`'s findings; and an fstab
+check whose `|| note` fallback could never fire. **ANECDOTES #93** records the
+layer guard that *started MSYS2 in order to ask whether MSYS2 was running*, and
+then keyed on `msys-2.0.dll` -- which Git for Windows also maps. **#94** records
+the three aborted starts and a fourth instance in the watcher, under one lesson:
+absence and success must not share a representation, and a freshness test with no
+notion of when the run began is not watching the run.
+
+**Datasets kept, not summarised:** `docs/analysis/2026-09-22-tier-durations-*.txt`
+carry all 317 per-driver seconds for each platform, and
+`2026-09-22-rig-results-*.txt` the rigs' own verdict files.
+
+**NOT DONE.** `setup_keyfile`'s cause is not established -- the leading suspicion
+is M695, which changed what the setup wizard prints on a **Partly verified** row,
+a class containing exactly Cygwin, MSYS2 and illumos and never the Linux bench.
+That is an investigation, not a claim. `make ci` still cannot run on either layer
+(no valgrind, no clang). UCRT64 and MINGW64 remain unmeasured -- the next band --
+and this band found the default MSYS2 shell *is* MINGW64, so the rig's launcher
+guard is what stopped a MINGW64 row being measured and labelled MSYS2.
+
+### M699 -- the emulated architecture rows driven, and the 32-bit curl build they exposed -- done
+
+`DEFERRED.md` said the fourteen `qemu-user` architecture rows were not merely
+undriven but **impossible as built**, because those rows link `HAVE_CURL=` and so
+have no HTTP at all. Measured instead of accepted: **19 of 19 runnable triples
+driven in 13m09s**, each reporting a nonce minted that second.
+
+The claim was wrong for a reason worth keeping. `qemu-user` translates syscalls
+against the **host's** kernel and shares its loopback, so unlike every VM rig
+there is no guest to reach and no `ssh -R` to carry -- the emulated binary talks
+to LM Studio on 127.0.0.1 directly. What the rows needed was not a different rig
+but **a libcurl for each triple**, which `scripts/minimal-curl.sh` now builds per
+target with `--tls none`.
+
+**And building it found a live defect.** `curl_off_t` is `long long` on every
+non-LP64 target, so `-std=c89 -pedantic -Werror` fails inside a third-party
+header on **every 32-bit platform** -- `make WERROR=1` with libcurl could not
+build there at all. The Makefile now probes whether curl's header is clean under
+this build's own dialect and, only if it is not, relaxes `-Wno-long-long` for
+**one object**: `src/net/jc_http.o` is the only translation unit that includes
+`<curl/curl.h>`. `portability_lint` check 19 holds all three parts together --
+the probe, the consumer, and the count of includers -- because each is inert
+alone and a second includer would compile outside the relaxation.
+
+`tier-v-arch.sh` gained `--drive`. Its first version put the call **after** the
+unit suite, where every suite-classifying path ends in `continue`, so all six
+MIPS rows were skipped silently; the driven step runs first now, with a comment
+saying why.
+
+### M700 -- a second driven task designed, and three measurements that corrected it before it was built -- done
+
+`docs/proposals/2026-09-sustained-task.md`: a second driven task for long
+sessions, compaction and concurrency, deliberately **not** an extension of the
+M676 task, because a row that is Driven must keep meaning exactly one thing.
+
+The design was then tested against evidence rather than built. This machine's
+telemetry holds **49,523 events across 241 sessions**, and it answered three
+design questions with no code written -- correcting **two of the design's three
+rungs** before any rig existed:
+
+- **Mid-turn compaction reaches its target in 5 of 313 passes.** 84% fire and
+  change nothing; 14% reduce and stay over. The rung assumed the common case was
+  success.
+- **RSS steps, it does not drift.** Of eight sessions past twenty turns, four are
+  flat at 14-32 MB and four step to a 130-250 MB plateau and hold it. So the rung
+  must measure the **floor** at turn N, not the peak -- and N must be >= 20,
+  because the steps land at turns 16, 19 and 20 and a 12-turn rung would have
+  missed every one.
+- **Session length is bimodal**: 211 of 236 sessions ran exactly one turn.
+
+**massif then named the allocation site.** 92% of peak heap during an index build
+is `cJSON_Parse` of the embeddings response: one cJSON node per float,
+**1,509,888 of them**, 184 MB predicted against 183 MB observed. Transient per
+batch, not a leak -- and the opposite shape from the one `LOW_MEMORY.md`'s
+`M_MMAP_THRESHOLD` mitigation targets, which is why that mitigation does not
+cover it.
+
+### M701 -- a reply cut at the output ceiling is no longer a clean finish -- done
+
+M687 made a **tool-call** cap visible in the reach footer. A reply cut at the
+**output ceiling** was still not: `stop_clause` is NULL for a clean stop, so the
+footer said nothing, and `answer_complete` said the run finished.
+
+`struct jc_run_outcome` and `struct jc_reach` gain `answer_capped`;
+`jc_run_outcome_set` takes it and forces `answer_complete` to 0 when it is set;
+`jc_reach` branches the truncation clause so a capped run says the reply hit the
+output ceiling and names the fix (`raise this model's maxTokens`) instead of the
+false "the run did not finish". The `done` object gains `answer_capped` as a
+conditional top-level key, present only when true, the way `degraded` already is;
+`docs/EMBEDDING.md` item 2c records it.
+
+Deliberately **not** a new `jc_run_stop` value, and the header says why: the stop
+reason answers *why the loop ended*, and the loop ended normally.
+
+### M702 -- three fuzz targets for pure cores nothing covered, and two severed cells rejoined -- done
+
+`JC_FUZZ_TARGETS` 19 -> 22: `patch`, `utf8` (asserts `jc_utf8_next`/`_prev` make
+progress on any bytes) and `prop_jsonrepair` (aborts if a non-NULL repair fails
+to parse). Recommended in the first place as "build a seeded fuzz-lite harness",
+which was this register's own mistake repeated -- reading a row's title instead
+of the tree, where `tests/fuzz/` already held nineteen targets.
+
+`PLATFORMS.md` also gained a rule and lost two defects: two long cells ran past
+the end of their table row, so everything after the last `|` rendered as a
+paragraph below the table. `git log -S` on a distinctive phrase named the commit
+that wrote each, rather than guessing which row a stray paragraph belonged to.
+`portability_lint` check 20 makes it a build failure.
+
+### M703 -- the illumos row green for the first time: uname() succeeds with any non-negative value -- done
+
+`PLATFORM_RETEST.md`'s two halves disagreed. Coverage debt said the row was
+current (6 drivers, inside the `< 25` threshold); **five of seven triggers had
+fired**, three naming this row's exact axis. The triggers were right, and the
+lesson for that page is that debt counts drivers that never ran and cannot see a
+driver that runs and now asserts something new.
+
+**Defect 1, in `src/`.** POSIX says `uname()` returns a **non-negative** value on
+success -- not zero. Linux, the BSDs, Cygwin and MSYS2 all return 0, so four call
+sites written `== 0` were right on every row this project had ever run and wrong
+on the first SysV kernel it met: illumos returns a positive value. The cost was
+not cosmetic. `jc_platform_describe` failed on a call that had worked, so
+`doctor` printed `! host platform not recognised`, and `jc_platform_row_verdict`
+returned UNKNOWN -- **M695's entire platform-verdict table was dead on illumos**,
+its `"SunOS"` entry unreachable. `tests/smoke/doctor.sh` had been failing
+correctly the whole time. `portability_lint` check 24 now refuses a `uname()`
+result compared against zero, floored at the four call sites.
+
+**Defect 2, in the shared ship path.** M683 fixed `make-snapshot.sh` to archive
+`$REV^{tree}` because `git archive <commit>` writes a `pax_global_header` that
+illumos `tar` materialises as a real file. `jc_rig_ship_tar` -- the path **every
+VM rig takes** -- still archived the commit, so the file arrived at the root of
+the shipped tree, `git add -A` tracked it, and `make-snapshot.sh` faithfully
+published it. Measured: `git archive HEAD` gives first entry `pax_global_header`,
+`git archive 'HEAD^{tree}'` gives `.gitattributes`, **2,354 entries either way**.
+GNU tar consumes the header silently, which is why this bench could never show it.
+
+**Two gaps in the rig, both M665's shape**, and both cost a boot: it reported the
+failing driver NAMES and not the checks, and it reported the driver COUNT on
+failure and not on success -- the second survived unnoticed because until now this
+row had never passed. Four boots in total.
+
+**The row:** `19 ok, 0 failed`; `smoke: OK (317 drivers, 1,839 checks)` against
+317/1,852 on the bench; unit suite 13,458/0; `WERROR=1` clean in 10 s; both
+driven turns (`google/gemma-4-12b`, `TIER-V-2B095E`); **coverage debt 0**. The
+multiplier denominator was re-measured on this bench (median **7.44 s**, not the
+6.19 s a row recorded earlier) because it is a ratio. Still **Partly verified**:
+`make ci` has never run on this kernel.
+
+One discrepancy is left open and marked: M683 reports this tier green at
+311/1,801, and `snapshot_lint` failed here reproducibly through the same clean
+ship path with every file involved unchanged between the two runs.
+
+### M704 -- PROJECT_TIMELINE re-counted, and the junior developer allowed to learn -- done
+
+Reviewed at the operator's request rather than because a gate fired: check 12
+refuses 40 milestones of drift and the page had drifted 10.
+
+**The correction the operator named.** The junior-solo row said ~14-18 years, and
+that number applied a flat 3.3x penalty across a decade and a half -- it assumed
+the developer never learns. Recomputed with the page's own inputs, letting the
+multiplier decay by career stage: three stage models give 9.4 / 9.8 / 10.8 years
+and a continuous `m(t) = 1.3 + 2.0*e^(-t/tau)` at tau = 2/3/5 gives 9.4 / 10.2 /
+11.5, against **19.2** for the static model recomputed the same way. Six models
+spanning a threefold difference in assumed learning speed land in one band. The
+row is now **~9-11.5 years, ~108-133 person-months**, renamed *junior -> senior
+solo*, and two consequences are stated rather than hidden: the lone learner now
+costs **less total effort than the balanced team** while taking six times the
+calendar, and the model does not price the rework the year-8 engineer would do on
+year-1 code.
+
+Everything else re-counted, not incremented: 1,264 commits, M1-M696, 326 source
+files / ~110,500 lines, ~99,700 test lines, 13,461 unit checks, 1,851 smoke
+checks over 317 drivers, 499 English pages / ~145,100 lines. The subsystem pie was
+rebuilt from measurement and now sums to the stated total, which it did not. P19
+and P20 were missing from the phase timeline, gantt and narrative -- 51
+milestones with no entry -- and are written.
+
+**What the page now says about itself**, because it would otherwise be a claim
+nobody could check: the tree measured was a branch, not `master`; the September
+commit bars cover **two machines working in parallel**, so they are the project's
+cadence and no longer one workstation's; and the split is not measured, because
+the `Co-Authored-By` trailer names the model, not the machine.
+
+### M705 -- a state-machine tutorial, because the tree taught one machine and not the tool -- done
+
+`reading/fukabori-04` reads `jc_agent_run_turn` as a state machine and assumes the
+vocabulary on its first page; `PSEUDOCODE_TUTORIAL.md` mentions the subject twice
+in passing. There was no general material, and the thirteen-page design-tutorial
+family had no state-machine member while "design, implementation, and use-cases"
+is exactly the shape those pages take.
+
+`docs/STATE_MACHINE_TUTORIAL.md` is grounded in two machines a reader can open:
+`enum jc_bg_state` (four states, **six** assignments in `src/chat/jc_bg.c`, and
+the count is the lesson -- two states are entered from more than one place, which
+a transition table shows and reading the code does not), and `enum jc_run_stop`,
+whose own header states the best rule in the file: no `default:` label, so
+`-Wswitch` under `-Werror` turns a new enum value into a build error at every
+site. `jc_sse_feed` is the contrast: a machine whose state is a line buffer.
+
+The page also says when to **stop** using the tool -- you need a stack, the state
+count is multiplying, transitions depend on long histories -- because saying
+"this is no longer a finite-state machine" early is cheaper than a forty-state
+diagram nobody reads. Two of the page's own claims were wrong on the first draft
+and were counted rather than asserted.
+
+### M706 -- machine-translating two learner pages: four pipelines, one page kept, one deleted -- done
+
+`analysis/2026-09-17` measured five local models on one paragraph and said "do not
+bulk-translate this documentation with a local model". This measures the best of
+them on whole pages and reaches the same verdict from the other direction.
+
+Four pipelines against `VOCABULARY.md` and `TUTORIAL_BEGINNER.md`, one instrument:
+2,200-char chunks (22 / 24 lines left English), per-unit per-line prompts (108),
+per-unit with the splitter patched (50), chunks with six validated retries
+(**18** / 44). The best result came from **different pipelines per page**. Final:
+18 of 77 body lines (23%) and 51 of 168 (30%).
+
+**`VOCABULARY.md` ships; `TUTORIAL_BEGINNER.md` was deleted.** The percentages are
+close and are not the reason -- the **distribution** is. The glossary's gap is two
+whole named sections, so a reviewer gets a task with edges. The tutorial's 51
+lines touch **all eleven sections**, and "check the whole thing" is not a task, it
+is the original job.
+
+**Two techniques are kept.** Fenced code blocks never reach the model: the first
+tutorial run collapsed them into inline spans and **fabricated a link target**
+that exists nowhere in the English; lifting them out lost 0 of 14. And a proxy
+for a gate must use the gate's own extraction -- a checker reported a fabricated
+figure `843` that did not exist, because Python's `\b` finds no word boundary
+between a CJK character and a digit and matched `843` out of an intact `1,843`.
+
+**The count was published wrong three times** -- 6, then 24, then 51, same file,
+three filters -- and the instrument is now a docstring rather than a regex
+re-invented per use.
+
+### M707 -- Ada and SPARK as a lens, not a course -- done
+
+An operator design question, answered with a bibliography section and a systems
+lens rather than a graded course.
+
+`docs/ADA_AND_C.md`, in `PYTHON_AND_C.md`'s shape. Its centre is the section
+arguing against the enthusiasm: **the hollow green survives the move** -- `Post =>
+True` discharges instantly and says nothing, so the question moves from "is this
+test vacuous" to "is this contract vacuous", which is harder because a contract
+*looks* like a specification -- and **proof does not reach where this project's
+bugs live**: M703's two defects are a libc return convention and a `tar`
+behaviour, and SPARK would have proved the arithmetic around both flawless.
+
+**Not a course**, and the page says what would have to change: the functional
+family exists because five languages teach one idea, and GNAT on every platform
+the e2e tier touches is a large thing in a tree whose dependency story is
+"libcurl and nothing else".
+
+`BIBLIOGRAPHY.md` gains **section 13**: ten entries, seven free, eight URLs
+probed, two pages read, three ISBN-13s resolved against Open Library. The SPARK
+User's Guide entry points at appendices **G, "GNATprove Limitations"** and **H,
+"Portability Issues"**. `bibliography_lint` needed teaching about the section --
+its `sec()` list stopped at 12 -- and it caught three defects on the way in,
+including an entry count that had to be **recounted rather than incremented**.
+
+### M708 -- 自治の八句, and what the local model could not do -- done
+
+Eight haiku on the loop, the arenas, the fence, the hollow green, the first run
+on a strange machine, the record, C89 and waiting for the gate. Japanese, with
+the reading, the mora count and an English rendering.
+
+**The 5-7-5 is measured, not judged by ear.** A mora counter -- every kana one,
+small ya/yu/yo and small vowels zero, the sokuon, moraic n and long mark one --
+self-tested on こんにちは=5, きょう=2, がっこう=4, コード=3 before being trusted.
+Every poem carries its reading because **kanji cannot be counted without one**.
+All eight verify, and were re-verified by parsing them back out of the finished
+page.
+
+**The local model was asked first and could not do it.** Two pipelines, ~130
+requests, **two conforming haiku out of sixteen theme-attempts**, both ignoring
+their theme -- one coined 「緑紙」, which is not a word. Constrained-form
+composition in a second language is a different task from translation. A first
+parser also accepted a truncated haiku whose *reading* scanned 5-7-5 while the
+poem was one phrase: a shape check passing over content, the same defect as
+M706's heading count.
+
+**So the model did the job it is good at**: judging. All eight went back for
+review on three axes; it rated five of eight fully 自然, **confirmed all eight
+readings match** -- an independent corroboration of the mora counts by a
+different route -- and its two substantive notes are kept in the page because
+they are fair.
+
+### M709 -- jichi chooses no provider and no model -- done
+
+**Found by the operator installing jichi on a second system**, where a fresh
+install reported itself configured to call `claude-opus-4-8`. Nobody had decided
+that. It came from three built-in defaults that only ever fired together:
+`jc_config.c`'s provider fallback to `"anthropic"`, `default_model()` returning
+`claude-opus-4-8` for any provider that was not `openai`, and
+`jc_config_default_base()` returning `https://api.anthropic.com` for the same.
+So `jichi doctor` with **no config at all** answered `active: ? (claude-opus-4-8)`
+and called the config source `ok`.
+
+**M505 found this and kept it.** That milestone is worth reading beside this one:
+it measured the same defect, wrote the warning `doctor` still shows, named the
+hazard exactly -- *"the substitution reaches for a PRICED frontier id, which is
+the hazard ANECDOTES #63 records"* -- and then concluded *"the default itself is
+left alone ... this is a reporting defect, not a resolution one"*. It was a
+resolution defect. A warning does not stop a request, and `_rig_live.sh`'s own
+header already recorded the near-miss: a rig whose "local live turn" fell back to
+the default provider and sent a request to Anthropic, saved only by a 401.
+
+**What changed.**
+
+| | before | after |
+|---|---|---|
+| provider, unset | `"anthropic"` | unset |
+| model, unset | `claude-opus-4-8` (or `gpt-4o`) | unset |
+| apiBase, unset provider | `https://api.anthropic.com` | unset |
+| `doctor`, no config | `ok config source: built-in defaults` | `!` with what to do |
+| `doctor`, no model | green `configuration loaded` | `x no model is configured` |
+| converter, source names no model | `claude-sonnet-4-5` | unset |
+| `setup` menu | `anthropic` first, priced id pre-filled | neutral option first, **no id suggested** |
+
+**`setup` asks the endpoint instead of suggesting.** The wizard's first menu
+item is now "any OpenAI-compatible endpoint", and once it has a base URL it calls
+`jc_net_list_models()` -- the `/v1/models` listing that already existed for
+`doctor --live` -- and offers what that server actually serves. A pre-filled id
+is a recommendation the program is in no position to make: it does not know what
+you have access to, what it costs *you*, or whether the id still exists. Fails
+soft in every direction; no server, no answer or an empty list falls through to a
+free-text prompt with **no default**.
+
+**The help text was biased too**, one layer out: the minimal-config example
+printed `"model": "gpt-4o"` and the non-TTY `setup` hint printed
+`--model gpt-4o --key-env OPENAI_API_KEY`. Both now use placeholders, and the
+example gained the sentence that confuses every newcomer -- **`provider` is the
+wire dialect, not a company**: `"openai"` means OpenAI-compatible, which LM
+Studio, llama.cpp, Ollama, vLLM and most gateways speak.
+
+**The lint that should have caught this had excluded the place it lived.**
+`priced_model_lint`'s file list carried the comment *"NOT src/ -- jichi's own
+code names no model id"*. That was false when it was written. Checks 5 and 6 now
+cover `src/` and `include/`, comments stripped so the files that removed these
+defaults may explain them: **5** forbids a vendor model id anywhere outside a
+comment, with no exceptions including help text; **6** pins vendor *endpoints* to
+the three files where that vendor is the subject -- the resolver, which returns
+one only after `strcmp()` against a provider the config named, and the two
+provider backends. Both proved red by restoring the default.
+
+`tests/smoke/model_defaulted.sh` is inverted from M505's contract to this one,
+and its check 2 -- no vendor model id anywhere in `doctor`'s output for a config
+that names none -- is the one the operator's finding turns on. `test_config.c`'s
+assertion is inverted with it.
+
+**Documentation.** `CONFIG_TUTORIAL.md` gains **§0a**, a first-config section for
+a self-learner: what a fresh install says and why, the `provider`-is-a-dialect
+table, the shortest path that costs nothing (a local server, four lines of JSON,
+no API key), and the pricing warning that exists because of ANECDOTES #63.
+`DECISIONS.md` records the reversal with the alternatives rejected -- keep the
+default and warn harder (M505's position), default to a local endpoint (still a
+choice made for the user), default to a named vendor's cheapest id (jichi cannot
+know what an id costs *you*).

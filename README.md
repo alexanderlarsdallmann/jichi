@@ -26,7 +26,7 @@ needs the rest of this page first.
   **1 Never compiled**. Linux across **14 architectures** and five libcs, down to a
   256 MB VM; **FreeBSD, NetBSD and OpenBSD** all run the full gate; **WSL2** runs
   the whole of `make ci`, Cygwin the unit and smoke tiers; Android both cross-built
-  and built on-device. **illumos is partly verified since M658** (OmniOS under KVM: clean build, 13,273 unit checks, 284 of 303 smoke drivers). **Never compiled: macOS** — there is no Mac on
+  and built on-device. **illumos is partly verified and driven** (OmniOS under KVM; M658, re-measured M703 2026-09-22: clean build, 13,458 unit checks, **317 of 317** smoke drivers, both model turns driven. *Partly* names the gate — `make ci` has never run there). **Never compiled: macOS** — there is no Mac on
   this project, and its one Darwin-specific line went months un-compilable because
   of it. [`docs/PLATFORMS.md`](docs/PLATFORMS.md) owns every verdict and says
   exactly what was measured, in Verified / Partly verified / Never compiled.
@@ -180,7 +180,7 @@ opencode, and Claude Code) configurations —
 
 **Never compiled from source before?** [`docs/PREPARE_AND_BUILD.md`](docs/PREPARE_AND_BUILD.md) walks you from an empty terminal to a working build on Linux, macOS, or Windows/WSL. Linux and **WSL2** are both verified paths — the WSL2 walkthrough has been executed end to end, by a non-root user, against pristine HEAD. **macOS is the one door nobody has opened**, and [`docs/PLATFORMS.md`](docs/PLATFORMS.md) is the one page that states, per platform, what was actually compiled and gate-run.
 
-Built incrementally in milestones — **682 of them**, 666 written up in full (the
+Built incrementally in milestones — **709 of them**, 693 written up in full (the
 gap is numbers merged, split or skipped) — each with its design and its failures
 recorded. **The documentation ships in full, on purpose** — the analyses, plans,
 dialogues and anecdotes, including every recorded failure, mis-diagnosis and dead
@@ -278,8 +278,8 @@ unit suite (**over 13,000 checks** — a growing figure, so stated as a bound
 per the M307 rule), `make smoke` adds a **python-free** tier that makes
 `make check-target` a full gate on any POSIX box, and `make ci` additionally runs
 the suite under two compilers, AddressSanitizer + UndefinedBehaviorSanitizer,
-Valgrind, and a fuzzer. Green end to end at **M650** on the development box:
-**13,339 checks / 0 failures**, smoke **303 drivers / 1,759 checks**.
+Valgrind, and a fuzzer. Green end to end at **M691** on the development box:
+**13,426 checks / 0 failures**, smoke **315 drivers / 1,836 checks**.
 
 Each verified platform is **kept as its own stamped datum** rather than
 overwritten, because "it passes on a small machine" and "it passes on that
@@ -289,7 +289,8 @@ s390x big-endian, a static musl build, three BSD kernels, WSL2, a phone — with
 check counts and passing timeout multipliers: **[`docs/PLATFORMS.md`](docs/PLATFORMS.md)**,
 which is also where the honest converse lives (**macOS has never been compiled**,
 and the page says so in those words; **illumos joined the matrix at M658** and is
-*partly verified* — clean build, 13,273 unit checks, 284 of 303 smoke drivers).
+*partly verified and driven* — re-measured at M703: clean build, 13,458 unit
+checks, 317 of 317 smoke drivers, both turns driven; `make ci` has never run there).
 
 A live API key (or a local model) is required to exercise actual model calls. **What changed, per version, without
 parsing git history: [`CHANGELOG.md`](CHANGELOG.md)** (`jichi --version`
@@ -442,7 +443,11 @@ cat error.log | ./jichi -p "what caused this error?"
 > `/undo`, and only while snapshots are on. For anything unattended use the
 > bounded form above, and read [`docs/AUTONOMY.md`](docs/AUTONOMY.md) first.
 
-Set an API key first: `export ANTHROPIC_API_KEY=...` (or `OPENAI_API_KEY`).
+Configure a model first — `jichi setup` asks your endpoint which models it
+serves, or write four lines of JSON yourself ([`docs/CONFIG_TUTORIAL.md`](docs/CONFIG_TUTORIAL.md) §0a).
+**An API key alone is not enough:** jichi chooses no provider and no model for you,
+so `jichi doctor` will say `no model is configured` until one is named. A server
+on your own machine needs no key at all.
 In the interactive UI, `/help` lists commands and `/status` shows the session at
 a glance (model, mode, routing, snapshots, tokens, cwd); `/exit` quits. The
 prompt shows `[mode·model]`. When the agent wants to run a tool it shows the
@@ -1146,7 +1151,7 @@ Use `--model <selector>` to override the role-default model for `embed`/`rerank`
 
 ## Roadmap
 
-**Where we stand: latest milestone M690.** The engineering loop is healthy; the
+**Where we stand: latest milestone M709.** The engineering loop is healthy; the
 **first public release shipped 2026-08-27**: **v0.9.0**, one curated commit,
 published to the HRZ GitLab (`jichi-public/jichi`) and to GitHub, tag `v0.9.0`
 on both ([`docs/plans/2026-08-public-snapshot.md`](docs/plans/2026-08-public-snapshot.md),
@@ -1158,7 +1163,12 @@ differing, **tag `v0.9.1`** on both remotes, and both the branch push and the ta
 push green on the hosted runner. the public tree was **advanced to the M668 state on 2026-09-19** — public commit
 `3e6a242` = private `f8ead53a`, **1,987 files compared byte for byte with 0
 differing**, **tag `v0.9.2`** on both remotes, and both the branch push and the
-tag push green on the hosted runner. **Public and development trees both read
+tag push green on the hosted runner. The public tree was **advanced again to the
+M690 state on 2026-09-21** — public commit `0f86415` = private `a61d832d`,
+covering M669–M690, **2,026 files compared byte for byte with 0 differing**, and
+the hosted runner green on the first run. **No new tag**: `JC_VERSION` did not
+move, and the rule is to tag only when it does, so that cut is a state advance
+rather than a release. **Public and development trees both read
 0.9.2**;
 the milestones after M655 ride out with the next curated state. The release checklist, as it
 landed:
@@ -1167,7 +1177,7 @@ landed:
   projects); the **curriculum**, complete and still growing (all four shu-ha-ri
   stages, the nine standalone language courses — five functional: Racket, Guile,
   Elixir, Haskell, Clojure; four systems: C, Zig, C++, Rust — and a toolchain-free
-  process track from requirements through scheduling, for **88 graded tasks and 75
+  process track from requirements through scheduling, for **90 graded tasks and 75
   trap cases**, every grader proven red-first in CI, plus the instructor guide);
   **versioning + a user-facing CHANGELOG** (0.9.0, with 1.0.0 reserved for the
   release); and the **platform verdict**, stated honestly
