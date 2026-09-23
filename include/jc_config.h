@@ -58,7 +58,7 @@
  * same shape as a server's autoApprove/deny) apply to every tool. Together they
  * drive the per-tool verdict; see docs/AGENT_MODES.md.
  *
- * "maxSubagentDepth" (default 1) caps spawn_subagent nesting; "maxSubagentIters"
+ * "maxSubagentDepth" (default 2) caps spawn_subagent nesting; "maxSubagentIters"
  * (default = maxToolIters) caps a subagent run's tool iterations. See
  * docs/SUBAGENTS.md. "instructions" lists extra rules-file paths loaded into the
  * system prompt alongside AGENTS.md (see docs/RULES.md). "lspServers" configures

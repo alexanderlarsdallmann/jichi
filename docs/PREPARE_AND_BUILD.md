@@ -173,8 +173,11 @@ precisely because no compiler here ever read it
 ([`PLATFORMS.md`](PLATFORMS.md#the-finding-that-made-this-page-m400)).
 
 So: expect it to work, expect to be the first to find whatever does not, and
-please report it — `make check-target` plus `uname -srm` is all it takes to turn
-this section into a verified row. `docs/BUILD.md` has the terse macOS notes.
+please report it. [`VERIFY_A_PLATFORM.md`](VERIFY_A_PLATFORM.md) is the whole
+procedure — its offline half (the build under `WERROR=1`, the unit suite and the
+smoke tier, with the commit you built) is what turns this section into a
+*Verified* row, and its live half makes it *Driven*. `docs/BUILD.md` has the
+terse macOS notes.
 
 ---
 
@@ -325,32 +328,49 @@ Before the checklist, `doctor` prints a short hint to *stderr* — read it, it i
 telling you the truth about a fresh machine:
 
 ```
-No config found and no API key set. Run `jichi setup` for a guided setup, ...
+No model is configured, so jichi cannot call one yet.
+  jichi setup              guided setup -- it asks which provider and model YOU want
+  jichi setup --import <f> import a config you already have
+  jichi doctor             what is missing, line by line
+Any OpenAI-compatible endpoint works, including a server on your own machine
+(LM Studio, llama.cpp, Ollama) and an institutional gateway. jichi picks no
+provider and no model for you -- see docs/CONFIG_TUTORIAL.md.
 ```
 
 Then the checklist. On a machine with no config file yet, it looks like this:
 
 ```
 ✓ libcurl available (networking enabled)
-✓ config source
-    built-in defaults
+! no config file -- running on built-in defaults
+    the built-in defaults name no provider and no model, so nothing can be
+    called yet. `jichi setup` writes one, or see docs/CONFIG_TUTORIAL.md.
 ✓ configuration loaded
-    1 model(s); active: ? (claude-opus-4-8)
-! no API key for the active model
-! no pricing for the active model: every cost reads $0.00
+    1 model(s); active: ? (?)
+✗ no model is configured
+    jichi chooses no provider and no model for you. Run `jichi setup`, or set
+    "provider", "model" and "apiBase" on a model entry.
 ```
 
 Three things to understand here, because they surprise everyone:
 
-- **A line beginning `✗` is a real problem; `!` is a warning.** Both `!` lines
-  above are expected on a fresh machine — you configure a model next.
-- **You have not configured a model, yet one is listed.** With no config file,
-  jichi falls back to a **built-in default** (`claude-opus-4-8`, Anthropic's API).
-  That is what `config source: built-in defaults` means. Nothing is wrong; it just
-  means the next section is not optional — without a key, your first prompt will
-  fail with an authentication error against a service you never chose.
-- **The `?` before the model id is not an error.** It is the model's *name*, which
-  the built-in default does not have. Once you configure one, your name appears.
+- **A line beginning `✗` is a real problem; `!` is a warning.** On a fresh
+  machine the `✗` above is expected and is the *whole* remaining task: you
+  configure a model next, and it goes green.
+- **jichi chooses no model for you, on purpose.** A model id names what a run
+  will spend money on, and jichi will not pick that for you — so with no config
+  there is no provider, no model and no endpoint. `doctor` says so plainly
+  instead of inventing one. This is a **deliberate change in v0.10.0** (M709):
+  until then a fresh install resolved to a priced vendor default nobody had
+  chosen, which is exactly the surprise this page used to describe as normal.
+- **The `? (?)` is not an error.** The first `?` is the model's *name* and the
+  second its *id*; with nothing configured there is neither. Once you configure
+  one, both appear.
+
+> **Upgrading from 0.9.x?** If jichi used to work and now says `no model is
+> configured`, you were relying on that removed default. Name the model you
+> intend on the model entry, or run `jichi setup` — it will ask your endpoint
+> which models it serves. [`CONFIG_TUTORIAL.md`](CONFIG_TUTORIAL.md) §0a is
+> written for exactly this.
 
 To run `jichi` from anywhere without the `./` prefix, you can install it:
 

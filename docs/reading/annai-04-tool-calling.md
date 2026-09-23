@@ -153,4 +153,4 @@ diagnosis required replaying captured request bodies against the server
 curriculum material now; both began as someone reading a `tool_call`
 event stream like the one you just produced.
 
-*Next (M223): chapter 5 — one tool, all the way down.*
+*Next: [chapter 5 — one tool, all the way down](annai-05-one-tool-all-the-way-down.md).*

@@ -1,5 +1,17 @@
 # Mid-turn compaction, measured: 5 passes in 313 reached target
 
+> **CORRECTED AT M710, AND THE POPULATION WAS WRONG.** 64 of the 313 below were
+> never `pressed`, and on that code path `before` and `after` are assigned from
+> **one** `effective` value — so their `before == after` is a tautology, not an
+> observation, and all 64 inflate the "fired and changed nothing" bucket. The
+> filter should have been `pressed`, which M326x added for exactly this reason
+> and which `jc_agent.c`'s emit site argues for in writing. One further pass sits
+> on a session proven under-declared. The corrected core is **248**, splitting
+> **80.6% / 17.3% / 2.0%**, and it settles the register row this page could not.
+> See [`2026-09-22-compaction-decided.md`](2026-09-22-compaction-decided.md).
+> The page is kept as written below, because a corrected measurement that leaves
+> no trace gets re-made (M406/M407's rule); read it with the correction.
+
 *2026-09-22. A measurement, not a change — nothing in `src/` or `tests/` moves on
 this page. It was run to test one line of
 [`proposals/2026-09-sustained-task.md`](../proposals/2026-09-sustained-task.md)'s
@@ -21,6 +33,11 @@ the same units the trigger compares, so a reader can check the decision"*
 come from **three workloads** (`chrtext`, `chrtext-full`, `zigodot`) across **17
 distinct sessions**; six sessions contribute ten events or more and the pattern
 below repeats in every one of them, so this is not one pathological run.
+
+> *Corrected at M710: **15** sessions, not 17 — 17 is the count over the 332, and
+> the two extra contribute only zero-target rows this page excludes. And "not one
+> pathological run" does not survive either: 128 of the pressed passes are a
+> single turn.*
 
 ## The result
 
@@ -72,6 +89,11 @@ not.
 
 ## What this does NOT say
 
+> *Corrected at M710: the first item below was the right instinct aimed at the
+> wrong risk. The weakness was not that one machine's proportions might not
+> generalise — it was that the population mixed passes that had a target to miss
+> with passes that did not, which no amount of corpus would have fixed.*
+
 - **It is one machine and one operator**, three workloads. The *shape* is
   consistent across 17 sessions; the *proportions* are this corpus's.
 - It measures the **mid-turn elision pass only**. Between-turn summarisation is
@@ -84,7 +106,7 @@ not.
 - The corpus is entirely **pre-existing**. No run was made to produce it, so
   nothing here is tuned to make a point.
 
-## One thing left unexplained
+## One thing left unexplained — explained at M710, and it was already fixed
 
 **19 events carry `target == 0`**, with `before == after == 77,904` in the
 sample. A target of zero is not a target, and both assertions are vacuous
@@ -92,6 +114,21 @@ against it — `before > 0` is trivially true and `after <= 0` is impossible. Th
 are excluded from the 313 above rather than silently folded in. Where a zero
 target comes from is not established here, and guessing would be the error this
 page exists to avoid.
+
+> **It is the M326x defect, and the tree names the same 19.** All nineteen carry
+> **no `pressed` field at all** (it did not exist yet), all nineteen have
+> `limit > 0` — so this is not the documented "unknown budget" path — and all
+> nineteen carry `short: true`. `jc_compact.c:1296`: *"the target … used to be
+> left at 0 by the memset whenever the early return below was taken, and a
+> reader — including jichi's own summarizer — then saw `target: 0` and a pass
+> that had 'failed to reach' it."* And `jc_agent.c`'s emit site, on the matching
+> `short` half: ***"19 of 19 such events in the measured workload were false."***
+> The dates agree: every zero-target event is 2026-08-06/07, and the positive
+> ones begin 2026-08-07. The answer was in the fix's own comment, one file from
+> where this page was reading. **Asking the tree would have cost one grep**;
+> declaring it unexplained cost a section — which is the register's own rule
+> (*check the checkable part of a reason before parking the item*, M326b) applied
+> to an analysis page instead of a deferred row.
 
 ## A correction made while measuring
 

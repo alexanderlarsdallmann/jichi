@@ -107,6 +107,7 @@ have **no editor and no checkout** (a browser, a locked-down machine), the Annai
 | 10 | [Where to go next](annai-10-where-to-go-next.md) | **shipped** |
 | A | [Reading without a bench](annai-a-no-bench.md) | **shipped** |
 
-All chapters ship (M222–M223). The status column stays: the
-[Fukabori](FUKABORI.md)'s chapters are still commitments, and this table's
-format is the promise they will be marked the same way.
+All chapters ship (M222–M223). The status column stays because the format is
+worth keeping, not because anything here is outstanding: all four guides are
+complete — [Fukabori](FUKABORI.md)'s twelve chapters shipped at M225,
+[Tsuiseki](TSUISEKI.md)'s four and [Kiroku](KIROKU.md) after them.

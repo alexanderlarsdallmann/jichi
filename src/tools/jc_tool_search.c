@@ -13,6 +13,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/wait.h>
 
 /* -I IS NOT UNIVERSAL, and the fifth grep is the one that proved it (M658).
@@ -29,10 +30,69 @@
  * What -I buys is skipping binary files. Where it is unavailable the search
  * still runs and binary files are no longer skipped; the existing output cap
  * bounds what that can cost, and saying so is better than dropping the flag
- * everywhere or keeping a tool that cannot run. */
+ * everywhere or keeping a tool that cannot run.
+ *
+ * -E IS THE DIALECT MODELS WRITE (M714). Without it grep reads a POSIX *basic*
+ * regular expression, where `|` and `+` are literal characters and `\(` opens a
+ * group -- and models write the extended form: in the 2026-09-23 zigodot corpus
+ * 230 of 888 patterns used a bare `|` against 5 using GNU-basic `\|`. In basic
+ * mode those came back "(no matches)" for code that was there: re-running the
+ * corpus pilot's 45 searches against the same tree, 11 were false negatives and
+ * 1 a spurious error. That is the M461 lie again in another costume -- the tool
+ * did not fail, it said the code does not contain what it contains. -E is POSIX
+ * and every grep in the platform matrix takes it; illumos's own usage line is
+ * `grep [-E|-F] ...`. */
 const char *jc_search_grep_prefix(int have_dash_i)
 {
-    return have_dash_i ? "GREP_OPTIONS= grep -rnI" : "GREP_OPTIONS= grep -rn";
+    return have_dash_i ? "GREP_OPTIONS= grep -rnIE" : "GREP_OPTIONS= grep -rnE";
+}
+
+static void append_quoted(struct jc_sb *sb, const char *s);
+
+/* When grep fails and prints nothing, say WHICH thing failed. `2>/dev/null`
+ * keeps grep's stderr out of the result on the normal path (a stray warning must
+ * not read as a match), so the diagnostic is recovered by asking grep about the
+ * pattern alone: /dev/null cannot match, so a valid pattern exits 1 and an
+ * invalid one exits 2 with grep's own message. Only on the failure path, and
+ * grep reading /dev/null is free. Fills `msg` with grep's first line when the
+ * PATTERN is invalid and returns 1; returns 0 when the pattern is fine (so the
+ * failure was about the files) or the probe itself could not run. */
+static int pattern_error(const char *pattern, char *msg, jc_size cap)
+{
+    struct jc_sb cmd;
+    FILE *p;
+    char line[256];
+    int st;
+    jc_size n;
+
+    msg[0] = '\0';
+    line[0] = '\0';
+    jc_sb_init(&cmd);
+    jc_sb_append(&cmd, "GREP_OPTIONS= grep -E -e ");
+    append_quoted(&cmd, pattern);
+    jc_sb_append(&cmd, " /dev/null 2>&1");
+    p = jc_proc_popen(cmd.data, "r");
+    jc_sb_free(&cmd);
+    if (p == NULL) {
+        return 0;
+    }
+    if (fgets(line, (int)sizeof line, p) == NULL) {
+        line[0] = '\0';
+    }
+    while (fgets(msg, (int)cap, p) != NULL) {
+        /* drain, so grep never blocks on a full pipe */
+    }
+    msg[0] = '\0';
+    st = pclose(p);
+    if (st == -1 || !WIFEXITED(st) || WEXITSTATUS(st) < 2) {
+        return 0;
+    }
+    n = (jc_size)strlen(line);
+    while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r')) {
+        line[--n] = '\0';
+    }
+    jc_snprintf(msg, cap, "%s", n > 0 ? line : "grep rejected it");
+    return 1;
 }
 
 /* Asked once per process, cached. The question is the one the linker-style
@@ -62,7 +122,10 @@ static int grep_has_dash_i(void)
 static cJSON *search_schema(void)
 {
     cJSON *s = tu_schema_begin();
-    tu_schema_string(s, "pattern", "Text or regex to search for", 1);
+    tu_schema_string(s, "pattern",
+                     "Text or extended regular expression (grep -E): a|b "
+                     "alternates, + ? {n} repeat, ( ) groups; backslash a "
+                     "literal ( ) | + ? { } . * [ ] ^ $", 1);
     tu_schema_string(s, "path", "Directory or file to search (default '.')", 0);
     tu_schema_int(s, "context",
                   "Lines of context to show around each match (default 0)", 0);
@@ -175,9 +238,21 @@ static jc_status search_run(const cJSON *args, struct jc_tool_result *out,
      * discarding those would trade a silent wrong answer for a loud one. */
     if (result.len == 0 && status != -1 &&
         WIFEXITED(status) && WEXITSTATUS(status) >= 2) {
+        char why[256];
+        char msg[400];
         jc_sb_free(&result);
-        tu_err(out, "error: search failed -- grep exited with an error "
-                    "(is the pattern a valid regex for this platform's grep?)");
+        if (pattern_error(pattern, why, sizeof why)) {
+            /* M714: name the pattern, quote grep, and say how to fix it -- the
+             * generic message sent a model round again with the same pattern */
+            jc_snprintf(msg, sizeof msg,
+                        "error: the pattern is not a valid extended regular "
+                        "expression (grep -E): %s -- put a backslash before a "
+                        "literal ( ) | + ? { or [", why);
+            tu_err(out, msg);
+        } else {
+            tu_err(out, "error: search failed -- grep exited with an error "
+                        "reading the path (the pattern itself is valid)");
+        }
         return JC_OK;
     }
 
@@ -193,7 +268,8 @@ static jc_status search_run(const cJSON *args, struct jc_tool_result *out,
 
 static const struct jc_tool SEARCH_TOOL = {
     "search_code",
-    "Search for a pattern across files using grep -rn.",
+    "Search for a pattern across files using grep -rnE (extended regular "
+    "expressions).",
     search_schema,
     1, /* readonly */
     search_run,

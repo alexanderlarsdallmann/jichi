@@ -356,8 +356,9 @@ make clean
 ```
 
 First-party code compiles under `-std=c89 -pedantic -Wall -Wextra` with zero
-warnings — with no exemptions. The JSON implementation (`src/json/cJSON.c`) is
-without `-pedantic`.
+warnings — with no exemptions, and that includes the JSON implementation
+(`src/json/cJSON.c`), which is ours rather than vendored and is pedantic-clean.
+The exemption it used to carry was removed at M171.
 
 ### Installing
 
@@ -603,8 +604,9 @@ active model, but the **semantic search** features pick a model by role:
   / `embed`).
 - `"rerank"` — when present, reorders search candidates by relevance.
 
-Other role strings (`chat`, `edit`, `autocomplete`, `summarize`, `apply`) are
-parsed and preserved by `jichi-convert` but not yet acted on. Example:
+Two more role strings are acted on today: `summarize` selects the compaction
+summarizer and `autocomplete` the completion model. The rest (`chat`, `edit`,
+`apply`) are parsed and preserved by `jichi-convert` but not yet acted on. Example:
 
 ```json
 {
@@ -1151,7 +1153,7 @@ Use `--model <selector>` to override the role-default model for `embed`/`rerank`
 
 ## Roadmap
 
-**Where we stand: latest milestone M709.** The engineering loop is healthy; the
+**Where we stand: latest milestone M716.** The engineering loop is healthy; the
 **first public release shipped 2026-08-27**: **v0.9.0**, one curated commit,
 published to the HRZ GitLab (`jichi-public/jichi`) and to GitHub, tag `v0.9.0`
 on both ([`docs/plans/2026-08-public-snapshot.md`](docs/plans/2026-08-public-snapshot.md),
@@ -1168,9 +1170,15 @@ M690 state on 2026-09-21** — public commit `0f86415` = private `a61d832d`,
 covering M669–M690, **2,026 files compared byte for byte with 0 differing**, and
 the hosted runner green on the first run. **No new tag**: `JC_VERSION` did not
 move, and the rule is to tag only when it does, so that cut is a state advance
-rather than a release. **Public and development trees both read
-0.9.2**;
-the milestones after M655 ride out with the next curated state. The release checklist, as it
+rather than a release. The tree was then **advanced to the M709 state on
+2026-09-22** — public commit `7180954` = private `02ef9c25`, covering M691–M709,
+**2,063 files compared byte for byte with 0 differing**, and **tag `v0.10.0`**
+on both remotes, because `JC_VERSION` moved 0.9.2 → 0.10.0 for the one breaking
+change in it (M709 removed the vendor default). **This tree reads 0.10.1**, a
+PATCH over 0.10.0 for two fixes a user could hit (M714's `search_code` dialect,
+M715's resumed-turn answer). The public tree reaches it with the curated state
+that carries this sentence, and that advance is recorded here after the push,
+as each one above was. The release checklist, as it
 landed:
 
 - **done** — the rename to jichi (name, binaries, paths, remote, dependent
@@ -1463,7 +1471,7 @@ question had been open since 2026-07-27, and the tree carried a deliberate
   [`CREDITS.md`](CREDITS.md) and in `NOTICE` — not as a holder, because copyright
   generally requires human authorship. The debt to Continue is there too.
 - **The identifier is pinned everywhere it appears.** `tests/smoke/license_lint.sh`
-  holds all 486 headers, `LICENSE`, `NOTICE`, `--version`, `describe` and
+  holds all 499 headers, `LICENSE`, `NOTICE`, `--version`, `describe` and
   [`docs/LICENSING.md`](docs/LICENSING.md) to one identifier; a later, deliberate
   switch (should the review choose differently) is `scripts/set-license.sh <spdx-id>`
   again — one command, same lint.

@@ -3,7 +3,7 @@
 *The instrument, written down so the next pass does not have to reinvent it. It
 exists because the two most valuable findings of the M392 review were **prose that
 is internally coherent and simply untrue of the program** — the class no lint in
-this repository can catch. Lints own the vocabularies (25 of them, see
+this repository can catch. Lints own the vocabularies (65 of them, see
 [TEST_INTEGRITY.md](TEST_INTEGRITY.md) §"Prefer a lint to an audit"); this page owns
 what is left, which is everything a reader experiences.*
 

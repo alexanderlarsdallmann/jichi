@@ -225,6 +225,31 @@ static void test_last_assistant_text(void)
         JC_CHECK(jc_agent_last_assistant_text(&h2) == NULL);
         jc_history_free(&h2);
     }
+
+    /* M715: THIS TURN'S answer, in a history that holds more than one turn --
+     * the resumed session in which the structured outputs reported a capped
+     * turn's predecessor's answer as its own. Turn 1 answered; turn 2 made a
+     * tool call and wrote no text. Searching from turn 2's first message finds
+     * nothing, and must not reach back into turn 1. */
+    {
+        struct jc_history h3;
+        jc_size turn2;
+        jc_history_init(&h3);
+        jc_history_add(&h3, JC_ROLE_USER, "first question");
+        jc_history_add(&h3, JC_ROLE_ASSISTANT, "turn one's answer");
+        turn2 = jc_history_len(&h3);
+        jc_history_add(&h3, JC_ROLE_USER, "second question");
+        jc_history_add(&h3, JC_ROLE_ASSISTANT, "");
+        jc_history_add_tool_result(&h3, "id2", "tool output", 0);
+        JC_CHECK(jc_agent_turn_answer(&h3, turn2) == NULL);
+        /* The whole-history form still finds turn 1's -- which is exactly why
+         * the per-turn callers stopped using it. */
+        JC_CHECK_STR(jc_agent_last_assistant_text(&h3), "turn one's answer");
+        /* And a turn that DID answer is found from its own boundary. */
+        jc_history_add(&h3, JC_ROLE_ASSISTANT, "turn two's answer");
+        JC_CHECK_STR(jc_agent_turn_answer(&h3, turn2), "turn two's answer");
+        jc_history_free(&h3);
+    }
 }
 
 

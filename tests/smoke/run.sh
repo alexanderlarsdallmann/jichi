@@ -250,7 +250,7 @@ for t in smoke_lint snapshot_lint license_lint platform_retest_lint deferred_reg
          dream prune_dreams prune_index prune_worktrees workflow grade improve export output_style learn faults \
          faults_net faults_net_midstream provider_redirect state_root child_fds secret_env_subcommands output_escapes transport_posture \
          acp_load headless_basic headless_tool run_kill_note glob_pattern toolcalling_none \
-         compact_pressed compact_latch accessible slash_leading_space paste_special history_check prefix_churn context_gauge ask_unattended fence_refusal state_reach headless_progress output_json stop_reason_capped capped_turn_says_so run_outcome_agrees shell_wrote_nothing probe_says_why sessions prose_nudge empty_answer notify command_fm \
+         compact_pressed compact_latch accessible slash_leading_space paste_special history_check prefix_churn context_gauge ask_unattended fence_refusal state_reach headless_progress output_json turn_answer read_range stop_reason_capped capped_turn_says_so run_outcome_agrees shell_wrote_nothing probe_says_why sessions prose_nudge empty_answer notify command_fm \
          slash_unknown expect_header advice \
          ask websearch subagent_itercap subagent_budget learn_on_stop learn_on_stop_cost subtask_persona subtask_language telemetry_default learn_retract learn_checks learn_warrant workflow_refute bg \
          constraints_scope constraint_vs_scope blocked_calls_count context_underdeclared config_jsonc constraints_scan brief_check learn_on_stop_outcome hooks \

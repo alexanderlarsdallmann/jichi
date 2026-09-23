@@ -104,7 +104,7 @@ timeout and treated as non-blocking.
 / `jc_hook_exit_blocks`), wired into `src/chat/jc_agent.c` at the five lifecycle
 points and `src/main.c` for `SessionStart`. Config structs + parsing live in
 `include/jc_config.h` / `src/config/jc_config.c`. Tests: `tests/test_hooks.c`,
-`tests/e2e/hooks.py`.
+`tests/smoke/hooks.sh`.
 
 ## When a hook misbehaves
 

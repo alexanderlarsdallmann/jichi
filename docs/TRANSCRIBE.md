@@ -77,7 +77,7 @@ local servers that mimic it.
 - `src/tools/jc_tool_transcribe.c`: the tool; the `transcribe` role in
   `include/jc_config.h`; registration in `src/main.c`.
 - Tests: `tests/test_multipart.c`, `tests/test_transcribe.c`, and the
-  loopback-mock e2e `tests/e2e/transcribe.py`.
+  loopback-mock e2e `tests/smoke/transcribe.sh`.
 
 ## Other audio surfaces (M33b)
 

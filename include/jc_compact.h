@@ -352,6 +352,15 @@ struct jc_midturn_latch {
 jc_size jc_compact_rearm_len(const struct jc_history *hist,
                              jc_size keep_recent, jc_size min_bytes);
 
+/* M712, pure: is any message that became eligible between prev_len and
+ * now_len a candidate? The indices that left the protected window are exactly
+ * [prev_len - keep_recent, now_len - keep_recent). Answering 0 means the lossy
+ * scan the horizon was about to trigger is guaranteed to find nothing, so the
+ * caller extends the latch instead of paying for it. */
+int jc_compact_released_candidate(const struct jc_history *hist,
+                                  jc_size prev_len, jc_size now_len,
+                                  jc_size keep_recent, jc_size min_bytes);
+
 /* `rep` may be NULL. It is zeroed on entry, so a caller can read every field
  * unconditionally afterwards. */
 jc_size jc_compact_midturn(struct jc_app *app, struct jc_history *hist,

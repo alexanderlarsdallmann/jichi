@@ -1,7 +1,8 @@
 # Vision input (M29)
 
 jichi can attach **images** to a turn so a multimodal model can see them — from the
-CLI, the TUI, and an ACP editor. (Audio stays out of scope.)
+CLI, the TUI, and an ACP editor. Audio has its own surfaces — see
+[`TRANSCRIBE.md`](TRANSCRIBE.md) and [`MEDIA_GEN.md`](MEDIA_GEN.md).
 
 ## Enabling a vision model
 
@@ -68,4 +69,4 @@ re-sending them.
 - ACP: `jc_acp_prompt_images` + advertised capability (`src/acp/`) — M29d.
 
 Tests: `tests/test_base64.c`, `tests/test_vision.c`, `tests/test_acp.c`, and the
-E2E `tests/e2e/vision.py`.
+E2E `tests/smoke/vision.sh`.

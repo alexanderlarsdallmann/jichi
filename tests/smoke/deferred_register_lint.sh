@@ -127,10 +127,26 @@ fi
 
 # 3: no closed row under an open heading. This is the M492 failure, and the one
 # the page states as its single unacceptable state.
-struck=$(grep -E '~~|\*\*CLOSED|\*\*DONE' "$tmp/rows.x" \
+#
+# M710 WIDENED THE VOCABULARY, because the check was evaded by a synonym on its
+# first real encounter. A row settled that day was written `**DECIDED AT M710:`
+# and left under its Open heading; this check read it as open, because it knew
+# only CLOSED and DONE. The author caught it by reading the page -- which is
+# exactly the failure mode the lint's own header records happening three times
+# and was written to end.
+#
+# The five are the words that assert a row is FINISHED. `WITHDRAWN` is
+# deliberately NOT among them: the strict-green row withdraws a recommendation
+# and stays legitimately open, so that word marks a claim rather than a row.
+# Capitals are load-bearing for the same reason -- an open row may reason in
+# prose about what was decided, and `-E` is case-sensitive here on purpose.
+# Verified at M710: the five fire on ZERO open rows as the page then stood, so
+# widening cost no false positive.
+struck=$(grep -E '~~|\*\*(CLOSED|DONE|DECIDED|SETTLED|RESOLVED)' "$tmp/rows.x" \
     | cut -f2 | sort -u | tr '\n' ';')
 if [ -z "$struck" ]; then
-    t_ok "no struck-through or CLOSED/DONE row sits under an open heading"
+    t_ok "no struck-through or CLOSED/DONE/DECIDED/SETTLED/RESOLVED row sits \
+under an open heading"
 else
     t_fail "closed row(s) under open heading(s): $struck -- move them to a \
 '## Closed' section or delete them. The page's own rule: 'A closed row under an \

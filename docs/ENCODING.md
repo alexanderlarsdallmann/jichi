@@ -149,7 +149,7 @@ the whole block. The buffer stays one logical line per row (no newline-aware
 render rewrite), so pasted rows are shown but not re-editable in place. The
 splice/normalize core (`jc_paste_splice`: CRLF and lone CR → LF, cursor
 tracking) is pure and unit-tested; the end-to-end paste is PTY-tested
-(`tests/e2e/paste.py`).
+(`tests/smoke/paste.sh`).
 
 ## Deferred / future
 

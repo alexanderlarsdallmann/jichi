@@ -1,7 +1,9 @@
 # Makefile for jichi - a C89 rewrite of the Continue CLI.
 #
 # First-party code is compiled strict ANSI C89 (-std=c89 -pedantic). The
-# vendored cJSON is compiled C89 but without -pedantic to avoid style noise.
+# src/json/cJSON.c is OURS (API-compatible name, not a vendored copy) and is
+# pedantic-clean: it gets the same -std=c89 -pedantic as everything else. The
+# exemption this line used to describe was removed at M171.
 # POSIX-only prototypes are exposed via -D_POSIX_C_SOURCE.
 #
 # Feature detection (run once per invocation):

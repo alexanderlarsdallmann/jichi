@@ -27,6 +27,150 @@ the `describe` interface contract.
 
 *Nothing yet.*
 
+## [0.10.1] — 2026-09-23 — search_code speaks the regex models write, and a turn reports its own answer
+
+> **Why a PATCH.** This section's span is M710–M716. Two defects a user could hit
+> are fixed: `search_code` ran grep in *basic* mode, so a pattern like `a|b` found
+> nothing where the code existed and the model concluded it was not there; and in a
+> resumed session, `--output json`/`jsonl` reported the previous turn's answer when
+> the current turn wrote none. Nothing on the Stable tier was removed or renamed.
+> Everything else here is additive — the journal's `one_shot` and `answer_bytes`,
+> the lines a read covered in telemetry,
+> [`docs/VERIFY_A_PLATFORM.md`](docs/VERIFY_A_PLATFORM.md) — or documentation and
+> measurement that changes nothing you run.
+
+> **One thing to check after upgrading:** `search_code` patterns are now *extended*
+> regular expressions. If you or your prompts wrote basic-regex syntax — `\|` for
+> alternation, `\(` for a group — write `|` and `( )`; a literal `(` or `|` now
+> needs a backslash.
+
+### Fixed
+
+- **A resumed turn that answered nothing no longer reports the previous turn's
+  answer** (M715). In a session continued with `-c` or `--session`, the
+  `--output jsonl` `done` event and the `--output json` object took `text` from the
+  last assistant message in the *whole* history -- so a turn that stopped at the
+  tool-call cap without writing anything reported the answer of the turn before it,
+  in exactly the output a script trusts. Plain-text stdout was right: it streams
+  only this turn. `text` is now this turn's answer, and empty when the turn wrote
+  none, which is what [`docs/SCRIPTING.md`](docs/SCRIPTING.md) always said it was.
+  The context-overflow hint (M73) had the same defect and repeated an earlier
+  turn's hint under a capped turn; it is fixed by the same change.
+
+- **`search_code` finds what is there when your pattern uses `|`, `+` or `( )`**
+  (M714). It ran grep in POSIX *basic* mode, where `|` and `+` are ordinary
+  characters and `\(` opens a group -- so `Kind|TokenKinds` came back
+  `(no matches)` for code that contained `Kind`, and the model concluded the code
+  was not there. Re-running a 45-search pilot against the same tree, 11 were false
+  negatives and 1 a spurious error. It now runs `grep -rnE` (extended regular
+  expressions, the dialect models write -- 230 bare `|` against 5 GNU-basic `\|` in
+  the measured corpus), its schema says so, and an invalid pattern is reported with
+  grep's own message instead of a generic "grep exited with an error". **If you
+  relied on basic-regex syntax** -- `\|` for alternation, `\(` for a group -- write
+  `|` and `( )`; a literal `(` or `|` now needs a backslash. `-E` is POSIX, and every
+  grep in the platform matrix takes it.
+
+- **A published rate corrected: 13 of 264 turns, not 20** (M714). The review
+  M713 added counted successful-call repeats on argument *summaries* and output
+  *sizes*; keyed on the whole arguments and a hash of each result -- which most of
+  the measured events carry -- the rate is lower. Every page that printed the old
+  figure now says so beside it.
+
+- **Two pages denied a result the project had recorded, and a released change had
+  no entry here** (M713). `SESSION_RUNBOOK.md` — the page every session starts
+  from — and `READING_OPEN_SOURCE.md` said the self-hosting write slice had never
+  completed a real task end to end; it did once, on 2026-08-03 (M271), and both
+  now say so, with what they used to claim. The 0.10.0 section below gains the
+  line it was missing: the constraint fix for prompts that describe broken code
+  shipped in that release without one. The review that found both —
+  `docs/analysis/2026-09-23-what-to-build-next.md`, with its plan
+  `docs/plans/2026-09-after-m712.md` — changes no behaviour.
+
+- **Mid-turn compaction stops re-scanning a history it already knows is dry**
+  (M712). The exhaustion latch's horizon meant "re-check now", not "something
+  is elidable now", so a turn whose tool results all sat below the elision floor
+  paid a full history scan every few rounds that could not possibly find
+  anything. It now checks only what actually left the protected window.
+  Measured on a real shape — 120 rounds of a 676-byte result against an
+  800-byte floor — **30 scans became 1**; on the end-to-end fixture, 4 became 1.
+  CPU only: what jichi elides, what it reports and when it warns are unchanged.
+
+- **125 rotted documentation claims, swept and corrected** (M711). Every
+  documentation lint in this tree checks *references* — paths, anchors, flags —
+  so a sentence whose pointer still resolves can go false and stay green. The
+  ones that could cost you something: `PREPARE_AND_BUILD.md` still taught the
+  priced vendor default that v0.10.0 removed, and reassured you nothing was
+  wrong; `JUPYTERHUB.md` told deployers there is no `LICENSE` file (Apache-2.0
+  since M619); `USER_TOOLS.md` denied the built-in `web_search` that ships;
+  `DEPLOYMENT.md` and `include/jc_config.h` documented `maxSubagentDepth`
+  default 1 against a parser default of 2; `REMOTE_SSH.md` named two flags that
+  do not exist (`--budget-time`, `--budget-tool-calls` — the real ones are
+  `--deadline` and `--max-tool-calls`); and **24 citations across 19 pages**
+  pointed at `tests/e2e/*.py` drivers the Python-free port deleted.
+
+### Added
+
+- **[`docs/VERIFY_A_PLATFORM.md`](docs/VERIFY_A_PLATFORM.md) — how to help verify
+  jichi on a machine this project does not have** (M716). For a self-learner or a
+  junior developer: eight steps, every command run as printed before it was
+  published; what each step proves and which of `PLATFORMS.md`'s four words —
+  Never compiled, Partly verified, Verified, Driven — it can earn; what to send,
+  and what never to send (keys, telemetry, journals); and how a report is checked
+  rather than trusted. Written when two macOS users reported compiling jichi:
+  macOS stays *Never compiled* in the matrix until a build log reaches it, and this
+  page is what one looks like.
+
+- **The run journal says whether a run was a one-shot, and how much it answered**
+  (M715). The `start` event carries `one_shot` -- headless with `--no-session`, so
+  there is no session to resume -- and the `end` event `answer_bytes`, the size of
+  this turn's answer: a size, not a verdict, because a capped run's last words can
+  be text without being an answer. With `stop_reason` these are the facts
+  [DEFERRED](docs/DEFERRED.md) item 7 needs (does a capped one-shot usually answer
+  anything?), and `tests/measure/capped_oneshot.py` now reads them, counting older
+  journals as `unknown` rather than guessing.
+- **Telemetry records the lines a read covered** (M715). A `read_file` `tool_call`
+  event carries `offset` and `limit` -- the range the tool *executed*, reported by
+  the tool after argument repair and unwrapping -- beside its path, so ordinary
+  `metrics`-tier telemetry can tell paging through a file from reading it twice.
+  `tests/measure/reread_ratio.py` gains a telemetry route with a by-range ratio,
+  and `success_repeats.py` keys such reads on their range. The argument summary is
+  unchanged: it is also what the TUI prints and a screen reader speaks.
+- `tests/measure/success_repeats.py` — how often a turn repeats a **successful**
+  tool call and gets the same answer back (M713). jichi's in-turn loop detector
+  counts failed calls only, so a model that keeps re-asking a question it has
+  already answered meets nothing but the tool-call cap. The script counts that
+  shape in your own telemetry, twice — across the whole turn, and only where
+  nothing changed between the identical calls — prints which tools it counted
+  and which it left out, and prints `NOT EVIDENCE` below 50 turns. Offline and
+  read-only. At the `full` telemetry tier it keys a repeat on the whole arguments
+  and a hash of each result rather than on summaries and sizes (M714). No
+  user-visible behaviour moves; this is here because the tool ships in the tree.
+
+- `scripts/corpus-drive.sh` -- drive jichi over a list of tasks, headless, to MAKE
+  a corpus (M714): one `--auto` turn per task in a clone it resets each time,
+  fences on and caps off, everything each run leaves kept (stream, journal, diff,
+  `full`-tier telemetry). It refuses, before any request, a config naming a model
+  outside the free `jlu/` namespace on a non-loopback server, and `--self-test`
+  proves that refusal two-sided.
+
+- `tests/measure/compaction_pressure.py` — what mid-turn compaction actually
+  does under pressure, with its universe and its two filters stated in its
+  header (M710). It settles the two compaction rows `DEFERRED.md` has carried
+  since 2026-08-06 and 2026-08-25: over **248 pressed passes in 49,600 events**,
+  **0 context-overflow rejections** and every short-fallen request **served** at
+  or under the declared window (closest 98.0%, median 86.2%) — so the three
+  deferred remedies address a harm that has not occurred, and **jichi's
+  behaviour under context pressure does not change.** No user-visible behaviour
+  moves; this is here because the tool ships in the tree.
+
+### Changed
+
+- **`jichi doctor` and `jichi setup` say where to report an unmeasured platform**
+  (M716). On a platform the matrix records as never compiled or partly verified,
+  or one it does not recognise, the message now names `docs/VERIFY_A_PLATFORM.md`.
+  The never-compiled message used to end in "please report it" and named no
+  procedure.
+
 ## [0.10.0] — 2026-09-22 — jichi chooses no vendor, and illumos went green
 
 > **Why a MINOR bump and not a patch.** This release **removes a default you may have been relying on**. A config that named no `model` used to resolve to a priced Anthropic id; it now refuses and says so. Under this page's own rule — *MINOR bumps mark a completed capability cluster or a breaking change* — that is a breaking change, and it is the only one here. Everything else is additive or a fix.
@@ -77,6 +221,17 @@ the `describe` interface contract.
   §0a, written for a first config. (M709)
 
 ### Fixed
+
+- **A prompt that describes broken code no longer forbids fixing it.**
+  *(Recorded late, at M713: this shipped in 0.10.0 from a branch that landed
+  without a milestone number, and its entry was never written.)* In `--auto`,
+  jichi infers constraints from your request and enforces them. A prompt opening
+  *"Two tests … do not compile:"* was read as an order — `compile` is a build
+  word and `do not` a negation — so the run refused its own builds, looped on a
+  red verifier, and was rolled back: 21 minutes and 2,215,762 tokens on a real
+  drive. A subject in front of "do not" now makes the sentence a statement, while
+  the start of a clause, or an opener such as "please" or "but", still makes it
+  an instruction. (`1d31473d`)
 
 - **`doctor` told an illumos user jichi had never been compiled there, on a
   platform `PLATFORMS.md` partly-verifies.** POSIX specifies that `uname()`

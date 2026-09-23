@@ -40,7 +40,7 @@ trigger list assembled from imagination is a list of the failures nobody had.
 |---|---|---|---|
 | **T1** | A **capability probe** added, removed, or reworded | **every non-glibc row** | M449: uClibc-ng declares `malloc_trim` only under `__USE_GNU`, so the symbol *linked* while the declaration was hidden and the probe answered yes. M458: `CC ?= cc` means a system shipping neither `cc` nor `c99` reports every feature absent rather than the compiler missing. A probe is the single most platform-sensitive thing in the build. |
 | **T2** | A **platform conditional** (`#ifdef`, a `uname` branch, a `/proc` path) added or changed | the rows on the *other* side of the branch | M400: `jc_mem_total_mb`'s Darwin `sysctl(HW_MEMSIZE)` path was un-compilable under this project's own C89 flags and nobody noticed, because no Darwin row exists to notice it. A branch nobody runs is a branch nobody tests. |
-| **T3** | **Signal, process, or terminal discipline** changed | every BSD and every row whose `/bin/sh` is not bash | M467: a backgrounded subshell's `$!` names the subshell on ksh, so the signal and abort drivers failed on OpenBSD for a reason that had nothing to do with the product. Solaris 11's `/bin/sh` is ksh93, which makes this load-bearing for the illumos row that does not yet exist. |
+| **T3** | **Signal, process, or terminal discipline** changed | every BSD and every row whose `/bin/sh` is not bash | M467: a backgrounded subshell's `$!` names the subshell on ksh, so the signal and abort drivers failed on OpenBSD for a reason that had nothing to do with the product. Solaris 11's `/bin/sh` is ksh93, which is why this is load-bearing for the illumos row — added at M658 and green since M703. |
 | **T4** | **libcurl usage** changed — a new `CURLOPT`, a raised version floor, a new callback | the musl/static rows, the curl-free row, and any row on an old distribution | The floor is libcurl 7.19.4 and the tree has a deliberately minimal-curl build (`scripts/minimal-curl.sh`). A `CURLOPT` added on the development box's 8.5 is invisible here and absent there. |
 | **T5** | **Filesystem or permission semantics** relied on | Windows layers, anything on a network or translated filesystem | M475: the same commit reads 0 modified on ext4 and **1,639 modified** through v9fs. M490: MSYS2's `noacl` mount makes `chmod` return success and change nothing, so jichi's file-privacy guarantees **do not hold there** and the page says so. |
 | **T6** | A **new smoke driver** exercising a syscall, a device, or a terminal behaviour | every row, in proportion to §3 | This is the ordinary case, and the only one that accumulates silently. It is what §3 measures. |
@@ -94,7 +94,7 @@ the figure moves with every driver added, which is the point of it):
 > first failing driver and never *printed* one. Nothing could have been extracted.
 > That is why the Pi 400 stood at **n/a** here for months; with the variable set it
 > reports `smoke: OK (303 drivers, 1,761 checks)`, debt **0**. The BSD rig has set
-> it since M466. **The illumos rig still has not been checked for either shape.**
+> it since M466. **Checked at M703:** `scripts/tier-v-illumos.sh` runs the tier under `JC_SMOKE_KEEP_GOING=1` and captures the failing checks and the count, so neither shape can hide.
 
 > **A DEBT OF ZERO IS NOT THE WHOLE STORY, AND M698 IS WHY.** Coverage debt counts
 > drivers that *executed*, and a driver killed at its deadline executed. Both
@@ -217,8 +217,8 @@ From `PLATFORMS.md` and `LOW_MEMORY.md`, in order of value per hour:
    amount of willingness here changes that.
 
    Between the two sits a third category, which is neither: **the ARM bench
-   rows**. The Pi Zero 2 W's verdict is still M272's, at debt 205, the only
-   full-gate row past the 100 threshold — and on 2026-09-18 the Pi Zero, the Pi
+   rows**. The Pi Zero 2 W was re-run on 2026-09-18 at **302 drivers, debt 1**
+   (§3's own table), superseding M272's debt of 205 — and on 2026-09-18 the Pi Zero, the Pi
    400 and the UNO Q all failed to answer, so re-running it is blocked on
    somebody switching a board on. Worth naming separately: not a resource gap,
    not a design question, just hardware that is off.

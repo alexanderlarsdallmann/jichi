@@ -259,6 +259,14 @@ cat > "$tmp/foreign" <<'EOF'
 # because a reader must run it before trusting a green result -- four versions
 # of that probe were green and wrong, and the control is what caught them.
 --negative-control
+# scripts/make-snapshot.sh and tar, in the public-advance handoff under
+# docs/internal/ (M716). `--rev`/`--dest` name the commit and a destination
+# OUTSIDE the repository, which the script insists on; tar's `--exclude=./.git`
+# is what stops a tested snapshot's own .git from being copied over the public
+# checkout's -- load-bearing in commands a publisher copies.
+--rev
+--dest
+--exclude
 EOF
 
 # jichi flags DESIGNED but not built (HARDENING/SELF_IMPROVEMENT/

@@ -50,7 +50,7 @@ flowchart TD
 
 | | **Path A — mechanical floor** | **Path B — judgment layer** |
 |---|---|---|
-| Grades | any spec with a `verify:` line — all 79 shipped curriculum tasks | an assignment you authored with `/assign`, which carries a rubric |
+| Grades | any spec with a `verify:` line — all 90 shipped curriculum tasks | an assignment you authored with `/assign`, which carries a rubric |
 | Command | `jichi grade <spec>` | `jichi -p "/check <brief> <work>"` |
 | Needs a model? | **No.** Offline, deterministic, free | **Yes.** Costs tokens per submission |
 | Answers | "does it pass?" | "how good is it, against the rubric?" |

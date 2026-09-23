@@ -2,7 +2,7 @@
 
 This is the page to read before you let an agent touch anything you care about.
 
-Six mechanisms decide whether one tool call runs. Each is documented somewhere;
+Nine mechanisms decide whether one tool call runs. Each is documented somewhere;
 until now **no page put them in order**, so a reader could know every part and
 still not know what actually happens when the model says *"I'll edit this file"*.
 Here is the order, taken from the code that runs it, not from a summary.

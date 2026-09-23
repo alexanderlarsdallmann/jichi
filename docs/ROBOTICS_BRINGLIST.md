@@ -28,7 +28,7 @@ is the claim that makes everything below safe (M306):
 | a shell bypass (`./motor.sh`) is shadow-matched | covered |
 | every attempt is audited, owner-only | `jc_audit_kinetic`, mode 0600 |
 
-All eight properties also pass end-to-end in `tests/smoke/kinetic.sh`, including
+All eleven properties also pass end-to-end in `tests/smoke/kinetic.sh`, including
 *"the allowlisted motor ran unattended (the E-stop survives)"* and *"the chained
 command was not allowlisted"*.
 

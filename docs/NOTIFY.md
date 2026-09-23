@@ -54,5 +54,5 @@ Typical commands: `notify-send` (Linux desktop), `terminal-notifier` (macOS),
   parsed from `notify` / `notifyBell`; CLI `--notify` / `--bell` override.
 - Wiring: the TUI loop fires it after each turn's save (`src/tui/jc_tui.c`);
   `run_headless` fires it on completion when in AUTO mode (`src/main.c`).
-- e2e: `tests/e2e/notify.py` runs a headless `--auto --bell --notify` turn and
+- e2e: `tests/smoke/notify.sh` runs a headless `--auto --bell --notify` turn and
   asserts the BEL reached stderr and the command ran with the env vars set.

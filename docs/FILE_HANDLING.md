@@ -1,10 +1,12 @@
 # Handling files — what jichi does, where it is wrong, and what else there is
 
-Every program reads and writes files, and jichi's curriculum teaches it
+Every program reads and writes files, and jichi's curriculum used to teach it
 **nowhere**: 0 of 79 graded tasks, 0 of 16 source-reading chapters, counted
 2026-09-16 ([the coverage review](analysis/2026-09-16-language-teaching-coverage.md)
-§3b.1). Meanwhile jichi's own source does it in **26 files**. This page closes
-that gap on the reading side; the graded half is
+§3b.1). Meanwhile jichi's own source does it in **26 files**. This page closed
+that gap on the reading side, and **the graded half shipped the next day**:
+tasks **76** (reading a file honestly) and **77** (replacing one without losing
+it), from
 [plans/2026-09-files-and-structures.md](plans/2026-09-files-and-structures.md).
 
 **How to read it.** Every section makes the same three moves, in order:

@@ -431,7 +431,11 @@ can — that is exactly why the in-place rehearsal was reverted and rebuilt.
    `improve --attempt` (worktree-isolated live rehearsal). Follow-on: idle
    scheduling in the daemon; the mentor consuming the rehearsal deltas directly.
 
-### Designed, not yet built
+### Designed — most of it since built
+
+*Four of the six below are marked shipped in their own text; they are kept
+with their design notes rather than deleted, because a design that leaves no
+trace gets re-proposed.*
 
 - **M101 — Deterministic workflow DSL.** ✅ DONE (read-only slice) —
   `workflow <spec.json>` runs a harness-driven (not model-driven) pipeline:

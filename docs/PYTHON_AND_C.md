@@ -95,7 +95,7 @@ plan and the decisions are in
 the rule that fell out is "one driver, one tier — `python3` optional-recommended."
 
 But Python did **not** leave entirely, and that is the sharper half of the
-lesson. Around **16 files** remain under `tests/` where Python is still the right
+lesson. Around **28 files** remain under `tests/` where Python is still the right
 tool — the local-model **bench** (needs a compiler and rich orchestration), the
 measurement harness, a VT-emulator, the example products. The residual is
 *deliberate*: keep Python exactly where its velocity pays and nothing portable

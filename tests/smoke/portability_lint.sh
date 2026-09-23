@@ -20,7 +20,7 @@
 # Compiles nothing and runs no jichi (hence *_lint.sh).
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 24
+t_plan 25
 
 mk="$SMOKE_ROOT/Makefile"
 plat="$SMOKE_ROOT/src/platform/jc_platform_posix.c"
@@ -1074,6 +1074,30 @@ one, so '== 0' reads a successful call as a failure there. Use '< 0' for the
 error test and '>= 0' for the success test. Measured on OmniOS r151058: this
 made doctor report \"host platform not recognised\" on a platform PLATFORMS.md
 partly-verifies, and silently disabled the M695 verdict table."
+fi
+
+# --- 25: a verdict that asks for a report says where the procedure is (M716) -
+# doctor and the setup wizard are where a person on an unmeasured platform finds
+# out -- "from the program, not from a page they did not open" (PLATFORMS.md).
+# Both used to end in "please report it" and name no procedure. The five
+# non-verified messages (doctor: never / partly / not recognised; setup: partly /
+# never) now name docs/VERIFY_A_PLATFORM.md. This pins the pointer AND its
+# target: a renamed page would otherwise leave five messages sending people to a
+# file that does not exist, which no other gate would notice.
+#
+# NOT a general "every docs path in src exists" lint, deliberately: measured at
+# M716, 9 of the 36 docs/*.md paths quoted in src/ are paths in the USER's
+# project that jichi scaffolds (docs/DESIGN.md, docs/REQUIREMENTS.md ...), so a
+# universe-wide gate would be wrong by construction.
+_vpage="$SMOKE_ROOT/docs/VERIFY_A_PLATFORM.md"
+_vptr=$(grep -c 'docs/VERIFY_A_PLATFORM\.md' "$_dsrc" 2>/dev/null)
+if [ -f "$_vpage" ] && [ "${_vptr:-0}" -ge 5 ]; then
+    t_ok "the five non-verified platform messages name docs/VERIFY_A_PLATFORM.md, and it exists"
+else
+    t_fail "platform messages naming docs/VERIFY_A_PLATFORM.md: ${_vptr:-0} (want 5: doctor \
+never/partly/not-recognised, setup partly/never); page present: \
+$([ -f "$_vpage" ] && echo yes || echo NO). A person on an unmeasured platform is \
+told to report what they find; this is where they learn how."
 fi
 
 t_done

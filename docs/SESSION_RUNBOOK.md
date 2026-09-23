@@ -294,11 +294,17 @@ tiers passed. The pack says this in its own first section; repeat it to yourself
 when a reviewer says "safe".
 
 **What is measured, and what is still a claim.** The read-only slice has produced
-useful findings on real diffs. The write slice has **never completed a real task
-end to end** — criterion 2 of the pack's own promotion bar, openly unmet — and
-the binding constraint on both is model latency, not the harness. Treat a
-self-hosting session as an experiment with a result, and write the result down
-(`docs/case-studies/` is where a worked one goes).
+useful findings on real diffs — thinly: M515 records criterion 1 as met *"on one
+diff"*. The write slice has completed a real task end to end **once**: criterion 2
+of the pack's promotion bar was met on 2026-08-03 (M271 — one `/add-test`, 131k of
+800k tokens, 8 tool calls, verifier green, the shown-red step left to a human as the
+command requires), under the fence as it stood before M517 narrowed it, and no later
+write-slice run is recorded. The binding constraint on both is model latency, not the
+harness. Treat a self-hosting session as an experiment with a result, and write the
+result down (`docs/case-studies/` is where a worked one goes). *(From M514 until M713
+this paragraph said the write slice had **never** completed a real task and called
+criterion 2 "openly unmet" — written eighteen days after the run that met it. See
+[`analysis/2026-09-23-what-to-build-next.md`](analysis/2026-09-23-what-to-build-next.md) §5.2.)*
 
 ---
 
@@ -383,7 +389,7 @@ answer:
 
 ```sh
 JC_SMOKE_KEEP_GOING=1 make smoke      # every failing driver, not just the first
-sh tests/smoke/run.sh accessible      # re-check one driver without a 201-driver sweep
+sh tests/smoke/run.sh accessible      # re-check one driver without a 317-driver sweep
 scripts/tier-v-bsd.sh --ref-secs N --dirty   # ship the WORKING tree, not HEAD
 ```
 

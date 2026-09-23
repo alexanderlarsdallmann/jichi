@@ -999,13 +999,46 @@ static void test_midturn_latch(void)
     jc_compact_midturn(&app, &h, NULL, &rep, 0, &latch);
     JC_CHECK(rep.latched == 1);
 
-    /* AT the boundary: the pass runs again, finds the range still dry, and
-     * re-latches at the new horizon (17 + 7 = 24). */
+    /* AT the boundary, M712 CHANGED THIS. It used to release here: the pass
+     * ran, found the range still dry, and re-latched at 17 + 7 = 24 --
+     * `rep.latched == 0`, one full lossy scan of the whole history for
+     * nothing. The horizon says "re-check", not "something is elidable", and
+     * what actually left the protected window here is indices [4, 11): nine
+     * one-byte assistant messages, none of them a candidate. So the pass now
+     * asks that bounded question, answers no, and EXTENDS -- same new horizon,
+     * no scan. The measured shape this is for: a turn appending 676-byte tool
+     * results against an 800-byte floor pays this scan every keep+1 rounds
+     * forever, and it can never find anything (M710). */
     jc_history_add(&h, JC_ROLE_ASSISTANT, "x");          /* len 17 */
     jc_compact_midturn(&app, &h, NULL, &rep, 0, &latch);
-    JC_CHECK(rep.latched == 0);
+    JC_CHECK(rep.latched == 1);
+    JC_CHECK(rep.pressed == 1);          /* still reported truthfully */
+    JC_CHECK(rep.elided == 0);
     JC_CHECK(latch.rearm_len == 24);
     JC_CHECK(latch.latch_len == 17);
+
+    /* And it must still RELEASE when a real candidate leaves the window --
+     * the half that makes the extension safe rather than a permanent mute.
+     * The candidate is a large tool-call ARGUMENT rather than a large tool
+     * RESULT, on purpose: `jc_compact_trim_tool_args` takes no spill callback,
+     * so this stays hermetic the way the block above says it is. Eliding a
+     * result here would write a claim ticket into the shared tool-output
+     * store and cost `test_snapshot` its `run-1.txt` -- which is exactly what
+     * the first draft of this test did. */
+    a = jc_history_add(&h, JC_ROLE_ASSISTANT, "r");      /* 17: candidate */
+    jc_msg_add_tool_call(a, "w9", "write_file", huge);
+    jc_history_add_tool_result(&h, "w9", "ok", 0);       /* 18 */
+    while (jc_history_len(&h) < 24) {   /* index 17 is eligible at 17+6+1 */
+        jc_history_add(&h, JC_ROLE_ASSISTANT, "x");
+    }
+    /* The pure helper on the SAME two ranges, before the pass consumes the
+     * candidate: [4,11) is nine one-byte messages, [11,18) holds index 17. */
+    JC_CHECK(jc_compact_released_candidate(&h, 10, 17, 6, 800) == 0);
+    JC_CHECK(jc_compact_released_candidate(&h, 17, 24, 6, 800) == 1);
+
+    jc_compact_midturn(&app, &h, NULL, &rep, 0, &latch);
+    JC_CHECK(rep.latched == 0);          /* released: something qualified */
+    JC_CHECK(rep.elided > 0);            /* and the scan found it */
 
     /* A history that SHRANK re-arms immediately: stale index math. */
     jc_history_truncate(&h, 8);
@@ -1021,10 +1054,70 @@ static void test_midturn_latch(void)
     jc_arena_free(arena);
 }
 
+/* M712: the measured shape, replayed -- how often does the lossy scan run in
+ * a turn that appends nothing eligible? This is turn 22 of the M710 corpus in
+ * miniature: 120 `run_tests` results of 676 bytes against an 800-byte floor,
+ * so not one of them is ever a candidate and every scan is guaranteed to find
+ * nothing. The count is the whole point of the change, so it is asserted
+ * rather than described. */
+static void test_midturn_latch_dry_loop(void)
+{
+    struct jc_app app;
+    struct jc_arena *arena = jc_arena_new(0);
+    struct jc_history h;
+    struct jc_message *a;
+    struct jc_midturn_report rep;
+    struct jc_midturn_latch latch;
+    char huge[20500];
+    char small[677];
+    int scans = 0;
+    jc_size i;
+
+    memset(&app, 0, sizeof(app));
+    app.arena = arena;
+    app.config.context_limit = 6000;
+    latch.rearm_len = 0;
+    latch.latch_len = 0;
+
+    fill(huge, 20480);
+    fill(small, 676);                    /* the measured size, below the floor */
+    jc_history_init(&h);
+    jc_history_add(&h, JC_ROLE_USER, huge);          /* pressure, never elidable */
+
+    /* 120 rounds of the loop: a tool call and a sub-threshold result each. */
+    for (i = 0; i < 120; i++) {
+        a = jc_history_add(&h, JC_ROLE_ASSISTANT, "r");
+        jc_msg_add_tool_call(a, "t", "run_tests", "{}");
+        jc_history_add_tool_result(&h, "t", small, 0);
+        jc_compact_midturn(&app, &h, NULL, &rep, 0, &latch);
+        JC_CHECK(rep.pressed == 1);      /* the pressure is real throughout */
+        if (!rep.latched) {
+            scans++;
+        }
+    }
+
+    /* MEASURED, both ways, on this very loop: before M712 the horizon expired
+     * every keep+1 = 7 appends and this loop appends 2 per round, so the scan
+     * ran **30 times in 120 rounds** -- every one of them guaranteed to find
+     * nothing. With the bounded window check it runs **once**: the first
+     * pressed pass, which has to look before it can know the range is dry.
+     *
+     * The assertion is a bound rather than `== 1` so that a change to
+     * MIDTURN_KEEP_RECENT does not fail the build for being a different number
+     * -- but 3 is still an order of magnitude below the 30 it replaces, so a
+     * regression to the old shape cannot hide under it. */
+    JC_CHECK(scans <= 3);
+    JC_CHECK(rep.elided == 0);           /* nothing was ever eligible */
+
+    jc_history_free(&h);
+    jc_arena_free(arena);
+}
+
 void test_compact(void)
 {
     test_pressure_note();
     test_midturn_latch();
+    test_midturn_latch_dry_loop();
     test_estimate();
     test_find_cut();
     test_render();

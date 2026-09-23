@@ -692,7 +692,7 @@ top-level loop.
 
 ## 10. Verification / try it
 
-The reference loop is exercised end-to-end offline by `tests/e2e/supervisor.py`
+The reference loop is exercised end-to-end offline by `tests/smoke/supervisor.sh`
 (a mock model calls the shipped `report_status` tool; the supervisor routes the
 task to `done/`). To drive it against your own model:
 

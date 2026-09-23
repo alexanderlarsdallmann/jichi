@@ -141,6 +141,14 @@ jc_status jc_agent_run_command_subtask(struct jc_app *app,
 /* The most recent non-empty assistant message text in `hist`, or NULL. */
 const char *jc_agent_last_assistant_text(const struct jc_history *hist);
 
+/* M715: the last non-empty assistant text at history index >= `from` -- THIS
+ * turn's answer when `from` is the history length before the turn's messages
+ * were added, or NULL when the turn produced none. The function above is this
+ * one from 0, which is right only for a history holding one turn: in a resumed
+ * session it returns an EARLIER turn's answer -- and the structured outputs did
+ * exactly that, reporting a capped turn's predecessor's answer as its own. */
+const char *jc_agent_turn_answer(const struct jc_history *hist, jc_size from);
+
 /* Whether an agent currently at `agent_depth` (0 = top level) may spawn another
  * (sub)agent, given `max_depth` (config.max_subagent_depth). The child runs at
  * agent_depth+1, so nesting is allowed while agent_depth < max_depth. The default

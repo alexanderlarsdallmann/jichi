@@ -373,10 +373,11 @@ working around it.
 
 ### The licence, stated plainly because you are planning a deployment
 
-At the time of writing there is **no `LICENSE` file in the jichi tree, so no
-licence is granted** — that is the copyright default, not a policy. The licence
-is expected to be **Apache-2.0** and is waiting on a rights question put to the
-university.
+jichi is licensed **Apache-2.0** (decided M619, 2026-08-27). `LICENSE` is at the
+tree root, `NOTICE` names the copyright holder — Justus-Liebig-Universität
+Gießen — and every source file carries the SPDX identifier. Nothing here is
+waiting on a rights question; [`LICENSING.md`](LICENSING.md) records the decision
+and what was rejected.
 
 For you as an administrator this means: **check the `LICENSE` file in the source
 you actually received** before planning a deployment for students. If it is
@@ -852,9 +853,10 @@ The short version, defensible from what is on this page:
 >    `revertOutOfScope` at a directory two people can write. jichi's lease and
 >    checkpoints are per-`$HOME`, which was staged and confirmed in a two-user
 >    VM. Per-user workspaces make this disappear entirely.
-> 3. **Licensing.** jichi ships as source with no package, and at the time of
->    writing carries no `LICENSE` file (§7). Check the source you actually
->    receive before planning a deployment.
+> 3. **Licensing.** jichi is **Apache-2.0** (§7): `LICENSE` at the tree root,
+>    `NOTICE` naming Justus-Liebig-Universität Gießen, SPDX on every source
+>    file. It ships as source rather than a package, so check the tree you
+>    actually receive carries them.
 >
 > **What nobody has checked yet:** the browser half — whether `Ctrl-R` reaches
 > jichi or reloads the page. That is ten minutes with a browser and the

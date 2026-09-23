@@ -96,8 +96,7 @@ a schedule with no estimate-vs-actual retro must all still fail). Those two
 numbers are **counted, not maintained by hand**: `tests/smoke/docs_counts_lint.sh`
 fails the build if they drift from the assignments and the grader, because they
 had drifted — each milestone incremented the previous claim instead of
-recounting (M259). The last
-eight tasks are the **process track** — requirements, use-cases, design, decisions,
+recounting (M259). Tasks 67–73 and 75 are the **process track** — requirements, use-cases, design, decisions,
 docs, session notes, kanban, scheduling — the toolchain-free half of software
 development, graded on a structural floor.
 
@@ -268,7 +267,7 @@ and the *agent* tutors you in your language over the English briefs
 
 ## What this course does not teach
 
-Counted from the 89 shipped specs, not estimated. **Zero** of them teach:
+Counted from the 90 shipped specs, not estimated. **Zero** of them teach:
 
 | Absent | Counted |
 |---|---|

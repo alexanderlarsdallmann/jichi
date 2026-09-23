@@ -7,8 +7,8 @@ verbatim — this track does not repeat them. What is distinctive, and jichi-
 specific, is that **Guile is GNU's official *extension language*: a Scheme built
 to be embedded inside a C program** to make it scriptable. That is a seam jichi
 could actually host in-process — and the honest, load-bearing lesson here is
-**why jichi doesn't take it.** A reading track, no graders, like Racket and
-Rust. Every snippet below was run on the reference box — the pure-Scheme ones
+**why jichi doesn't take it.** A reading track with a graded course behind it —
+tasks 35–38, as Racket has 31–34 and Rust 63–66. Every snippet below was run on the reference box — the pure-Scheme ones
 under GNU Guile 3.0.9, and the C-embedding one compiled against `libguile`
 3.0.9 with the build line it shows — and their output is quoted, not imagined.*
 

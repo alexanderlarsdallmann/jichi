@@ -1203,6 +1203,55 @@ static int midturn_spill(void *vctx, const char *text, jc_size len,
  * conservative on purpose: a wrong "candidate" only costs one early scan at
  * its release length, and the no-candidate horizon (len + keep + 1) bounds
  * every latch to at most keep+1 appends. */
+/* M712: did anything that newly LEFT the protected window turn out to be a
+ * candidate? The horizon above is deliberately conservative -- with no
+ * candidate in the window it returns len + keep + 1, which re-runs the lossy
+ * scan after keep+1 appends WHATEVER those appends were. A turn appending
+ * sub-threshold tool results therefore pays a full history scan every keep+1
+ * rounds, and that scan is guaranteed to find nothing: the messages that just
+ * became eligible are the ones it already knows are too small.
+ *
+ * Measured at M710 (the shape, not the rate): one turn ran the same 676-byte
+ * `run_tests` 120 times against an ELIDE_MIN_BYTES of 800, so not one of its
+ * results was ever eligible, and 124 of its 128 passes elided nothing.
+ *
+ * A message at index i is eligible once len >= i + keep + 1, i.e. i < len -
+ * keep. So the indices that became eligible between prev_len and now_len are
+ * exactly [prev_len - keep, now_len - keep). Checking that range costs
+ * O(appended) and replaces a scan of the whole history. The caller re-arms on
+ * a 0 rather than running the trims; a 1 releases the latch as before. */
+int jc_compact_released_candidate(const struct jc_history *hist,
+                                  jc_size prev_len, jc_size now_len,
+                                  jc_size keep_recent, jc_size min_bytes)
+{
+    struct jc_history *h = (struct jc_history *)hist;
+    jc_size from = (prev_len > keep_recent) ? prev_len - keep_recent : 0;
+    jc_size to = (now_len > keep_recent) ? now_len - keep_recent : 0;
+    jc_size i;
+
+    for (i = from; i < to; i++) {
+        struct jc_message *m = jc_history_get(h, i);
+        if (m == NULL) {
+            continue;
+        }
+        if (m->role == JC_ROLE_TOOL && m->content != NULL &&
+            (jc_size)strlen(m->content) > min_bytes) {
+            return 1;
+        }
+        if (m->role == JC_ROLE_ASSISTANT) {
+            jc_size k, nc = jc_msg_tool_call_count(m);
+            for (k = 0; k < nc; k++) {
+                struct jc_tool_call *tc = jc_msg_tool_call_at(m, k);
+                if (tc != NULL && tc->arguments_json != NULL &&
+                    (jc_size)strlen(tc->arguments_json) > min_bytes) {
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 jc_size jc_compact_rearm_len(const struct jc_history *hist,
                              jc_size keep_recent, jc_size min_bytes)
 {
@@ -1336,7 +1385,28 @@ jc_size jc_compact_midturn(struct jc_app *app, struct jc_history *hist,
      */
     if (latch != NULL && latch->rearm_len > 0) {
         jc_size hlen = jc_history_len(hist);
-        if (hlen >= latch->rearm_len || hlen < latch->latch_len) {
+        int shrank = (hlen < latch->latch_len);
+        int due = (hlen >= latch->rearm_len);
+        /* M712: the horizon says "re-check now", not "something is elidable
+         * now". With no candidate in the window jc_compact_rearm_len returns
+         * len + keep + 1, so the horizon expires after keep+1 appends WHATEVER
+         * those appends were -- and in a turn appending sub-threshold tool
+         * results the scan it triggers is guaranteed to find nothing. Ask the
+         * cheap question first: did anything that actually left the protected
+         * window qualify? If not, extend rather than pay for the scan. The
+         * range is bounded by the appends since the latch armed, against a
+         * scan of the whole history. */
+        if (due && !shrank &&
+            !jc_compact_released_candidate(hist, latch->latch_len, hlen,
+                                           (jc_size)MIDTURN_KEEP_RECENT,
+                                           (jc_size)ELIDE_MIN_BYTES)) {
+            latch->rearm_len = jc_compact_rearm_len(hist,
+                                                    (jc_size)MIDTURN_KEEP_RECENT,
+                                                    (jc_size)ELIDE_MIN_BYTES);
+            latch->latch_len = hlen;
+            due = 0;
+        }
+        if (due || shrank) {
             latch->rearm_len = 0;   /* released, or shape changed: re-arm */
             latch->latch_len = 0;
         } else {

@@ -112,7 +112,8 @@ An invariant a reviewer must remember is an invariant that will be
 violated. `tests/smoke/arena_lint.sh` scans the hot layers for session-
 arena use and fails on anything not on an allowlist keyed by exact
 (file, line) with a written reason. It was widened (M218) to
-chat/provider/net/session/index, and — the part that makes it a *lint*
+chat/provider/net/session/index and again at M610 to **every .c file under
+src/ except main.c**, and — the part that makes it a *lint*
 and not an audit — it was demonstrated to bite: run against the pre-fix
 tree it flags the exact sites that were the bug. "Prefer a lint to an
 audit" (chapter 9 of the Annai) is this file's founding principle,

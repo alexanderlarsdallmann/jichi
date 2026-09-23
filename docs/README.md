@@ -1,6 +1,6 @@
 # The documentation map
 
-**156** pages sit beside this one at the top level, and **473** in all once
+**167** pages sit beside this one at the top level, and **514** in all once
 `analysis/`, `plans/`, `proposals/`, `reading/`, `assignments/` and `curriculum/`
 are counted. They are not all for the same reader. This is the routing table: **[Start here](#start-here)** if you have just arrived, the
 group that matches your question otherwise.
@@ -185,6 +185,7 @@ What has actually been compiled and run, and what it costs to build.
 - [`PLATFORMS.md`](PLATFORMS.md) — Platforms — what has actually been compiled and run
 - [`PLATFORM_RETEST.md`](PLATFORM_RETEST.md) — When a verified platform needs re-running — triggers, coverage debt, and the ladder
 - [`PORTING_WINDOWS.md`](PORTING_WINDOWS.md) — jichi on Windows: where POSIX ends
+- [`VERIFY_A_PLATFORM.md`](VERIFY_A_PLATFORM.md) — *Helping verify a platform.* For a self-learner or junior developer with a machine this project does not have: the tested commands, what each proves, what to send and never send, and how a report becomes a row (M716)
 - [`ZIG_BUILD.md`](ZIG_BUILD.md) — Compiling jichi with the Zig compiler — findings, honestly
 
 

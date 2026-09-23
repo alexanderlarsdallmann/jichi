@@ -8,8 +8,8 @@
 jichi runs language servers (LSP) for two things: real compiler/type
 **diagnostics** (so after the agent edits a file it sees the actual errors), and
 **code navigation** — symbol-accurate go-to-definition, find-references, and
-file outlines, far more precise than grep on a large codebase. (No
-completion/hover/rename.)
+file outlines, far more precise than grep on a large codebase, plus
+`rename_symbol` (M40). (No completion or hover.)
 
 ## Configuration
 

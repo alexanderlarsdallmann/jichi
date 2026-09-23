@@ -60,22 +60,30 @@ The ready-made config is
 [CONFIG_TUTORIAL.md](../CONFIG_TUTORIAL.md) §11. Model ids are the gateway's
 wire values — `jlu/…` is literal, not a placeholder.
 
-### The cost fact worth knowing: no prompt caching
+### The cost fact worth knowing: prompt caching is per-model, not per-gateway
 
-Measured across 967 real calls (~96.7M input tokens): the HRZ gateway
-**reports zero prompt-cache hits** — jichi parses the cache fields
-unconditionally and never saw one (`docs/analysis/zigodot-jichi-review.md`
-F3). On a caching backend, the long repeated prefix of an agent conversation
-(system prompt, tools, history) is re-billed at a heavy discount; here it is
-re-processed **at full cost every call**, so input volume — not output — is
-what grows with a long session. Practical consequences on this gateway (and
-any non-caching one):
+An earlier measurement across 967 real calls (~96.7M input tokens) found
+**zero prompt-cache hits** on this gateway (`docs/analysis/zigodot-jichi-review.md`
+F3), and this page used to teach that as a property of the backend. **It is
+not.** M339b re-measured it and the correction is the lesson:
+[`analysis/2026-08-09-hrz-prompt-caching.md`](../analysis/2026-08-09-hrz-prompt-caching.md)
+— *"Prompt caching works on this backend"* — records a **94.9% hit rate** and
+**84.1% cheaper input** with the right model and config. The zero was a property
+of the model that had been used, not of the gateway.
+
+So: **check your own model rather than assuming either answer.** On a model that
+caches, the long repeated prefix of an agent conversation (system prompt, tools,
+history) is re-billed at a heavy discount; on one that does not, it is
+re-processed at full cost every call and input volume — not output — is what
+grows with a long session. Practical consequences **when your model does not
+cache**:
 
 - Long sessions cost linearly in history size: **`/compact` earlier** than
   you otherwise would, and prefer fresh sessions per task over one epic
   session ([COMPACTION.md](../COMPACTION.md)).
-- Setting `promptCache` changes nothing here — the machinery is correct but
-  the backend has nothing to cache against. Don't chase it.
+- Setting `promptCache` is worth trying rather than dismissing: on a caching
+  model it is the single largest cost lever measured in this project, and
+  `doctor` warns (since M340) when the prefix is too small to cache.
 - `jichi telemetry` shows your per-session input ramp (`peak_in`) if you want
   to see the effect in your own numbers ([TELEMETRY.md](../TELEMETRY.md)).
 

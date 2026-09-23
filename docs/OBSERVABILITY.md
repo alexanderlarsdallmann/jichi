@@ -58,9 +58,11 @@ Two additions from a downstream workload's analysis:
 
 > **Known seams (M419).** What these sinks *cannot* answer is measured and designed
 > in [`proposals/2026-08-observability-seams.md`](proposals/2026-08-observability-seams.md):
-> a telemetry event and a journal event share **no key** (so behaviour and outcome
-> cannot be correlated), **8 of 18** telemetry and **13 of 23** journal events have
-> no reader, and `telemetry` reads one log by default rather than the corpus. Read
+> `telemetry` reads one log by default rather than the corpus. **Two of that
+> proposal's three seams have since closed:** M420 gave every telemetry event
+> emitted during a bounded run the envelope's `run` id, so behaviour and outcome
+> *can* be correlated, and M584 added `telemetry_events` check 10, which fails
+> the build if an emitted event has no reader. Read
 > it before trusting a summary to tell you whether anything is *improving* — these
 > readers are good at "what happened", not yet at "is it getting better".
 
@@ -230,7 +232,7 @@ archaeology the join does not remove:
 | totals | `tokens_used`, `tool_calls`, `tool_calls_executed` | — |
 | per-call input | — | `model_call.in_tok`, `.cache_read_in`, `.hist_tok` |
 | per-call output | — | `model_call.out_tok`, `.latency_ms`, `.cost_usd` |
-| per-tool | — | `tool_call.name`, `.ok`, `.duration_ms` |
+| per-tool | — | `tool_call.name`, `.ok`, `.duration_ms`; for `read_file`, `.offset` and `.limit` (M715) |
 
 Group the telemetry file by `run`, index the `runs` rows by `run`, print them
 side by side. Roughly thirty lines of any scripting language; the derived column
@@ -350,8 +352,8 @@ event nothing emits). Consumers tolerate unknown events by design
 | `event` | What it records |
 | --- | --- |
 | `open` | the journal exists and the run has a pid (M438). Written the instant the file is opened, so it is never 0 bytes while the process lives — `start` follows only after config load, reachability probes, MCP connect and the repo map, any of which can hang, and an empty file is what a dead process looks like |
-| `start` | the run began: budgets, scope, verify command as configured, `edit_scope_globs` (M459: WHICH globs, not just how many — a count cannot tell `AGENTS.md` from `**`, and the second fences nothing) |
-| `end` | the run's outcome (`outcome`, `rolled_back`, `tokens_used`, `tool_calls`, `tool_calls_executed`) |
+| `start` | the run began: budgets, scope, verify command as configured, `edit_scope_globs` (M459: WHICH globs, not just how many — a count cannot tell `AGENTS.md` from `**`, and the second fences nothing); `one_shot` (M715): headless with `--no-session`, so there is no session to resume and a capped run's work is gone rather than pending |
+| `end` | the run's outcome (`outcome`, `rolled_back`, `tokens_used`, `tool_calls`, `tool_calls_executed`); `stop_reason` (M690 — the same values as the `done` event's, so a capped run is visible where `outcome` says `ok`; this row did not list it until M715); `answer_bytes` (M715): the size of **this turn's** answer — a size, not a verdict, since a capped run's last words can be text without being an answer |
 | `verify` | one verifier run: pass/fail, parsed `failed`/`passed` counts (M86 adds the sanity fields) |
 | `tool_loop` | a **tool call kept failing the same way inside one turn** (`name`, `class`, `key`, `repeat`) — surfaced as `loops=N` in `runs`. `key` is `exact` (byte-identical arguments, threshold 3) or `class` (same failure cause, varied arguments, threshold 4); `class` is one of `not_found`/`denied`/`bad_args`/`killed`/`nonzero_exit`/`other`. Its own event because every prior recovery was reactive to ONE failure — measured at 31% and 40% of error-turns across two corpora, with single turns repeating a failing call 34x and 59x (M432) |
 | `blocked_repeat` | the run re-attempted a **policy-forbidden** action after being refused (`name`, `target`, `repeat`) — surfaced as `blocked=N` in `runs`. Its own event because a block is neither a tool error (`ok:false`) nor counted against `--max-tool-calls`, so before M429 a run could spend its whole token budget on one while every other signal read normal |
@@ -364,7 +366,7 @@ event nothing emits). Consumers tolerate unknown events by design
 | `preserved` | a discarded attempt was preserved as a git ref before rollback (`ref`, `commit`; `jichi attempts` lists it) |
 | `out_of_scope` | files outside the edit scope changed (M83; `reverted` counts per M142) |
 | `route` | the run switched model tiers (fast/strong) and why |
-| `tool_call` | a tool call the envelope BLOCKED (`name`, `blocked`) — not every call, only refusals |
+| `tool_call` | a tool call: **every executed one** (`name` and the outcome stamp `ok`/`error`/`exit` — M536's stamper, shared with telemetry's row so the two sinks a supervisor joins on `run` cannot disagree), and every one the envelope **blocked** (`name`, `blocked: true`, plus the `path` for an out-of-scope write). *Until M715 this row said "not every call, only refusals"; measured then: a 200-call `--auto` run journals 200 `tool_call` rows* |
 | `constraint` | a hard user constraint refused a call (M110; `tool`, `reason`) |
 | `constraint_exempt` | an inferred read-only did NOT refuse a write: an explicit edit-scope names that path (M459; `tool`, `why`) |
 | `control` | a control-channel command was served (M159; `cmd` — injects make the run `steered=N` in `runs`) |

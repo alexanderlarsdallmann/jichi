@@ -39,7 +39,9 @@ The house style, and it is not ceremony — this project's own register is
    still worth reporting; say so and it will be recorded as that.
 
 If it is a **portability** report — a platform, a libc, a shell, an architecture —
-say which, and include `make info`. [`docs/PLATFORMS.md`](docs/PLATFORMS.md) records
+say which, and include `make info`; the complete procedure, with every command
+and what never to send, is
+[`docs/VERIFY_A_PLATFORM.md`](docs/VERIFY_A_PLATFORM.md). [`docs/PLATFORMS.md`](docs/PLATFORMS.md) records
 every verdict as Verified / Partly verified / Never compiled, and a new row from
 someone else's machine is the single highest-value contribution to this project:
 every non-Linux platform brought so far has found real defects that were present on
@@ -225,7 +227,7 @@ Since the M209–M217 port, the smoke tier carries the bulk of what was the
 Python e2e suite: the headless round trip, `--output json/jsonl`, stall/signal
 exit codes, sessions, the media/embeddings/routing/posture surfaces, the
 AF_UNIX daemon + control channel, the MCP + ACP stdio protocols, the PTY line
-editor, and the `spawn_parallel` fork pool — 317 drivers, all Python-free. What
+editor, and the `spawn_parallel` fork pool — 319 drivers, all Python-free. What
 remains under `make e2e` is a small permanently-Python residual (see the table
 above), so **`make check-target` (= `test` + `smoke`) is now a full build gate
 on any POSIX box**, and `make e2e` is optional (it skips loudly without

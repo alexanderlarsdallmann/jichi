@@ -32,7 +32,7 @@ flowchart TB
 ## Learning
 
 **Human learns, agent tutors.** The curriculum
-([CURRICULUM.md](CURRICULUM.md)): four stages, 18 graded assignments, the
+([CURRICULUM.md](CURRICULUM.md)): four stages, 90 graded assignments, the
 hint ladder, and the tutor stance (while a brief is active the model
 guides and declines to solve). Entry: `jichi setup --preset learner`.
 

@@ -664,7 +664,7 @@ architecture in general, using jichi as the worked example).*
   message (a user-message boundary, so history stays well-formed) + re-saves.
   Surfaced as TUI `/rewind [n] [--dry-run]` (live session; bare `/rewind` lists
   targets) and the `rewind [n] [--dry-run]` subcommand (`run_rewind` in `main.c`;
-  `--session`/recent-scoped). e2e `tests/e2e/rewind.py`. See docs/REWIND.md.
+  `--session`/recent-scoped). e2e `tests/smoke/rewind.sh`. See docs/REWIND.md.
 - **Autonomy envelope** (`src/chat/jc_envelope.c`, `include/jc_envelope.h`):
   bounds an unsupervised (`--auto`) run with budgets (tokens/wall-clock/
   tool-calls), an edit-scope path fence on `edit_file`/`write_file`, a
@@ -850,7 +850,7 @@ architecture in general, using jichi as the worked example).*
   Never widens: no approve verb, no budget/scope changes, no TCP; non-status
   commands are journaled, and `runs` flags a steered run (`steered=N` note /
   JSON field counting the injects, M161). Pure codec unit-tested; e2e
-  `tests/e2e/control.py` (incl. the full inject→journal→`runs` pipeline).
+  `tests/smoke/control.sh` (incl. the full inject→journal→`runs` pipeline).
   See docs/CONTROL.md + docs/proposals/2026-07-control-channel.md.
 - **Completion notification** (M34f/F6, `src/util/jc_notify.c`,
   `include/jc_notify.h`): ping the user when a turn (TUI) / `--auto` run finishes.
@@ -970,7 +970,7 @@ architecture in general, using jichi as the worked example).*
   other key dismisses. `jc_term` exposes a generic `jc_suggest_fn`
   (`jc_term_set_suggester`); the TUI supplies `tui_suggest`. A manual key (not
   per-keystroke async) keeps the single-threaded editor responsive. PTY-tested
-  (`tests/e2e/ghost.py`). See docs/AUTOCOMPLETE.md.
+  (`tests/smoke/ghost.sh`). See docs/AUTOCOMPLETE.md.
 - **TUI** (`src/tui`): `jc_term` (raw-mode line editor — raw mode only while
   editing, cooked during streamed output; `jc_term_read_key` reads one keypress
   for prompts; Tab completion via a completer callback; trailing-backslash
@@ -1134,15 +1134,16 @@ architecture in general, using jichi as the worked example).*
   bugfix-explainer; proofreaders `readonly`) and audience-routing `/write-docs`
   `/proofread` commands. Pure cores unit-tested (`tests/test_scaffold.c`, incl. that every
   shipped asset across all packs parses + the JSON examples are valid); E2E
-  `tests/e2e/init.py`. See docs/SCAFFOLDING.md.
+  `tests/smoke/init.sh`. See docs/SCAFFOLDING.md.
   The read side (introspection) is the `agents`/`commands`/`rules`/`sysmsg`
   subcommands (`run_*` in `main.c`), backed by pure `jc_agentdef_render_list`/
   `jc_command_render_list`; `doctor` also reports a "project assets" count.
 - **Setup wizard** (M48, `src/setup/jc_setup.c`, `include/jc_setup.h`): the
   `setup` subcommand — one guided flow from an empty dir to a working, validated,
   role-tailored project (closing the `init`→config→`doctor` gap). The pure core
-  is a compiled-in **preset table** (8 roles: developer/technical-writer/tester/
-  reviewer/generic/devops/support/data), each a *recipe* `{scaffold_pack,
+  is a compiled-in **preset table** (19 entries across four axes — 7 on the ROLE
+  axis, 7 on JOURNEY, 3 on MACHINE and the rest; `tester` and `reviewer` moved to
+  the JOURNEY axis at M326m), each a *recipe* `{scaffold_pack,
   output_style, mode, JC_SF_* feature bitmask, start-script profile,
   asks_language}` referencing an **existing** scaffold pack (no asset
   duplication) — with `jc_setup_preset_count/_at/_find`, `jc_setup_apply_preset`
@@ -1163,7 +1164,7 @@ architecture in general, using jichi as the worked example).*
   project's files (pure `jc_setup_lang_for_ext` + a bounded `setup_detect_lang`
   walk in `main.c`): the detected pack is the interactive menu default and the
   flag-mode choice when `--lang` is omitted (M52). Pure cores
-  unit-tested (`tests/test_setup.c`); E2E `tests/e2e/setup.py` (interactive path
+  unit-tested (`tests/test_setup.c`); E2E `tests/smoke/setup.sh` (interactive path
   PTY-smoked). See docs/SETUP_WIZARD.md, docs/TUTORIAL_BEGINNER.md,
   docs/TUTORIAL_ADVANCED.md.
 - **Assignments (M17, optional)** — an SDLC teaching workflow, off by default.
@@ -1317,8 +1318,9 @@ architecture in general, using jichi as the worked example).*
   does **not** restrict the agent (skills are loaded for guidance and never
   "deactivated", so a turn-scoped fence lingered over long turns — see
   docs/ANECDOTES.md #3). Tool restriction lives in subagent profiles
-  (`jc_tool_allowed`) and modes/permissions instead; a future per-skill
-  restriction would be opt-in (`restrict-tools: true`). Surfaced via `/skills`
+  (`jc_tool_allowed`) and modes/permissions instead; the per-skill restriction
+  **shipped** and is opt-in (`restrict-tools: true`), parsed in `jc_skill.c` and
+  enforced as the subagent's allow-list in `jc_tool_subagent.c`. Surfaced via `/skills`
   and the `skills` CLI subcommand. The parse/find/catalog helpers are pure and
   unit-tested. See docs/SKILLS.md.
 - **LSP** (`src/lsp`): Language Server client for **diagnostics + code
@@ -1513,7 +1515,7 @@ architecture in general, using jichi as the worked example).*
   a fence — the finding names the canonical tool, falling back to
   `jc_tool_semantic_alias` for a hint-only guess (`grep` → `search_code`). The
   universe of real names is the pure `jc_tool_name_known` over `JC_ALL_TOOL_NAMES`
-  (45 entries) in `jc_tool.c`; config-declared user tools and MCP-namespaced
+  (46 entries) in `jc_tool.c`; config-declared user tools and MCP-namespaced
   `<server>__<tool>` names are accepted separately (the latter without proof —
   confirming would mean connecting every server, and a false "no such tool" is
   worse than a missed one). Findings are counted with **bounded samples** plus an

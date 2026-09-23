@@ -43,4 +43,4 @@ its own terminal).
 entry owns a pid + non-blocking pipe; malloc/free managed, reaped in
 `jc_bg_mgr_free`), reusing the fork/`select`/SIGTERM discipline of the parallel
 pool. The tools live in `src/tools/jc_tool_bg.c`; `run_in_background` is handled
-in `src/tools/jc_tool_run.c`. Tests: `tests/test_bg.c`, `tests/e2e/bg.py`.
+in `src/tools/jc_tool_run.c`. Tests: `tests/test_bg.c`, `tests/smoke/bg.sh`.

@@ -121,7 +121,7 @@ Summing the printed lines can land a few tokens under the stated total: each lin
 independent integer division, so it loses at most one token per line. The invariant is
 exact in bytes.
 
-The sixteen possible sections are `persona`, `craft`, `safety`, `environment`,
+The seventeen possible sections are `persona`, `craft`, `safety`, `environment`,
 `extra prompt`, `language`, `output style`, `rules`, `design`, `constraints`, `memory`,
 `glossary`, `board`, `repo map`, `assignment`, `skills`.
 [What the breakdown found when it was first switched on.](analysis/2026-08-06-sysmsg-breakdown.md)
@@ -320,6 +320,12 @@ Mid-turn compaction's lever is **large tool results**: it elides the oldest big 
 `MIDTURN_TARGET_PCT` of the limit. That works when the window is filled by a few fat outputs.
 It does **not** work when the window is filled by *thousands of small* ones — there is simply
 nothing large left to elide, and the request goes out over budget anyway.
+
+> **What "over budget" does and does not mean (M710).** Over the operator's
+> stated `contextLimit`, sometimes — 3.1% of calls in the workload below. Over
+> the model's window, so that the request fails: **never yet**, in either corpus.
+> See [`analysis/2026-09-22-compaction-decided.md`](analysis/2026-09-22-compaction-decided.md),
+> which decided the register row this section opened.
 
 This is measured, not hypothetical. In one 34,216-event workload
 ([analysis](analysis/2026-08-06-large-workload-telemetry.md)) the pass ran **1,038 times** and
@@ -700,7 +706,28 @@ telemetry event are unchanged, with `latched:true` marking skipped passes so
 a reader can split thrash from effort. The latch is owned by the agent loop
 (one per (sub)turn, `struct jc_midturn_latch`); passing NULL disables it. On
 the driver fixture (`tests/smoke/compact_latch.sh`), 12 pressed passes
-collapsed to 4 full scans.
+collapsed to 4 full scans -- and to **1** after M712, below.
+
+**M712 — the horizon said "re-check", not "something is elidable".** With no
+candidate in the window the re-arm length is `len + keep + 1`, so the latch
+expired after `keep + 1` appends *whatever those appends were* — and a turn
+appending sub-threshold tool results therefore paid a full history scan every
+few rounds that was **guaranteed** to find nothing: the messages that had just
+become eligible were the ones already known to be too small. M710 measured that
+shape — one turn ran the same **676-byte** `run_tests` result **120 times**
+against an `ELIDE_MIN_BYTES` of 800, and 124 of its 128 passes elided nothing.
+
+The pass now asks a bounded question before paying for the scan:
+`jc_compact_released_candidate` checks only the indices that actually left the
+protected window, `[prev_len - keep, len - keep)`. If none qualifies the latch
+**extends** instead of releasing; if one does, it releases exactly as before.
+The cost is O(appends since the latch armed) against a scan of the whole
+history. Replayed as a unit test on M710's measured shape — 120 rounds of a
+676-byte result — **the scan ran 30 times before and once after**. The one
+remaining scan is the first pressed pass, which has to look before it can know
+the range is dry. Observability is unchanged: `pressed`, the estimate and the
+event still report the pressure truthfully, and `latched:true` still marks a
+skipped pass.
 
 ## The context gauge (M358)
 
@@ -874,7 +901,7 @@ A mid-turn pass does **two** different jobs, and the telemetry now says which ra
 | field | meaning |
 |---|---|
 | `pressed` | the 80% high-water trigger fired — this pass was the last thing between the request and the limit |
-| `short` | it was pressed **and** still could not get under `target`; the request went out over the configured limit |
+| `short` | it was pressed **and** still could not get under `target`. **Not an overflow** (M710): `target` is 60% of the limit and the trigger is 80%, so a short-fall means the request went out above a comfort mark, not above the window. Measured over 248 pressed passes, 0 of 234 were counted over the declared limit by the server; closest 98.0%, median 86.2%, and **0 context-overflow rejections in either corpus** |
 | `unrelieved` | it was pressed and ended still **above the high-water**, so it re-triggers next round. Not the same as `short`: a pass can miss the 60% target and still drop under the 80% trigger, which buys quiet rounds |
 | `dup` | elisions by the eager **zero-loss** pass (superseded `read_file` results) |
 | `age` / `args` | elisions by the **lossy** age-based fallback, which runs only when pressed |

@@ -60,8 +60,10 @@ flag to unstream the streaming modes or stream the buffered one.
    "tokens":{"input":N,"output":N},"cost":0.0,"tool_calls":N,
    "aborted":false,"stop_reason":"done","work_kept":true}
   ```
-  `text` is the final assistant message. Use it for robust parsing
-  (`jq -r .text`). `stop_reason` is one of `done` / `interrupted` / `timeout` /
+  `text` is **this turn's** final assistant message — empty when the turn
+  wrote none. Use it for robust parsing (`jq -r .text`). *(Until M715 a resumed
+  turn — `-c` or `--session` — that wrote nothing reported the previous turn's
+  answer here, because the lookup searched the whole session history.)* `stop_reason` is one of `done` / `interrupted` / `timeout` /
   `budget` / `verify_failed` / **`max_iters`** / `error`; on a failure an
   `error{code,type,message}` object is added. `work_kept` (M92-S1) is a bool: after a `budget` or
   `verify_failed` stop it tells whether the run's edits survived (`true`) or were

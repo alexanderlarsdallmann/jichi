@@ -158,9 +158,14 @@ it on a branch, never on master, with budgets, and read the journal afterwards
 - The pack's measured finding is that **model latency, not the harness, gates
   this**: full review turns on a loaded shared endpoint sometimes did not finish
   in 200–300s. A small local model may be *slower*, not faster. Measure yours.
-- The write slice has **not** been shown to complete a real task end to end —
-  that is criterion 2 of its own promotion bar, and it is openly unmet. You are
-  looking at a first slice, not a finished product, and the README says which
-  parts have been exercised and which have not.
+- The write slice has completed a real task end to end **once** — criterion 2 of
+  its own promotion bar, met on 2026-08-03 with one authored test (the pack
+  README's *"Criterion 2 met on the re-run"*) — and no later run is recorded. So
+  you are looking at a first slice with one success, not a finished product, and
+  the README says which parts have been exercised and which have not. *(Until
+  M713 this line said criterion 2 was "openly unmet". It was written on
+  2026-08-21, eighteen days after the run that met it — false on the day it was
+  written, which is worth remembering the next time a page here tells you
+  something has not happened.)*
 - `src/` edits are deliberately out of scope. If you want the agent to change
   core code, that is a decision you make by hand, with the gate in front of you.

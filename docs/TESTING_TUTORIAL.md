@@ -133,14 +133,22 @@ grep -ohE '[A-Za-z_]+\(root, "[A-Za-z]+"' \
     src/config/jc_config.c | grep -oE '"[A-Za-z]+"' | sort -u | wc -l
 ```
 
-**71** and **94**. The second command is the interesting one, and notice what
+**41** and **95**. The second command is the interesting one, and notice what
 makes it work: it does not name the reader functions at all. It asks *what does
 this file read off `root`* — a different route to the same set, which is move 2
-below.
+below. The gap between the two is the finding: 54 keys the file reads that the
+lint's own pattern does not see.
 
 (The first draft of those two commands used `grep -c`, which counts **lines**,
 and printed 62 and 28 — two numbers that are neither the truth nor each other.
 Running the command you are about to publish is not a formality.)
+
+> **And this page failed its own rule.** These figures read **71** and **94**
+> for months, measured once and never re-run while `jc_config.c` moved under
+> them. A documentation sweep in M711 re-ran the two commands printed above and
+> got 41 and 95. Published numbers are a claim with a date on them; this page
+> now carries one — **re-measured 2026-09-22** — and the honest move when you
+> find such a pair is to run the commands rather than reason about them.
 
 **2. A trailing parenthesis.** Another lint enumerated the keyboard chords the
 line editor handles with `grep -ohE 'ch == [0-9]+\)'`. That pattern requires the

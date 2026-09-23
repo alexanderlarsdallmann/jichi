@@ -226,8 +226,10 @@ then customize.
   write) is the thin `run_init` shell in `src/main.c`.
 - **Forward-compatible frontmatter.** The agent profiles already declare a
   `tools:` allow-list. It is parsed today but not yet enforced (only skills
-  enforce a tool fence); enforcing it for subagents is roadmap **M14**. The
-  read-only agents rely on `readonly: true`, which *is* enforced.
+  enforce a tool fence). **M14 shipped that**: `jc_tool_subagent.c` installs a
+  profile's `tools:` as the run's allow-fence, so it is enforced when the
+  profile runs as a subagent — as this page says at its *Agent profiles*
+  section. The read-only agents rely on `readonly: true`, also enforced.
 
 The archetype packs (`c-cli`, `zig-cli`, `python-cli`, `godot`, `docs`,
 `systems-analysis`) reuse this same engine and shared content tables — a pack is

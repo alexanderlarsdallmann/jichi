@@ -161,7 +161,8 @@ orchestrator can fan out requests.
 - **Keys via env, never argv/config.** Set the model key from `apiKeyEnv`; jichi
   never writes it to config and redacts registered secrets from logs. Don't put
   keys on the `ssh` command line (they land in the remote shell history).
-- **Bound autonomy.** For any `--auto` run: `--budget-tokens/-time/-tool-calls`,
+- **Bound autonomy.** For any `--auto` run: `--budget-tokens`, `--deadline`
+  and `--max-tool-calls`,
   a `--verify` gate (roll back a red tree), and `--edit-scope "src/**"` to fence
   what it may write.
 - **Path fence on.** Reads stay in the workspace (plus any `--reference-root`);

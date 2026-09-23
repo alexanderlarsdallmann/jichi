@@ -214,4 +214,4 @@ A copy-paste starter config lives in `examples/config.local-image.json`.
   `image`/`audio` roles in `include/jc_config.h`; registration in `src/main.c`.
 - Tests: `tests/test_imagegen.c`, `tests/test_audiogen.c`, the decode/round-trip
   cases in `tests/test_base64.c`, and the loopback-mock e2e
-  `tests/e2e/imagegen.py` / `tests/e2e/audiogen.py`.
+  `tests/smoke/imagegen.sh` / `tests/smoke/audiogen.sh`.

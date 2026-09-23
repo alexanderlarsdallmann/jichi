@@ -48,7 +48,7 @@ apologising:
   are the mock's, not a model's. `tests/tools/mm_core.h` documents the
   grammar; a chapter that draws a conclusion about model behaviour from one of
   these traces is overreaching, and should be corrected.
-- **Substituted:** six values that differ between two honest runs — the
+- **Substituted:** seven values that differ between two honest runs — the
   workspace path, today's date, the binary's version, the mock's port, the
   per-session `prompt_cache_key`, and `Content-Length`. Each becomes a
   `<PLACEHOLDER>`; `capture.sh`'s header explains each one and how the list

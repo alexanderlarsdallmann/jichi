@@ -114,12 +114,14 @@ fi
 # --- 4: it got there by the FALLBACK, not by luck -----------------------------
 # A search that succeeded while still passing -I would mean the shim was never
 # consulted; a search that never asked without -I would mean something else
-# produced the match.
-if [ -f "$tmp/greplog" ] && grep -q -- '-rn ' "$tmp/greplog" && \
+# produced the match. The literal is the exact cluster jichi sends without -I:
+# `-rnE` since M714 (extended regex), `-rn ` before it -- which is why this check
+# went red when -E was added, and why it pins the form rather than a prefix.
+if [ -f "$tmp/greplog" ] && grep -q -- '-rnE ' "$tmp/greplog" && \
    ! grep -q -- '-rnI' "$tmp/greplog"; then
     t_ok "jichi asked without -I after the probe refused it (the fallback ran)"
 else
-    t_fail "the grep log does not show a -rn call without -I: $(tr '\n' ';' \
+    t_fail "the grep log does not show a -rnE call without -I: $(tr '\n' ';' \
 < "$tmp/greplog" 2>/dev/null | cut -c1-200)"
 fi
 

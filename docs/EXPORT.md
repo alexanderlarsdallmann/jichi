@@ -79,7 +79,7 @@ not necessarily the one that exported it.
   (prefix/recent-scoped), render, write to the file or stdout.
 - **TUI `/export`** (`src/tui/jc_tui.c`) — writes the live session.
 - Tests: a render unit test (Markdown headings/tool blocks + HTML escaping) in
-  `tests/test_session.c`; an offline round-trip e2e in `tests/e2e/export.py`.
+  `tests/test_session.c`; an offline round-trip e2e in `tests/smoke/export.sh`.
 
 ## Not (yet) included
 

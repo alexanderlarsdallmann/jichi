@@ -80,8 +80,8 @@ Three reads, in this order:
    find it, scroll it once, and count the shape: one `for` over
    iterations, one model call per iteration, one `for` over tool calls
    inside. Chapters 4–8 take it apart piece by piece; today it is enough
-   to know the heartbeat is 400 lines you have already seen as ten lines
-   of pseudo code.
+   to know the heartbeat is ~2,200 lines you have already seen as ten
+   lines of pseudo code.
 
 > **C sidebar — the three idioms you just met.**
 > *Opaque handles:* many headers declare `struct jc_arena;` without its

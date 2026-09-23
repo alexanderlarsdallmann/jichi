@@ -94,6 +94,9 @@ struct jc_envelope {
     double        budget_tokens;    /* total input+output token cap          */
     long          deadline_secs;    /* wall-clock cap                        */
     int           max_tool_calls;   /* tool-execution cap                    */
+    int           one_shot;         /* M715: headless --no-session: no session
+                                     * to resume, so a capped turn's work is gone
+                                     * rather than pending (journalled at start) */
     int           max_reads;        /* M98: read-tool cap (0 = unset). Prevents the
                                      * read-heavy budget bust M96 only detects. */
     struct jc_vec edit_scope;       /* of char*: path globs (caller-owned)   */

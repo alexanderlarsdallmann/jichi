@@ -140,9 +140,11 @@ any of them would break a working setup:
 
 ## Back-compat aliases
 
-`make` and `make install` also create `jlu_continue` and `jlu-convert` symlinks to
-the new binaries, so a wrapper script that resolves the old path by name keeps
-working — including the `./jlu`-style wrappers in sibling projects. They are
+`make` and `make install` **used to** create `jlu_continue` and `jlu-convert`
+symlinks to the new binaries, so a wrapper resolving the old path by name kept
+working. **Those aliases were removed at M487** — the Makefile says so at the
+`install` target — and only `uninstall` and `clean` still name them, to sweep up
+installs made before that. A wrapper on the old name needs updating. They were
 **deprecated** and slated for removal one release after the rename; move your
 wrappers to `jichi` when convenient.
 

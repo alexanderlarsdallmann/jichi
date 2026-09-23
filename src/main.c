@@ -2230,6 +2230,7 @@ static int run_headless(struct jc_app *app, const char *prompt, int fmt)
     const char *cmd_output = NULL;/* a custom command's `output:`, or NULL */
     const char *cmd_language = NULL; /* a custom command's `language:` (M597) */
     int cmd_subtask = 0;          /* a custom command's `subtask:` flag    */
+    jc_size turn_from = 0;        /* M715: history length before this turn */
     jc_status st;
 
     {
@@ -2448,6 +2449,13 @@ static int run_headless(struct jc_app *app, const char *prompt, int fmt)
     /* Honor a custom command's `agent:` / `model:` / `subtask:` frontmatter. */
     jc_app_command_agent_apply(app, cmd_agent, &agent_save);
     jc_app_command_model_apply(app, cmd_model, &model_save);
+    /* M715: everything added from here is THIS turn's. In a resumed session the
+     * history already holds earlier answers, and the structured outputs below
+     * must not report one of those as this turn's. */
+    turn_from = jc_history_len(&session.history);
+    if (app->env != NULL) {
+        app->env->one_shot = app->no_session ? 1 : 0;
+    }
     if (cmd_subtask) {
         st = jc_agent_run_command_subtask(app, &session.history, prompt,
                                           cmd_output, cmd_language, &cb);
@@ -2474,7 +2482,7 @@ static int run_headless(struct jc_app *app, const char *prompt, int fmt)
      * answer for scripts). */
     if (!ctx.quiet &&
         jc_text_is_context_overflow(
-            jc_agent_last_assistant_text(&session.history))) {
+            jc_agent_turn_answer(&session.history, turn_from))) {
         fprintf(stderr,
             "hint: the model server reported a context-window overflow. Its "
             "real context window looks smaller than jichi assumed -- set "
@@ -2499,7 +2507,9 @@ static int run_headless(struct jc_app *app, const char *prompt, int fmt)
      * "done" event. Emitted for every terminal state (incl. errors) so an agent
      * always gets a machine-readable result with a precise stop_reason. */
     if (ctx.json && !ctx.broken_pipe) {
-        const char *ans = jc_agent_last_assistant_text(&session.history);
+        /* M715: THIS turn's answer -- the whole-history search reported a
+         * capped turn's predecessor's answer as its own in a resumed session. */
+        const char *ans = jc_agent_turn_answer(&session.history, turn_from);
         /* M688: the reason comes from the ONE classifier every surface reads,
          * so this block can no longer drift from the reach footer -- which is
          * exactly what it had done. The wire strings are unchanged and remain
@@ -5649,12 +5659,15 @@ static int setup_interactive(struct jc_term *t, struct jc_arena *a,
                               "tier have run, but not the full gate. See "
                               "docs/PLATFORMS.md for what is missing on this "
                               "row, including anything it says about file "
-                              "permissions.");
+                              "permissions, and docs/VERIFY_A_PLATFORM.md for "
+                              "how to help close it.");
             } else {
                 setup_wrap(0, "Note: this looks like a system jichi is not tested "
                               "on. Most of it is plain POSIX and should work, but "
                               "the memory watchdog (memBudgetMb) needs procfs and "
-                              "will not -- `jichi doctor` says so if you set it.");
+                              "will not -- `jichi doctor` says so if you set it. "
+                              "docs/VERIFY_A_PLATFORM.md says how to report what "
+                              "you find.");
             }
             printf("  detected: %s\n", plat);
         }
@@ -11381,16 +11394,19 @@ static int run_doctor(struct jc_app *app, int json, int unattended, int live)
                         "jichi is PARTLY verified on this platform "
                         "(docs/PLATFORMS.md): it builds, and the unit suite and "
                         "smoke tier have run -- but not the full gate. That page "
-                        "names what is missing on this row");
+                        "names what is missing on this row; "
+                        "docs/VERIFY_A_PLATFORM.md says how to help close it");
                 } else {
                     jc_doctor_add(&d, JC_DOC_WARN, plat,
                         "jichi has never been compiled on this platform "
                         "(docs/PLATFORMS.md); expect to be the first to find "
-                        "what does not work -- and please report it");
+                        "what does not work -- docs/VERIFY_A_PLATFORM.md "
+                        "says how to report it");
                 }
             } else {
                 jc_doctor_add(&d, JC_DOC_WARN, "host platform not recognised",
-                              "docs/PLATFORMS.md lists what was measured where");
+                              "docs/PLATFORMS.md lists what was measured where; "
+                              "docs/VERIFY_A_PLATFORM.md says how to report yours");
             }
             if (app->config.mem_budget_mb > 0 && !jc_have_proc_rss()) {
                 jc_doctor_add(&d, JC_DOC_WARN,

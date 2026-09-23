@@ -65,7 +65,7 @@ an attended re-run.
   list from the optional `options` array (capped) and calls the delegate.
 - **TUI** (`src/tui/jc_tui.c`) — `tui_ask` prints the question + suggestions and
   reads a line via `jc_term_readline`; installed on `app->ask` for the session.
-- e2e: `tests/e2e/ask.py` drives the no-delegate (headless) path and asserts the
+- e2e: `tests/smoke/ask.sh` drives the no-delegate (headless) path and asserts the
   run completes without hanging and the proceed note reaches the model.
 
 ## Answering with a posture instead of text (M304)

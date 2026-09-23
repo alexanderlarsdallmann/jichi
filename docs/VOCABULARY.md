@@ -45,7 +45,7 @@ worth reporting.
   widest first: `auto` (approve everything permitted), `chat` (ask before
   changing anything), `plan` (read-only; nothing changes at all).
 - **verdict** — the resolved answer for one tool call: **ASK**, **ALLOW** or
-  **DENY**. See [TOOL_DECISIONS.md](TOOL_DECISIONS.md) for how the six mechanisms
+  **DENY**. See [TOOL_DECISIONS.md](TOOL_DECISIONS.md) for how the nine mechanisms
   compose into it.
 - **fence** — a boundary that refuses rather than warns. The *path* fence keeps
   file tools inside the workspace; the *tool* fence limits which tools an agent is
@@ -109,7 +109,7 @@ You need these to read the source-reading guides, the tests, or any analysis not
   output format the smoke tier prints. A plan line (`1..8`) says how many checks
   to expect, so a suite that dies early cannot look green.
 - **smoke tier** — the POSIX-sh test suite (`tests/smoke/`) that drives the real
-  binary end to end: 317 drivers, ~1,843 checks, no Python, so it runs on a
+  binary end to end: 319 drivers, ~1,870 checks, no Python, so it runs on a
   256 MB box and on four kernels.
 - **two-sided proof** — a new test must be shown **failing** without its fix and
   passing with it. A test that has never been red proves nothing about the bug it

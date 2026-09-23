@@ -210,7 +210,7 @@ parsing the jsonl stream.
 ## Verification
 
 Pure codec unit tests (`tests/test_control.c`); the full channel is
-E2E-driven (`tests/e2e/control.py`): a mock-model run is steered live —
+E2E-driven (`tests/smoke/control.sh`): a mock-model run is steered live —
 `status` and `inject` served at the boundary with the `[operator]` message
 asserted inside the next model request, `pause`/`status(paused)`/`resume`,
 and `abort` → exit 130.

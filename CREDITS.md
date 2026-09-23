@@ -38,14 +38,17 @@ Again: no code taken, and no MIT obligation inherited.
 
 ## Standing on
 
-The C89 standard library, and the seven operating systems the platform matrix is
+The C89 standard library, and the six operating systems the platform matrix is
 measured on rather than assumed about — Linux, FreeBSD, OpenBSD, NetBSD,
-Illumos, macOS and Windows/MSYS2. Each row in
+illumos and Windows (Cygwin and MSYS2). macOS is on the matrix too, as the one
+row marked **Never compiled**: no Mac has ever built this tree, and the matrix
+says so rather than assuming it would work. Each row in
 [`docs/PLATFORMS.md`](docs/PLATFORMS.md) exists because someone ran the tier
 there.
 
 ## Institutional context
 
-Developed at Justus-Liebig-Universität Gießen (HRZ). The licensing question that
-gates publication is with the responsible people there; see
+Developed at Justus-Liebig-Universität Gießen (HRZ). The licensing question was
+answered at M619 (2026-08-27): **Apache-2.0**, copyright Justus-Liebig-
+Universität Gießen, and the tree has been public since. See
 [`docs/LICENSING.md`](docs/LICENSING.md).

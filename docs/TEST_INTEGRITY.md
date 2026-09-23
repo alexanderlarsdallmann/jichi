@@ -92,7 +92,8 @@ holds for code not yet written. Prefer the lint. Two now run, one per tier:
 drivers (no private request readers, no truncating body loops, `SO_REUSEADDR` on
 every listener, every driver can fail, no orphans), and
 `tests/smoke/smoke_lint.sh` enforces ten-plus properties across the smoke
-tier's **236 drivers** (`ls tests/smoke/*.sh | wc -l`, 2026-08-22; this line said
+tier's **317 drivers** (`ls tests/smoke/*.sh | wc -l` minus `run.sh` and
+`_smoke.sh`; 236 when this was written on 2026-08-22, and this line said
 "six across 90" until M531 — an uncounted number in the file that argues for
 counting, found by an outside reader)
 (including "every driver can actually fail" and "one driver, one tier").
@@ -630,7 +631,7 @@ turns one case's success into another's precondition.
    test function contributes **at least one check**, so a stub, a commented-out
    body, or an early return cannot pass as a test. That is failure mode 3 at
    function granularity, and it needs no baseline — only a per-function delta on
-   `jc_test_checks`, which in turn wants the runner's 146 hand-written
+   `jc_test_checks`, which in turn wants the runner's 178 hand-written
    `printf(name); test_name();` pairs to become a `{name, fn}` table.
 4. **Periodically re-run the M201 question.** It was asked once, and the answer was
    "yes, in one class, and the class was larger and worse than assumed". It has not
@@ -657,7 +658,7 @@ turns one case's success into another's precondition.
 
 ## The regress, and where it actually stops
 
-The question does not close. `rig_lint.py` watches 72 drivers; its own source
+The question does not close. `rig_lint.py` watches 7 of the 9 residual Python drivers (two are in its own `EXEMPT` set); its own source
 says so:
 
 ```python

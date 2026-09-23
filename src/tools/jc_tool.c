@@ -965,6 +965,9 @@ jc_status jc_tool_execute(const struct jc_tool_registry *r,
     out->is_error = 0;
     out->exit_status = -1; /* M168: -1 = this tool runs no command */
     out->policy_refusal = 0; /* M291: set only by the fence checks */
+    out->has_range = 0;      /* M715: set only by a ranged read */
+    out->range_offset = 0;
+    out->range_limit = 0;
 
     /* M585: a call that carries NO NAME is not a wrong guess -- it is a
      * malformed call, and saying "unknown tool ''" answers a question the model

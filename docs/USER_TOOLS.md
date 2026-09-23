@@ -74,12 +74,19 @@ stdin/env data.
 
 ## Recipe: web search
 
-jichi has **no built-in `web_search`** — and that is a deliberate design choice,
-not a gap. A search tool is just "take a query, call some HTTP API, return
-results," which is exactly what a user-defined tool already does, and there is no
-single search backend worth hardcoding (Tavily, Brave, SearXNG, Google CSE, …
-all differ in API and auth). Shipping one built-in would bake in a provider and a
-key-handling story; a recipe keeps you in control of both.
+jichi ships a built-in `web_search` (M27, [`WEBSEARCH.md`](WEBSEARCH.md)) — and
+it is **opt-in**: the tool is registered only when you configure a backend under
+`"search"`, and `describe` lists it as *"when search.url is configured"*. The
+reasoning that produced that design is the one this recipe is about, and it still
+holds: there is no single search backend worth hardcoding (Tavily, Brave,
+SearXNG, Google CSE … all differ in API and auth), so jichi ships the *shape* of
+the tool and you bring the provider and the key.
+
+So you have two routes, and the recipe below is still the more flexible one. Use
+the built-in when your backend fits its request/response shape; use a
+user-defined tool when it does not — a search tool is just "take a query, call
+some HTTP API, return results", which is exactly what a user-defined tool
+already does, with the response parsing under your control.
 
 `examples/config.web-search.json` is a ready `web_search` tool: it reads
 `JICHI_ARG_QUERY`, calls a search API with `curl`, and prints the top results.

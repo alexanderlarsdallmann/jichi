@@ -151,7 +151,7 @@ seeing a platform directory is tempting and wrong.
 
 **What this means for actually running MINGW64: less than it might seem, which is a
 saving.** The load-bearing facts need no compiler -- `fork` is absent from the Windows
-CRT and jichi calls it in twelve places; there are no ptys and the 209-driver smoke
+CRT and jichi calls it in twelve places; there are no ptys and the 317-driver smoke
 tier is built on `ptydrive`; Winsock's `select` takes sockets only and jichi selects
 on pipes in eleven files. A MINGW64 attempt would add three narrower things: which
 translation units compile clean (probably most of the library half -- json, str, vec,
@@ -184,10 +184,14 @@ per the three-layer model. It requires access to a Windows machine (or VM)
 with Cygwin or MSYS2 — the one curriculum task with a hardware prerequisite,
 stated in the brief.
 
-## Phase 2 — scheduled
+## Phase 2 — done (M477, re-measured M697/M698)
 
-A timeboxed **Cygwin port attempt by the project itself** is scheduled
-after the first learner surveys arrive (their findings decide where the
-timebox goes). Outcome documented either way: a working Cygwin build would
-move [INSTALL.md](INSTALL.md)'s support matrix; a failure becomes this
+The timeboxed **Cygwin port attempt by the project itself** happened and
+succeeded: Cygwin is **Partly verified** (the unit suite and the full smoke
+tier, not `make ci`), re-measured 2026-09-22 at **13,438 checks / 0 failures**
+across **317 drivers**, and **driven** through the rig. MSYS2 followed.
+[`PLATFORMS.md`](PLATFORMS.md) owns both verdicts. The original plan, kept
+because a plan that leaves no trace gets re-proposed: outcome documented either
+way — a working Cygwin build would move [INSTALL.md](INSTALL.md)'s support
+matrix; a failure becomes this
 page's definitive appendix.

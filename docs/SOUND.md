@@ -71,7 +71,7 @@ the [robotics proposal](proposals/2026-07-robotics.md) appendix.
 
 Pure helpers unit-tested (`tests/test_sound.c`: duration clamp incl. the 600 s
 cap, argv assembly, default-name generation). End-to-end
-(`tests/e2e/sound.py`): `play_audio` drives a mock player with the absolute
+(`tests/smoke/sound.sh`): `play_audio` drives a mock player with the absolute
 path via `$JICHI_AUDIO_FILE`; `record_audio` creates the file; the path fence
 blocks an out-of-workspace path (the player never runs); and with no `sound`
 config neither tool is advertised to the model.

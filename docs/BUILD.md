@@ -53,7 +53,7 @@ the two ever disagree, PLATFORMS.md is right.
 | **FreeBSD** | **Verified — the full gate**, and **Driven**: a live model call and a real tool call ran there. `gmake WERROR=1` clean in **7 s**; smoke **OK (305 drivers, 1,742 checks)** at the 0.9.2 release tree. | `pkg install gmake pkgconf curl` · `gmake` |
 | **NetBSD** | **Verified — the full gate**, and **Driven**. Build clean in **8 s**. Ships GNU grep, which is why some text-tool defects hide here and surface on OpenBSD. | `pkg_add gmake pkg-config curl` · `gmake` |
 | **OpenBSD** | **Verified — the full gate**, and **Driven**. Build clean in **9 s** with clang 19.1.7. Its `/bin/sh` is **ksh**, so the smoke tier runs under a shell nothing else in the matrix exercises. | `pkg_add gmake curl` · `gmake` |
-| **illumos / Solaris** | **Partly verified** (OmniOS CE), and **Driven** (a text turn; no tool call yet). Clean `WERROR=1` build with gcc; **no source conditional was needed** — two build facts are probed. | [packages below](#illumos--solaris-partly-verified) · `gmake CC=gcc` |
+| **illumos / Solaris** | **Partly verified, FULLY DRIVEN and GREEN since M703** (OmniOS CE) — both turns through the rig, re-driven 2026-09-22; `19 ok, 0 failed`, 317 of 317 smoke drivers, coverage debt 0. Clean `WERROR=1` build with gcc; **no source conditional was needed** — two build facts are probed. | [packages below](#illumos--solaris-partly-verified) · `gmake CC=gcc` |
 | **macOS** | **Never compiled.** Expected to build (BSD/POSIX), with **one** Darwin-specific code path — `jc_mem_total_mb`'s `sysctl(HW_MEMSIZE)`, which was un-compilable under this project's own C89 flags until M400 found it. "No Darwin-specific code" was this page's own claim, and it was wrong. | native |
 | **Windows** | Not supported natively (POSIX process/terminal/signal/socket layers have no Win32 equivalent without a port). **WSL2 is the measured path**; **Cygwin** and **MSYS2** are *partly verified* — they build and pass the tier, but not `make ci`, and MSYS2 needs a mount option before jichi's file-privacy guarantees hold at all. | **WSL2 — measured (M475, 2026-08-18):** full `make ci` green on Ubuntu 24.04 / WSL2 (12,418 unit checks under gcc *and* clang, smoke 209 drivers at multiplier **1**). Keep the checkout on the Linux filesystem, **not `/mnt/c`**. [PLATFORMS.md](PLATFORMS.md) |
 
@@ -345,7 +345,7 @@ an API key on one of them.**
 
 | | Build | What was measured |
 |---|---|---|
-| **Cygwin** 3.6.10, gcc 14.4.0 | `make` (GNU make is Cygwin's `make`) | Clean at `WERROR=1`, fully featured. **12,418 unit checks / 0 failures**, smoke **209 drivers / 1,081 checks**. No product change was needed. |
+| **Cygwin** 3.6.10, gcc 14.4.0 | `make` (GNU make is Cygwin's `make`) | Clean at `WERROR=1`, fully featured. Re-measured at M697 (2026-09-22): **13,438 checks / 0 failures**, the full **317-driver** tier. No product change was needed. |
 | **MSYS2** 3.6.10, gcc 15.3.0, the **MSYS** environment | `make`, **94 s** | Clean at `WERROR=1`. **12,440 unit checks**, smoke **211 drivers / 1,157 checks**. MINGW64 is a different environment and has never been measured. |
 
 **The fork penalty is the number to plan around.** Warm (binary already built),
@@ -450,7 +450,7 @@ tiers, and build-time reduction for small/embedded/phone targets), and
 `docs/AUTONOMOUS_LOOPS.md` (running one or more instances as an unattended/
 scheduled loop over a task queue — tmux/systemd/cron supervisor, file/DB/HTTP
 reporting via user-defined tools, threat model + hardening; reference artifacts in
-`examples/autonomous-loop/`, gated by `make examples` + `tests/e2e/supervisor.py`),
+`examples/autonomous-loop/`, gated by `make examples` + `tests/smoke/supervisor.sh`),
 and `docs/OBSERVABILITY.md` (the three JSONL sinks — telemetry, run journals,
 privileged audit — and their offline readers `telemetry`/`runs`/`audit`
 (M158: `jc_runsview`/`jc_auditview`, pure + unit-tested; M160 adds

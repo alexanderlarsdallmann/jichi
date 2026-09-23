@@ -69,8 +69,10 @@ unchanged: trust the gate you have seen reject something.
 **The leash this project puts on itself.** Everything above is the mechanism;
 `examples/self-hosting/config.jichi-dev-write.json` is jichi's own answer to this
 module, written for real use rather than for a grade. Read its `editScope` first
-— `["tests/**", "docs/**", "CHANGELOG.md"]`, a *positive* allow-list, so the loop
-cannot touch `src/` **or its own guardrails** — then `verify: "make test"`,
+— `["tests/test_*.c", "docs/ROADMAP.md", "docs/analysis/*.md", "CHANGELOG.md"]`,
+a *positive* allow-list, so the loop cannot touch `src/` **or its own
+guardrails**; it was narrowed from `tests/**` + `docs/**` at M517, because the
+wider version let a weakened lint pass its own `verify` trivially — then `verify: "make test"`,
 `verifyRetries: 2`, and `revertOutOfScope: true`, which catches a stray edit made
 through the *shell*, where an edit-scope fence does not reach. The README beside
 it explains each layer and, more usefully, reports what the project measured when

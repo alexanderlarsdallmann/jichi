@@ -69,12 +69,14 @@ LSP servers, user tools, the parallel fork pool, and verifiers), `termios` +
   and on-device by Termux. Between them the BSD rows found ten real defects — an
   inherited `SIGPIPE` that hung pipelines on *every* platform among them — which is
   the argument for the rows: they are a defect detector, not compatibility work.
-- **Partly verified:** **Cygwin** (unit and smoke tiers, not `make ci`).
-- **Never compiled:** **macOS** (one Darwin-specific path exists —
+- **Partly verified (3 rows):** **illumos / Solaris** — fully driven and green
+  since M703 — plus **Windows + Cygwin** and **Windows + MSYS2**. Each carries a
+  named gap; [`PLATFORMS.md`](PLATFORMS.md) owns the verdicts and the numbers.
+- **Never compiled:** **macOS** alone (one Darwin-specific path exists —
   `sysctl(HW_MEMSIZE)` — and it was un-compilable under this project's own flags
-  until M400; the older claim of "no Darwin-specific code" was simply wrong) and
-  **illumos**. Plain POSIX with a C89 compiler and libcurl is a good reason to
-  expect success, not evidence of it.
+  until M400; the older claim of "no Darwin-specific code" was simply wrong).
+  Plain POSIX with a C89 compiler and libcurl is a good reason to expect
+  success, not evidence of it.
 - **Not supported today:** Windows natively (no POSIX layer — WSL is the intended
   path, and [PORTING_WINDOWS.md](PORTING_WINDOWS.md) maps exactly where POSIX
   ends).

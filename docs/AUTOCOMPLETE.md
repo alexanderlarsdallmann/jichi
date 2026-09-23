@@ -1,6 +1,6 @@
 # Autocomplete
 
-Four pieces:
+Five pieces:
 
 1. **Tab completion in the TUI** — instant, offline, deterministic completion of
    slash-commands and their arguments while you type.

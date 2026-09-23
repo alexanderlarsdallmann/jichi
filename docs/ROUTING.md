@@ -201,6 +201,6 @@ intentionally deferred:
   escalate mid-turn (`route_escalate`) on the verify-fail, tool-error, and
   **stall** (`JC_ERR_TIMEOUT`) paths without mutating the const `opts`. The stall
   path drops the incomplete assistant turn (`jc_history_truncate`) before re-running
-  on `strong`; e2e-tested (`tests/e2e/route_stall.py`).
+  on `strong`; e2e-tested (`tests/smoke/route_stall.sh`).
 - Surfaces: `--route-fast`/`--route-strong`/`--no-route` (`src/main.c`), the
   `routing` config block, and `/route` (`src/tui/jc_tui.c`).

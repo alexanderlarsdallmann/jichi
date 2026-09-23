@@ -19,9 +19,10 @@ instructor who has never watched a gate go red teaches gates as decoration.*
 
 ## 0.5 Assign the reading
 
-Three source-reading guides ship, and this is the only place their place in
-the course is written down. Assign the first two by module; the third is for
-the students who go past the capstone.
+Four source-reading guides ship — Annai, Fukabori, Tsuiseki and Kiroku — and
+this is the only place their place in the course is written down. Assign the
+first two by module; the last two are for the students who go past the
+capstone.
 
 **[案内（あんない）*Annai* — the guided tour](../reading/ANNAI.md)** runs
 alongside Stage 1: chapters 1–2 with Module 0 (they need only a built jichi),

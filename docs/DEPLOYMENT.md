@@ -162,7 +162,7 @@ What each one buys:
 | `references` | on | Off ⇒ no `@file`/`@diff`/`@url` expansion (avoids extra file/network reads). |
 | `markdown` | on | Off ⇒ raw text, no syntax passes (TUI only; headless is always raw). |
 | `maxParallelAgents` | `min(CPU, 8)` | The `spawn_parallel` fork pool size. Set `1` to stay single-threaded on a small core. |
-| `maxSubagentDepth` | 1 | `0` forbids nested subagents. |
+| `maxSubagentDepth` | 2 | `0` forbids nested subagents. |
 | `maxToolIters` | 25 | Lower ⇒ the agent gives up sooner (fewer model calls, faster failure on flaky links). |
 | `maxRetries` | 4 | Lower ⇒ fewer retry/backoff cycles on transient network errors. |
 | `contextLimit` (top-level) / model `contextLength` | unset ⇒ **32000** | The token budget before auto-compaction summarizes old history. Precedence: top-level `contextLimit`, else the active model's `contextLength`, else 32000. Lower ⇒ less RAM and smaller requests. |

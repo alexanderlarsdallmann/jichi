@@ -7,8 +7,8 @@ distinctive: Haskell is **purely functional with a static type system**, and the
 two disciplines jichi enforces by hand — *pure core / thin shell*, and *errors
 as values* — Haskell makes into **compiler-checked laws**. A pure function
 *cannot* secretly do I/O; an error you return *must* be handled. Plus laziness,
-the one genuinely new evaluation model in this family. A reading track, no
-graders. Every snippet was run on the reference box (GHC 9.4.7) and its output
+the one genuinely new evaluation model in this family. A reading track with a graded course
+behind it — tasks 43–46. Every snippet was run on the reference box (GHC 9.4.7) and its output
 quoted — including the compiler catching a bug the C equivalent would wave
 through.*
 
@@ -131,7 +131,7 @@ by opposite means.**
 - **jichi** rejects wrong programs at **CI time**: the same disciplines — pure
   cores, errors-as-values, make-illegal-states-hard — upheld by a *wall of
   verification* instead of a type system. Two-sided graders shown red first,
-  *prefer a lint to an audit*, ASan/UBSan + valgrind + fuzz, 9,639 offline
+  *prefer a lint to an audit*, ASan/UBSan + valgrind + fuzz, 13,470 offline
   assertions. C's type system is too weak to give what Haskell's gives (and its
   runtime is what jichi's targets can't afford), so jichi **earns** with
   discipline and tooling what Haskell gets **by construction**.

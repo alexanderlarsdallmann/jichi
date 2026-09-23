@@ -639,6 +639,65 @@ void test_tool(void)
         jc_tool_result_free(&res);
     }
 
+    /* M714: search_code speaks EXTENDED regular expressions, the dialect models
+     * write. Measured in the 2026-09-23 zigodot corpus: 230 of 888 patterns used
+     * a bare `|` against 5 using GNU-basic `\|`, and in grep's basic mode those
+     * came back "(no matches)" -- 11 of the pilot's 45 searches were false
+     * negatives, re-run against the same tree. Each check below is one thing
+     * basic mode got wrong, run through the real tool and this platform's grep. */
+    {
+        char wargs[512];
+        char sargs[512];
+        const char *e_i = jc_search_grep_prefix(1);
+        const char *e_no = jc_search_grep_prefix(0);
+        JC_CHECK(strstr(e_i, "-rnIE") != NULL);
+        JC_CHECK(strstr(e_no, "-rnE") != NULL);
+
+        jc_snprintf(wargs, sizeof wargs,
+                    "{\"path\":\"%s/ere.txt\",\"content\":"
+                    "\"pub const Kind = enum {\\nfn alpha_one() void {}\\n"
+                    "call(x);\\n\"}", dir);
+        jc_tool_execute(&reg, "write_file", wargs, &res, &app);
+        JC_CHECK(res.is_error == 0);
+        jc_tool_result_free(&res);
+
+        /* alternation: `|` separates alternatives, it is not a literal bar */
+        jc_snprintf(sargs, sizeof sargs,
+                    "{\"pattern\":\"Kind|TokenKinds\",\"path\":\"%s/ere.txt\"}",
+                    dir);
+        jc_tool_execute(&reg, "search_code", sargs, &res, &app);
+        JC_CHECK(res.is_error == 0);
+        JC_CHECK(strstr(res.content, "pub const Kind") != NULL);
+        jc_tool_result_free(&res);
+
+        /* a quantifier: `+` repeats, it is not a literal plus */
+        jc_snprintf(sargs, sizeof sargs,
+                    "{\"pattern\":\"alph[a]_on+e\",\"path\":\"%s/ere.txt\"}",
+                    dir);
+        jc_tool_execute(&reg, "search_code", sargs, &res, &app);
+        JC_CHECK(strstr(res.content, "alpha_one") != NULL);
+        jc_tool_result_free(&res);
+
+        /* an escaped paren is a LITERAL paren (in basic mode it opened a group
+         * and matched "callx", so the call site was never found) */
+        jc_snprintf(sargs, sizeof sargs,
+                    "{\"pattern\":\"call\\\\(x\\\\)\",\"path\":\"%s/ere.txt\"}",
+                    dir);
+        jc_tool_execute(&reg, "search_code", sargs, &res, &app);
+        JC_CHECK(strstr(res.content, "call(x);") != NULL);
+        jc_tool_result_free(&res);
+
+        /* an invalid pattern is an error that says the PATTERN is the problem,
+         * not the generic "grep exited with an error" the model could not act on */
+        jc_snprintf(sargs, sizeof sargs,
+                    "{\"pattern\":\"unbalanced(\",\"path\":\"%s/ere.txt\"}", dir);
+        jc_tool_execute(&reg, "search_code", sargs, &res, &app);
+        JC_CHECK(res.is_error == 1);
+        JC_CHECK(strstr(res.content, "not a valid extended regular expression")
+                 != NULL);
+        jc_tool_result_free(&res);
+    }
+
     /* fetch_url is registered and validates its arguments without a network
      * call. */
     {

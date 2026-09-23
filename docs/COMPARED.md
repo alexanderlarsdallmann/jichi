@@ -121,7 +121,7 @@ From the analysis, still true on re-reading:
   dead routes, and fails any scenario claiming to exercise the model without
   wiring the fake one. That is jichi's "audit the universe, not the result"
   doctrine, arrived at independently, and on that one surface its gate is harder
-  than jichi's. What remains jichi's alone is the *breadth* — 41 lints, most of
+  than jichi's. What remains jichi's alone is the *breadth* — 65 lints, most of
   them policing **claims** rather than code — and `tests/teeth.sh`, the
   red-before-green ritual mechanised with vacuity detection in both directions.
 
@@ -134,7 +134,7 @@ Different, not better — each of these buys something and costs something.
 | Language | **C89**, POSIX-only, zero warnings under `-std=c89 -pedantic -Wall -Wextra` | TypeScript on Node |
 | Dependencies | **libcurl and nothing else**, linked not vendored; no third-party source in the tree | npm dependency graphs |
 | Footprint | one binary; see [`analysis/2026-07-28-footprint-comparison.md`](analysis/2026-07-28-footprint-comparison.md) | a Node runtime plus `node_modules` |
-| Teaching | a graded curriculum, 80 specs, assignments with **two-sided** graders proved through the product's own `grade`, a hint ladder, a progress record | nothing of this kind. The nearest relative is Continue's `manual-testing-sandbox/next-edit/` — 10 difficulty-graded exercise/solution pairs, with no frontmatter, no verify, no pass/fail, and nothing in the codebase referencing them |
+| Teaching | a graded curriculum, 90 specs, assignments with **two-sided** graders proved through the product's own `grade`, a hint ladder, a progress record | nothing of this kind. The nearest relative is Continue's `manual-testing-sandbox/next-edit/` — 10 difficulty-graded exercise/solution pairs, with no frontmatter, no verify, no pass/fail, and nothing in the codebase referencing them |
 | Project record | 65 anecdotes, 269 decision rows each naming what was rejected, 39 deferrals, 58 analyses | **rarer than unique.** opencode ships a *Dead Ends* table (`perf/test-suite.md`), an 843-line dated ADR log (`specs/v2/schema-changelog.md`), a deferral register with reasons (`specs/v2/todo.md`) and a controlled vocabulary with 119 invariants (`CONTEXT.md`). Continue ships ~49 lines of decisions and a 30-line PR checklist |
 | Cost visibility | *published* per-tool output cost measurements (`docs/TOOL_OUTPUT_COST.md`) | **convergent as a mechanism** — opencode persists per-session cost and input/output/reasoning/cache tokens in SQLite; Continue computes per-request cost. The difference is that jichi published the measurement, not that it has the counter |
 

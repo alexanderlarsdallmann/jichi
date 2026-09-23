@@ -9,7 +9,105 @@ both (M620, the plan executed as written; M621 mended what the first hosted CI r
 found). The loop keeps running -- **design, test, develop, dogfood, harden**. The
 checklist, with what remains:
 
-> **Where we stand** — updated **2026-09-22**, latest milestone **M709**:
+> **Where we stand** — updated **2026-09-23**, latest milestone **M716**:
+> **a volunteer can now verify a platform without a maintainer beside them.** Two
+> macOS users reported compiling jichi; the matrix still says *Never compiled*,
+> because no log, count or commit reached it, and the only procedure was three
+> commands in a section of `PLATFORMS.md`. `docs/VERIFY_A_PLATFORM.md` is the whole
+> of it for a self-learner or junior developer: eight steps, what each proves,
+> which of the four words it earns, what never to send, and how a report is checked
+> rather than trusted. Every command was run as printed before publishing — which
+> found the report folder must live outside the checkout, that jichi's first
+> request is 12,182 tokens, and, at a cost, that a shared model server is not a
+> clean instrument: the first try spoiled one run of the D1 drive. The page's copy
+> of the live task and the program's new pointer to the page are each pinned by a
+> check shown red from both sides.
+>
+> **Previously — M715:**
+> **a resumed turn reported the previous turn's answer as its own — found while
+> building the instruments plan D6 asked for.** In a session continued with `-c`,
+> the `--output jsonl`/`json` result took its `text` from the whole history, so a
+> turn capped with no text of its own said what the turn before it had said: the
+> one output a script trusts. Fixed, with the M73 overflow hint that shared the
+> lookup. D6 itself: the journal's `start` says whether a run was a one-shot and
+> its `end` how many bytes it answered — a size, not a verdict — and telemetry
+> records the lines a read executed, reported by the tool after argument repair,
+> so paging and re-reading are different events (67 % by path, 33 % by range on
+> the probe). Nineteen new checks, every one shown red by its own perturbation —
+> after the harness that proved them was caught restoring the source and not the
+> binary. The corpus drive for D1 ran beside it on the M714 build.
+>
+> **Previously — M714:**
+> **the corpus pilot found a tool that said the code was not there.** Six headless
+> runs on zigodot, two free models, to prove the harness plan D1's corpus needs.
+> It proved it — and found that `search_code` read the regex dialect models write
+> as *basic* grep, so `Kind|TokenKinds` returned `(no matches)` for code containing
+> `Kind`: **11 false negatives and 1 spurious error in 45 searches**, re-run against
+> the same tree. Fixed first, on the operator's call: `grep -rnE`, a schema that
+> says so, an invalid pattern reported with grep's own message — seven checks red
+> first. D1's loop reproduced twice on the current build (200 calls, no answer,
+> exit 0), M713's repetition rate fell from 20 to 13 of 264 under a stronger key,
+> and the drive is now a script, `scripts/corpus-drive.sh`. Two findings stay open:
+> `--auto` copies command stderr onto jichi's own, and a green gate hid a weakened
+> test file.
+>
+> **Previously — M713:**
+> **a review of the tree after M712 found the loop no detector counts — and a
+> register waiting for a corpus nobody is gathering.** M432's loop detector is
+> fed failures only; M687 made 200 *successful* calls after it had the answer. A
+> new script counts that shape — 20 of 264 turns *(13 of 264 with M714's stronger
+> key)* on the development bench
+> repeat a successful call five times with nothing changed in between, a
+> pre-M432 rate — and the plan fits a detector to the other machine's newer
+> corpus before building one. Four register decisions wait on journals: none on
+> this machine carries the fields they need, jichi ran here on one day in the
+> last 48, and two of the instruments could not answer even with a corpus. Two
+> living pages denied a result the project had recorded, a change shipped in
+> v0.10.0 without a changelog line, and the bench runs uutils coreutils with no
+> page saying so. Findings: `analysis/2026-09-23-what-to-build-next.md`;
+> designs: `plans/2026-09-after-m712.md`. Nothing in `src/` moves.
+>
+> **Previously — M712:**
+> **the latch's horizon said "re-check", not "something is elidable" — and the
+> row that asked for more was refused on its own numbers.** M710 filed a re-arm
+> rule priced at "the latch fires on 13.7%"; the population pooled 140 passes
+> from binaries three days older than the feature. On the population that had
+> it, it fires on **31%**. Post-latch the corpus is 5 turns, so the rule is not
+> written. What needed no corpus was in the code: with nothing eligible in the
+> window the horizon expired every `keep+1` appends and ran a scan guaranteed to
+> find nothing. Measured on M710's own shape, **30 scans became 1**; on the e2e
+> fixture, 4 became 1. Observability unchanged; the change is CPU only.
+>
+> **Previously — M711:**
+> **a fleet documentation sweep found 125 rotted claims that every lint passed.**
+> The operator read one sentence — `ANNAI.md` calling twelve shipped chapters
+> "still commitments" — and the sweep that followed put a number on the class:
+> **125 findings across 83 of 219 living pages**, because every documentation
+> lint here checks *references* (paths, anchors, flags) and none checks whether
+> a sentence is still true. **The pointer resolved; only the claim rotted.** The
+> worst of them taught the priced default M709 had removed the day before, told
+> administrators the project had no licence, and denied a tool that ships. Three
+> pages printed the command that disproves them. Every finding carried a proof
+> command, re-run before any fix: 118 of 125 reproduced, and all 7 that did not
+> were flaws in my verifier rather than in the finding.
+>
+> **Previously — M710:**
+> **the compaction row is decided: none of the three, and its premise was
+> wrong.** `DEFERRED.md` had carried "what should jichi DO when mid-turn
+> compaction cannot reach its target" for 47 days, waiting on a workload that
+> presses a correctly declared window. The workload arrived — **248 pressed
+> passes in 49,600 events** — and it removes the harm the three options exist to
+> prevent: **0 context-overflow rejections in the whole corpus**, every
+> short-fallen request **served**, the closest at 98.0% of the declared limit and
+> the median at 86.2%. `target` is 60% of the window and the trigger is 80%, so
+> a missed comfort mark was being read as an overflow. The population had to be
+> corrected twice first — 64 passes were never `pressed`, where `before == after`
+> is a tautology of the code path — which is the same instrument discipline the
+> lints have, applied to a measurement. Nothing in `src/` moves; the honest form
+> of "the behaviour is right" is a register entry and
+> `tests/measure/compaction_pressure.py`.
+>
+> **Previously — M709:**
 > **jichi chooses no provider and no model.** A fresh install used to resolve
 > to `api.anthropic.com` and `claude-opus-4-8` — a priced model nobody had
 > chosen — because three built-in defaults fired together. M505 found exactly
@@ -41123,3 +41221,698 @@ no API key), and the pricing warning that exists because of ANECDOTES #63.
 default and warn harder (M505's position), default to a local endpoint (still a
 choice made for the user), default to a named vendor's cheapest id (jichi cannot
 know what an id costs *you*).
+
+### M710 -- the compaction row decided, and the population it was decided on was wrong twice -- done
+
+`docs/DEFERRED.md` had carried **"decide what jichi should DO when mid-turn
+compaction cannot reach its target"** since **2026-08-06** -- 47 days and 389
+milestones -- with three options (drop old messages, summarize mid-turn, refuse
+the call) and one blocking condition: *"a workload that presses a CORRECTLY
+declared window is still owed."*
+
+**The answer is none of the three, and the row's premise is what was wrong.**
+
+The premise, in the row's own words, is *"the request still goes out over the
+configured `contextLimit`"*. Measured over **49,600 events across 243 sessions**:
+**0 context-overflow rejections in the entire corpus**, and every request that
+went out after a short-fall was **served** -- 0 of 234 counted over the declared
+limit by the server itself, the closest at **98.0%**, median **86.2%**.
+**And the corpus that OPENED this row agrees, in its own words.** The 34,216-event
+third-party workload of 2026-08-06 -- the one everyone quotes for *"3.1% of calls
+exceeded the configured `contextLimit`"* -- continues one sentence later: *"No
+HTTP 400 was ever returned, so the declared window was conservative and no turn
+died of it."* Across both corpora, roughly **84,000 events on two machines**, the
+number of requests that failed for context is **zero**. Its 148 calls served at
+up to **1.36x** a declared 150,000 window are, by the M459 rule this row itself
+adopted, proof that window was under-declared -- so the only corpus with
+over-budget calls is also one this row asks to exclude. `target`
+is **60%** of the window and the trigger is **80%**, so a missed comfort mark was
+being read as an overflow, and the 20 points between the trigger and the wall
+absorbed all 243 short-falls. Priced anyway: **(a)** must close a median 31,311
+token gap -- 43,054 in the worst turn, which is **2.1x everything that turn's
+120 `run_tests` results produced**, so it cannot be satisfied by dropping tool
+output at all; **(b)** adds a model call to 243 of 248 passes, 228 of which re-trigger
+and pay again -- 128 extra calls in the worst single turn; **(c)** would have
+failed 243 requests the server served.
+
+**The population had to be fixed twice before it could decide anything**, and
+both fixes were already argued for inside this tree.
+
+| | passes | |
+|---|--:|---|
+| M700's population (`target > 0`) | 313 | |
+| — never `pressed` | −64 | `jc_compact.c:1296` sets `target` unconditionally, *"a property of the LIMIT, not of this pass"*. On the unpressed early return `before` and `after` are assigned **from one `effective` value** -- so `before == after` there is a tautology, and all 64 inflated the "changed nothing" bucket. |
+| — on a session proven under-declared | −1 | the M459 case: a 203,264-token request served against a declared 150,000. |
+| **core** | **248** | 200 (80.6%) elided nothing, 43 reduced and stayed over, 5 reached target; 228 (91.9%) `unrelieved`; `after <= before` 248/248. |
+
+M326x added `pressed` for exactly this reason and `jc_agent.c`'s emit site argues
+it in writing -- *"an unpressured pass never had a target to fall short of"* --
+and M700 filtered on `target` anyway. **The lint-versus-audit rule reaches
+measurements too**: an instrument written down once is not re-derived slightly
+differently the next time, so the instrument is now
+`tests/measure/compaction_pressure.py` with its universe in its header, and the
+under-declaration test is stated as **one-sided** rather than implied to be
+symmetric.
+
+**What the data asks for instead is a new row.** The pass *exhausts*: the 1st
+pressed pass of a turn reclaims **19,465** tokens, the 2nd 15,306, the 3rd--10th
+6,007, and the **11th-and-later 161** -- while being **78% of all pressed
+passes**. M361's exhaustion latch was built for this and fires on 34 of 248
+(13.7%), because it re-arms whenever the history grows and a looping turn grows
+it every round. That is a re-arm rule, not a patch, so it is deferred with its
+numbers rather than chosen in passing.
+
+> **Corrected at M712: the 13.7% is wrong, and wrong the same way M700 was.**
+> M361 landed 2026-08-10; session `0bf75213` contributes 138 of the 248 passes
+> — including all 128 of the worst turn — and ran 2026-08-07/08, **three days
+> before the latch existed**. On the population that had it the latch fires on
+> **34 of 108 (31%)** and cuts zero-elision from 89% to 70%. The exhaustion
+> curve above is likewise dominated by pre-latch data. Having just corrected
+> M700 for pooling passes that had no target to miss, this entry pooled passes
+> that had no latch to fire.
+
+**It settles the second compaction row too (M588).** Its revisit condition was *a
+workload that presses at a window already generously sized*; 150,000 pressed 138
+times at 9% fixed overhead. Two of that row's halves also reproduced
+independently: the 65,536 fixed overhead measures **16,259 (24.8%)** against
+M588's **16,268 (25%)** -- nine tokens apart, a month later, on a separately
+gathered corpus -- and the 196,608 control holds at 1 pressed pass, 0
+unrelieved. But the generous-window pressure is a **different disease**: 128 of
+those 138 passes are **one turn** that ran the same **676-byte** `run_tests`
+**120 times** for 13-token replies, against an `ELIDE_MIN_BYTES` of 800, so not
+one result was ever eligible. A livelock, not an overflow -- and mid-turn
+summarization would have summarized 120 copies of one failing test. Said plainly
+on the page: **one session, one turn -- an existence proof, not a rate.**
+
+**And M700's "one thing left unexplained" is explained, by the tree.** Its 19
+`target == 0` events carry no `pressed` field, `limit > 0`, and `short: true`,
+and they stop the day the positive ones start: the M326x defect, whose own
+comment names the same count -- *"19 of 19 such events in the measured workload
+were false."* `DEFERRED.md`'s first heading is *check the checkable part of a
+reason BEFORE parking the item*; it applies to an analysis page's open question
+as much as to a register row, and declaring this one unexplained cost a section
+where a grep would have done.
+
+**And closing the row found a hole in the lint that guards closures.**
+`deferred_register_lint` check 3 exists for the single state `DEFERRED.md` calls
+unacceptable — *"a closed row under an *Open* heading is not [fine]"* — after
+three hand-audits found it three times. The settled row was first written
+`**DECIDED AT M710:` and left where it was, and **check 3 read it as open**: it
+knew `~~`, `CLOSED` and `DONE`, and not the synonym. Measured on the perturbed
+page, **the old pattern matched 0 rows and the new one matches 1**. It now covers
+`DECIDED|SETTLED|RESOLVED` as well, capitals load-bearing, and `WITHDRAWN`
+deliberately excluded because the strict-green row withdraws a *recommendation*
+and stays legitimately open. Verified to fire on zero open rows as the page
+stood, so the widening cost no false positive. **A lint written after three
+audits was evaded by the fourth author's choice of word** — which is the
+argument for stating a check's vocabulary in its header, where the next person
+adding a closure will read it.
+
+**Nothing in `src/` moves.** The decision is that the behaviour is right, and
+the honest form of that is a register entry and a reproducible instrument, not a
+commit to the agent loop. Full story:
+[`docs/analysis/2026-09-22-compaction-decided.md`](analysis/2026-09-22-compaction-decided.md).
+
+### M711 -- a fleet documentation sweep: 125 rotted claims, and the lint that could not see any of them -- done
+
+**Found by the operator, in one sentence.** `docs/reading/ANNAI.md:111` said the
+Fukabori's chapters "are still commitments". All twelve had shipped at M225, on
+2026-08-01 -- **52 days and 485 milestones** earlier. The operator read it and
+asked; nothing in the tree had.
+
+**Why no lint saw it, and this is the whole finding.** `reading_refs_lint` has
+guarded `docs/reading/` since M222 with three contracts over every backticked
+token: `src/...` paths must exist, `file.c:function` anchors must resolve, and
+line-number anchors are forbidden outright. It passed this every run, correctly.
+
+> **The pointer resolved. Only the claim rotted.**
+
+That is a defect class no lint in this tree covers, because every documentation
+lint here checks *references* -- paths, flags, anchors, counts a lint owns. None
+checks whether a sentence is still true. `DEFERRED.md` learned the same lesson
+about itself at M463/M492/M657 and wrote it down; it turns out to apply to the
+documentation at large.
+
+**So the tree was swept for it.** Eight parallel review agents over **219 living
+pages** (~55,000 lines), each fenced read-only and each required to carry a
+command that proves its finding plus that command's real output. The universe
+excludes `analysis/`, `plans/`, `proposals/`, `dialogues/` and the ROADMAP and
+CHANGELOG entries, because **a dated record is correct as a record** -- a page
+saying "313 passes" on 2026-09-22 is not stale, it is a measurement. Without
+that exclusion the sweep would have produced several hundred false findings and
+buried the real ones.
+
+**125 findings across 83 files.** 52 counts, 33 completion claims, 18 cross-page
+contradictions, 16 capability claims, 6 superseded measurements. Every proof
+command was re-run mechanically before any fix: **118 of 125 reproduced**, and
+of the 7 that did not, **every one was a flaw in the verifier rather than in the
+finding** -- five were stdout captured without stderr, one was a line truncated
+at 120 characters that hid the phrase at issue. The agents' output held up
+better than the check of it.
+
+**The worst of it, in order of what it costs a reader.**
+
+| | |
+|---|---|
+| `PREPARE_AND_BUILD.md` | The from-nothing onboarding page still printed a sample `doctor` output with `active: ? (claude-opus-4-8)` and explained at length that a fresh install falling back to a priced Anthropic default is normal -- *"Nothing is wrong"*. **That is M709, the operator's own bug report, still being taught as correct one day after it was fixed.** Worse than stale: a reader today sees `✗ no model is configured`, which the same page calls "a real problem". |
+| `JUPYTERHUB.md` §7 + §14 | Told an administrator there is **no `LICENSE` file** and the rights question is pending at the university. Apache-2.0 since M619, 2026-08-27. §14 is the copy-paste answer to "may we run this for our cohort?" |
+| `USER_TOOLS.md:77` | *"jichi has **no built-in `web_search`** -- and that is a deliberate design choice, not a gap."* It ships one (M27). True on 2026-06-23, false on 06-24. The **reasoning** was right and survives the fix: no backend is hardcoded, the built-in takes yours. |
+| `CLAUDE.md:351` | Called M7--M10 "the next planned capabilities". All four shipped. This is the file handed to every in-loop model. |
+| `Makefile:4` | *"vendored cJSON is compiled C89 but without `-pedantic`"* -- both halves false since M171, and `Makefile:342` says so. A build file contradicting itself. |
+| `include/jc_config.h:61` | Documented `maxSubagentDepth (default 1)`; the parser sets 2. M393 fixed this exact claim elsewhere and missed the header. |
+
+**Three pages handed the reader the command that disproves them.**
+`tsuiseki-01:247` prints `grep -c jc_history_add_tool_result src/chat/jc_agent.c`
+and then says *"**Eleven** call sites"* -- it returns 12. `TESTING_TUTORIAL.md:136`
+publishes two commands and states their output as **71 and 94**; run verbatim
+they print **41 and 95** -- on the page that teaches *"running the command you
+are about to publish is not a formality"*. And `annai-03:83` tells a beginner
+*"the heartbeat is 400 lines"* of a function that is **2,177**.
+
+**The operator's catch had a mirror image.** `fukabori-12:166` closed with *"end
+of the Fukabori, **and of the jichi source reading guides**"* -- while
+`TSUISEKI.md:3` calls itself "The third of the jichi source reading guides" and
+`KIROKU.md:3` "The fourth reading guide". So Annai said Fukabori was unfinished
+and Fukabori said nothing came after it: **both wrong, in opposite directions,
+about each other.**
+
+**And the illumos fix from the day before was incomplete.** M703's commit is
+titled *"three places said three things about illumos"*. There were **seven**:
+`INSTALL.md`, `BUILD.md`, `PLATFORMS.md` itself (a stale copy in the file that
+owns the verdict), `LOW_MEMORY.md`, and three `PLATFORM_RETEST.md` rows -- all
+still reading `13,273 units / 284 of 303 drivers` against the real `13,458 /
+317 of 317`. Fixing the three that were in front of me and never asking how many
+there were is the error; the sweep is what asking looks like.
+
+**A systemic family worth naming:** the M210--M215 Python-free port deleted
+`tests/e2e/*.py`, and **24 citations across 19 living pages still pointed at
+deleted files**, each with an exact `tests/smoke/<name>.sh` replacement.
+`doc_claims_lint` cannot see them -- it governs only citations shaped
+`` `<driver>.sh` `` + "check N".
+
+**Two register rows were open work already finished** (`DEFERRED.md`'s illumos
+diagnosis row, green at 317/317 since M703; and the "what this course does not
+teach" row, whose section `CURRICULUM.md:269` has carried since 2026-09-21).
+Both are now struck and moved to a Closed section. That is the state this page
+calls its single unacceptable one, and `deferred_register_lint` did not catch
+either, because it checks that no row is *marked* closed under an Open heading
+and deliberately does not check whether a reason is still true.
+
+**What was NOT fixed, and why.** README's *"486 headers"* went through four
+conventions -- 476 (the lint's own dated header comment), 486 (README), 499 (the
+agent), 538 (a looser grep) -- before the lint's own extraction settled it at
+**499**. It is fixed, but it is recorded here because three substring errors in
+one day are the argument for reproducing a gate's number with the gate's own
+tool rather than a lookalike. Twenty findings marked `probable` were left where
+the page's own wording is self-dating (KIROKU's §1 carries "measured on
+2026-08-22"), and those are called out on the page rather than silently kept.
+
+**No lint is proposed out of this.** The one shape that is mechanically
+checkable -- "a stated count over a list the same page enumerates", which
+produced four of the 125 -- is worth one; the general case is not, and a lint
+for a population of one is the hollow green this project names. Both status
+tables that could be checked (ANNAI 11/11, FUKABORI 12/12) are accurate today,
+so such a lint would ship green with nothing to find.
+
+### M712 -- the latch's horizon said "re-check", not "something is elidable" -- done
+
+**The design this started from was refused, and the refusal is the first half of
+the milestone.** M710 filed a row asking for a *re-arm rule* for the mid-turn
+exhaustion latch, priced against an exhaustion curve and a "fires on 34 of 248
+(13.7%)". Before designing anything, the population was checked.
+
+**It was the wrong population, and wrong the same way M700 had just been.**
+M361 -- the latch -- landed **2026-08-10**. Session `0bf75213` contributes
+**138 of those 248 passes**, including all 128 of the worst turn, and ran
+**2026-08-07/08**: three days before the feature existed. Split properly:
+
+| | n | latched | elided nothing |
+|---|--:|--:|--:|
+| **pre-latch** (the code was not there) | 140 | 0% | 89% |
+| **post-latch** (it was) | 108 | **31%** | **70%** |
+
+So the latch works, it fires on **31%** rather than 13.7%, and it cut
+zero-elision from 89% to 70%. The exhaustion curve M710 published is dominated
+by pre-latch data. Post-latch the corpus is **5 turns**, with the early bands at
+n=5 and n=3 -- the row's own revisit condition asked for more than 12, so it is
+*further* from met than it recorded. **A re-arm rule on that evidence would be a
+guess, and it is not written.** Having corrected M700 for pooling passes that
+had no target to miss, M710 pooled passes that had no latch to fire; that is the
+second time in three milestones, and the check that catches it costs one query.
+
+**What WAS answerable needed no corpus at all, because it is in the code.**
+`jc_compact_rearm_len`, with no candidate in the keep-recent window, returns
+`len + keep + 1` -- and its own comment says why: *"the no-candidate horizon
+bounds every latch to at most keep+1 appends."* That horizon means **re-check
+now**, not **something is elidable now**. So a turn appending sub-threshold tool
+results pays a full history scan every `keep + 1` appends, and that scan is
+**guaranteed** to find nothing: the messages that just became eligible are the
+ones already known to be too small. M710 measured exactly that shape without
+naming it -- one turn ran the same **676-byte** `run_tests` result **120 times**
+against an `ELIDE_MIN_BYTES` of 800, and 124 of its 128 passes elided nothing.
+
+**The fix is a bounded question asked before paying for the scan.** A message at
+index `i` is eligible once `len >= i + keep + 1`, so the indices that became
+eligible between two lengths are exactly `[prev_len - keep, len - keep)`. The
+new pure `jc_compact_released_candidate` checks that range only. If nothing
+qualifies the latch **extends**; if something does, it releases exactly as
+before. Cost: O(appends since the latch armed), against a scan of the whole
+history.
+
+**Measured both ways, twice, by different instruments.**
+
+| | before | after |
+|---|--:|--:|
+| M710's shape replayed as a unit test (120 rounds, 676-byte results, 800-byte floor) | **30 scans** | **1** |
+| the e2e driver fixture `compact_latch.sh` (12 pressed passes) | **4 scans**, 8 latched | **1 scan**, 11 latched |
+
+The one remaining scan is the first pressed pass, which has to look before it
+can know the range is dry. The driver's check 3 asserts the count is **bounded
+and not zero** for exactly that reason, so the latch muting everything would
+still fail the build.
+
+**Observability is unchanged**, which is M361's own invariant: `pressed`, the
+estimate and the `compact` event still report the pressure truthfully, and
+`latched:true` still marks a skipped pass. The change is CPU only.
+
+**The test tells on its own first draft.** Proving the release half needed a
+candidate to leave the window, and the obvious candidate -- a large tool
+*result* -- spills a claim ticket into the shared tool-output store, which cost
+`test_snapshot` its `run-1.txt` and turned three unrelated checks red. The
+block's own comment had said it was *"dry by construction (and spills nothing --
+hermetic)"* and the first draft broke that. The candidate is a large tool-call
+**argument** instead: `jc_compact_trim_tool_args` takes no spill callback, so
+the test is hermetic again and says why in place.
+
+**Teeth:** the new `rep.latched == 1` at the boundary is red without the guard
+(the two release-side checks stay green on purpose -- they guard the half that
+must not change). `make test` 13,598 checks.
+
+### M713 -- a review of the tree after M712: the loop no detector counts, and a register waiting for a corpus nobody is gathering -- done
+
+**Asked by the operator**, after several days of work had landed on master:
+*"take a look at the repository, and determine the next steps in design, and
+development"*, and then *"document your findings, and design decisions, and
+implementation honestly, and comprehensively for self-learners, and
+developers."* This milestone is that document and the records it corrected.
+**Nothing in `src/` changes.** The findings are
+[`analysis/2026-09-23-what-to-build-next.md`](analysis/2026-09-23-what-to-build-next.md);
+the designs — each with its rejected alternatives, the check to write first, and
+whose call it is — are [`plans/2026-09-after-m712.md`](plans/2026-09-after-m712.md).
+
+**The baseline, measured before anything else.** `make ci` at `b284ab18` on the
+development bench: `ci: OK`, **16 m 45 s**; the unit suite 13,598 checks / 0
+failures in every build (13,605 under `FAULT=1`); `smoke: OK (317 drivers, 1854
+checks)`; `e2e: OK`. It is also the first recorded result on this bench's
+**userland**: uutils coreutils since 2026-04-23 — `timeout`, the tool the smoke
+runner kills a hung driver with, among them — upgraded to 0.10.0 half an hour
+before the gate ran. No file in `docs/`, `tests/` or `scripts/` mentioned it.
+
+**What the review found in the product**, each measured or labelled as read:
+
+- **A loop of successful calls meets no detector.** M432 is fed failures only (the
+  `if (res.is_error)` branch); M687 made 200 tool calls with 0 errors after it had
+  the answer at call sixteen. The new `tests/measure/success_repeats.py` counts the
+  shape in telemetry: **20 of 264 turns** *(corrected at M714: 13 of 264, the
+  full-tier key)* on this machine repeat one successful
+  call five or more times with nothing changed in between. That is a historical
+  rate — every hit predates M432, and the post-M432 window here is 10 turns, which
+  the script prints as `NOT EVIDENCE`. So the plan fits the thresholds on the other
+  machine's corpus first, as M432's were fitted.
+- **An inferred constraint forbade the task it was inferred from** (`1d31473d`:
+  21 minutes, 2,215,762 tokens, rolled back) — the heuristic's **third** misparse
+  class, after M168 and M207, each of which cost a whole drive, in the one mode
+  with nobody to read the warning. `jichi brief-check` (M433) already exposes the
+  scanner offline, so its false-positive rate can be measured before a fourth
+  guard is written.
+- **`jc_embed_parse` builds one JSON node per float** (M700's massif page): 92 % of
+  an index build's peak heap, 170,048 kB for an index of this repository, and no
+  register row pointed at it.
+- **M709 left two vendor fallbacks**, a key and a dialect — **read, not
+  reproduced**: the probe was a listener recording request headers, the review
+  session's permission classifier refused it, and the refusal was not worked
+  around. `doctor` was measured silent about an unset provider, and
+  **`config validate` exits 0 on a config `doctor` rejects** (measured).
+- **`main()`'s dispatch chain** is the one root of M444, M608 and M693.
+
+**In the instruments.** None of the four corpus-blocked decisions can be decided
+here: 0 journals carry the fields they need, and ordinary use produced events on
+three days since 1 August. Two instruments would fail even with a corpus — the
+journal cannot mark a one-shot or say whether an answer was produced, and
+ordinary telemetry cannot tell paging from re-reading.
+
+**In the records — corrected here.**
+
+- `SESSION_RUNBOOK.md` §4b and `READING_OPEN_SOURCE.md` said the self-hosting write
+  slice had **never** completed a real task. M271 met criterion 2 on 2026-08-03;
+  both sentences were written on 2026-08-21 (M513, M514), and M711's sweep did not
+  find them. Corrected in place, each saying what it used to claim.
+- `1d31473d` shipped in public v0.10.0 **without a changelog line**. The 0.10.0
+  section now has one, marked as recorded late (a `DECISIONS.md` row says why
+  there and not under `[Unreleased]`). It landed with nine other commits of
+  2026-09-21 that carry no milestone number; **the numbers stay owed**, because
+  numbering belongs to whichever machine owns the next numbers.
+- **The v0.10.0 publication is recorded in this file for the first time:** the
+  public tree was advanced to the **M709 state** on 2026-09-22 — public `7180954`
+  = private `02ef9c25`, 2,063 files compared byte for byte, tag `v0.10.0` on both
+  remotes. Until now only `README.md` said so, which is how this review first got
+  the public state wrong.
+- `DEFERRED.md`: the `config validate` row's premise — voided by M709 — corrected
+  and revisited; item 7 and the re-read row annotated with the instrument gaps; a
+  new open section, ten rows, one per finding deliberately not built.
+
+**What I got wrong, kept** (analysis §6 has all six). The one worth repeating
+here: I told the operator the public tree lacked M709, because this file had no
+entry for the cut, and I reported an absence in one source as a fact about all of
+them. A negative claim is a claim about every place the thing could have been
+recorded. Two sub-agent claims were also wrong or overstated; each was re-checked
+before anything was written on it, and §6 names them.
+
+**The operator reinstalled during the review.** `/usr/local/bin/jichi` had been
+build `b059ae67` — 182 commits behind, printing the same `jichi 0.9.0` banner as
+the stale tree build. The gate I had started without saying so had to stop first,
+and the stop needed confirming: the harness ended the shell while a
+`make … run_tests` child ran on, and `scripts/preflight.sh` is what showed it. An
+unprivileged `make install` then failed, correctly, on `install -d
+/usr/local/bin` — and its uutils wording is where the userland finding started.
+
+**Verified.** `make ci` on the staged tree, alone and last: `ci: OK (gcc +
+clang build/test, asan/ubsan, leakcheck, valgrind, curl-free link, faults, smoke,
+mutant, e2e)` in **16 m 41 s** — the unit suite 13,598 checks / 0 failures in
+every build (13,605 under `FAULT=1`), `smoke: OK (317 drivers, 1854 checks)`,
+`e2e: OK`. This paragraph and one sentence of the analysis's §9 were written after
+it, so the drivers that read the touched files were re-run on the final tree, green.
+Every command the analysis's §8 publishes was extracted from the page and run
+under `sh` as written. Nothing in `src/` changed, so the installed binary
+(`build: b284ab18`) is the code this milestone describes.
+
+### M714 -- the corpus pilot, and the tool that said the code was not there -- done
+
+**Why a pilot at all.** Plan D1's thresholds must be fitted to a corpus from builds
+that carry M432, and the machine that holds one was not available; the operator
+authorised making one here, by driving jichi headless on zigodot with free models.
+A pilot proves the harness before hours of model time depend on it. The record is
+[`analysis/2026-09-23-the-corpus-pilot.md`](analysis/2026-09-23-the-corpus-pilot.md).
+
+**The harness.** A pinned driver outside the tree (`build: 03d45422`); a *clone* of
+zigodot per model, reset to `70801ac` before every task, so the operator's checkout
+and its uncommitted `lessons.draft.md` were never touched; one `--config` per model
+naming a single free chat model (`jlu/qwen3-coder-next` on the HRZ gateway,
+`prism-ml/bonsai-27b` in LM Studio with an explicit 65,536-token context), because
+zigodot's own config routes between tiers and names a priced model; `doctor --live`
+native on both, its warnings read; fences on, caps off; telemetry at the `full` tier.
+It is now `scripts/corpus-drive.sh`, which refuses before any request a config
+naming a model outside the free namespace on a non-loopback server -- and its
+`--self-test` proves that refusal two-sided, with each check shown red by its own
+perturbation.
+
+**The six runs.** Four answered, two reached the 200-call cap with **no answer**,
+journal `outcome: ok`, exit 0, at 14,352,482 and 6,931,022 tokens -- one of them
+repeating a single successful shell command 51 times. That is D1's loop on the
+current build, and two more instances of `DEFERRED.md` item 7, recorded as an
+anecdote rather than a rate.
+
+**The finding that reordered the plan: `search_code`.** It ran `grep -rnI -e
+PATTERN`, POSIX **basic** regex, and models write the extended dialect -- 230 bare
+`|` against 5 GNU-basic `\|` in the bench's telemetry. Re-running all 45 pilot
+searches in a clean clone: **11 false `(no matches)` and 1 spurious error**. Of 268
+extended-looking patterns in the telemetry, 256 had come back empty. A drive fitted
+on that would fit D1 to an artifact, so the operator chose to fix it first.
+
+**The fix.** `grep -rnE` (`-rnIE` where `-I` exists) -- POSIX, and every grep in the
+matrix takes it, illumos's usage line included. The schema says *"extended regular
+expression (grep -E)"* and how to escape a literal. When grep fails and prints
+nothing, the tool asks grep about the pattern alone against `/dev/null` and returns
+grep's own first line, so *"the pattern is not a valid extended regular expression
+(grep -E): Unmatched ( or \("* replaces the generic message that had sent the model
+round again. **Teeth:** seven new checks in `tests/test_tool.c`, through the real tool
+and this platform's grep -- 7 failures of 13,607 before, 0 after; removing `-E` turns
+all 7 red, disabling only the probe turns exactly the 1 message check red. The three
+reading-guide traces that carry the tool list drifted by **exactly 141 bytes** per
+request; re-taken with `capture.sh`, and the diff proved to be the description and
+nothing else (reverting the two strings reproduces the committed bytes; `shape`
+changed only in size fields, each by 141). A `DECISIONS.md` row records the four
+alternatives rejected.
+
+**A number corrected.** `success_repeats.py` now keys a `full`-tier event on its
+whole arguments and a hash of the result. 7,313 of the bench's 11,276 old events
+carry that tier, and M713's published rate falls from **20 to 13 of 264** turns --
+corrected beside the original on every page that printed it.
+
+**Found and deliberately not fixed** (rows in `DEFERRED.md`): under `--auto` a
+command's stderr is copied onto jichi's own stderr, measured with `mockmodel` and
+not yet explained (its five-check reproduction is kept outside the tier because
+check 5 fails by design); and a green verifier with `sanity: no_count` passed an edit
+that removed an existing assertion and the notes adjudicating the tests. Also on the
+bench: uutils `timeout -s INT -k` SIGKILLs at once and returns 137 where GNU returns
+124, which is why the drive prefers `gnutimeout`.
+
+**What I got wrong, kept** (the pilot page's §8): two hypotheses about where the
+stderr lines came from, both refuted by measurement before any fix -- which is how the
+`search_code` defect was found; a pilot task that contradicted itself (the tokenizer's
+tests live in `tokenizer_test.zig`, not in the file the task named); a task file I
+overwrote mid-pilot and restored, proved byte-identical to what the first model had
+received; and one probe command that measured nothing until it was rewritten.
+
+**Verified.** `make ci` on the staged tree, alone and last: `ci: OK (gcc +
+clang build/test, asan/ubsan, leakcheck, valgrind, curl-free link, faults, smoke,
+mutant, e2e)` in **16 m 41 s** -- the unit suite 13,607 checks / 0 failures in
+every build (13,614 under `FAULT=1`), `smoke: OK (317 drivers, 1854 checks)`,
+`e2e: OK`. **The first full run failed, and it was right to:**
+`search_grep_dash_i` check 4 proves the illumos fallback by finding the exact flag
+cluster jichi sends without `-I`, and it matched `-rn ` where the call is now
+`-rnE `. The literal moved and says why; the gate was restarted from the beginning.
+This paragraph, the pilot page's Appendix A and two one-line corrections were
+written after the green run, so the drivers that read those files were re-run on
+the final tree, green.
+
+### M715 -- a turn's own answer, and the instruments plan D6 asked for -- done
+
+**Why now.** Plan D6 ([`plans/2026-09-after-m712.md`](plans/2026-09-after-m712.md)
+§7) asks for three recording changes before anyone gathers the corpus four register
+decisions wait on: whether a run was a **one-shot**, whether it **answered**, and a
+read's **offset and limit** in ordinary telemetry. It was built beside the D1
+corpus drive, which ran on the pinned M714 build throughout, as the operator's
+chosen plan said.
+
+**The defect found while designing the second field.** To record what a turn
+answered I read how the structured outputs find the answer:
+`jc_agent_last_assistant_text(&session.history)`, the last non-empty assistant
+message in the **whole** history. Right for a one-shot; wrong for a resumed one.
+Reproduced with `mockmodel`: turn 1 answers `OLD_ANSWER_MARK`, turn 2 (`-c`) is
+capped after two tool calls with no text, and turn 2's `done` event said
+`"text":"OLD_ANSWER_MARK"`. Plain-text stdout was empty, which is right -- it streams
+only this turn -- so the wrong one was the form a script trusts, against
+`SCRIPTING.md`'s own contract (*"text is usually empty"* at `max_iters`, because
+the model *"never wrote a final answer"*). The same lookup fed the M73
+context-overflow hint, so a capped turn repeated an earlier turn's hint. The fix is
+`jc_agent_turn_answer(hist, from)`, the answer at history index `from` or later:
+`run_headless` records the boundary before the turn, and `jc_agent_run_turn`
+records its own for the journal. The whole-history function stays for the callers
+whose history holds one turn -- every one of the six subagent callers starts a fresh
+history with a single user message, checked, not assumed.
+
+**The journal fields.** `start.one_shot` (headless with `--no-session`) and
+`end.answer_bytes`. The plan's working name was `answered`, a boolean; it became a
+byte count because a capped run's last words (*"Let me try with explicit tabs:"*)
+are text without being an answer, and because `answered` already means something
+else in the same journal -- a human answering the model's `ask` (M359). Both are
+Provisional-tier fields (`EMBEDDING.md`, checked before naming them), so no version
+bump. `OBSERVABILITY.md`'s journal table gains them, and gains `stop_reason`, which
+it had not listed since M690.
+
+**The read range, built differently from the plan.** The plan put `offset` and
+`limit` into the argument summary. The code said no twice. The summary
+(`jc_tool_arg_summary`) is also what the TUI and headless stderr print, what ACP
+titles show and what a screen reader speaks (M571, M566), so changing it for
+telemetry would change what an operator hears. And parsing the arguments beside
+the call would read the raw bytes, while `jc_tool_execute` repairs them (M148) and
+unwraps a self-named wrapper (M172) before the tool sees them. So `read_file`
+reports the range it executed in its result -- `has_range`, `range_offset`,
+`range_limit`, the pattern `exit_status` set for command tools -- and the
+`tool_call` event copies two numbers. No parser is added, no defaults are copied a
+third time (they already live in `jc_tool_read.c` and `jc_compact.c`), and no tool
+name is keyed on. Both designs are in `DECISIONS.md`.
+
+**The measurement scripts.** `capped_oneshot.py` classifies each capped run as a
+one-shot, a session or `unknown` (a journal older than M715), prints `answer_bytes`
+in buckets rather than as answered-or-not, gains `--list`, and drops the
+`no_changes` proxy it had called inadequate. `reread_ratio.py` gains a telemetry
+route with a by-path and a by-range ratio, never summed with the stream route.
+`success_repeats.py` keys a ranged read on (path, offset, limit) and counts
+path-only reads as ambiguous. On this build's own output -- reads of lines 1-2, 3-4,
+then 1-2 again -- the re-read ratio is **67 % by path and 33 % by range**: the paging
+the old key could not see. On the 36 journals of the drive (M714 build) the one-shot
+script finds 34 completed runs and 2 capped, both pilot runs, both `unknown`. The
+register's re-read row closes; item 7 gains a third note; its corpus is still owed.
+
+**Teeth.** `tests/smoke/turn_answer.sh` (10 checks), `tests/smoke/read_range.sh`
+(6) and three unit checks in `tests/test_subagent.c`. Before the fix, the first
+version of `turn_answer.sh` -- seven checks -- ran 1 ok and 6 not ok; the three added
+after it (checks 4, 9 and 10: the journal in a resumed session, and the overflow
+hint's two halves) were shown red by reverting their own call sites to the old
+lookup. `read_range.sh`'s checks 1-4 were red before the fix, while 5 and 6 --
+guards for the design, not the gap -- were green. Then per check: eight perturbations for `turn_answer.sh` and six for
+`read_range.sh`, each turning **exactly** its own checks red (reverting the jsonl/json
+call site turns 2 and 3 red; the run-turn boundary, 4; the one-shot assignment, 5;
+the field, 5 and 7; the byte field, 4, 6 and 8; the overflow site, 10; the overflow
+signature, 9, which is 10's instrument; a fixture that no longer caps, 1 and 4;
+disabling the M172 unwrap, only `read_range` check 3). The three unit checks, one
+perturbation each: searching from 0 instead of the boundary fails exactly
+`tests/test_subagent.c:244`; a wrapper that finds nothing fails `:247` and the older
+`:217`, which tests the same wrapper; a boundary search that never matches fails
+exactly `:250` -- each 13,610 checks with only those red.
+
+**Under `--auto` the cap is 200, not `maxToolIters`.** The envelope raises the
+iteration cap to at least 200 (`src/chat/jc_agent.c:4102`): the fixture's
+"capped" one-shot, configured for 2, made 200 requests and 200 tool calls before
+`"outcome":"ok","stop_reason":"max_iters","answer_bytes":0`. That is D1's case in
+miniature, and a fact item 7's decision needs: a capped `--auto` one-shot is never a
+short run. The fixture now says so instead of setting a cap `--auto` ignores.
+
+**What I got wrong, kept.** The first capped fixture reused a mock whose first reply
+is text, so the "capped" run simply answered and its check went red for the
+fixture's reason; the second set `maxToolIters 2`, which `--auto` overrides. The
+teeth harness **restored the source after each C perturbation but not the binary**,
+so the one perturbation that edits only the driver ran against the previous
+perturbation's build and showed an extra red check -- the binary is derived state,
+and restoring what it was derived from does not restore it; the harness now
+rebuilds after every restore, and the pair was re-run clean. Two perturbations were
+malformed: one compiled only because a build without `-Werror` let C89 declare
+`jc_json_get_num` implicitly as returning `int`, so every recorded value was garbage
+and four checks went red instead of one; the other did not compile under `-Werror`
+(an unused parameter) and produced no test output at all -- I noticed only because
+two result lines came back for three runs. The harness now builds with
+`WERROR=1`. It is M421's baseline rule from the other side: a red means nothing
+until the perturbed build has been seen to compile cleanly. And one false row
+found in passing and corrected: `OBSERVABILITY.md` said the journal records only
+blocked tool calls; a 200-call run journals 200 `tool_call` rows.
+
+**Not done, and said.** `jichi runs --output json` projects neither `stop_reason`
+nor the two new fields; the scripts read the journal directly. The drive's
+telemetry predates the range fields, so D1's fit uses the `full` tier, as planned.
+
+**Verified.** `make ci` on the staged tree, alone in the tree and last -- with the D1
+drive's bonsai arm running beside it, outside the tree: `ci: OK (gcc + clang
+build/test, asan/ubsan, leakcheck, valgrind, curl-free link, faults, smoke, mutant,
+e2e)` in **16 m 55 s**, which is not comparable with M714's 16 m 41 s because the
+drive shared the machine. The unit suite 13,610 checks / 0 failures in every build
+(13,617 under `FAULT=1`), `smoke: OK (319 drivers, 1870 checks)`, `mutant: OK (2
+drivers swept, 0 excluded)`, `e2e: OK`. **The first full run failed, and it was
+right to:** `i18n_tracks_lint` check 5 found the Japanese `VOCABULARY.md` still
+carrying the smoke tier's old size (317 drivers, ~1,843 checks) after I had restated
+it in English -- a figure only a translation carries is a claim nobody wrote and
+nobody can check. The English figures were brought across; because the smoke tier
+is fail-fast, the whole tier was then run keep-going -- green, at 319 drivers and
+1,870 checks, the figure the page now states -- and the gate was restarted from the
+beginning. This paragraph and one wording correction under **Teeth** were written
+after the green run, so the drivers that read this file were re-run on the final
+tree.
+
+### M716 -- helping verify a platform: a page a volunteer can follow, and a pointer that finds them -- done
+
+**Why.** Two macOS users reported that they had compiled jichi, and the operator
+asked what the project needs from them. The honest answer had no page: macOS is
+*Never compiled* in `PLATFORMS.md` because nothing the project can check had reached
+it, and the only procedure for a volunteer was three commands in a section of that
+page -- which named the gates but not the commit, the zero-warnings build, the smoke
+tier's keep-going mode, the live turns a *Driven* row needs, or what never to send.
+The operator asked for honest and comprehensive documentation, for self-learners and
+junior developers, as a page of its own.
+
+**The page, and what it is not.** [`VERIFY_A_PLATFORM.md`](VERIFY_A_PLATFORM.md):
+why a volunteer's machine matters (M400's macOS branch that could never have
+compiled, FreeBSD's unguarded code, illumos's `uname`); the four words, each with the
+evidence that earns it; four rules, each learned by breaking it; eight steps, each
+with what it proves, what success looks like, and what to send when it fails; what
+never to send; how a report is checked rather than trusted; a troubleshooting table;
+a worked example; what the page cannot promise; and a glossary. It divides the work
+with [`PLATFORM_TESTING.md`](PLATFORM_TESTING.md), which teaches the judgement, and
+[`PREPARE_AND_BUILD.md`](PREPARE_AND_BUILD.md), which installs the prerequisites,
+instead of repeating either.
+
+**Every command was run as printed before it was published**, on threadwork, in a
+fresh clone of `8e3972be` with the report folder outside it; `sw_vers` is macOS's
+and was the one line that could not run. Build `exit=0`; `13610 checks, 0
+failures`; `smoke: OK (319 drivers, 1870 checks)`; and the live turns on
+`jlu/qwen3-coder-next`: `OK` in 0.71 s, then the fresh pass phrase in 0.87 s, `grep
+-c` printing `1`. Running them taught the page two things it now says: jichi's first
+request is **12,182 input tokens** before any conversation, so a local model loaded
+at a small default window fails the first turn in a way that looks like a platform
+defect; and a model server shared with other work is not a clean instrument. A
+third rule -- keep the report folder outside the checkout, because the smoke tier's
+publication check fails on untracked files -- was known in advance, not learned
+here, and the page says which is which.
+
+**What the second lesson cost, kept.** The first live try went to the LM Studio
+instance the D1 corpus drive was using. Both of my requests failed with *"Context
+size has been exceeded"* -- and so did two of the drive's model calls, in bonsai run
+16, at 14:49:19 and 14:50:06, the seconds mine ran. No other run in either arm
+carries that error. jichi compacted and carried on, so the run finished on a history
+altered by failures that were neither the model's nor the task's; it is recorded in
+the drive's notes, to be excluded from D1's fit or re-run. The operator then allowed
+the free HRZ models, and the second try used one, reaching LM Studio not at all.
+
+**Two copies, both pinned.** The page repeats the live task -- the two prompts, the
+fixture, the keyless config -- because a volunteer has no rig to source, and
+`scripts/_rig_live.sh` calls itself *the one definition of the Driven task*.
+`tests/smoke/rig_live_commands_lint.sh` check 6 therefore compares the page with the
+helper's own output and with the prompt goldens checks 1-2 already prove the helper
+sends -- never with a third copy. Six perturbations, each red exactly as predicted:
+the page's two prompts, one of its config lines and its fixture turn check 6 red;
+the helper's config does too; the helper's fixture turns 5 and 6 red, since check 5
+reads the same fixture.
+
+**The pointer, where a person actually finds out.** On a never-compiled platform
+`jichi doctor` ended *"-- and please report it"* and named no procedure. The five
+non-verified platform messages -- doctor's never / partly / not recognised, and the
+setup wizard's partly / never notes -- now name the page, and
+`tests/smoke/portability_lint.sh` check 25 pins both the pointer and its target: red
+before the change (0 of 5), red with the page moved away, red with one pointer
+dropped, and nothing else red in either case. Every message stays under C89's
+509-character literal limit; `-Werror` builds clean.
+
+**A gate not built, on its population.** The natural generalisation -- every
+`docs/*.md` quoted in `src/` must exist -- was measured first: 36 distinct paths, of
+which 9 do not exist here because they are paths in the *user's* project that jichi
+scaffolds (`docs/DESIGN.md`, `docs/REQUIREMENTS.md` ...). A universe-wide gate would
+be wrong by construction, so check 25 owns its five messages and says why in its
+header.
+
+**Also.** `PLATFORMS.md`'s section now points at the page and keeps the two facts
+only it holds (TMPDIR, `/bin/sh`). `PREPARE_AND_BUILD.md` said `make check-target`
+plus `uname -srm` *"is all it takes to turn this section into a verified row"* --
+true of Verified at best, silent on the commit and on Driven -- and now points at
+the procedure. `CONTRIBUTING.md` and `PLATFORM_TESTING.md` link it, and
+`docs/README.md` indexes it. `DEFERRED.md` records the one-command report script as
+open work, with its design fixed by this page's own rule: it must *source* the rig's
+definition, not carry a third copy.
+
+**What I got wrong, kept.** The shared-server probe above. A first draft of the page
+claimed four things nobody had measured: that the BSD `od`, `tar` and `mktemp` accept
+these forms (now: unmeasured, and a failure on a Mac is a finding about the page);
+that every smoke script names the bug it guards (then counted: all 319 open with a
+comment block, *usually* saying so); that the M400 branch had "never been seen by a
+compiler", written the same afternoon two people said they had compiled it (now: never
+compiled where a log reached the project); and that LM Studio labels tool-capable
+models (now: `doctor --live` decides, not a description). A second full read found
+five more of the same kind and they were rewritten the same way: that macOS ships no
+`timeout`, that a laptop would not need the timeout multiplier, a laptop's speed
+relative to the bench, Ollama's address given as fact rather than as its
+documentation's, and "the same configuration every other row was driven with" where
+the address, model and key-naming differ by design. Its rule 1 first said the
+report-folder trap was found by running the commands; it was known before. And the
+changelog's new *Changed* heading first landed inside the *Added* list, which would
+have filed M715's two entries under the wrong verb.
+
+**Verified.** `make ci` on the staged tree, alone in the tree and last, with the D1
+drive's bonsai arm running beside it outside the tree: `ci: OK (gcc + clang
+build/test, asan/ubsan, leakcheck, valgrind, curl-free link, faults, smoke, mutant,
+e2e)` in **16 m 56 s**, green on its first run. The unit suite 13,610 checks / 0
+failures in every build (13,617 under `FAULT=1`) -- unchanged, since no unit check
+moved -- and `smoke: OK (319 drivers, 1872 checks)`: M715's 1,870 plus the two new
+checks, `rig_live_commands_lint` check 6 and `portability_lint` check 25. `mutant:
+OK (2 drivers swept, 0 excluded)`, `e2e: OK`. The page's own figures -- 1,870 checks,
+the build stamp `8e3972be` -- are the ones its worked example measured, and it says
+which commit they belong to. This paragraph was written after the green run, so the
+drivers that read this file were re-run on the final tree.

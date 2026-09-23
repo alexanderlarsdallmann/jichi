@@ -59,9 +59,11 @@ kept deliberately, because a corrected diagnosis teaches more than a correct one
 
 ## 3. The nine shapes
 
-Here is the claim this guide exists to make: **65 anecdotes are instances of about
-nine shapes.** Learn the shapes and the archive becomes a taxonomy; skip them and
-it stays 243 KB of other people's bad afternoons.
+Here is the claim this guide exists to make: **101 anecdotes are instances of
+about nine shapes.** Learn the shapes and the archive becomes a taxonomy; skip
+them and it stays 377 KB of other people's bad afternoons. (The nine shapes were
+sorted over the first 65; the 36 since have not been re-sorted, which is a limit
+on the claim rather than a refutation of it — §7.)
 
 Every shape below cites incidents by their number in
 [`../ANECDOTES.md`](../ANECDOTES.md), so you can check the claim rather than
@@ -292,7 +294,7 @@ Stated so you do not go looking:
 ## 7. Honest limits of this guide
 
 - **The nine shapes are mine, not the project's.** They are a reading of the
-  incidents, produced by sorting 65 anecdotes by cause; someone else sorting them
+  incidents, produced by sorting the first 65 anecdotes by cause; someone else sorting them
   would draw different lines, and two of the shapes (4 and 8) overlap more than a
   clean taxonomy would like.
 - **Two of the shapes' clearest instances are not anecdotes at all** — they live in
@@ -300,5 +302,9 @@ Stated so you do not go looking:
   recent findings, which is a gap in the record, not in the shape.
 - **Nothing here is a substitute for the primary text.** This page is a door. It
   cites so you can leave it.
-- **The counts in §1 were measured on 2026-08-22** and will drift. The command is
-  `find docs -name '*.md' -exec cat {} + | wc -c`.
+- **The counts in §1 were measured on 2026-08-22** and have drifted — badly, by
+  now: the ROADMAP is 2.5 MB and 41,243 lines, `analysis/` holds 90 documents,
+  and the tree is 8.96 MB. They are left as the measurement they were. The
+  command is `find docs -name '*.md' -exec cat {} + | wc -c`.
+- **The taxonomy covers the first 65 anecdotes**, not all 101. Shapes are cheap
+  to re-sort and nobody has; assume the later incidents add shapes.

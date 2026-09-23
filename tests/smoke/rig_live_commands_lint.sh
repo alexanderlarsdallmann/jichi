@@ -26,9 +26,18 @@
 # another, or grepping for a constant -- the agentic turn would pass on any
 # output at all, and every Driven verdict after that would be worthless. That
 # failure is silent by construction, which is exactly what a check is for.
+#
+# CHECK 6 (M716): THE VOLUNTEER PAGE IS A SECOND COPY, SO IT IS PINNED HERE.
+# docs/VERIFY_A_PLATFORM.md prints this task for a person to paste on their own
+# machine -- the two prompts, the fixture and the keyless config -- because a
+# volunteer has no rig to source. A copy is where drift starts, and a drifted copy
+# would make a volunteer's "Driven" incomparable with every other row while
+# looking identical. The page is compared with THIS helper's own output (its
+# config and fixture functions) and with the prompt goldens checks 1 and 2 prove
+# the helper sends -- never with a third copy kept in this file.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 5
+t_plan 6
 tmp=$(smoke_tmp)
 
 # Recording stand-ins for the rig's contract. `g` also consumes stdin, because
@@ -120,6 +129,33 @@ else
     t_fail "could not extract two distinct per-run nonces from the fixture writes.
 first='$_written' second='$_written2' -- a constant phrase is a phrase a cached
 answer could carry."
+fi
+
+# --- 6: the volunteer page publishes THIS task, byte for byte (M716) --------
+PAGE="$SMOKE_ROOT/docs/VERIFY_A_PLATFORM.md"
+_missing=""
+grep -qF -- "-p 'reply with OK'" "$PAGE" 2>/dev/null || _missing="$_missing wire-prompt"
+grep -qF -- "-p 'Use the read_file tool to read note.txt in this directory, then report the pass phrase.'" \
+    "$PAGE" 2>/dev/null || _missing="$_missing tool-prompt"
+if [ "$(jc_rig_live_fixture XYZZY)" != "The pass phrase is XYZZY." ] ||
+   ! grep -qF -- "printf 'The pass phrase is %s.\n'" "$PAGE" 2>/dev/null; then
+    _missing="$_missing fixture"
+fi
+jc_rig_live_config MODEL-ID http://127.0.0.1:1234/v1 > "$tmp/cfg" 2>/dev/null
+_nl=0
+while IFS= read -r _l; do
+    _nl=$((_nl + 1))
+    grep -qxF -- "$_l" "$PAGE" 2>/dev/null || _missing="$_missing config-line-$_nl"
+done < "$tmp/cfg"
+# The floor: the helper's config is three lines today. Fewer means the extraction
+# read nothing, and an empty set agrees with any page.
+if [ "$_nl" -ge 3 ] && [ -z "$_missing" ]; then
+    t_ok "the volunteer page publishes the rig's task: both prompts, the fixture, all $_nl config lines"
+else
+    t_fail "docs/VERIFY_A_PLATFORM.md no longer publishes the task scripts/_rig_live.sh
+defines (missing:${_missing:- none}; helper config lines read: $_nl). A volunteer
+pasting it would run a different task from every other Driven row. Update the page
+from the helper's output -- the helper is the definition, the page is the copy."
 fi
 
 t_done

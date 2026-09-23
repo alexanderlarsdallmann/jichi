@@ -43,8 +43,8 @@ a slogan.
 a fresh agent session (`spawn` a solve, or just open a new session and load
 your brief). Where they stall is information about your *brief*, not about
 them. Revise once. This loop — author, observe, revise — is the whole
-instructor's craft in miniature; the forthcoming instructor guide is that
-loop written large.
+instructor's craft in miniature; [`INSTRUCTOR.md`](INSTRUCTOR.md), in this same
+directory, is that loop written large.
 
 **4. Close your own loop.** The tool-teaching flow has a mechanized version
 you should run once on your record so far: `learn analyze` over your own

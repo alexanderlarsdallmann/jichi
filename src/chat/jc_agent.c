@@ -3139,6 +3139,17 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                              * + is UTF-8-safe; 0 = no truncation (already 160). */
                             jc_eventlog_add_text(o, "args", summary, 0);
                         }
+                        /* M715: a read's RANGE beside its path -- two numbers, no
+                         * content -- so paging and re-reading are different
+                         * events. From the result, i.e. as the tool executed it;
+                         * the summary above stays the path alone, because it is
+                         * also what the TUI prints and a listener hears. */
+                        if (res.has_range) {
+                            cJSON_AddNumberToObject(o, "offset",
+                                                    (double)res.range_offset);
+                            cJSON_AddNumberToObject(o, "limit",
+                                                    (double)res.range_limit);
+                        }
                         if (jc_eventlog_full(app->telemetry)) {
                             jc_eventlog_add_text(o, "args_full", args_copy,
                                                  JC_EVENTLOG_TEXT_MAX);
@@ -3858,6 +3869,10 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
     struct jc_vec core_allow;
     jc_size i, n;
     jc_status st;
+    /* M715: the caller has already added this turn's user message, so every
+     * assistant message from here on is THIS turn's -- the end event's
+     * answer_bytes counts only those. */
+    jc_size turn_from = jc_history_len(hist);
 
     jc_vec_init(&core_allow, sizeof(char *));
     app->turn_capped = 0;   /* M322: this turn's own cap-exit, not a subagent's */
@@ -4111,6 +4126,11 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
                                     (double)app->env->max_tool_calls);
             cJSON_AddStringToObject(o, "verify",
                 app->env->verify_cmd != NULL ? app->env->verify_cmd : "");
+            /* M715: no session to resume -- a headless --no-session run. For
+             * this shape the work of a capped turn is gone rather than pending,
+             * which is the whole of DEFERRED item 7's question, and nothing in
+             * the journal could say it. */
+            cJSON_AddBoolToObject(o, "one_shot", app->env->one_shot);
             /* M503: a supervisor reading `verify: make test` could not tell an
              * operator's choice from a config inheritance, and the two mean
              * different things when the gate then fails. */
@@ -4342,6 +4362,15 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
             cJSON_AddStringToObject(o, "stop_reason",
                 jc_run_stop_wire(jc_agent_stop_reason(app, JC_OK)));
             cJSON_AddBoolToObject(o, "rolled_back", app->env->rolled_back);
+            /* M715: the size of what this turn answered -- a fact, not a verdict.
+             * A capped turn's last words ("Let me try with explicit tabs:") are
+             * text but not an answer, so the reading is left to the measurement
+             * (tests/measure/capped_oneshot.py) and the journal records bytes. */
+            {
+                const char *ans = jc_agent_turn_answer(hist, turn_from);
+                cJSON_AddNumberToObject(o, "answer_bytes",
+                                        ans != NULL ? (double)strlen(ans) : 0.0);
+            }
             cJSON_AddNumberToObject(o, "tokens_used", app->env->tokens_used);
             cJSON_AddNumberToObject(o, "tool_calls",
                                     (double)app->env->tool_calls);
@@ -4461,12 +4490,12 @@ int jc_subagent_iters_at_depth(int base_iters, int depth)
     return i;
 }
 
-const char *jc_agent_last_assistant_text(const struct jc_history *hist)
+const char *jc_agent_turn_answer(const struct jc_history *hist, jc_size from)
 {
     struct jc_history *h = (struct jc_history *)hist;
     jc_size n = jc_history_len(h);
     jc_size i;
-    for (i = n; i > 0; i--) {
+    for (i = n; i > from; i--) {
         struct jc_message *m = jc_history_get(h, i - 1);
         if (m->role == JC_ROLE_ASSISTANT && m->content != NULL &&
             m->content[0] != '\0') {
@@ -4474,6 +4503,11 @@ const char *jc_agent_last_assistant_text(const struct jc_history *hist)
         }
     }
     return NULL;
+}
+
+const char *jc_agent_last_assistant_text(const struct jc_history *hist)
+{
+    return jc_agent_turn_answer(hist, 0);
 }
 
 jc_status jc_agent_run_subagent(struct jc_app *app, struct jc_history *hist,

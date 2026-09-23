@@ -133,4 +133,4 @@ render helpers are pure and unit-tested (`tests/test_output_style.c`). The set
 lives on `jc_app.output_styles`; `jc_sysmsg_build` injects the active body. The
 config key is parsed in `src/config/jc_config.c`; selection + the subcommand live
 in `src/main.c`; the TUI command in `src/tui/jc_tui.c`. E2E:
-`tests/e2e/output_style.py`.
+`tests/smoke/output_style.sh`.

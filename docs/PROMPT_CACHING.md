@@ -204,8 +204,10 @@ So the two regimes invert, and a config tuned for one is mistuned for the other:
 | a big prefix (rules, repo map, craft) | billed **every call** | billed ~1.25x **once** |
 | trimming the prefix | the main cost lever | may push you under the minimum and lose everything |
 
-`sys_tok` on every `model_call` telemetry event is the number to check. Nothing warns yet when a
-prefix is too small to cache while caching is on.
+`sys_tok` on every `model_call` telemetry event is the number to check, and
+`doctor` has warned since **M340** when a prefix is too small to cache while
+caching is on — the WARN reads `promptCache on but the prefix is too small to
+cache`.
 
 Two further findings worth knowing: the cache is keyed on **content, not session**, so a
 supervisor running many short invocations over one workspace gets hits from its first call; and

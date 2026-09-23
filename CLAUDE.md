@@ -347,9 +347,11 @@ taught): [`docs/PLATFORMS.md`](docs/PLATFORMS.md); RAM tiers and hardware in
 
 ## Roadmap
 
-`docs/ROADMAP.md` records the designs + implications for the next planned
-capabilities (user-defined tools, `@`-references, autocomplete, ACP server) and
-the orchestration model. It's advisory; each milestone gets its own plan.
+`docs/ROADMAP.md` records the design + implications of every milestone, and
+the orchestration model. The four capabilities this line used to call "next
+planned" — user-defined tools (M7), `@`-references (M8), autocomplete (M9) and
+the ACP server (M10) — all shipped, and are recorded there as history. It's
+advisory; each milestone gets its own plan.
 
 ## Repository
 

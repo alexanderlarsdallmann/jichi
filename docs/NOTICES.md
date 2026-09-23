@@ -54,7 +54,7 @@ name a tag but must never contain a structural form.
 These label diagnostics for the human; the model never sees them, so their
 wording is free to change (stderr is not an interface — EMBEDDING.md).
 
-## Known bracket-shaped prose (not tags; the lint knows these four)
+## Known bracket-shaped prose (not tags; the lint knows these five)
 
 | Literal | Why it is prose |
 | --- | --- |

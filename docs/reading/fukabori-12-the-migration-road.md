@@ -163,6 +163,9 @@ was wrong. That — a system legible enough to have its decisions
 questioned, honest enough to log its own failures — is what this guide was
 teaching you to read, and to build.
 
-*— end of the 深掘り（ふかぼり）Fukabori, and of the jichi source reading
-guides. The road out is the [curriculum](../CURRICULUM.md) and a first
-real change of your own.*
+*— end of the 深掘り（ふかぼり）Fukabori.*
+
+*Two further guides follow it: [追跡（ついせき）Tsuiseki](TSUISEKI.md), which
+replays recorded runs, and [記録（きろく）Kiroku](KIROKU.md), whose subject is
+the project record rather than the code. After those, the road out is the
+[curriculum](../CURRICULUM.md) and a first real change of your own.*

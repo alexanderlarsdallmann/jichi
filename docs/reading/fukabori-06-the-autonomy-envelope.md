@@ -129,4 +129,4 @@ prevent, and encode each hard-won rule as a *pure predicate with a test*,
 because the next person to touch it will not remember the run that taught
 it.
 
-*Next (M225): chapter 7 — fork-based parallelism.*
+*Next: [chapter 7 — fork-based parallelism](fukabori-07-fork-based-parallelism.md).*

@@ -10,7 +10,7 @@ disjoint failure sets.*
 ## 0. Why this page exists, with the arithmetic
 
 Every gate in this tree is **offline**. `make ci` builds with two compilers,
-runs sanitizers, valgrind, 315 smoke drivers and the e2e tier — and not one of
+runs sanitizers, valgrind, 317 smoke drivers and the e2e tier — and not one of
 them calls a model. That is a deliberate property (it is why the tier runs on a
 96 MB machine with no distro), and it has a cost: **the gates cannot see what a
 user is told.**

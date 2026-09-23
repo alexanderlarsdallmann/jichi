@@ -53,6 +53,11 @@ static jc_status read_run(const cJSON *args, struct jc_tool_result *out,
         tu_err(out, "error: 'path' argument is required");
         return JC_OK;
     }
+    /* M715: the range as THIS function read it -- the only reader that sees the
+     * arguments after repair and unwrapping -- for the telemetry event. */
+    out->has_range = 1;
+    out->range_offset = (long)offset;
+    out->range_limit = (long)limit;
     jc_sb_init(&raw);
     if (jc_pdf_is_pdf(path)) {
         /* PDFs are binary: extract their text via an external tool (M42). The

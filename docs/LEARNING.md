@@ -123,7 +123,7 @@ the binary is on `PATH` or invoked through a wrapper, and the `--workspace .`
 scope feeds the mentor the project's aggregated history rather than one recent
 log.
 
-The draft has three sections:
+The draft has six sections:
 
 ```
 ## Memory notes

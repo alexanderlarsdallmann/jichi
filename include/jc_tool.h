@@ -51,6 +51,20 @@ struct jc_tool_result {
      * earlier -- a single flag standing for two different things -- so the fix is
      * a field rather than a string match on the message. */
     int   policy_refusal;
+    /* M715: the line range a ranged read EXECUTED -- read_file's `offset`
+     * (1-based first line) and `limit` (line count, 0 = to the end), as the tool
+     * itself read its arguments: after the M148 repair and the M172 unwrap, with
+     * M168's leniency and the tool's own defaults. has_range is 0 for every other
+     * tool, and for a call that failed before its range was read.
+     *
+     * Reported by the tool rather than re-parsed beside it, because the argument
+     * summary telemetry records is the path alone (it is also what the TUI prints
+     * and a screen reader speaks), and a second parser at the telemetry site
+     * would read the raw bytes -- not the object that ran. With only the path,
+     * paging through a file and reading it twice were the same event. */
+    int   has_range;
+    long  range_offset;
+    long  range_limit;
 };
 
 /* True when this result represents the TOOL malfunctioning (command not found,

@@ -44,4 +44,4 @@ value**, never a crash.
 `src/tools/jc_tool_websearch.c` — the pure, unit-tested `jc_websearch_format`
 renders the results; the tool POSTs via `jc_http_perform`. Config lives in
 `include/jc_config.h` / `src/config/jc_config.c`; registration is gated in
-`src/main.c`. Tests: `tests/test_websearch.c`, `tests/e2e/websearch.py`.
+`src/main.c`. Tests: `tests/test_websearch.c`, `tests/smoke/websearch.sh`.

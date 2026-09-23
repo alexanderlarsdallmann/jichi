@@ -154,4 +154,4 @@ list is offline.
 - Config: `struct jc_docs_cfg {name, path}` in a `struct jc_vec docs` on
   `struct jc_config` (`src/config/jc_config.c`).
 - Tests: config parse (`tests/test_config.c`), `@docs:` scan (`tests/test_refs.c`),
-  ranking e2e (`tests/e2e/docs.py`, a loopback embeddings mock).
+  ranking e2e (`tests/smoke/docs.sh`, a loopback embeddings mock).

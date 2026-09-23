@@ -832,13 +832,13 @@ argument for the row.
 ## Helping verify a platform
 
 If you build jichi on macOS, WSL2, or a BSD other than FreeBSD, that is a
-measurement this project does not have. What makes it a datum rather than an anecdote:
-
-```sh
-make                      # build
-make check-target         # unit suite + the python-free smoke tier
-jichi doctor              # reads the environment and names what it cannot verify
-```
+measurement this project does not have. **The whole procedure is
+[`VERIFY_A_PLATFORM.md`](VERIFY_A_PLATFORM.md)** (M716): the commands, each run
+before it was published; what each one proves; which of the four words above it
+can earn; what to send and what never to send; and how a report is checked
+rather than trusted. It replaced the three commands that stood here, which named
+the gates but not the commit, the zero-warnings build, the smoke tier's
+keep-going mode or the live turns a **Driven** row needs.
 
 > **If your platform has no writable `/tmp`, set `TMPDIR` (M457).** The unit suite used to
 > write its fixtures to 158 literal `/tmp/…` paths and consult `TMPDIR` nowhere, so on such
@@ -852,15 +852,15 @@ jichi doctor              # reads the environment and names what it cannot verif
 > which is the behaviour to expect: a short output means a crash, and crashes are now the
 > exception worth reporting.
 
-Report: `uname -srm`, compiler and version, libc, the two check counts, and — if
-smoke needed one — the `JC_E2E_TIMEOUT_MULT` that made it pass. A row above is
-exactly that much information. `make ci` additionally wants clang, Valgrind and a
-fuzzer; `make check-target` is the portable gate and the one that matters on a new
-platform.
+A row above is exactly the information that page collects. `make ci`
+additionally wants clang, Valgrind and a fuzzer; `make check-target` is the
+portable gate and the one that matters on a new platform.
 
-`jichi doctor` names an unverified host itself, in the tool, pointing back here —
-because the person on a Mac finds out from the program, not from a page they did
-not open.
+`jichi doctor` and `jichi setup` name an unverified host themselves, in the tool,
+and since M716 they point at that page as well as this one — because the person
+on a Mac finds out from the program, not from a page they did not open.
+`tests/smoke/portability_lint.sh` check 25 fails if they stop naming it, or if it
+is renamed.
 
 ## Where the rest lives
 
@@ -894,7 +894,7 @@ in one day. Step 0 is `scripts/preflight.sh`, which refuses a tree whose gate is
 already running (a build or edit in a busy tree is worthless in both directions); the
 step order does not vary; and §5 covers moving to another machine.
 
-**jichi now runs on five libcs and three non-Linux kernels**, and the honest verdicts
+**jichi now runs on five libcs and four non-Linux kernels**, and the honest verdicts
 live in `docs/PLATFORMS.md` (Verified / Partly verified / Never compiled, used
 strictly). glibc, **musl**, **uClibc** (M449, unit suite only), **bionic** (M456 via
 the NDK; M459 built on-device by Termux's own clang), and glibc-on-an-Android-kernel
@@ -902,7 +902,7 @@ under `proot-distro`. **FreeBSD** (M460),
 **OpenBSD** (M461) and **NetBSD** (M480) all run the **full gate green** — OpenBSD's last
 two red checks were diagnosed at M481, so **every measured platform in the matrix is
 green**.
-Guix System is verified for the unit suite. **illumos is partly verified since M658** (OmniOS r151058 under KVM: clean `WERROR=1` build, 13,273 unit checks, 284 of 303 smoke drivers). Never compiled: macOS. The full hardware/VM overview, in tables, is in `docs/LOW_MEMORY.md`.
+Guix System is verified for the unit suite. **illumos is partly verified, fully driven and GREEN since M703** (OmniOS r151058 under KVM: clean `WERROR=1` build, 13,458 unit checks, **317 of 317** smoke drivers, coverage debt 0). Never compiled: macOS. The full hardware/VM overview, in tables, is in `docs/LOW_MEMORY.md`.
 
 **The NetBSD row cost the product nothing and the harness everything** (M480): zero source
 changes, six rig attempts, five of them failing for reasons unrelated to jichi. Its lesson is

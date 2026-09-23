@@ -60,7 +60,7 @@ is the entire memory cost of a reply, whatever its length.
 1. **The vtable.** `include/jc_provider.h` — read
    `struct jc_provider_vtable`: `build_request`, `on_event`, and a few
    companions. Chapter 5's function-pointer idiom, at module scale: the
-   agent loop calls these five slots and never contains the string
+   agent loop calls these slots and never contains the string
    `"anthropic"` or `"openai"`. Two files fill the slots —
    `src/provider/jc_provider_anthropic.c:an_build_request` and
    `src/provider/jc_provider_openai.c:build_messages` (plus their

@@ -28,10 +28,24 @@ is 2,056 calls, so a handful of doc edits cannot confirm or refute it. Printing
 "67%" from four repeats would be the overclaim these rows exist to avoid.
 
 WHERE THE DATA IS. Paths come from the --output jsonl STREAM (tool_call events
-carry `args`); the run journal deliberately does not record them. Compaction
-comes from telemetry (--log-level metrics), whose `compact` events carry a
-`phase`; `unrelieved` marks a mid-turn compaction that could not reach its
-target, which is precisely the turn M326y is about.
+carry `args`) or, since M715, from TELEMETRY (--log-level metrics), whose
+tool_call events carry the path as `args` for read_file; the run journal
+deliberately does not record them. Compaction comes from telemetry too, whose
+`compact` events carry a `phase`; `unrelieved` marks a mid-turn compaction that
+could not reach its target, which is precisely the turn M326y is about.
+
+TWO ROUTES, NEVER SUMMED. A run driven with both --output jsonl and --log writes
+each read twice, once per sink, so each route is counted and printed on its own
+-- adding them would double every call.
+
+PATHS VERSUS RANGES. The ratio above is over PATHS: a model paging through one
+big file (offset 1, 201, 401 ...) re-reads nothing, and still counts. Telemetry
+events from an M715+ build also carry `offset` and `limit` -- the range the tool
+EXECUTED, reported by the tool -- so for those this also prints the stricter
+RANGE ratio: the same path AND the same lines read again. It is computed only
+from those events. The stream's raw `args` are not re-parsed for a range here:
+jichi repairs and unwraps arguments before the tool sees them, so a second
+parser would measure what was sent rather than what ran.
 """
 
 import argparse
@@ -58,6 +72,8 @@ def load(paths):
 
 def scan(files):
     reads, tools, compacts = [], collections.Counter(), collections.Counter()
+    # M715: the telemetry route -- paths (every build) and executed ranges (M715+)
+    treads, tranges = [], []
     for f in files:
         try:
             fh = open(f)
@@ -80,12 +96,31 @@ def scan(files):
                             a = {}
                         if a.get("path"):
                             reads.append(a["path"])
+                # telemetry: a read, with the range it executed when recorded
+                if d.get("event") == "tool_call" and d.get("name") == "read_file":
+                    if d.get("args"):
+                        treads.append(d["args"])
+                        if "offset" in d and "limit" in d:
+                            tranges.append((d["args"], d["offset"], d["limit"]))
                 # telemetry: a compaction, and whether it could relieve anything
                 if d.get("event") == "compact" or d.get("type") == "compact":
                     compacts[d.get("phase") or "?"] += 1
                     if d.get("unrelieved"):
                         compacts["unrelieved"] += 1
-    return reads, tools, compacts
+    return reads, tools, compacts, treads, tranges
+
+
+def ratio_lines(label, keys, what):
+    """Print one route's ratio; `keys` are paths, or (path, offset, limit)."""
+    n = len(keys)
+    uniq = len(set(keys))
+    print("%s: %d read_file calls over %d distinct %s" % (label, n, uniq, what))
+    if n == 0:
+        return
+    print("  re-read ratio: %.0f%%   (%d of %d calls re-read a %s already read)"
+          % (100.0 * (n - uniq) / n, n - uniq, n, what.rstrip("s")))
+    if n < SMALL_N:
+        print("  NOT EVIDENCE: %d calls is below the %d-call floor." % (n, SMALL_N))
 
 
 def main():
@@ -99,18 +134,20 @@ def main():
     if not files:
         print("no .jsonl found in: %s" % " ".join(args.paths))
         return 1
-    reads, tools, compacts = scan(files)
+    reads, tools, compacts, treads, tranges = scan(files)
 
     n = len(reads)
     uniq = len(set(reads))
     print("files scanned: %d" % len(files))
-    print("tool calls: %d total, %d read_file"
+    print("stream route (--output jsonl): %d tool calls, %d read_file"
           % (sum(tools.values()), tools.get("read_file", 0)))
 
-    if n == 0:
+    if n == 0 and treads:
+        print("  (no read_file in a stream -- the telemetry route is below)")
+    elif n == 0:
         print("no read_file call carried a path -- nothing to measure.")
-        print("(paths come from the --output jsonl STREAM; a run journal alone "
-              "cannot answer this.)")
+        print("(paths come from the --output jsonl STREAM or from telemetry; a "
+              "run journal alone cannot answer this.)")
     else:
         ratio = 100.0 * (n - uniq) / n
         top = collections.Counter(reads).most_common(3)
@@ -125,6 +162,20 @@ def main():
                   % (n, SMALL_N))
             print("reference is 2,056 calls / 584 distinct / 72% / one path 216x.")
             print("A percentage from this few calls neither confirms nor refutes it.")
+
+    # M715: the telemetry route, printed apart from the stream (never summed).
+    if treads:
+        print()
+        ratio_lines("telemetry route, by PATH", treads, "paths")
+        if tranges:
+            ratio_lines("telemetry route, by RANGE (M715+ events only)",
+                        tranges, "ranges")
+            if len(tranges) < len(treads):
+                print("  (%d of %d telemetry reads predate M715 and carry no range)"
+                      % (len(treads) - len(tranges), len(treads)))
+        else:
+            print("  no telemetry read carries a range -- every event predates M715,")
+            print("  so paging and re-reading cannot be told apart on this route.")
 
     print()
     if not compacts:

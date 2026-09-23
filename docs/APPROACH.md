@@ -183,7 +183,7 @@ labelled mitigations.
 
 ## 8. Small steps, each of which ships
 
-改善（かいぜん）: the project grew by 400 milestones, not by rewrites, and the
+改善（かいぜん）: the project grew by 710 milestones, not by rewrites, and the
 same shape is recommended outward. A migration strategy that requires a
 feature-freeze is fiction for the codebases that most need improving — so the
 useful strategies are the ones where **every intermediate state ships**. That is

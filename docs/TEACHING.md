@@ -86,7 +86,7 @@ Pick one of three routes, in ascending cost:
 | --- | --- | --- |
 | **The process track** (tasks 67–73) | 17 graded points, requirements → use-cases → design → docs → session notes → kanban → scheduling. **No compiler needed.** | a few hours, no toolchain |
 | **Set A** (tasks 01–08) | Stage 1 of the four-stage course: reading, the smallest change, tests, debugging. Gate: 14 of 17 points. | a day or two |
-| **The whole course** | Four stages, 77 graded tasks, a capstone. | the full curriculum |
+| **The whole course** | Four stages, 90 graded tasks, a capstone. | the full curriculum |
 
 **Do it in a bench you would give a student**, not in your development tree. The
 whole point is to meet what they meet.
@@ -292,7 +292,7 @@ worked through the ladder and who did not need it. There is deliberately **no co
 
 **The presets are already almost identical.** `setup --preset learner` and
 `setup --preset instructor` produce byte-identical `AGENTS.md` and asset trees —
-the same nine agents, four commands, three skills, and glossary — and their
+the same nine agents, four commands, four skills, and glossary — and their
 configs differ by exactly **one key**: the instructor's has `"references": true`
 (retrieval over your own material). So a teacher who wants a student's bench does
 not need a container; they need `--preset learner` in a fresh directory.
@@ -334,7 +334,7 @@ penalised hint teaches hint-avoidance, which is learning-avoidance — the learn
 sits stuck rather than spend the "cost", and being permanently stuck is the
 commonest way a lone learner abandons a course.
 
-**4. `--expect-fail` exists because trust is not transferable.** jichi's own 77
+**4. `--expect-fail` exists because trust is not transferable.** jichi's own 90
 graded tasks are proven red-first in CI. An assignment authored anywhere else
 inherits none of that, so the red half is available as one command. *Rejected:*
 trusting authors to check. The first assignment authored outside the curriculum

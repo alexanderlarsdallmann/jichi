@@ -77,5 +77,5 @@ resumes from the rewound point.
   the truncation length for the n-th most recent checkpoint.
 - **`run_rewind`** (`src/main.c`) and the TUI `/rewind` (`src/tui/jc_tui.c`) —
   the restore + `jc_history_truncate` + save orchestration.
-- e2e: `tests/e2e/rewind.py` drives a mutating turn, then asserts both the file
+- e2e: `tests/smoke/rewind.sh` drives a mutating turn, then asserts both the file
   and the conversation moved (and that `--dry-run` is a no-op).

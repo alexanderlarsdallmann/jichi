@@ -229,7 +229,7 @@ A model call is bounded so a stalled or unreachable server can't hang the agent
 forever (M22). Three knobs, all in **seconds**:
 
 - `connect` — TCP connect timeout (fail fast on an endpoint that won't accept the
-  connection). Default **10**.
+  connection). Default **30**.
 - `stall` — abort a response stream whose throughput stays at ~0 bytes/s for this
   long. This is the key control: it kills a **frozen** stream (a hung local
   model) **without** capping a slow-but-progressing generation. Default **30**.

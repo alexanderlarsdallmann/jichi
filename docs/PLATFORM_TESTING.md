@@ -266,6 +266,9 @@ work rather than read about it.
 
 - [`PLATFORMS.md`](PLATFORMS.md) — every row this project has measured, and what
   each one taught. Read a row before you write one.
+- [`VERIFY_A_PLATFORM.md`](VERIFY_A_PLATFORM.md) — when your machine is one this
+  project does not have: the exact commands and what to send, so your result
+  becomes a row.
 - [`BUILD.md`](BUILD.md) — the per-platform build reference.
 - [`TESTING_TUTORIAL.md`](TESTING_TUTORIAL.md) — how to *write* a check, once you
   want the answer to stay answered.
