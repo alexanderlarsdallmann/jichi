@@ -26,9 +26,15 @@ needs the rest of this page first.
   **2 Never compiled**. Linux across **14 architectures** and five libcs, down to a
   256 MB VM and, in containers, to **Debian 5's glibc 2.7** (2007); **FreeBSD, NetBSD and OpenBSD** all run the full gate; **WSL2** runs
   the whole of `make ci`, Cygwin the unit and smoke tiers; Android both cross-built
-  and built on-device. **illumos is partly verified and driven** (OmniOS under KVM; M658, re-measured M703 2026-09-22: clean build, 13,458 unit checks, **317 of 317** smoke drivers, both model turns driven. *Partly* names the gate — `make ci` has never run there). **Never compiled: macOS** — there is no Mac on
-  this project, and its one Darwin-specific line went months un-compilable because
-  of it. [`docs/PLATFORMS.md`](docs/PLATFORMS.md) owns every verdict and says
+  and built on-device. **illumos is partly verified and driven** (OmniOS under KVM; M658, re-measured M703 2026-09-22: clean build, 13,458 unit checks, **317 of 317** smoke drivers, both model turns driven. *Partly* names the gate — `make ci` has never run there).
+  **Guix System** is partly verified and driven too (M738): built with the store's own
+  toolchain inside the published VM image, headless, and both model turns run there.
+  **Never compiled: macOS and FreeMiNT.** There is no Mac on this project, and macOS's one
+  Darwin-specific line went months un-compilable because of it. **FreeMiNT**, the Atari's
+  multitasking system, has no compiler of its own that has seen the tree — but jichi is
+  cross-built for it and runs under the **ARAnyM** emulator: its unit suite runs to the end
+  there (its failures are mostly utilities the minimal guest lacks), and since M737 it is **Driven**, calling a model from inside the Atari guest over the
+  emulator's network link. [`docs/PLATFORMS.md`](docs/PLATFORMS.md) owns every verdict and says
   exactly what was measured, in Verified / Partly verified / Never compiled.
 - **Licence.** **Apache-2.0**, decided 2026-08-27: the `LICENSE` file at the root is
   the verbatim text, every source carries the SPDX header, and the copyright is held by
@@ -180,7 +186,7 @@ opencode, and Claude Code) configurations —
 
 **Never compiled from source before?** [`docs/PREPARE_AND_BUILD.md`](docs/PREPARE_AND_BUILD.md) walks you from an empty terminal to a working build on Linux, macOS, or Windows/WSL. Linux and **WSL2** are both verified paths — the WSL2 walkthrough has been executed end to end, by a non-root user, against pristine HEAD. **macOS is the one door nobody has opened**, and [`docs/PLATFORMS.md`](docs/PLATFORMS.md) is the one page that states, per platform, what was actually compiled and gate-run.
 
-Built incrementally in milestones — **730 of them**, 714 written up in full (the
+Built incrementally in milestones — **741 of them**, 726 written up in full (the
 gap is numbers merged, split or skipped) — each with its design and its failures
 recorded. **The documentation ships in full, on purpose** — the analyses, plans,
 dialogues and anecdotes, including every recorded failure, mis-diagnosis and dead
@@ -1177,7 +1183,7 @@ Use `--model <selector>` to override the role-default model for `embed`/`rerank`
 
 ## Roadmap
 
-**Where we stand: latest milestone M740.** The engineering loop is healthy; the
+**Where we stand: latest milestone M741.** The engineering loop is healthy; the
 **first public release shipped 2026-08-27**: **v0.9.0**, one curated commit,
 published to the HRZ GitLab (`jichi-public/jichi`) and to GitHub, tag `v0.9.0`
 on both ([`docs/plans/2026-08-public-snapshot.md`](docs/plans/2026-08-public-snapshot.md),

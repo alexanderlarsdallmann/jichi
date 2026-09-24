@@ -174,9 +174,28 @@ fi
 # complaint. HOME and TIER_V_DIR point into this check's temp dir, so a bench's
 # caches can neither make a dry run pass nor absorb what it writes; a dry run must
 # therefore be host-independent, which is what "touch nothing" meant all along.
+#
+# AND THE HOST MUST NOT MATTER -- M741, found by the hosted runner, not here. M738
+# made the pass "the dry run completes" and checked it on threadwork, where qemu,
+# zig and ARAnyM are installed; a GitHub runner has none of them, and two rigs'
+# dry runs exited there (tier-v-bsd on its qemu check, tier-v-vm on its tool list),
+# so v0.12.0's first public CI run went red on a check that was green at home. So
+# the dry runs run with a PATH from which the emulators and cross toolchains are
+# hidden -- every tool this bench has, minus qemu-*, zig, aranym* and xorriso -- and
+# a dry run that depends on them fails HERE, the same way it fails there.
 : > "$tmp/unparsed"
 np=0
-mkdir -p "$tmp/home" "$tmp/tierv"
+mkdir -p "$tmp/home" "$tmp/tierv" "$tmp/bin"
+_old_ifs=$IFS; IFS=:
+for _d in $PATH; do
+    [ -d "$_d" ] || continue
+    for _x in "$_d"/*; do
+        _b=${_x##*/}
+        case "$_b" in qemu-*|qemu|zig|aranym*|xorriso) continue ;; esac
+        [ -x "$_x" ] && [ ! -e "$tmp/bin/$_b" ] && ln -s "$_x" "$tmp/bin/$_b" 2>/dev/null
+    done
+done
+IFS=$_old_ifs
 for f in "$SC"/tier-*.sh "$SC"/jhub-*.sh; do
     [ -f "$f" ] || continue
     grep -q 'live-port' "$f" || continue
@@ -192,7 +211,7 @@ for f in "$SC"/tier-*.sh "$SC"/jhub-*.sh; do
     esac
     grep -q -e '--ref-secs)' "$f" && _args="$_args --ref-secs 7"
     # shellcheck disable=SC2086
-    _out=$(HOME="$tmp/home" TIER_V_DIR="$tmp/tierv" \
+    _out=$(PATH="$tmp/bin" HOME="$tmp/home" TIER_V_DIR="$tmp/tierv" \
            sh "$f" --live-port 1234 --live-model test/model $_args --dry-run 2>&1 < /dev/null)
     _rc=$?
     if [ "$_rc" -ne 0 ]; then
@@ -201,7 +220,7 @@ for f in "$SC"/tier-*.sh "$SC"/jhub-*.sh; do
     fi
 done
 if [ "$np" -ge 12 ] && [ ! -s "$tmp/unparsed" ]; then
-    t_ok "all $np rigs advertising --live-port parse it: each dry run, live flags first, completed"
+    t_ok "all $np rigs advertising --live-port parse it: each dry run, live flags first, completed with no emulator on PATH"
 else
     t_fail "rig(s) that advertise --live-port and did not complete a dry run with it ($np scanned):
 $(cat "$tmp/unparsed")

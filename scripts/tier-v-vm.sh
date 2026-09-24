@@ -410,7 +410,13 @@ missing=""
 for t in qemu-system-x86_64 qemu-img curl ssh scp ssh-keygen xorriso; do
     command -v "$t" >/dev/null 2>&1 || missing="$missing $t"
 done
-[ -z "$missing" ] || { echo "tier-v-vm: missing tools:$missing" >&2; exit 1; }
+# A dry run reports what a real run would refuse and goes on (M741: a hosted runner
+# has no qemu, and rig_live_lint check 6 runs this dry run there).
+if [ -n "$missing" ]; then
+    echo "tier-v-vm: missing tools:$missing" >&2
+    [ "$DRY" -eq 1 ] || exit 1
+    echo "tier-v-vm: (dry run) a real run stops here" >&2
+fi
 
 run mkdir -p "$DIR"
 

@@ -9,7 +9,13 @@ both (M620, the plan executed as written; M621 mended what the first hosted CI r
 found). The loop keeps running -- **design, test, develop, dogfood, harden**. The
 checklist, with what remains:
 
-> **Where we stand** — updated **2026-09-24**, latest milestone **M740**:
+> **Where we stand** — updated **2026-09-24**, latest milestone **M741**:
+> **the check M738 made strict was green here and red on the runner.** v0.12.0's first public CI
+> run failed on two rigs whose dry runs need qemu; the tag was not pushed, the rigs report
+> instead of exiting, and the check now hides the emulators so this machine fails it too.
+> The operator's twelve questions have a plan: `plans/2026-09-24-twelve-questions.md`.
+>
+> **Previously — M740:**
 > **a database for the agent, and a report you can send.** `docs/SQLITE.md` gives three
 > routes, each run with a real model, and the lesson under them: `sqlite3 -readonly` still
 > ran `.shell` and `writefile()`. That lesson found a live defect in this project's own
@@ -43501,3 +43507,49 @@ against 303, 26 back, one past its 25-driver allowance. Restated at 329, the Net
 rows now cite their 2026-09-19 runs. `PLATFORMS.md` records those as executing the whole
 303-driver tree, but the retest table still cited the 209-driver runs of M480/M481. **WSL2 (209
 drivers, M475) is at 120, past 100: by the page's own rule a historical datum until it is re-run.**
+
+### M741 -- the check M738 made strict was green here and red on the runner; and twelve questions have a plan -- done
+
+**What happened.** v0.12.0 went through its procedure: the release commit `21f27e36`, gated green;
+the archive, 2,102 files; staged in the public checkout, 2,100 files, `cmp` 0 differing, the
+two-way list exact, mode and blob identical for all 2,100; `make check-target` in a fresh clone,
+exit 0 in 858 s. Then `master` went to both public remotes as `3c4b405`, and the hosted runner
+went **red in five minutes**: `rig_live_lint` check 6, `tier-v-bsd.sh (exit 2): missing host tool:
+qemu-system-x86_64` and `tier-v-vm.sh (exit 1)`. **The tag was not pushed** -- the rule from the
+v0.10.1 advance, *master first, the tag only after its hosted run is green*, did exactly its job.
+
+**Why, and whose.** M738 made check 6 strict -- a rig's dry run must complete -- and verified that
+the dry runs were host-independent by running them under `env -i PATH=/usr/bin:/bin`. On
+threadwork qemu *is* in `/usr/bin`, so the test that was meant to hide the host hid nothing that
+mattered. Two rigs refused on missing qemu even in a dry run; a GitHub runner has no qemu.
+ANECDOTES #106.
+
+**The fix, on both sides.** The two rigs now report a missing tool in a dry run and go on, as M738
+made tier-v-tiny and tier-v-arch do; a real run still refuses (`tier-v-bsd` without qemu: exit 2).
+And check 6 now runs every dry run with a PATH from which `qemu-*`, `zig`, `aranym*` and `xorriso`
+are hidden, so a dry run that depends on them fails **here**, the way it failed there. **Teeth:**
+HEAD's `tier-v-bsd.sh` and HEAD's `tier-v-vm.sh`, each restored alone, turn the new check 6 red on
+threadwork; HEAD's check 6 passes HEAD's `tier-v-bsd.sh` on threadwork -- which is the defect.
+
+**The public state until the next advance:** both remotes' `master` at `3c4b405` (red hosted run),
+**no tag** -- v0.12.0 is tagged on the next public commit, which carries this fix, once its hosted
+run is green.
+
+**The plan.** `docs/plans/2026-09-24-twelve-questions.md` answers the nine questions M740 did not ship:
+an algorithms course built on jichi's own implementations (none exists), a small-model lab that keeps
+`ML_SUPPORT.md`'s *no training in jichi*, platforms ranked by what they teach (GNU/Hurd first; `fork`
+is the wall; a fork-free design would unlock four rows), the JupyterHub run with a real model, a CHR
+engine behind MCP and the issues it raises (a hard-coded 120 s MCP timeout, no MCP result cap, the name
+collision with jichi's own constraints), UX principles and a learner study, command proposals for users
+and agents, a file-cooperation experiment, and a *restate-shown-before-used* rule for multi-stage
+prompting with an A/B plan. Every fact carries a path; every recommendation is labelled one; the
+operator's decisions are tabled at its end.
+
+**README's platforms bullet** (the operator's catch, 2026-09-24): it counted **2 Never compiled**
+and named only macOS. It now names FreeMiNT too -- cross-built, run under ARAnyM, Driven since
+M737 -- and Guix System, partly verified and driven since M738.
+
+**The author name.** The operator's name is **Alexander-Lars Dallmann**; the full form matters for
+disambiguation. Threadwork's checkout carried `user.name` without the hyphen, so 20 private commits
+(M713-M740) were authored in the short form; the config is fixed, the 20 stay as pushed, and the
+release commit and everything since carry the full name.

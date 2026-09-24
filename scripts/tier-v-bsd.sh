@@ -96,9 +96,14 @@ done
 # can be read without a measurement in hand.
 [ "$DRY" -eq 1 ] || jc_rig_ref_or_die "tier-v-bsd" "$REF_SECS" || exit 2
 
+# A missing tool ends a real run; a DRY run reports it and goes on -- its job is the
+# plan, and rig_live_lint check 6 runs every rig's dry run on hosts that have none of
+# this (a hosted CI runner has no qemu: M741, found when v0.12.0's first public run went
+# red on exactly this line).
 for t in qemu-system-x86_64 qemu-img curl xz ssh scp ssh-keygen xorriso; do
     command -v "$t" >/dev/null 2>&1 || {
-        echo "tier-v-bsd: missing host tool: $t" >&2; exit 2; }
+        echo "tier-v-bsd: missing host tool: $t" >&2
+        [ "$DRY" -eq 1 ] || exit 2; }
 done
 
 BASE="FreeBSD-$REL-amd64-BASIC-CLOUDINIT-ufs"

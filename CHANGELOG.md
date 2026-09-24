@@ -57,7 +57,8 @@ the `describe` interface contract.
 - **`scripts/tier-v-tiny.sh --dry-run` no longer downloads a kernel** (M738). With
   `--live-model` and no cached kernel the dry run fetched one, and it stopped at the first
   missing prerequisite; it now prints what a real run would fetch and refuse, and touches
-  nothing. `scripts/tier-v-arch.sh --dry-run` likewise completes on a host without zig.
+  nothing. `scripts/tier-v-arch.sh --dry-run` likewise completes on a host without zig, and
+  `tier-v-bsd.sh` and `tier-v-vm.sh` on one without qemu (M741).
 - **jichi builds on the oldest distributions it promised, and on older ones**
   (M736). `docs/INSTALL.md` named CentOS 6 and Debian 7 as the floor; measured for the
   first time, neither compiled `src/net/jc_http.c`, because three libcurl names newer

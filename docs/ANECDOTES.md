@@ -6670,3 +6670,21 @@ it). And the class: a cleanup is a claim that something was removed, and the onl
 worked is the absence of the thing. The trap *ran*, on every exit, for two months; what it
 removed was never looked at. `smoke_tmp_lint.sh` now runs a driver in miniature and counts
 what is left.
+
+## 106. A host-independence test, run on the host (2026-09-24)
+
+**Symptom.** v0.12.0's first public CI run, on GitHub's runner, failed in five minutes on
+`rig_live_lint` check 6 -- a check green on every run at home that day, including the release
+commit's gate an hour earlier: `tier-v-bsd.sh (exit 2): missing host tool: qemu-system-x86_64`.
+
+**Root cause.** Two milestones earlier I had made the check strict: every rig's `--dry-run` must
+complete, because a dry run that stops early has shown nothing. I knew the risk -- a runner without
+the rigs' tools -- and tested for it by running all twelve dry runs under
+`env -i PATH=/usr/bin:/bin`. That hid `/snap/bin` (and so zig), which found one real dependency. It
+did not hide qemu, which on this machine lives in `/usr/bin`. The test was designed to remove the
+host, and it removed the part of the host I happened to think of.
+
+**Lesson.** *To test independence from something, remove that thing -- not a guess at where it
+lives.* The check now builds its own PATH with the emulators named and removed, so the property is
+tested on the machine that has them. And the other half held: the tag waits for the hosted run, so
+the only public cost was one red run on an untagged commit.
