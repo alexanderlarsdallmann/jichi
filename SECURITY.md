@@ -38,8 +38,9 @@ The defences that **do not depend on the model's cooperation** are the real ones
   edit-scope glob fence, a verification gate, and a JSONL journal of what happened.
 - **Snapshots** — a shadow git repository whose work tree is your workspace, so
   `/undo` and rollback never touch your own `.git`.
-- **Secret handling** — keys come from environment variables named by the config,
-  are scrubbed from child environments, and are redacted from logs. jichi's own
+- **Secret handling** — keys come from environment variables named by the config
+  (or, for a model pointed at a vendor's own endpoint, that vendor's conventional
+  variable — before 0.11.0 that variable was read for any host, CHANGELOG), are scrubbed from child environments, and are redacted from logs. jichi's own
   private state (sessions, telemetry, checkpoints) lives outside any workspace.
 
 **Prompt injection is mitigated, not solved.** Content jichi fetches at the

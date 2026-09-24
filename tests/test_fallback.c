@@ -71,7 +71,10 @@ static void test_chain(void)
         if (JC_REQUIRE(m0 != NULL && m0->fallback != NULL)) {
             JC_CHECK_STR(m0->fallback, "b");
         }
-        JC_CHECK(jc_config_model_at(&cfg, 2)->fallback == NULL);
+        {   /* not a bare ->: jc_config_model_at is NULL out of range (M729) */
+            const struct jc_model_cfg *mi = jc_config_model_at(&cfg, 2);
+            JC_CHECK(mi != NULL && mi->fallback == NULL);
+        }
     }
 
     jc_config_free(&cfg);

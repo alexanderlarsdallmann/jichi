@@ -238,22 +238,23 @@ you prepared above.
 ### 1. Download (clone) the source
 
 ```sh
-$ git clone <REPOSITORY-URL> jichi
+$ git clone https://github.com/alexanderlarsdallmann/jichi.git jichi
 $ cd jichi
 ```
 
-Replace `<REPOSITORY-URL>` with the address you were given (it ends in `.git`).
-`git clone` downloads the whole project into a new folder named `jichi`; `cd`
-("change directory") moves you inside it. Everything below runs from here.
+That is the public repository; it is mirrored on the HRZ GitLab as project
+`jichi-public/jichi`, and either works. If a class or a colleague gave you a different
+address, use theirs. `git clone` downloads the whole project into a new folder named
+`jichi`; `cd` ("change directory") moves you inside it. Everything below runs from here.
 
-> **Nobody gave you a URL?** Then you cannot clone yet, and that is not your
-> mistake: **jichi has no public repository address yet.** The public release is
-> waiting on a licence decision (see the README's *License* section), so today the
-> source reaches you one of two ways — a URL from a class, colleague or supervisor,
-> or an archive.
+> **Given an archive instead?** A `.zip` or `.tar.gz` builds just as well: unpack it,
+> `cd` into the unpacked folder, and skip to step 2 — you need `git` only to clone.
+> One difference matters if you will ever *report* a result: a build from an archive
+> prints no `build:` line in `./jichi --version`, so nobody can tell which source you
+> tested ([`VERIFY_A_PLATFORM.md`](VERIFY_A_PLATFORM.md)). For a report, clone.
 >
-> **If you have a `.zip` or `.tar.gz`:** unpack it, `cd` into the unpacked folder,
-> and skip to step 2. You do not need `git` to *build* — only to clone.
+> *(Until 2026-09-24 this note said jichi had no public repository yet. The first
+> public release shipped on 2026-08-27; the note was not updated with it.)*
 >
 > ```sh
 > $ tar xzf jichi-0.9.0.tar.gz && cd jichi-0.9.0   # or: unzip jichi.zip && cd jichi

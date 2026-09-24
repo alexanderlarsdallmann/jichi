@@ -516,7 +516,7 @@ void test_tool(void)
     test_fence_denial_is_policy();
 
     setup_app(&app, a, &reg);
-    sprintf(path, "%s/x.txt", dir);
+    jc_snprintf(path, sizeof path, "%s/x.txt", dir);
 
     /* Registry lookup. */
     JC_CHECK(jc_tool_registry_find(&reg, "read_file") != NULL);
@@ -525,7 +525,7 @@ void test_tool(void)
     /* write_file creates the file (and its parent dir). */
     {
         char args[512];
-        sprintf(args, "{\"path\":\"%s\",\"content\":\"hello world\"}", path);
+        jc_snprintf(args, sizeof args, "{\"path\":\"%s\",\"content\":\"hello world\"}", path);
         jc_tool_execute(&reg, "write_file", args, &res, &app);
         JC_CHECK(res.is_error == 0);
         jc_tool_result_free(&res);
@@ -534,7 +534,7 @@ void test_tool(void)
     /* read_file returns the content. */
     {
         char args[512];
-        sprintf(args, "{\"path\":\"%s\"}", path);
+        jc_snprintf(args, sizeof args, "{\"path\":\"%s\"}", path);
         jc_tool_execute(&reg, "read_file", args, &res, &app);
         JC_CHECK(res.is_error == 0);
         /* read_file now prefixes a line-number gutter ("     1\t..."). */
@@ -547,16 +547,16 @@ void test_tool(void)
     {
         char args[512];
         char big[256];
-        sprintf(big, "%s/big.txt", dir);
+        jc_snprintf(big, sizeof big, "%s/big.txt", dir);
         {
             char wargs[600];
-            sprintf(wargs, "{\"path\":\"%s\",\"content\":"
+            jc_snprintf(wargs, sizeof wargs, "{\"path\":\"%s\",\"content\":"
                     "\"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ\"}", big);
             jc_tool_execute(&reg, "write_file", wargs, &res, &app);
             jc_tool_result_free(&res);
         }
         app.config.read_max_bytes = 10; /* below the 36-byte content */
-        sprintf(args, "{\"path\":\"%s\"}", big);
+        jc_snprintf(args, sizeof args, "{\"path\":\"%s\"}", big);
         jc_tool_execute(&reg, "read_file", args, &res, &app);
         JC_CHECK(res.is_error == 0);
         JC_CHECK(strstr(res.content, "[output truncated]") != NULL);
@@ -568,7 +568,7 @@ void test_tool(void)
      * by write/read above). */
     {
         char args[512];
-        sprintf(args, "{\"path\":\"%s\",\"old_string\":\"world\","
+        jc_snprintf(args, sizeof args, "{\"path\":\"%s\",\"old_string\":\"world\","
                       "\"new_string\":\"there\"}", path);
         jc_tool_execute(&reg, "edit_file", args, &res, &app);
         JC_CHECK(res.is_error == 0);
@@ -578,7 +578,7 @@ void test_tool(void)
         JC_CHECK(strstr(res.content, "+hello there") != NULL);
         jc_tool_result_free(&res);
 
-        sprintf(args, "{\"path\":\"%s\"}", path);
+        jc_snprintf(args, sizeof args, "{\"path\":\"%s\"}", path);
         jc_tool_execute(&reg, "read_file", args, &res, &app);
         JC_CHECK(strstr(res.content, "hello there") != NULL);
         jc_tool_result_free(&res);
@@ -587,7 +587,7 @@ void test_tool(void)
     /* edit_file refuses when old_string is absent. */
     {
         char args[512];
-        sprintf(args, "{\"path\":\"%s\",\"old_string\":\"absent\","
+        jc_snprintf(args, sizeof args, "{\"path\":\"%s\",\"old_string\":\"absent\","
                       "\"new_string\":\"z\"}", path);
         jc_tool_execute(&reg, "edit_file", args, &res, &app);
         JC_CHECK(res.is_error == 1);
@@ -598,9 +598,9 @@ void test_tool(void)
     {
         char args[512];
         char sub[300];
-        sprintf(sub, "%s/sub", dir);
+        jc_snprintf(sub, sizeof sub, "%s/sub", dir);
         jc_mkdir_p(sub);
-        sprintf(args, "{\"path\":\"%s\"}", dir);
+        jc_snprintf(args, sizeof args, "{\"path\":\"%s\"}", dir);
         jc_tool_execute(&reg, "list_files", args, &res, &app);
         JC_CHECK(res.is_error == 0);
         JC_CHECK(strstr(res.content, "x.txt") != NULL);
@@ -633,7 +633,7 @@ void test_tool(void)
     /* search_code finds a match. */
     {
         char args[512];
-        sprintf(args, "{\"pattern\":\"there\",\"path\":\"%s\"}", dir);
+        jc_snprintf(args, sizeof args, "{\"pattern\":\"there\",\"path\":\"%s\"}", dir);
         jc_tool_execute(&reg, "search_code", args, &res, &app);
         JC_CHECK(strstr(res.content, "x.txt") != NULL);
         jc_tool_result_free(&res);
@@ -696,6 +696,47 @@ void test_tool(void)
         JC_CHECK(strstr(res.content, "not a valid extended regular expression")
                  != NULL);
         jc_tool_result_free(&res);
+
+        /* M732: a pattern grep ACCEPTS WITH A WARNING must come back with the
+         * warning. `(?:alpha|beta)` is Perl's dialect; GNU grep says "? at start
+         * of expression", exits 1, and the tool used to answer a bare
+         * "(no matches)" -- bonsai 08 of the M731 drive then repeated such a
+         * search thirteen times. This platform's grep is asked first, so the
+         * check is two-sided: a grep that warns must have its warning passed
+         * on, a grep that stays silent must leave a bare "(no matches)", and a
+         * grep that rejects the pattern takes the error path checked above. */
+        {
+            char gline[256];
+            int warns = 0;
+            FILE *g = popen("GREP_OPTIONS= grep -E -e '(?:alpha|beta)' "
+                            "/dev/null 2>&1", "r");
+            gline[0] = '\0';
+            if (g != NULL) {
+                if (fgets(gline, (int)sizeof gline, g) != NULL &&
+                    strstr(gline, "warning") != NULL) {
+                    warns = 1;
+                }
+                while (fgets(gline, (int)sizeof gline, g) != NULL) {
+                    /* drain */
+                }
+                pclose(g);
+            }
+            jc_snprintf(sargs, sizeof sargs,
+                        "{\"pattern\":\"(?:alpha|beta)\",\"path\":\"%s/ere.txt\"}",
+                        dir);
+            jc_tool_execute(&reg, "search_code", sargs, &res, &app);
+            if (!res.is_error) {
+                JC_CHECK(strstr(res.content, "(no matches)") != NULL);
+                if (warns) {
+                    JC_CHECK(strstr(res.content, "grep warned") != NULL);
+                    JC_CHECK(strstr(res.content, "? at start of expression")
+                             != NULL);
+                } else {
+                    JC_CHECK(strcmp(res.content, "(no matches)") == 0);
+                }
+            }
+            jc_tool_result_free(&res);
+        }
     }
 
     /* fetch_url is registered and validates its arguments without a network
@@ -728,7 +769,7 @@ void test_tool(void)
     {
         char args[512];
         app.readonly = 1;
-        sprintf(args, "{\"path\":\"%s\",\"content\":\"nope\"}", path);
+        jc_snprintf(args, sizeof args, "{\"path\":\"%s\",\"content\":\"nope\"}", path);
         jc_tool_execute(&reg, "write_file", args, &res, &app);
         JC_CHECK(res.is_error == 1);
         jc_tool_result_free(&res);
@@ -1247,8 +1288,9 @@ void test_tool_unstring(void)
         cJSON *a = cJSON_Parse(
             "{\"todos\":\"[{\\\"content\\\":\\\"x\\\",\\\"status\\\":\\\"pending\\\"}]\"}");
         cJSON *got;
-        JC_CHECK(a != NULL);
-        JC_CHECK(jc_tool_unstring_args(a, schema) == 1);
+        if (JC_REQUIRE(a != NULL)) { /* a guard (M729) */
+            JC_CHECK(jc_tool_unstring_args(a, schema) == 1);
+        }
         got = cJSON_GetObjectItem(a, "todos");
         JC_CHECK(got != NULL && cJSON_IsArray(got));
         JC_CHECK(cJSON_GetArraySize(got) == 1);
@@ -1428,9 +1470,10 @@ void test_tool_nameless(void)
      * retry loops (M342/M360). */
     jc_tool_execute(&reg, "", "{}", &res, &app);
     JC_CHECK(res.is_error == 1);
-    JC_CHECK(res.content != NULL);
-    JC_CHECK(strstr(res.content, "no tool name") != NULL);
-    JC_CHECK(strstr(res.content, "malformed") != NULL);
+    if (JC_REQUIRE(res.content != NULL)) { /* a guard (M729) */
+        JC_CHECK(strstr(res.content, "no tool name") != NULL);
+        JC_CHECK(strstr(res.content, "malformed") != NULL);
+    }
     /* names the corrective action, not just the cause */
     JC_CHECK(strstr(res.content, "Send the call again") != NULL);
     /* and it must NOT be the unknown-name message, which invites the model to

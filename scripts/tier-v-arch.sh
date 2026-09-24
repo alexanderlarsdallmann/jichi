@@ -112,10 +112,17 @@ while [ $# -gt 0 ]; do
     shift
 done
 
+# A missing tool ends a real run. A DRY run reports it and goes on, because its job
+# is the plan and it must not depend on the host: rig_live_lint check 6 runs every
+# rig's dry run and requires it to complete (M738) -- and until then this one could
+# only complete where zig and the binfmt handlers happen to be installed.
+MATRIX=1
 command -v zig >/dev/null 2>&1 || {
-    echo "tier-v-arch: zig not found -- this rig cross-builds with 'zig cc'" >&2; exit 2; }
+    echo "tier-v-arch: zig not found -- this rig cross-builds with 'zig cc'" >&2
+    [ "$DRY" -eq 1 ] || exit 2; MATRIX=0; }
 [ -d /proc/sys/fs/binfmt_misc ] || {
-    echo "tier-v-arch: /proc/sys/fs/binfmt_misc absent -- no emulation handlers" >&2; exit 2; }
+    echo "tier-v-arch: /proc/sys/fs/binfmt_misc absent -- no emulation handlers" >&2
+    [ "$DRY" -eq 1 ] || exit 2; MATRIX=0; }
 
 # ---------------------------------------------------------------- the matrix
 # Measured, not hardcoded: intersect the triples THIS zig can target with the
@@ -273,10 +280,16 @@ order_targets() {
 }
 
 if [ -n "$ONE" ]; then
-    TARGETS=$(candidates | awk -v w="$ONE" '$1 == w {print}')
-    [ -n "$TARGETS" ] || { echo "tier-v-arch: '$ONE' is not a runnable candidate here (try --list)" >&2; exit 2; }
+    TARGETS=''
+    [ "$MATRIX" -eq 0 ] || TARGETS=$(candidates | awk -v w="$ONE" '$1 == w {print}')
+    if [ -z "$TARGETS" ]; then
+        echo "tier-v-arch: '$ONE' is not a runnable candidate here (try --list)" >&2
+        [ "$DRY" -eq 1 ] || exit 2
+        TARGETS="$ONE (not runnable on this host: a real run refuses it)"
+    fi
 elif [ "$ALL" -eq 1 ]; then
-    TARGETS=$(order_targets)
+    TARGETS=''
+    [ "$MATRIX" -eq 0 ] || TARGETS=$(order_targets)
 else
     echo "tier-v-arch: name --arch <triple>, or --all, or --list" >&2; exit 2
 fi

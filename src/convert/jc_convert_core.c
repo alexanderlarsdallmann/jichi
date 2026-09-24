@@ -101,8 +101,12 @@ void jc_ir_model_add_role(struct jc_ir_model *m, const char *role)
 const char *jc_convert_map_provider(const char *p, int *mapped)
 {
     *mapped = 0;
-    if (p == NULL) {
-        return "anthropic";
+    /* M718: NO HOUSE PROVIDER. A source that names none used to become
+     * "anthropic" here -- the converter's copy of the default M709 removed from
+     * the runtime. It now stays unset, the fill step says so, and jichi refuses
+     * the entry until one is named. */
+    if (p == NULL || p[0] == '\0') {
+        return NULL;
     }
     if (strcmp(p, "anthropic") == 0) {
         return "anthropic";
@@ -114,12 +118,92 @@ const char *jc_convert_map_provider(const char *p, int *mapped)
     return "openai";
 }
 
-const char *jc_convert_provider_key_env(const char *provider)
+static int is_env_name_char(char c)
 {
-    if (provider != NULL && strcmp(provider, "anthropic") == 0) {
-        return "ANTHROPIC_API_KEY";
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+           (c >= '0' && c <= '9') || c == '_';
+}
+
+const char *jc_convert_key_env_ref(const char *key, struct jc_arena *a)
+{
+    const char *s;
+    const char *e;
+    if (key == NULL) {
+        return NULL;
     }
-    return "OPENAI_API_KEY";
+    if (strncmp(key, "{env:", 5) == 0) {                /* opencode */
+        s = key + 5;
+        e = strchr(s, '}');
+        return (e != NULL && e > s) ? jc_arena_strndup(a, s, (jc_size)(e - s))
+                                    : NULL;
+    }
+    if (strncmp(key, "${{", 3) == 0) {                  /* Continue */
+        s = key + 3;
+        while (*s == ' ' || *s == '\t') {
+            s++;
+        }
+        if (strncmp(s, "secrets.", 8) != 0) {
+            return NULL;
+        }
+        s += 8;
+        e = s;
+        while (is_env_name_char(*e)) {
+            e++;
+        }
+        if (e == s) {
+            return NULL;
+        }
+        {
+            const char *t = e;
+            while (*t == ' ' || *t == '\t') {
+                t++;
+            }
+            if (strcmp(t, "}}") != 0) {
+                return NULL;
+            }
+        }
+        return jc_arena_strndup(a, s, (jc_size)(e - s));
+    }
+    if (strncmp(key, "${", 2) == 0) {                   /* shell, braced */
+        s = key + 2;
+        e = s;
+        while (is_env_name_char(*e)) {
+            e++;
+        }
+        return (e > s && strcmp(e, "}") == 0)
+                   ? jc_arena_strndup(a, s, (jc_size)(e - s)) : NULL;
+    }
+    if (key[0] == '$') {                                /* shell */
+        s = key + 1;
+        e = s;
+        while (is_env_name_char(*e)) {
+            e++;
+        }
+        return (e > s && *e == '\0') ? jc_arena_strdup(a, s) : NULL;
+    }
+    return NULL;
+}
+
+void jc_convert_note_active_key(struct jc_ir *ir)
+{
+    const struct jc_ir_model *am;
+    if (ir == NULL || ir->model_count == 0) {
+        return;
+    }
+    am = ir->models[ir->active_model];
+    if (am == NULL || am->api_key != NULL) {
+        return;
+    }
+    if (am->api_key_env != NULL) {
+        jc_ir_warn(ir, "no literal API key for the active model; set %s in "
+                       "your environment.", am->api_key_env);
+    } else {
+        jc_ir_warn(ir, "the active model names no API key, so jichi will send "
+                       "none -- right for a keyless local server; if its server "
+                       "needs one, add \"apiKeyEnv\" to the entry. A vendor's "
+                       "own key variable is read only for that vendor's own "
+                       "endpoint.");
+    }
 }
 
 int jc_convert_key_is_literal(const char *key)
@@ -145,19 +229,37 @@ void jc_convert_fill_provider(struct jc_ir *ir, struct jc_ir_model *m,
 {
     int mapped = 0;
     const char *prov = jc_convert_map_provider(raw_provider, &mapped);
+    const char *label = (m->name != NULL && m->name[0] != '\0') ? m->name
+                      : (m->model != NULL && m->model[0] != '\0') ? m->model
+                      : "(unnamed)";
     m->provider = prov;
     if (mapped) {
         jc_ir_warn(ir, "provider '%s' is not native; mapped to 'openai' "
                        "(OpenAI-compatible). Verify apiBase.",
                    raw_provider ? raw_provider : "(none)");
     }
+    if (prov == NULL) {
+        jc_ir_warn(ir, "model '%s' names no provider in the source; jichi will "
+                       "refuse it until one is set -- \"openai\" for any "
+                       "OpenAI-compatible server, \"anthropic\" for the "
+                       "Anthropic Messages API.", label);
+    }
     if (jc_convert_key_is_literal(raw_key)) {
         m->api_key = jc_arena_strdup(ir->a, raw_key);
     } else if (raw_key_env != NULL && raw_key_env[0] != '\0') {
         m->api_key_env = jc_arena_strdup(ir->a, raw_key_env);
-    } else {
-        m->api_key_env = jc_convert_provider_key_env(prov);
+    } else if (raw_key != NULL && raw_key[0] != '\0') {
+        jc_ir_warn(ir, "model '%s': the key reference '%s' names no environment "
+                       "variable jichi can read; set \"apiKeyEnv\" on the "
+                       "converted entry by hand.", label, raw_key);
     }
+    /* M718: NO HOUSE KEY. A source that names no key used to get the provider's
+     * conventional variable written in -- "apiKeyEnv": "OPENAI_API_KEY" for every
+     * keyless Ollama or LM Studio model -- and the runtime honours a NAMED
+     * variable anywhere, so a user's OpenAI key went to their Ollama host through
+     * a line they never wrote. Now nothing is written: the runtime's own rule
+     * (the vendor's variable for the vendor's endpoint, and only there) is the
+     * whole default. */
 }
 
 const char *jc_convert_slug(struct jc_arena *a, const char *name)
@@ -201,7 +303,9 @@ static cJSON *build_model_obj(const struct jc_ir_model *m)
     if (m->name != NULL && m->name[0] != '\0') {
         cJSON_AddStringToObject(o, "name", m->name);
     }
-    cJSON_AddStringToObject(o, "provider", m->provider ? m->provider : "openai");
+    if (m->provider != NULL) {           /* M718: none is invented */
+        cJSON_AddStringToObject(o, "provider", m->provider);
+    }
     cJSON_AddStringToObject(o, "model", m->model ? m->model : "");
     if (m->api_base != NULL && m->api_base[0] != '\0') {
         cJSON_AddStringToObject(o, "apiBase", m->api_base);

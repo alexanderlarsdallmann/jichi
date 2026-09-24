@@ -38,7 +38,8 @@ drivers): so **`make check-target` (= `test` + `smoke`) is a full build gate
 on any POSIX box**, `make e2e` skips loudly without python3, and python3 is
 optional-recommended. Only a permanently-Python residual stays under e2e
 (`redraw`'s VT emulator, the `stress`/`web_bridge` example products,
-`curriculum_graders` needing cc, the model-gated live checks, `rig_lint`).
+`curriculum_graders` needing cc, the model-gated live checks, `rig_lint`,
+and `measure_corpus`, because the measurement scripts it tests are Python).
 One driver, one tier — enforced by `smoke_lint.sh`; when porting, delete the
 Python original in the same commit. Design
 + decisions: `docs/plans/2026-07-python-free-testing.md`. Two hard-won driver

@@ -42,8 +42,9 @@ static void test_request_roundtrip(void)
     /* Build -> parse: inject carries the text (arena-copied). */
     line = jc_control_build_request("inject", "skip the tests; report now",
                                     0);
-    JC_CHECK(line != NULL);
-    JC_CHECK(jc_control_parse_request(line, &cmd, a) == JC_OK);
+    if (JC_REQUIRE(line != NULL)) { /* a guard (M729) */
+        JC_CHECK(jc_control_parse_request(line, &cmd, a) == JC_OK);
+    }
     JC_CHECK(cmd.type == JC_CTL_INJECT);
     JC_CHECK(cmd.text != NULL &&
              strcmp(cmd.text, "skip the tests; report now") == 0);

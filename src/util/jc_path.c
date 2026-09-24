@@ -151,141 +151,151 @@ jc_status jc_path_normalize(const char *cwd, const char *path,
  * pathological case (a link to itself) stops in bounded time. */
 #define JC_RESOLVE_MAX_HOPS 40
 
-static jc_status resolve_depth(const char *path, char *out, jc_size cap,
-                               int depth)
+/* out = base + suffix, where suffix is "" or "/a/b" (M727). */
+static jc_status resolve_join(const char *base, const char *suffix,
+                              char *out, jc_size cap)
 {
-    char resolved[JC_RESOLVE_BUF];
-    char work[JC_RESOLVE_BUF];
+    size_t bl = strlen(base);
+    size_t sl = strlen(suffix);
+
+    if (sl > 0 && bl > 0 && base[bl - 1] == '/') {
+        suffix++; /* the ancestor was "/": one separator, not two */
+        sl--;
+    }
+    if (bl + sl + 1 > cap) {
+        return JC_ERR_TOOBIG;
+    }
+    memcpy(out, base, bl);
+    memcpy(out + bl, suffix, sl + 1);
+    return JC_OK;
+}
+
+/* M727: a LOOP, one hop per pass, in one stack frame. Until M727 each hop was
+ * a recursive call whose frame of path buffers was ~16.5 KB (16,564 bytes on
+ * m68k), so a symlink cycle took ~700 KB of stack to reach the bound. Nothing
+ * under Linux's 8 MB and more than FreeMiNT's fixed 512 KB, where the stack
+ * does not grow and the heap lies past its end: the suite's `loop -> loop`
+ * case was a bus error in the guest (docs/plans/2026-09-freemint-aranym.md
+ * section 10), and `make ci` now runs the curl-free suite under that stack.
+ * A pass either answers, or replaces `cur` with the next path to resolve; a
+ * missing tail found on the way is kept in `suffix` and appended to the
+ * answer, exactly as the recursion appended it on the way back. */
+jc_status jc_path_resolve(const char *path, char *out, jc_size cap)
+{
+    char cur[JC_RESOLVE_BUF];      /* the path this hop resolves */
+    char resolved[JC_RESOLVE_BUF]; /* realpath()'s answer */
+    char aux[JC_RESOLVE_BUF];      /* a link's target, or the ancestor */
+    char suffix[JC_RESOLVE_BUF];   /* the missing tail so far: "" or "/a/b" */
     size_t len;
+    int hop;
 
     if (path == NULL || path[0] == '\0' || out == NULL || cap == 0) {
         return JC_ERR_INVALID;
     }
-    if (depth > JC_RESOLVE_MAX_HOPS) {
-        return JC_ERR_NOTFOUND; /* a symlink cycle, or a hostile chain */
-    }
-
-    /* Fast path: the target already exists. */
-    if (realpath(path, resolved) != NULL) {
-        len = strlen(resolved);
-        if (len + 1 > cap) {
-            return JC_ERR_TOOBIG;
-        }
-        memcpy(out, resolved, len + 1);
-        return JC_OK;
-    }
-
-    /* The path does not exist yet (typical write target): canonicalize the
-     * parent directory, then re-append the final component. This still resolves
-     * any symlink in the parent chain. */
     len = strlen(path);
-    if (len + 1 > sizeof(work)) {
+    if (len + 1 > sizeof(cur)) {
         return JC_ERR_TOOBIG;
     }
-    memcpy(work, path, len + 1);
-    /* Strip a single trailing slash so basename is meaningful. */
-    while (len > 1 && work[len - 1] == '/') {
-        work[--len] = '\0';
-    }
+    memcpy(cur, path, len + 1);
+    suffix[0] = '\0';
 
-    /* M607: a leaf that EXISTS as a symlink to something that does not exist
-     * yet is not "a path that does not exist yet" -- it is a redirection, and
-     * realpath() failing on it is exactly why the parent branch below used to
-     * re-append the leaf verbatim and call the result inside the workspace.
-     * fopen("wb") then FOLLOWED the link and created its target wherever it
-     * pointed. Measured: a workspace file `notes.md -> /elsewhere/escaped.txt`
-     * (target absent) passed the fence under --auto and the file appeared in
-     * /elsewhere (tests/smoke/pathfence_dangling.sh). A link to an EXISTING
-     * outside target was always caught, because realpath() resolves it -- which
-     * is why every existing test planted an existing target.
-     *
-     * So: if the leaf is a symlink, resolve its TARGET instead (absolute as
-     * given; relative against the link's own directory), recursively and
-     * bounded. A readlink failure fails closed: the fence denies what the
-     * resolver cannot name. */
-    {
-        struct stat lst;
-        if (lstat(work, &lst) == 0 && S_ISLNK(lst.st_mode)) {
-            char target[JC_RESOLVE_BUF];
-            ssize_t tl = readlink(work, target, sizeof(target) - 1);
+    for (hop = 0; hop <= JC_RESOLVE_MAX_HOPS; hop++) {
+        struct stat st;
+        char *slash;
+        const char *tail;
+        size_t tlen;
+        size_t slen;
+
+        /* Fast path: the target already exists. */
+        if (realpath(cur, resolved) != NULL) {
+            return resolve_join(resolved, suffix, out, cap);
+        }
+
+        /* The path does not exist yet (typical write target): canonicalize
+         * the parent directory, then re-append the final component. This
+         * still resolves any symlink in the parent chain. Strip trailing
+         * slashes so the basename is meaningful. */
+        len = strlen(cur);
+        while (len > 1 && cur[len - 1] == '/') {
+            cur[--len] = '\0';
+        }
+
+        /* M607: a leaf that EXISTS as a symlink to something that does not
+         * exist yet is not "a path that does not exist yet" -- it is a
+         * redirection, and realpath() failing on it is exactly why the parent
+         * branch below used to re-append the leaf verbatim and call the result
+         * inside the workspace. fopen("wb") then FOLLOWED the link and created
+         * its target wherever it pointed. Measured: a workspace file
+         * `notes.md -> /elsewhere/escaped.txt` (target absent) passed the fence
+         * under --auto and the file appeared in /elsewhere
+         * (tests/smoke/pathfence_dangling.sh). A link to an EXISTING outside
+         * target was always caught, because realpath() resolves it -- which is
+         * why every existing test planted an existing target.
+         *
+         * So: if the leaf is a symlink, resolve its TARGET instead (absolute as
+         * given; relative against the link's own directory), as the next hop,
+         * bounded. A readlink failure fails closed: the fence denies what the
+         * resolver cannot name. */
+        if (lstat(cur, &st) == 0 && S_ISLNK(st.st_mode)) {
+            ssize_t tl = readlink(cur, aux, sizeof(aux) - 1);
             if (tl <= 0) {
                 return JC_ERR_NOTFOUND;
             }
-            target[tl] = '\0';
-            if (target[0] == '/') {
-                return resolve_depth(target, out, cap, depth + 1);
-            }
-            {
-                /* Relative: join against the link's directory. */
-                char joined[JC_RESOLVE_BUF];
-                char *slash = strrchr(work, '/');
-                size_t dlen = (slash == NULL) ? 0 : (size_t)(slash - work);
-                size_t need = dlen + 1 + (size_t)tl + 1;
-                if (need > sizeof(joined)) {
+            aux[tl] = '\0';
+            slash = strrchr(cur, '/');
+            if (aux[0] == '/' || slash == NULL) {
+                memcpy(cur, aux, (size_t)tl + 1);
+            } else {
+                /* Relative: join against the link's directory, which is cur
+                 * up to and including its last slash ("/" for a link in /). */
+                size_t dlen = (size_t)(slash - cur) + 1;
+                if (dlen + (size_t)tl + 1 > sizeof(cur)) {
                     return JC_ERR_TOOBIG;
                 }
-                if (slash == NULL) {
-                    memcpy(joined, target, (size_t)tl + 1);
-                } else {
-                    memcpy(joined, work, dlen);
-                    if (dlen == 0) {
-                        joined[dlen++] = '/'; /* the link sat in "/" */
-                    } else {
-                        joined[dlen++] = '/';
-                    }
-                    memcpy(joined + dlen, target, (size_t)tl + 1);
-                }
-                return resolve_depth(joined, out, cap, depth + 1);
+                memcpy(cur + dlen, aux, (size_t)tl + 1);
             }
+            continue;
         }
-    }
 
-    /* The target does not exist and is not a symlink. Until M638 this branch
-     * split ONE component off ("parent/leaf"), canonicalized the parent and
-     * re-appended the leaf -- so a write into a directory that did not exist
-     * yet returned JC_ERR_NOTFOUND, jc_app_path_denied read the failure as
-     * "outside", and write_file answered "refused by safety fence (path
-     * outside workspace)" for `tests/bench/refute_ab/refute_ab.py` in a
-     * workspace that had no tests/bench/refute_ab yet (the footer-in-anger
-     * note, 2026-09-17: the model then built the file by fifty shell appends,
-     * which the fence could not see at all). write_file's own ensure_parent()
-     * already does mkdir -p, so the fence was refusing what the tool would
-     * have done.
-     *
-     * M638: walk UP to the deepest ancestor that exists (lstat, so a dangling
-     * symlink counts as existing and is then resolved THROUGH its target by
-     * the recursion above), canonicalize it, and re-append the missing tail.
-     * The tail is re-appended VERBATIM, which is only sound if the kernel
-     * would walk it the same way: a `.` or `..` component in a path that does
-     * not exist yet would be judged here as a name and walked there as a
-     * step, so any such tail fails closed. A tail cannot contain a symlink,
-     * because none of it exists. */
-    {
-        char prefix[JC_RESOLVE_BUF];
-        const char *tail;
-        size_t plen;
-        size_t tlen;
-        struct stat st;
-
-        memcpy(prefix, work, len + 1);
+        /* The target does not exist and is not a symlink. Until M638 this
+         * branch split ONE component off ("parent/leaf"), canonicalized the
+         * parent and re-appended the leaf -- so a write into a directory that
+         * did not exist yet returned JC_ERR_NOTFOUND, jc_app_path_denied read
+         * the failure as "outside", and write_file answered "refused by safety
+         * fence (path outside workspace)" for `tests/bench/refute_ab/refute_ab.py`
+         * in a workspace that had no tests/bench/refute_ab yet (the
+         * footer-in-anger note, 2026-09-17: the model then built the file by
+         * fifty shell appends, which the fence could not see at all).
+         * write_file's own ensure_parent() already does mkdir -p, so the fence
+         * was refusing what the tool would have done.
+         *
+         * M638: walk UP to the deepest ancestor that exists (lstat, so a
+         * dangling symlink counts as existing and is then resolved THROUGH its
+         * target on the next hop), canonicalize it, and re-append the missing
+         * tail. The tail is re-appended VERBATIM, which is only sound if the
+         * kernel would walk it the same way: a `.` or `..` component in a path
+         * that does not exist yet would be judged here as a name and walked
+         * there as a step, so any such tail fails closed. A tail cannot contain
+         * a symlink, because none of it exists. */
+        memcpy(aux, cur, len + 1);
         for (;;) {
-            char *slash = strrchr(prefix, '/');
+            slash = strrchr(aux, '/');
             if (slash == NULL) {
                 /* Relative, nothing existing in it: the ancestor is the cwd. */
-                prefix[0] = '.';
-                prefix[1] = '\0';
-                tail = work;
+                aux[0] = '.';
+                aux[1] = '\0';
+                tail = cur;
                 break;
             }
-            if (slash == prefix) {
+            if (slash == aux) {
                 /* Down to "/x": the ancestor is the root directory. */
-                prefix[1] = '\0';
-                tail = work + 1;
+                aux[1] = '\0';
+                tail = cur + 1;
                 break;
             }
             *slash = '\0';
-            if (lstat(prefix, &st) == 0) {
-                tail = work + (size_t)(slash - prefix) + 1;
+            if (lstat(aux, &st) == 0) {
+                tail = cur + (size_t)(slash - aux) + 1;
                 break;
             }
         }
@@ -307,34 +317,25 @@ static jc_status resolve_depth(const char *path, char *out, jc_size cap,
             }
         }
 
-        /* The ancestor exists: realpath() it, or -- if it is itself a
-         * dangling link, or otherwise resists realpath() -- let the resolver
-         * name it the way it names any existing path. */
-        if (realpath(prefix, resolved) == NULL) {
-            jc_status st2 = resolve_depth(prefix, resolved, sizeof(resolved),
-                                          depth + 1);
-            if (st2 != JC_OK) {
-                return st2;
-            }
-        }
-        plen = strlen(resolved);
+        /* suffix = "/" + tail + suffix */
         tlen = strlen(tail);
-        /* ancestor + '/' + tail + '\0' */
-        if (plen + 1 + tlen + 1 > cap) {
+        slen = strlen(suffix);
+        if (1 + tlen + slen + 1 > sizeof(suffix)) {
             return JC_ERR_TOOBIG;
         }
-        memcpy(out, resolved, plen);
-        if (plen == 0 || out[plen - 1] != '/') {
-            out[plen++] = '/';
-        }
-        memcpy(out + plen, tail, tlen + 1);
-        return JC_OK;
-    }
-}
+        memmove(suffix + 1 + tlen, suffix, slen + 1);
+        suffix[0] = '/';
+        memcpy(suffix + 1, tail, tlen);
 
-jc_status jc_path_resolve(const char *path, char *out, jc_size cap)
-{
-    return resolve_depth(path, out, cap, 0);
+        /* The ancestor exists: realpath() it, or -- if it is itself a dangling
+         * link, or otherwise resists realpath() -- make it the next hop, and
+         * name it the way any existing path is named. */
+        if (realpath(aux, resolved) != NULL) {
+            return resolve_join(resolved, suffix, out, cap);
+        }
+        memcpy(cur, aux, strlen(aux) + 1);
+    }
+    return JC_ERR_NOTFOUND; /* a symlink cycle, or a hostile chain */
 }
 
 int jc_path_in_root(const char *root, const char *path)

@@ -1183,6 +1183,23 @@ null check was followed by a dereference.
 need only `zig` (cross-build) plus `qemu-user-static` + `binfmt-support`
 (execute) — no VM images, no boot.
 
+### Results: rows re-run 2026-09-24 (M736), and the userland ladder
+
+Run on threadwork, KVM for the VM rows; the ladder in podman containers on the same
+host kernel. Same runbook per VM row.
+
+| Row | Target | Result |
+|---|---|---|
+| **V2e** | Debian 12 VM, 256 MB, 1 core | **PASS, Driven** -- 13,814 / 0, smoke 324 / 1,887, gate 772 s; `TIER-V-5CDDC7` |
+| **V2f** | Debian 9 VM, 512 MB, kernel 4.9, git 2.11 | **PASS after 3 test-tooling fixes, Driven** -- 13,865 / 0, smoke 326 / 1,899, gate 756 s; `TIER-V-D4BD81`. The fixes: `git switch` in a fixture, an unguarded `/usr/bin/grep`, and `ptydrive`'s `<sys/filio.h>` on glibc's stub `<stropts.h>` -- none in the product |
+| **ladder** | Debian 5-9, CentOS 6-7: each distribution's gcc, glibc, libcurl | **PASS after 3 product fixes** -- every rung builds and runs 13,840 / 0 (the checks that need git skip; the rungs install none). CentOS 6 and Debian 7 did not compile `jc_http.c` before M736: `CURL_SSLVERSION_TLSv1_2`, `CURL_SOCKOPT_OK` and `CURL_SEEKFUNC_CANTSEEK` were used bare below their versions. Debian 5 took the C89 fallback formatter until the `snprintf` probe asked at the X/Open level too. Debian 4 does not build (libcurl 7.15.5); CentOS 5 cannot be provisioned |
+
+**What the re-runs were for.** The register asked for V2a and V2f to be re-run once
+M722 had made gcc before 7 build again, because *the `-Walloca` error may have been
+hiding other old-platform gaps, the way it hid MiNT's four*. It had been: six, three in
+the test tooling and three in the product, and one floor lower than anyone had
+looked.
+
 ### Recording results
 
 One row per target in `docs/LOW_MEMORY.md`, **machine-stamped** in the style the

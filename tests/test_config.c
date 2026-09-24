@@ -75,6 +75,155 @@ static void test_model_defaulted_flag(void)
     jc_arena_free(a);
 }
 
+/* ---- M718 (plan D4): no house key, no house dialect ----------------------
+ *
+ * The defect, observed by tests/smoke/no_house_key.sh against v0.10.1: an entry
+ * naming no provider sent `POST /v1/messages` with `x-api-key:
+ * <ANTHROPIC_API_KEY>` to whatever host it named, and "ollama" did the same.
+ * The operator decided "strict" (2026-09-23): a vendor's variable is read
+ * without being named only for that vendor's OWN endpoint. The endpoint table
+ * below is the decision's edge, and its bypass rows are the ones a URL parser
+ * gets wrong: userinfo, a lookalike host, a port, plain http. */
+static void setenv_saved(const char *name, const char *val, char **saved)
+{
+    const char *cur = getenv(name);
+    *saved = (cur != NULL) ? jc_strdup(cur) : NULL;
+    if (val != NULL) {
+        setenv(name, val, 1);
+    } else {
+        unsetenv(name);
+    }
+}
+
+static void restore_env(const char *name, char *saved)
+{
+    if (saved != NULL) {
+        setenv(name, saved, 1);
+        free(saved);
+    } else {
+        unsetenv(name);
+    }
+}
+
+static void test_no_house_key(void)
+{
+    struct jc_arena *a = jc_arena_new(0);
+    struct jc_config c;
+    struct jc_model_cfg m;
+    char why[512];
+    char *save_o;
+    char *save_a;
+    const char *OK_O = "OPENAI_API_KEY";
+    const char *OK_A = "ANTHROPIC_API_KEY";
+
+    /* The endpoint rule: the vendor's own host over https, and nothing else. */
+    JC_CHECK_STR(jc_config_convention_key_env("openai", "https://api.openai.com"),
+                 OK_O);
+    JC_CHECK_STR(jc_config_convention_key_env("openai",
+                                              "https://api.openai.com/v1"), OK_O);
+    JC_CHECK_STR(jc_config_convention_key_env("openai",
+                                              "HTTPS://API.OpenAI.com/v1"), OK_O);
+    JC_CHECK_STR(jc_config_convention_key_env("openai",
+                                              "https://api.openai.com:443/v1"),
+                 OK_O);
+    JC_CHECK_STR(jc_config_convention_key_env("anthropic",
+                                              "https://api.anthropic.com"), OK_A);
+    JC_CHECK(jc_config_convention_key_env("openai",
+                                          "https://api.openai.com:8443/v1") == NULL);
+    JC_CHECK(jc_config_convention_key_env("openai",
+                                          "http://api.openai.com/v1") == NULL);
+    JC_CHECK(jc_config_convention_key_env(
+                 "openai", "https://api.openai.com.evil.example/v1") == NULL);
+    JC_CHECK(jc_config_convention_key_env(
+                 "openai", "https://api.openai.com@evil.example/v1") == NULL);
+    /* Split so tests/smoke/snapshot_lint.sh does not read the userinfo as a
+     * real email address -- it is a URL test vector, not a person. */
+    JC_CHECK(jc_config_convention_key_env(
+                 "openai", "https://user" "@api.openai.com/v1") == NULL);
+    JC_CHECK(jc_config_convention_key_env(
+                 "openai", "https://evil.example/api.openai.com") == NULL);
+    JC_CHECK(jc_config_convention_key_env("openai",
+                                          "https://api.openai.com./v1") == NULL);
+    JC_CHECK(jc_config_convention_key_env("openai",
+                                          "http://127.0.0.1:1234/v1") == NULL);
+    JC_CHECK(jc_config_convention_key_env("openai", "https://") == NULL);
+    JC_CHECK(jc_config_convention_key_env("openai", "") == NULL);
+    JC_CHECK(jc_config_convention_key_env("openai", NULL) == NULL);
+    /* Cross-vendor, and providers that are not vendors. */
+    JC_CHECK(jc_config_convention_key_env("anthropic",
+                                          "https://api.openai.com") == NULL);
+    JC_CHECK(jc_config_convention_key_env("openai",
+                                          "https://api.anthropic.com") == NULL);
+    JC_CHECK(jc_config_convention_key_env(NULL, "https://api.openai.com") == NULL);
+    JC_CHECK(jc_config_convention_key_env("ollama",
+                                          "https://api.openai.com") == NULL);
+    JC_CHECK(jc_config_convention_key_env("OpenAI",
+                                          "https://api.openai.com") == NULL);
+
+    /* The one sentence every surface prints. */
+    memset(&m, 0, sizeof(m));
+    m.name = "local";
+    m.provider = "openai";
+    JC_CHECK(jc_config_provider_problem(&m, why, sizeof(why)) == 0);
+    m.provider = "anthropic";
+    JC_CHECK(jc_config_provider_problem(&m, why, sizeof(why)) == 0);
+    m.provider = NULL;
+    JC_CHECK(jc_config_provider_problem(&m, why, sizeof(why)) == 1);
+    JC_CHECK(strstr(why, "model \"local\" names no provider") != NULL);
+    JC_CHECK(strstr(why, "\"openai\"") != NULL);
+    m.provider = "";
+    JC_CHECK(jc_config_provider_problem(&m, why, sizeof(why)) == 1);
+    JC_CHECK(strstr(why, "names no provider") != NULL);
+    m.provider = "ollama";
+    JC_CHECK(jc_config_provider_problem(&m, why, sizeof(why)) == 1);
+    JC_CHECK(strstr(why, "has provider \"ollama\"") != NULL);
+    m.name = NULL;
+    m.model = "qwen";
+    JC_CHECK(jc_config_provider_problem(&m, why, sizeof(why)) == 1);
+    JC_CHECK(strstr(why, "model \"qwen\"") != NULL);
+
+    /* Resolution at parse time, with fake keys, and the ambient keys saved and
+     * restored -- a developer's shell may hold real ones. */
+    setenv_saved("OPENAI_API_KEY", "fake-openai-key", &save_o);
+    setenv_saved("ANTHROPIC_API_KEY", "fake-anthropic-key", &save_a);
+
+    /* The vendor, at its own endpoint: the convention applies, and says so. */
+    JC_CHECK(jc_config_load_json(
+        "{\"models\":[{\"name\":\"a\",\"provider\":\"openai\",\"model\":\"m\"}]}",
+        0, &c, a) == JC_OK);
+    JC_CHECK_STR(c.model.api_key, "fake-openai-key");
+    JC_CHECK(c.model.api_key_convention == 1);
+    jc_config_free(&c);
+
+    /* The vendor's dialect at another host: no implicit key. */
+    JC_CHECK(jc_config_load_json(
+        "{\"models\":[{\"name\":\"a\",\"provider\":\"openai\",\"model\":\"m\","
+        "\"apiBase\":\"http://127.0.0.1:1/v1\"}]}", 0, &c, a) == JC_OK);
+    JC_CHECK(c.model.api_key == NULL);
+    JC_CHECK(c.model.api_key_convention == 0);
+    jc_config_free(&c);
+
+    /* No provider: the house key is gone. */
+    JC_CHECK(jc_config_load_json(
+        "{\"models\":[{\"name\":\"a\",\"model\":\"m\","
+        "\"apiBase\":\"http://127.0.0.1:1/v1\"}]}", 0, &c, a) == JC_OK);
+    JC_CHECK(c.model.api_key == NULL);
+    jc_config_free(&c);
+
+    /* Named in apiKeyEnv: honoured anywhere, and not called a convention. */
+    JC_CHECK(jc_config_load_json(
+        "{\"models\":[{\"name\":\"a\",\"provider\":\"openai\",\"model\":\"m\","
+        "\"apiBase\":\"http://127.0.0.1:1/v1\","
+        "\"apiKeyEnv\":\"OPENAI_API_KEY\"}]}", 0, &c, a) == JC_OK);
+    JC_CHECK_STR(c.model.api_key, "fake-openai-key");
+    JC_CHECK(c.model.api_key_convention == 0);
+    jc_config_free(&c);
+
+    restore_env("OPENAI_API_KEY", save_o);
+    restore_env("ANTHROPIC_API_KEY", save_a);
+    jc_arena_free(a);
+}
+
 void test_config(void)
 {
     struct jc_arena *a;
@@ -83,6 +232,7 @@ void test_config(void)
     FILE *f;
 
     test_model_defaulted_flag();
+    test_no_house_key();
     a = jc_arena_new(0);
     JC_CHECK(a != NULL);
 
@@ -761,11 +911,14 @@ void test_config(void)
          * not the chat model. */
         jc_sb_init(&sb);
         jc_config_models_for_role_list(&ic, JC_ROLE_IMAGE, &sb);
-        JC_CHECK(sb.data != NULL);
-        JC_CHECK(strstr(sb.data, "flux") != NULL);
-        JC_CHECK(strstr(sb.data, "fast generalist") != NULL);
-        JC_CHECK(strstr(sb.data, "anime") != NULL);
-        JC_CHECK(strstr(sb.data, "chat\n") == NULL);
+        /* A guard, not a check: with no fixture written (a TMPDIR it cannot
+         * write) the list is empty and strstr(NULL) ended the suite (M729). */
+        if (JC_REQUIRE(sb.data != NULL)) {
+            JC_CHECK(strstr(sb.data, "flux") != NULL);
+            JC_CHECK(strstr(sb.data, "fast generalist") != NULL);
+            JC_CHECK(strstr(sb.data, "anime") != NULL);
+            JC_CHECK(strstr(sb.data, "chat\n") == NULL);
+        }
         jc_sb_free(&sb);
         jc_config_free(&ic);
         remove(ipath);
@@ -878,8 +1031,9 @@ void test_config(void)
         JC_CHECK(base != NULL && over != NULL);
         jc_config_merge_json(base, over);
         merged = cJSON_PrintUnformatted(base);
-        JC_CHECK(merged != NULL);
-        JC_CHECK(jc_config_load_json(merged, 0, &mc, a) == JC_OK);
+        if (JC_REQUIRE(merged != NULL)) { /* a guard (M729) */
+            JC_CHECK(jc_config_load_json(merged, 0, &mc, a) == JC_OK);
+        }
         /* Two models, same name -- the duplication is silent. */
         JC_CHECK(jc_config_model_count(&mc) == 2);
         /* So any selector naming it is ambiguous, and the winner is positional
@@ -989,8 +1143,9 @@ void test_config(void)
             unsigned char *dec = (unsigned char *)jc_arena_alloc(a, dcap + 1);
             jc_size dn = 0;
             struct jc_config ic;
-            JC_CHECK(dec != NULL);
-            JC_CHECK(jc_base64_decode(enc, dec, dcap, &dn) == JC_OK);
+            if (JC_REQUIRE(dec != NULL)) { /* a guard (M729) */
+                JC_CHECK(jc_base64_decode(enc, dec, dcap, &dn) == JC_OK);
+            }
             dec[dn] = '\0';
             JC_CHECK(strcmp((const char *)dec, json) == 0);
             JC_CHECK(jc_config_load_json((const char *)dec, 0, &ic, a) == JC_OK);

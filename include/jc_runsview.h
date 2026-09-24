@@ -91,6 +91,14 @@ struct jc_run_summary {
                            * the same way inside one turn. Non-zero only, like
                            * blocked= and stuck=: a column that is usually blank is
                            * read, and one that is usually 0 is not. */
+    long advised;         /* M734: `constraint_advisory` events -- a call went
+                           * against a rule INFERRED from the prompt, and ran,
+                           * because inferred rules advise. The count is how
+                           * often a guessed rule met the work. Non-zero only. */
+    long no_progress;     /* M733: `no_progress` events -- a SUCCESSFUL call
+                           * returned the same result three times in one turn.
+                           * Kept apart from loops=: a failing loop and an
+                           * answered one need different readings. Non-zero only. */
     long blocked_repeats; /* M429: `blocked_repeat` events -- the run tried a
                            * POLICY-FORBIDDEN action again after being refused.
                            * Worth a column of its own because a block is neither

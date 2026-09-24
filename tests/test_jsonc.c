@@ -23,9 +23,10 @@ static void test_jsonc_line_comment(void)
     char *out = jc_jsonc_strip(src, a);
     cJSON *root = jc_json_parse(out);
 
-    JC_CHECK(root != NULL);
-    JC_CHECK(jc_json_get_num(root, "a", -1.0) == 1.0);
-    JC_CHECK(jc_json_get_num(root, "b", -1.0) == 2.0);
+    if (JC_REQUIRE(root != NULL)) { /* a guard (M729) */
+        JC_CHECK(jc_json_get_num(root, "a", -1.0) == 1.0);
+        JC_CHECK(jc_json_get_num(root, "b", -1.0) == 2.0);
+    }
 
     cJSON_Delete(root);
     jc_arena_free(a);
@@ -39,8 +40,9 @@ static void test_jsonc_block_comment(void)
     char *out = jc_jsonc_strip(src, a);
     cJSON *root = jc_json_parse(out);
 
-    JC_CHECK(root != NULL);
-    JC_CHECK(jc_json_get_num(root, "x", -1.0) == 42.0);
+    if (JC_REQUIRE(root != NULL)) { /* a guard (M729) */
+        JC_CHECK(jc_json_get_num(root, "x", -1.0) == 42.0);
+    }
 
     cJSON_Delete(root);
     jc_arena_free(a);
@@ -54,9 +56,10 @@ static void test_jsonc_comment_inside_string_preserved(void)
     char *out = jc_jsonc_strip(src, a);
     cJSON *root = jc_json_parse(out);
 
-    JC_CHECK(root != NULL);
-    JC_CHECK_STR(jc_json_get_str(root, "url", "?"), "https://x/y");
-    JC_CHECK_STR(jc_json_get_str(root, "note", "?"), "a // b /* c */ , d");
+    if (JC_REQUIRE(root != NULL)) { /* a guard (M729) */
+        JC_CHECK_STR(jc_json_get_str(root, "url", "?"), "https://x/y");
+        JC_CHECK_STR(jc_json_get_str(root, "note", "?"), "a // b /* c */ , d");
+    }
 
     cJSON_Delete(root);
     jc_arena_free(a);

@@ -633,6 +633,72 @@ static int acts_on(const char *win, const char *base)
     return in_verb_position(win, base) || has_run_verb(win);
 }
 
+/* D2 (M735): how far a negation reaches -- to the end of its SENTENCE.
+ *
+ * M730 ran this scanner over 289 stored prompts: nine inferred constraints, six
+ * of them wrong, and every wrong one joined a negation to a word in the NEXT
+ * sentence. "Do not touch build.zig. Verify by running" became "do not run build
+ * commands"; "never runs. Wire exactly three ... into build" the same; "never the
+ * body of a `pub fn` nothing calls. A subsystem is proven when a test" became "do
+ * not run tests". Each forbade the gate its own task named. The window used to be
+ * the next 95 characters, wherever they fell.
+ *
+ * A sentence ends at '.', '!' or '?' -- after any closing quote, bracket or
+ * emphasis mark -- when white space or the end of the text follows, so the dot in
+ * "build.zig" or "3.5" does not end one. It also ends at a blank line, and at a
+ * newline that opens a list item, since each item is a sentence of its own. A
+ * single newline does not: a hard-wrapped sentence goes on. An abbreviation
+ * ("e.g. the build") ends the scope early; that errs toward inferring less, the
+ * safe direction for a guess. */
+static int is_blank(char c)
+{
+    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+}
+
+static int opens_list_item(const char *s, jc_size avail)
+{
+    jc_size k = 0;
+    while (k < avail && (s[k] == ' ' || s[k] == '\t')) k++;
+    if (k + 1 < avail && (s[k] == '-' || s[k] == '*' || s[k] == '+') &&
+        (s[k + 1] == ' ' || s[k + 1] == '\t')) {
+        return 1;
+    }
+    if (k < avail && s[k] >= '0' && s[k] <= '9') {
+        while (k < avail && s[k] >= '0' && s[k] <= '9') k++;
+        return k + 1 < avail && (s[k] == '.' || s[k] == ')') && s[k + 1] == ' ';
+    }
+    return 0;
+}
+
+static jc_size sentence_len(const char *s, jc_size avail)
+{
+    jc_size k;
+    for (k = 0; k < avail; k++) {
+        char c = s[k];
+        if (c == '.' || c == '!' || c == '?') {
+            jc_size e = k + 1;
+            while (e < avail && (s[e] == '"' || s[e] == '\'' || s[e] == ')' ||
+                                 s[e] == ']' || s[e] == '*' || s[e] == '`' ||
+                                 s[e] == '_')) {
+                e++;
+            }
+            if (e >= avail || is_blank(s[e])) {
+                return k;
+            }
+        } else if (c == '\n') {
+            jc_size e = k + 1;
+            while (e < avail && (s[e] == ' ' || s[e] == '\t' || s[e] == '\r')) {
+                e++;
+            }
+            if (e >= avail || s[e] == '\n' ||
+                opens_list_item(s + k + 1, avail - k - 1)) {
+                return k;
+            }
+        }
+    }
+    return avail;
+}
+
 /* Look for target keywords in `window` and emit the matching constraints. */
 static void scan_window(const char *window, struct jc_constraint *out, int *n,
                         int max, struct jc_arena *a)
@@ -722,7 +788,8 @@ int jc_constraint_scan(const char *msg, struct jc_constraint *out, int max,
             if (c <= 2 && is_descriptive_before(low, i)) continue;
             {
                 char win[96];
-                jc_size wl = len - (i + cl);
+                /* D2 (M735): the rest of this sentence, not the next 95 bytes. */
+                jc_size wl = sentence_len(low + i + cl, len - (i + cl));
                 if (wl > sizeof(win) - 1) wl = sizeof(win) - 1;
                 memcpy(win, low + i + cl, wl);
                 win[wl] = '\0';
@@ -808,23 +875,93 @@ int jc_constraint_blocks_ex(const struct jc_constraint *cs, int n,
     return 0;
 }
 
+enum jc_constraint_verdict jc_constraint_judge(const struct jc_constraint *cs,
+                                               int n, const char *tool_name,
+                                               const char *command,
+                                               int tool_readonly,
+                                               int explicit_write_allowed,
+                                               char *reason, jc_size cap,
+                                               int *rule)
+{
+    int i;
+
+    if (rule != NULL) *rule = -1;
+    if (cs == NULL || tool_name == NULL || reason == NULL || cap == 0) {
+        return JC_CONSTRAINT_ALLOW;
+    }
+    reason[0] = '\0';
+    /* The operator's own rules first: a guess sitting beside a policy must not be
+     * what decides a call the policy forbids. */
+    for (i = 0; i < n; i++) {
+        if (cs[i].origin == JC_CONSTRAINT_INFERRED) continue;
+        if (jc_constraint_blocks_ex(&cs[i], 1, tool_name, command,
+                                    tool_readonly, explicit_write_allowed,
+                                    reason, cap)) {
+            if (rule != NULL) *rule = i;
+            return JC_CONSTRAINT_REFUSE;
+        }
+    }
+    for (i = 0; i < n; i++) {
+        if (cs[i].origin != JC_CONSTRAINT_INFERRED) continue;
+        if (jc_constraint_blocks_ex(&cs[i], 1, tool_name, command,
+                                    tool_readonly, explicit_write_allowed,
+                                    reason, cap)) {
+            jc_snprintf(reason, cap, "%s",
+                        cs[i].text != NULL ? cs[i].text : "(constraint)");
+            if (rule != NULL) *rule = i;
+            return JC_CONSTRAINT_ADVISE;
+        }
+    }
+    reason[0] = '\0';
+    return JC_CONSTRAINT_ALLOW;
+}
+
 /* ---- render -------------------------------------------------------------- */
 
 void jc_constraint_render(const struct jc_constraint *cs, int n,
                           struct jc_sb *sb)
 {
     int i;
+    int nbind = 0;
+    int nadv = 0;
+
     if (cs == NULL || sb == NULL || n <= 0) return;
-    jc_sb_append(sb,
-        "\n# Active constraints (ENFORCED -- a violating tool call is REFUSED)\n");
     for (i = 0; i < n; i++) {
-        jc_sb_append(sb, "- ");
-        jc_sb_append(sb, cs[i].text != NULL ? cs[i].text : "(constraint)");
-        jc_sb_append(sb, "\n");
+        if (cs[i].origin == JC_CONSTRAINT_INFERRED) nadv++; else nbind++;
     }
-    jc_sb_append(sb,
-        "These are hard limits set by the user. Do NOT attempt to work around "
-        "them (e.g. via a different tool or a shell alias).\n");
+    if (nbind > 0) {
+        jc_sb_append(sb,
+            "\n# Active constraints (ENFORCED -- a violating tool call is "
+            "REFUSED)\n");
+        for (i = 0; i < n; i++) {
+            if (cs[i].origin == JC_CONSTRAINT_INFERRED) continue;
+            jc_sb_append(sb, "- ");
+            jc_sb_append(sb, cs[i].text != NULL ? cs[i].text : "(constraint)");
+            jc_sb_append(sb, "\n");
+        }
+        jc_sb_append(sb,
+            "These are hard limits set by the user. Do NOT attempt to work "
+            "around them (e.g. via a different tool or a shell alias).\n");
+    }
+    /* M734: a guess is presented as a guess. The model is the only reader that
+     * can weigh one against the task, so it is told where the rule came from and
+     * what to do when the two disagree -- report it, rather than obey a misparse
+     * or quietly ignore a real instruction. */
+    if (nadv > 0) {
+        jc_sb_append(sb,
+            "\n# Inferred from the request (ADVISORY -- not enforced)\n");
+        for (i = 0; i < n; i++) {
+            if (cs[i].origin != JC_CONSTRAINT_INFERRED) continue;
+            jc_sb_append(sb, "- ");
+            jc_sb_append(sb, cs[i].text != NULL ? cs[i].text : "(constraint)");
+            jc_sb_append(sb, "\n");
+        }
+        jc_sb_append(sb,
+            "jichi read these from the wording of the request, and a reading of "
+            "wording can mistake a description for an order. Follow them unless "
+            "the task itself needs otherwise; if you act against one, say so in "
+            "your final answer.\n");
+    }
 }
 
 /* ---- store parse / serialize -------------------------------------------- */

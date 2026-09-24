@@ -42,7 +42,14 @@ enum jc_constraint_kind {
  * became a global read-only (M168c). Each was narrowed, but a keyword scanner over
  * natural language will keep producing them -- so the durable mitigation is to cap
  * the blast radius rather than to keep tightening keywords. AUTHORED persists to
- * .jichi/constraints.md; INFERRED is enforced just as hard, for this session only.
+ * .jichi/constraints.md; INFERRED is for this session only.
+ *
+ * M734 (plan D2, the operator's option (c)): an INFERRED constraint no longer
+ * refuses anything. It is rendered to the model as advice, announced, journalled,
+ * and noted on a call that goes against it -- but the call runs. M730 measured the
+ * scanner at 6 wrong constraints in 9, each forbidding the gate its own task named,
+ * and a refusal is what turned a misparse into a lost run (21 minutes and 2.2M
+ * tokens for `1d31473d`). AUTHORED constraints are binding exactly as before.
  *
  * AUTHORED is 0 so a zeroed/parsed constraint defaults to persisting -- the store
  * on disk is by definition authored. */
@@ -127,9 +134,35 @@ int jc_constraint_blocks(const struct jc_constraint *cs, int n,
                          const char *tool_name, const char *command,
                          int tool_readonly, char *reason, jc_size cap);
 
+/* What the tool gate does with a call, by the provenance of the rule it breaks
+ * (M734, plan D2 (c)). jc_constraint_blocks_ex answers "does this rule forbid this
+ * call"; this answers "and what follows from that". */
+enum jc_constraint_verdict {
+    JC_CONSTRAINT_ALLOW = 0,
+    JC_CONSTRAINT_REFUSE,   /* an AUTHORED rule forbids it: the call is refused   */
+    JC_CONSTRAINT_ADVISE    /* only an INFERRED rule does: it runs, and is told  */
+};
+
+/* AUTHORED constraints are tried first, so a guess beside a policy can never turn
+ * a refusal into advice. On REFUSE `reason` is the refusal text the model reads,
+ * as jc_constraint_blocks writes it; on ADVISE it is the inferred rule's own text.
+ * `*rule` (may be NULL) receives the deciding constraint's index, or -1. The M459
+ * exemption still applies through `explicit_write_allowed`: a path the operator's
+ * --edit-scope names is not even advised against by an inferred read-only. Pure;
+ * unit-tested. */
+enum jc_constraint_verdict jc_constraint_judge(const struct jc_constraint *cs,
+                                               int n, const char *tool_name,
+                                               const char *command,
+                                               int tool_readonly,
+                                               int explicit_write_allowed,
+                                               char *reason, jc_size cap,
+                                               int *rule);
+
 /* Render the active constraints as a stable system-prompt block into `sb`
  * (a "# Active constraints" section the model sees every turn). Cache-friendly
- * (stable across turns). No-op when n == 0. Pure. */
+ * (stable across turns). No-op when n == 0. Since M734 the INFERRED ones get a
+ * section of their own that says they are advice read from the request's wording,
+ * not limits. Pure. */
 void jc_constraint_render(const struct jc_constraint *cs, int n,
                           struct jc_sb *sb);
 

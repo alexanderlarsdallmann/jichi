@@ -134,7 +134,6 @@ static void test_restore_commit(void)
     char tmp[256];
     char work[320];
     char file[400];
-    char cmd[420];
     char sha[64];
     char saved_home[1024];
     const char *home = getenv("HOME");
@@ -147,7 +146,12 @@ static void test_restore_commit(void)
         jc_snprintf(saved_home, sizeof(saved_home), "%s", home);
     }
 
-    jc_snprintf(tmp, sizeof(tmp), "%s/jichi_snap_test_%ld", jc_test_tmpdir(), (long)getpid());
+    if (!JC_REQUIRE(jc_snprintf(tmp, sizeof(tmp), "%s/jichi_snap_test_%ld",
+                                jc_test_tmpdir(), (long)getpid())
+                    < (int)sizeof(tmp))) {
+        jc_arena_free(a);
+        return; /* a cut fixture path is a different path (M728) */
+    }
     jc_snprintf(work, sizeof(work), "%s/work", tmp);
     jc_mkdir_p(work);
     setenv("HOME", tmp, 1);
@@ -185,8 +189,7 @@ static void test_restore_commit(void)
     if (saved_home[0] != '\0') {
         setenv("HOME", saved_home, 1);
     }
-    jc_snprintf(cmd, sizeof(cmd), "rm -rf %s", tmp);
-    system(cmd);
+    (void)jc_test_rm_rf(tmp);
 }
 
 /* End-to-end: an isolated worktree from the shadow repo materialises the base
@@ -224,7 +227,6 @@ static void test_worktree(void)
     char wfile[400];
     char wt[360];
     char wtfile[460];
-    char cmd[480];
     char base[64];
     char saved_home[1024];
     const char *home = getenv("HOME");
@@ -234,7 +236,12 @@ static void test_worktree(void)
     if (home != NULL) {
         jc_snprintf(saved_home, sizeof(saved_home), "%s", home);
     }
-    jc_snprintf(tmp, sizeof(tmp), "%s/jichi_wt_test_%ld", jc_test_tmpdir(), (long)getpid());
+    if (!JC_REQUIRE(jc_snprintf(tmp, sizeof(tmp), "%s/jichi_wt_test_%ld",
+                                jc_test_tmpdir(), (long)getpid())
+                    < (int)sizeof(tmp))) {
+        jc_arena_free(a);
+        return; /* a cut fixture path is a different path (M728) */
+    }
     jc_snprintf(work, sizeof(work), "%s/work", tmp);
     jc_mkdir_p(work);
     setenv("HOME", tmp, 1);
@@ -295,8 +302,7 @@ static void test_worktree(void)
     if (saved_home[0] != '\0') {
         setenv("HOME", saved_home, 1);
     }
-    jc_snprintf(cmd, sizeof(cmd), "rm -rf %s", tmp);
-    system(cmd);
+    (void)jc_test_rm_rf(tmp);
 }
 
 /* M142: per-path restore from a baseline -- the out-of-scope auto-revert's
@@ -322,7 +328,12 @@ static void test_restore_paths(void)
     if (home != NULL) {
         jc_snprintf(saved_home, sizeof(saved_home), "%s", home);
     }
-    jc_snprintf(tmp, sizeof(tmp), "%s/jichi_snap_rp_%ld", jc_test_tmpdir(), (long)getpid());
+    if (!JC_REQUIRE(jc_snprintf(tmp, sizeof(tmp), "%s/jichi_snap_rp_%ld",
+                                jc_test_tmpdir(), (long)getpid())
+                    < (int)sizeof(tmp))) {
+        jc_arena_free(a);
+        return; /* a cut fixture path is a different path (M728) */
+    }
     jc_snprintf(work, sizeof(work), "%s/work", tmp);
     jc_mkdir_p(work);
     setenv("HOME", tmp, 1);
@@ -451,8 +462,7 @@ static void test_restore_paths(void)
     if (saved_home[0] != '\0') {
         setenv("HOME", saved_home, 1);
     }
-    jc_snprintf(cmd, sizeof(cmd), "rm -rf %s", tmp);
-    system(cmd);
+    (void)jc_test_rm_rf(tmp);
 }
 
 static void test_retain(void)
@@ -532,7 +542,12 @@ static void test_toolout_spill(void)
     if (home != NULL) {
         jc_snprintf(saved_home, sizeof(saved_home), "%s", home);
     }
-    jc_snprintf(tmp, sizeof(tmp), "%s/jichi_toolout_%ld", jc_test_tmpdir(), (long)getpid());
+    if (!JC_REQUIRE(jc_snprintf(tmp, sizeof(tmp), "%s/jichi_toolout_%ld",
+                                jc_test_tmpdir(), (long)getpid())
+                    < (int)sizeof(tmp))) {
+        jc_arena_free(a);
+        return; /* a cut fixture path is a different path (M728) */
+    }
     jc_mkdir_p(tmp);
     setenv("HOME", tmp, 1);
 
@@ -599,11 +614,7 @@ static void test_toolout_spill(void)
     if (saved_home[0] != '\0') {
         setenv("HOME", saved_home, 1);
     }
-    {
-        char cmd[300];
-        jc_snprintf(cmd, sizeof(cmd), "rm -rf %s", tmp);
-        system(cmd);
-    }
+    (void)jc_test_rm_rf(tmp);
 }
 
 static void test_store_state(void)

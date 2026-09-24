@@ -186,9 +186,10 @@ static void test_expand(void)
         char msg[512];
         jc_snprintf(msg, sizeof(msg), "please read @%s now", path);
         jc_refs_expand(&app, msg, a, &out);
-        JC_CHECK(out != NULL);
-        JC_CHECK(strstr(out, "referenced context") != NULL);
-        JC_CHECK(strstr(out, "ALPHA-BETA-GAMMA") != NULL);
+        if (JC_REQUIRE(out != NULL)) { /* a guard (M729) */
+            JC_CHECK(strstr(out, "referenced context") != NULL);
+            JC_CHECK(strstr(out, "ALPHA-BETA-GAMMA") != NULL);
+        }
     }
 
     /* A non-existent file leaves the message unchanged (no context block). */
@@ -207,8 +208,9 @@ static void test_expand(void)
     /* @problems with no LSP configured (app.lsp == NULL) appends a note rather
      * than failing (F5). */
     jc_refs_expand(&app, "show @problems here", a, &out);
-    JC_CHECK(out != NULL);
-    JC_CHECK(strstr(out, "no language server") != NULL);
+    if (JC_REQUIRE(out != NULL)) { /* a guard (M729) */
+        JC_CHECK(strstr(out, "no language server") != NULL);
+    }
 
     /* @folder:<dir> inlines the directory's source files + top-level symbols
      * via the scoped repository map (F5). */
@@ -223,9 +225,10 @@ static void test_expand(void)
             char msg[600];
             jc_snprintf(msg, sizeof(msg), "explain @folder:%s", dir);
             jc_refs_expand(&app, msg, a, &out);
-            JC_CHECK(out != NULL);
-            JC_CHECK(strstr(out, "foo.c") != NULL);
-            JC_CHECK(strstr(out, "my_func") != NULL);
+            if (JC_REQUIRE(out != NULL)) { /* a guard (M729) */
+                JC_CHECK(strstr(out, "foo.c") != NULL);
+                JC_CHECK(strstr(out, "my_func") != NULL);
+            }
         }
         remove(src);
     }

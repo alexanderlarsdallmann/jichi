@@ -49,11 +49,12 @@ static void test_begin_fields_and_tier(void)
     JC_CHECK(jc_eventlog_full(&log) == 0); /* metrics tier: no content */
 
     o = jc_eventlog_begin(&log, "model_call");
-    JC_CHECK(o != NULL);
-    JC_CHECK(cJSON_GetObjectItem(o, "v") != NULL);
-    JC_CHECK(cJSON_GetObjectItem(o, "ts") != NULL);
-    JC_CHECK_STR(cJSON_GetObjectItem(o, "event")->valuestring, "model_call");
-    JC_CHECK_STR(cJSON_GetObjectItem(o, "sid")->valuestring, "sess-1");
+    if (JC_REQUIRE(o != NULL)) { /* a guard (M729) */
+        JC_CHECK(cJSON_GetObjectItem(o, "v") != NULL);
+        JC_CHECK(cJSON_GetObjectItem(o, "ts") != NULL);
+        JC_CHECK_STR(cJSON_GetObjectItem(o, "event")->valuestring, "model_call");
+        JC_CHECK_STR(cJSON_GetObjectItem(o, "sid")->valuestring, "sess-1");
+    }
     seq = cJSON_GetObjectItem(o, "seq");
     JC_CHECK(seq != NULL && (long)seq->valuedouble == 0);
     cJSON_AddNumberToObject(o, "in_tok", 123);
@@ -61,8 +62,9 @@ static void test_begin_fields_and_tier(void)
 
     /* Second event: seq advances to 1. */
     o = jc_eventlog_begin(&log, "tool_call");
-    JC_CHECK(o != NULL);
-    JC_CHECK((long)cJSON_GetObjectItem(o, "seq")->valuedouble == 1);
+    if (JC_REQUIRE(o != NULL)) { /* a guard (M729) */
+        JC_CHECK((long)cJSON_GetObjectItem(o, "seq")->valuedouble == 1);
+    }
     jc_eventlog_end(&log, o);
 
     jc_eventlog_close(&log);

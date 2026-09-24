@@ -43,8 +43,9 @@ static void yaml_fill_model(struct jc_ir *ir, struct jc_ir_model *out,
     out->name = jc_yaml_get_str(m, "name", NULL);
     out->model = jc_yaml_get_str(m, "model", NULL);
     out->api_base = jc_yaml_get_str(m, "apiBase", NULL);
+    s = jc_yaml_get_str(m, "apiKey", NULL);
     jc_convert_fill_provider(ir, out, jc_yaml_get_str(m, "provider", NULL),
-                             jc_yaml_get_str(m, "apiKey", NULL), NULL);
+                             s, jc_convert_key_env_ref(s, a));
 
     roles = jc_yaml_get(m, "roles");
     if (roles != NULL && roles->type == JC_YAML_SEQ) {
@@ -312,11 +313,7 @@ jc_status jc_convert_continue_yaml(const struct jc_yaml *root,
         return JC_ERR_NOTFOUND;
     }
     ir->active_model = (active < 0) ? 0 : active;
-    if (ir->models[ir->active_model]->api_key == NULL) {
-        jc_ir_warn(ir, "no literal API key for the active model; set %s in "
-                       "your environment.",
-                   ir->models[ir->active_model]->api_key_env);
-    }
+    jc_convert_note_active_key(ir);
     yaml_docs(ir, root, a);
     yaml_mcp(ir, root, a);
     yaml_rules(ir, root, a);
@@ -392,7 +389,9 @@ static void json_fill_model(struct jc_ir *ir, struct jc_ir_model *out,
     out->model = jc_arena_strdup(a, jc_json_get_str(m, "model", NULL));
     out->api_base = jc_arena_strdup(a, jc_json_get_str(m, "apiBase", NULL));
     jc_convert_fill_provider(ir, out, jc_json_get_str(m, "provider", NULL),
-                             jc_json_get_str(m, "apiKey", NULL), NULL);
+                             jc_json_get_str(m, "apiKey", NULL),
+                             jc_convert_key_env_ref(
+                                 jc_json_get_str(m, "apiKey", NULL), a));
 
     roles = cJSON_GetObjectItem(m, "roles");
     if (cJSON_IsArray(roles)) {
@@ -476,11 +475,7 @@ jc_status jc_convert_continue_json(const cJSON *root, struct jc_ir *ir,
         return JC_ERR_NOTFOUND;
     }
     ir->active_model = (active < 0) ? 0 : active;
-    if (ir->models[ir->active_model]->api_key == NULL) {
-        jc_ir_warn(ir, "no literal API key for the active model; set %s in "
-                       "your environment.",
-                   ir->models[ir->active_model]->api_key_env);
-    }
+    jc_convert_note_active_key(ir);
     json_docs(ir, root, a);
     json_assets(ir, root, a);
     return JC_OK;

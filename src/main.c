@@ -99,6 +99,7 @@
 #include "jc_uuid.h"
 #include "jc_snprintf.h"
 
+#include <sys/types.h> /* pid_t: MiNTLib's <unistd.h> declares it only under an X/Open level (M723) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -116,6 +117,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/select.h>
+#include <sys/time.h> /* struct timeval: MiNTLib's <sys/select.h> only forward-declares it (M723) */
 
 #include "jc_version.h"
 #include "jc_buildrev.h"
@@ -11158,20 +11160,93 @@ static int run_doctor(struct jc_app *app, int json, int unattended, int live)
         if (app->config.model.model == NULL ||
             app->config.model.model[0] == '\0') {
             jc_doctor_add(&d, JC_DOC_FAIL, "no model is configured",
-                          "jichi chooses no provider and no model for you. Run "
-                          "`jichi setup`, or set \"provider\", \"model\" and "
-                          "\"apiBase\" on a model entry. Any OpenAI-compatible "
-                          "endpoint works, a local server included -- "
-                          "docs/CONFIG_TUTORIAL.md walks through it.");
+                          jc_config_no_model_advice());
+        } else if (jc_config_provider_problem(&app->config.model, detail,
+                                              sizeof(detail))) {
+            /* M718: NO HOUSE DIALECT. Only when a model id IS named -- with
+             * none, "no model is configured" above is the whole report (M709)
+             * and its sentence already asks for the provider. */
+            jc_doctor_add(&d, JC_DOC_FAIL,
+                          (app->config.model.provider == NULL ||
+                           app->config.model.provider[0] == '\0')
+                              ? "the active model names no provider"
+                              : "the active model's provider is not a wire "
+                                "dialect jichi speaks",
+                          detail);
         }
-        if (app->config.model.api_key != NULL &&
-            app->config.model.api_key[0] != '\0') {
-            jc_doctor_add(&d, JC_DOC_OK,
-                          "API key present for the active model", NULL);
-        } else {
-            jc_doctor_add(&d, JC_DOC_WARN,
-                "no API key for the active model",
-                "ok for keyless local servers; else set apiKey / apiKeyEnv");
+        {
+            /* M718: NO HOUSE KEY. Say where the key comes from and which host
+             * receives it -- never the key itself -- because a key's provenance
+             * is the part a reader cannot see from the config alone. */
+            const struct jc_model_cfg *am = &app->config.model;
+            const char *vend_env = jc_config_vendor_key_env(am->provider);
+            const char *vend_val = (vend_env != NULL) ? getenv(vend_env)
+                                                      : NULL;
+            const char *base = (am->api_base != NULL && am->api_base[0] != '\0')
+                                   ? am->api_base : "(no endpoint)";
+            const char *named_vendor = NULL;
+            if (am->api_key != NULL && am->api_key[0] != '\0') {
+                if (am->api_key_literal) {
+                    jc_snprintf(detail, sizeof(detail), "from the config's "
+                                "literal \"apiKey\", sent to %s", base);
+                } else if (am->api_key_convention) {
+                    jc_snprintf(detail, sizeof(detail), "from $%s (the %s "
+                                "convention), sent only to %s",
+                                vend_env != NULL ? vend_env : "?",
+                                am->provider != NULL ? am->provider : "?",
+                                base);
+                } else if (am->api_key_env != NULL) {
+                    jc_snprintf(detail, sizeof(detail), "from $%s "
+                                "(apiKeyEnv), sent to %s", am->api_key_env,
+                                base);
+                } else {
+                    detail[0] = '\0';
+                }
+                jc_doctor_add(&d, JC_DOC_OK,
+                              "API key present for the active model", detail);
+            } else if (am->api_key_env == NULL && vend_val != NULL &&
+                       vend_val[0] != '\0') {
+                jc_snprintf(detail, sizeof(detail), "$%s is set but not sent: "
+                            "a vendor's key goes only to that vendor's own "
+                            "endpoint, and this one is %s. Add \"apiKeyEnv\": "
+                            "\"%s\" to the entry if this server should receive "
+                            "it; a keyless local server needs nothing.",
+                            vend_env, base, vend_env);
+                jc_doctor_add(&d, JC_DOC_WARN,
+                              "no API key for the active model", detail);
+            } else {
+                jc_doctor_add(&d, JC_DOC_WARN,
+                    "no API key for the active model",
+                    "ok for keyless local servers; else set apiKey / apiKeyEnv");
+            }
+            /* A vendor's variable NAMED in apiKeyEnv for another host is honoured
+             * -- naming it is the escape hatch -- but said out loud, because
+             * jichi-convert wrote exactly that line for every keyless model
+             * before 0.11.0, and a user never chose it. */
+            if (am->api_key != NULL && am->api_key[0] != '\0' &&
+                !am->api_key_literal && am->api_key_env != NULL) {
+                if (strcmp(am->api_key_env, "OPENAI_API_KEY") == 0) {
+                    named_vendor = "openai";
+                } else if (strcmp(am->api_key_env, "ANTHROPIC_API_KEY") == 0) {
+                    named_vendor = "anthropic";
+                }
+            }
+            if (named_vendor != NULL &&
+                jc_config_convention_key_env(named_vendor, am->api_base) ==
+                    NULL) {
+                jc_snprintf(detail, sizeof(detail), "apiKeyEnv sends $%s to %s, "
+                            "which is not %s -- make sure that variable holds "
+                            "this server's key and not your %s one. "
+                            "jichi-convert wrote this line for keyless models "
+                            "before 0.11.0; delete it if this server needs no "
+                            "key.", am->api_key_env, base,
+                            jc_config_vendor_host(named_vendor),
+                            strcmp(named_vendor, "openai") == 0 ? "OpenAI"
+                                                                : "Anthropic");
+                jc_doctor_add(&d, JC_DOC_WARN,
+                              "a vendor's key variable goes to another host",
+                              detail);
+            }
         }
         /* M194: no pricing at all => every cost number is silently zero. All
          * 4471 model calls in the dogfood log reported cost=$0.0000 because the
@@ -14492,15 +14567,30 @@ int main(int argc, char **argv)
     {
         int ki;
         int kn = jc_config_model_count(&app.config);
+        int lost = 0;
         for (ki = 0; ki < kn; ki++) {
             struct jc_model_cfg *km = jc_config_model_at(&app.config, ki);
             if (km != NULL) {
                 jc_redact_register(km->api_key);
-                jc_proc_secret_env_add(km->api_key_env);
+                if (jc_proc_secret_env_add(km->api_key_env) != 0) {
+                    lost = 1;
+                }
             }
         }
         jc_redact_register(app.config.search.api_key);
-        jc_proc_secret_env_add(app.config.search.api_key_env);
+        if (jc_proc_secret_env_add(app.config.search.api_key_env) != 0) {
+            lost = 1;
+        }
+        /* M724: a name the registry could not keep is a key no child's scrub
+         * would drop. The only way that happens now is memory, and the answer
+         * is to refuse to start, not to fork with the key in place. */
+        if (lost) {
+            fprintf(stderr, "[jichi] out of memory while registering the key "
+                            "variables to keep out of child processes; refusing "
+                            "to start\n");
+            jc_arena_free(arena);
+            return 1;
+        }
     }
     /* --prompt-b64 (M129): decode the base64 prompt into print_prompt. Mutually
      * exclusive with an explicit -p; the decoded text then flows through the
@@ -14968,13 +15058,35 @@ int main(int argc, char **argv)
                    ? app.config.config_sources : "built-in defaults");
         } else if (strcmp(sub, "validate") == 0) {
             /* Reaching here means it parsed: main exits 1 on a malformed or
-             * missing config before any subcommand dispatch. */
-            printf("OK: %s\n", app.config.config_sources[0] != '\0'
-                   ? app.config.config_sources : "built-in defaults");
-            printf("  %d model(s); active: %s\n",
-                   jc_config_model_count(&app.config),
-                   app.config.model.model != NULL
-                   ? app.config.model.model : "?");
+             * missing config before any subcommand dispatch.
+             *
+             * M719 (plan D5, decided "fail" by the operator 2026-09-23): and an
+             * OK must also mean jichi will RUN it. `{"models":[{"name":"a"}]}`
+             * printed OK and exit 0 while doctor failed it -- a statement about
+             * a config the program refuses. So validate fails, with doctor's
+             * own sentence, for exactly what jichi refuses to run with: no model
+             * id, and (M718) a named model with no wire dialect. Nothing else:
+             * doctor's WARNINGS stay doctor's, because two renderers of one
+             * judgement drift apart -- tests/smoke/validate_runs.sh holds both
+             * sides of that line. */
+            char why[512];
+            const char *src = app.config.config_sources[0] != '\0'
+                              ? app.config.config_sources : "built-in defaults";
+            if (app.config.model.model == NULL ||
+                app.config.model.model[0] == '\0') {
+                printf("x no model is configured: %s\n    %s\n", src,
+                       jc_config_no_model_advice());
+                rc = 1;
+            } else if (jc_config_provider_problem(&app.config.model, why,
+                                                  sizeof(why))) {
+                printf("x %s\n    %s\n", src, why);
+                rc = 1;
+            } else {
+                printf("OK: %s\n", src);
+                printf("  %d model(s); active: %s\n",
+                       jc_config_model_count(&app.config),
+                       app.config.model.model);
+            }
         } else if (strcmp(sub, "show") == 0) {
             const char *lvln[3];
             int lv = app.config.log_level;
@@ -15598,28 +15710,76 @@ int main(int argc, char **argv)
     jc_tool_register_builtins(&tools);
     app.tools = &tools;
 
-    app.provider = jc_provider_create(&app.config.model);
-    if (app.provider == NULL) {
-        fprintf(stderr, "error: could not initialise provider\n");
-        jc_tool_registry_free(&tools);
-        jc_arena_free(arena);
-        return 1;
+    /* NO HOUSE DIALECT (M718). It used to be guessed -- and ANTHROPIC_API_KEY
+     * attached -- for an entry naming no provider. A model is CALLED only by a
+     * turn, so that is where a missing dialect is refused (jc_agent_run_turn);
+     * the program itself may run without a provider, because the TUI's local
+     * commands, the assignments listing and `/model` need none, and the empty
+     * config the smoke tier runs on names no model at all -- the first draft of
+     * this refused here unconditionally and took the TUI down with it on four
+     * drivers. Settled here: an entry that NAMES a model but no dialect, in a
+     * run that exists only to call it (-p, serve, daemon -- no terminal), is
+     * refused before anything is sent, exit 2 as a config error; interactively
+     * the same sentence is said once, up front. */
+    {
+        char why[512];
+        int named = app.config.model.model != NULL &&
+                    app.config.model.model[0] != '\0';
+        int problem = named && jc_config_provider_problem(&app.config.model,
+                                                          why, sizeof(why));
+        int unattended = (args.print_prompt != NULL) || !isatty(STDIN_FILENO);
+        if (problem && unattended) {
+            fprintf(stderr, "error: %s\n", why);
+            jc_tool_registry_free(&tools);
+            jc_arena_free(arena);
+            return 2;
+        }
+        app.provider = jc_provider_create(&app.config.model);
+        if (app.provider == NULL && problem) {
+            if (!args.quiet) {
+                fprintf(stderr, "note: %s Commands that call no model still "
+                        "work; a prompt is refused until it is set.\n", why);
+            }
+        } else if (app.provider == NULL && named) {
+            fprintf(stderr, "error: could not initialise provider\n");
+            jc_tool_registry_free(&tools);
+            jc_arena_free(arena);
+            return 1;
+        }
     }
 
-    if (app.config.model.api_key == NULL && !args.quiet) {
+    if (app.config.model.api_key == NULL && !args.quiet &&
+        app.config.model.model != NULL && app.config.model.model[0] != '\0') {
         /* M378: give the project's own advice. The model knows which env var
          * it reads (apiKeyEnv), so name it; and never recommend a literal
          * apiKey -- the config shape doctor's M55 lint warns against. */
+        const char *vendor_env =
+            jc_config_vendor_key_env(app.config.model.provider);
+        const char *vendor_val = (vendor_env != NULL) ? getenv(vendor_env)
+                                                      : NULL;
         if (app.config.model.api_key_env != NULL) {
             fprintf(stderr,
                     "warning: no API key found: $%s (this model's apiKeyEnv) "
                     "is not set in the environment.\n",
                     app.config.model.api_key_env);
+        } else if (vendor_val != NULL && vendor_val[0] != '\0') {
+            /* M718: the vendor's variable IS set, and was deliberately not
+             * read. Say so, and say the one line that would send it -- a
+             * withheld key the user cannot see is a 401 they cannot explain. */
+            fprintf(stderr,
+                    "note: $%s is set but not sent: a vendor's key goes only to "
+                    "that vendor's own endpoint, and this model's is %s. If "
+                    "this server should receive it, add \"apiKeyEnv\": \"%s\" "
+                    "to the model entry; a keyless local server needs "
+                    "nothing.\n", vendor_env,
+                    app.config.model.api_base != NULL
+                        ? app.config.model.api_base : "(none)",
+                    vendor_env);
         } else {
             fprintf(stderr,
-                    "warning: no API key found (set the model's apiKeyEnv "
-                    "and export that variable, or set ANTHROPIC_API_KEY / "
-                    "OPENAI_API_KEY; see docs/MODELS.md).\n");
+                    "warning: no API key found -- fine for a keyless local "
+                    "server; otherwise name the variable that holds it with "
+                    "\"apiKeyEnv\" on the model entry (see docs/MODELS.md).\n");
         }
     }
 

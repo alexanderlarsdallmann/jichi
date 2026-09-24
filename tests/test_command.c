@@ -110,9 +110,10 @@ void test_command(void)
             struct jc_sb sb;
             jc_sb_init(&sb);
             jc_command_render_list(&set, &sb);
-            JC_CHECK(sb.data != NULL);
-            JC_CHECK(strstr(sb.data, "/greet") != NULL);
-            JC_CHECK(strstr(sb.data, "greet") != NULL);
+            if (JC_REQUIRE(sb.data != NULL)) { /* a guard (M729) */
+                JC_CHECK(strstr(sb.data, "/greet") != NULL);
+                JC_CHECK(strstr(sb.data, "greet") != NULL);
+            }
             jc_sb_free(&sb);
         }
         jc_command_set_free(&set);

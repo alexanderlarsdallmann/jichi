@@ -148,10 +148,13 @@ int jc_proc_capture(char *const argv[], const struct jc_vec *env,
 
 /* Register an environment-variable NAME (not value) that holds a secret, so it
  * is removed from the child environment before exec. The name is copied into a
- * bounded static registry; NULL/empty/over-long names and overflow past the cap
- * are ignored, and re-registering a name is a no-op. Called once at startup for
- * each configured apiKeyEnv. */
-void jc_proc_secret_env_add(const char *name);
+ * registry that grows as needed (M724: it was 32 names of under 128 bytes, and a
+ * name past either bound was silently not scrubbed). NULL, empty and invalid
+ * names are ignored and re-registering a name is a no-op; both return 0.
+ * Returns -1 only when memory ran out -- then the name is NOT registered, and
+ * the caller must refuse to run anything rather than fork with it in place.
+ * Called at startup for each configured apiKeyEnv. */
+int jc_proc_secret_env_add(const char *name);
 
 /* In a just-forked child, before exec: unsetenv() every registered secret env
  * name plus the built-in provider defaults. MUST be called only in the child
@@ -161,9 +164,22 @@ void jc_proc_scrub_secret_env(void);
 
 /* Write a shell prefix (`unset A B C; `) that drops every secret env var, for a
  * command run through popen()/`sh -c` where the child can't call the scrub
- * directly. Writes "" and returns 0 when nothing is registered or it would
- * overflow `cap`; returns 1 when a prefix was written. `buf` is NUL-terminated. */
+ * directly. Returns 1 when the prefix was written, 0 when there is nothing to
+ * drop, and -1 when it does not fit `cap` or memory ran out -- then `buf` is ""
+ * and the caller must NOT run the command. Until M724 "does not fit" answered 0,
+ * like "nothing to drop", and the popen path ran the command with every key in
+ * place. `buf` is NUL-terminated. Size it with jc_proc_secret_env_prefix_size. */
 int jc_proc_secret_env_prefix(char *buf, jc_size cap);
+
+/* The bytes jc_proc_secret_env_prefix needs for the current registry, counting
+ * the NUL (M724). */
+jc_size jc_proc_secret_env_prefix_size(void);
+
+/* How many configured names the registry holds, and a way back to an earlier
+ * count, freeing what was added after it. Exposed for tests, which share one
+ * process-wide registry and must leave it as they found it (M724). */
+int jc_proc_secret_env_count(void);
+void jc_proc_secret_env_truncate(int n);
 
 /* Memory-watchdog verdict for a subprocess (M117). */
 enum jc_memwatch {

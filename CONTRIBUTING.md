@@ -152,6 +152,30 @@ break the thing it guards and confirm it goes red — then restore. Two M197/M19
 gates were validated this way (reverting one line each produced 4 failures and a
 `fifo: HUNG`), and it is the cheapest possible check on a test's wiring.
 
+### Fixture paths, and removing them (M452, M728)
+
+- **Build every fixture path from `jc_test_tmp("name")` or `jc_test_tmpdir()`**,
+  never a literal `/tmp` (M452: a host without a writable `/tmp` collapsed the run).
+- **Remove fixtures with `jc_test_rm_rf(path)`, never `system("rm -rf ...")`.** It
+  needs no shell, never follows a symlink, and refuses, failing the suite, any path
+  that is not strictly below the fixture directory. That refusal is the point: a
+  buffer cuts a path to a **prefix**, and a prefix of a fixture path is the
+  fixture directory or a parent of it. Under a 127-character `TMPDIR` the old
+  `rm -rf` lines removed the whole `TMPDIR`.
+- **Check that a fixture root fit:**
+  `JC_REQUIRE(jc_snprintf(buf, sizeof buf, ...) < (int)sizeof buf)`. A path cut to
+  fit is a different path.
+- The suite refuses a `TMPDIR` longer than `JC_TEST_TMPDIR_MAX` (160), the length
+  its fixtures are measured clean under. Raising it means measuring again.
+- **Guard before you dereference what a fixture produced**:
+  `if (JC_REQUIRE(sb.data != NULL)) { ... }`, never `JC_CHECK(sb.data != NULL);`
+  followed by `strstr(sb.data, ...)`. `JC_CHECK` records and continues, so on a
+  `TMPDIR` the suite cannot write that next line was a segfault (M729). `make ci`
+  now runs the suite there and requires it to finish.
+
+`tests/smoke/test_fixture_lint.sh` holds the first two, and `sprintf_lint.sh` now
+covers `tests/` as well.
+
 ### Fixture proportionality (M198)
 
 **For every quantity a harness measures, name what it scales with, then check
@@ -220,14 +244,14 @@ live-model headless-cleanliness check. `make ci` includes `make e2e`.
 |---|---|---|---|---|
 | unit | `make test` | C89, nothing beyond libc | everywhere | yes |
 | smoke | `make smoke` | POSIX sh + 4 test-only C89 helpers (`tests/tools/`: mockmodel/ptydrive/jsonq/sockq) | everywhere — **no python3** | yes (part of `make ci`) |
-| e2e (residual) | `make e2e` | python3 (stdlib only) — **optional**, skips loudly if absent (M217) | dev + CI machines | yes (part of `make ci`) — only a permanently-Python residual: `redraw`'s VT emulator, the `stress`/`web_bridge` example products, `curriculum_graders` (needs cc), `rig_lint`, + model-gated live checks |
+| e2e (residual) | `make e2e` | python3 (stdlib only) — **optional**, skips loudly if absent (M217) | dev + CI machines | yes (part of `make ci`) — only a permanently-Python residual: `redraw`'s VT emulator, the `stress`/`web_bridge` example products, `curriculum_graders` (needs cc), `rig_lint`, `measure_corpus` (the `tests/measure/` scripts are Python), + model-gated live checks |
 | bench / measure | `tests/bench/`, `tests/measure/` | python3, live model | dev machines | **never** — measurements |
 
 Since the M209–M217 port, the smoke tier carries the bulk of what was the
 Python e2e suite: the headless round trip, `--output json/jsonl`, stall/signal
 exit codes, sessions, the media/embeddings/routing/posture surfaces, the
 AF_UNIX daemon + control channel, the MCP + ACP stdio protocols, the PTY line
-editor, and the `spawn_parallel` fork pool — 319 drivers, all Python-free. What
+editor, and the `spawn_parallel` fork pool — 329 drivers, all Python-free. What
 remains under `make e2e` is a small permanently-Python residual (see the table
 above), so **`make check-target` (= `test` + `smoke`) is now a full build gate
 on any POSIX box**, and `make e2e` is optional (it skips loudly without

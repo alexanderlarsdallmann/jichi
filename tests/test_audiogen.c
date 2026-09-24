@@ -15,11 +15,12 @@ static void test_build_body(void)
     cJSON *root;
     JC_CHECK(body != NULL);
     root = jc_json_parse(body);
-    JC_CHECK(root != NULL);
-    JC_CHECK_STR(jc_json_get_str(root, "model", ""), "tts-1");
-    JC_CHECK_STR(jc_json_get_str(root, "input", ""), "hello there");
-    JC_CHECK_STR(jc_json_get_str(root, "voice", ""), "alloy");
-    JC_CHECK_STR(jc_json_get_str(root, "response_format", ""), "mp3");
+    if (JC_REQUIRE(root != NULL)) { /* a guard (M729) */
+        JC_CHECK_STR(jc_json_get_str(root, "model", ""), "tts-1");
+        JC_CHECK_STR(jc_json_get_str(root, "input", ""), "hello there");
+        JC_CHECK_STR(jc_json_get_str(root, "voice", ""), "alloy");
+        JC_CHECK_STR(jc_json_get_str(root, "response_format", ""), "mp3");
+    }
     cJSON_Delete(root);
     free(body);
 

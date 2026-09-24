@@ -1,0 +1,11 @@
+{
+  "comment": "Route 1 of docs/SQLITE.md: a read-only SQLite MCP server. Merge the mcpServers entry into your own config (keep your models block); run jichi from the directory that holds learning.db, and point the path at this file.",
+  "mcpServers": [
+    {
+      "name": "db",
+      "command": "python3",
+      "args": ["/path/to/jichi/examples/sqlite/sqlite_mcp.py", "learning.db"],
+      "autoApprove": ["schema", "query"]
+    }
+  ]
+}

@@ -17,6 +17,8 @@
 #ifndef cJSON__h
 #define cJSON__h
 
+#include <stddef.h> /* size_t, for cJSON_jc_string_bytes (M725) */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -96,6 +98,11 @@ cJSON *cJSON_AddBoolToObject(cJSON *object, const char *name, int boolean);
 cJSON *cJSON_AddNullToObject(cJSON *object, const char *name);
 cJSON *cJSON_AddObjectToObject(cJSON *object, const char *name);
 cJSON *cJSON_AddArrayToObject(cJSON *object, const char *name);
+
+/* jichi extension (M725), not part of the cJSON API, exposed for tests: the
+ * bytes the parser has allocated for strings -- keys and values -- since the
+ * process started. tests/test_json.c holds each string to its own length. */
+size_t cJSON_jc_string_bytes(void);
 
 /* Iterate the elements of an Array or Object. */
 #define cJSON_ArrayForEach(element, array) \

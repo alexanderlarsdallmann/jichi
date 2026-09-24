@@ -9,7 +9,220 @@ both (M620, the plan executed as written; M621 mended what the first hosted CI r
 found). The loop keeps running -- **design, test, develop, dogfood, harden**. The
 checklist, with what remains:
 
-> **Where we stand** — updated **2026-09-23**, latest milestone **M716**:
+> **Where we stand** — updated **2026-09-24**, latest milestone **M740**:
+> **a database for the agent, and a report you can send.** `docs/SQLITE.md` gives three
+> routes, each run with a real model, and the lesson under them: `sqlite3 -readonly` still
+> ran `.shell` and `writefile()`. That lesson found a live defect in this project's own
+> example: `db-report.sh` let a model's status label write files. It now has two walls,
+> each proven red separately. Testers get an email template.
+>
+> **Previously — M739:**
+> **the smoke tier removes its temp dirs -- which it never had.** Every driver's
+> `tmp=$(smoke_tmp)` recorded the directory in a subshell, so the cleanup trap had nothing
+> to remove, from M209 on; threadwork's `/tmp` ran out of inodes (102 GB free) with 20,284
+> of them. The registry is a file now, and a new driver counts what a driver leaves.
+>
+> **Previously — M738:**
+> **Guix System is Driven, with no one at the keyboard.** A new rig edits GRUB's boot
+> entry over the serial line, builds jichi in `guix shell` with the store's gcc 15.2.0,
+> passes the unit suite (13,846 / 0) and runs both live turns -- `TIER-G-B31F57`, 67 s.
+> It also showed that `rig_live_lint`'s *"all 12 rigs parse `--live-port`"* had checked
+> eight, and the fixed check found a dry run that downloaded a kernel.
+>
+> **Previously — M737:**
+> **jichi drives a model from FreeMiNT.** Cross-built for m68k with a TLS-free libcurl
+> 8.18.0, it ran both live turns from inside the ARAnyM guest over a tap link --
+> `TIER-M-5D5D0C`, 17 s from power-on to halt. The network needed an ARAnyM built from
+> source: Ubuntu's has no ethernet, because ARAnyM's own TUN/TAP probe calls `memset`
+> without `<string.h>`, and gcc 14 rejects it in silence.
+>
+> **Previously — M736:**
+> **the floor INSTALL.md promised did not build; now it does, and lower.** Measured for
+> the first time, in containers with each distribution's own toolchain: CentOS 6 and
+> Debian 7 failed to compile on three libcurl names newer than the promised 7.19.4, and
+> Debian 5 formatted numbers wrong through a fallback its `snprintf` probe chose by
+> mistake. Fixed and linted; Debian 5 to 9 and CentOS 6 and 7 now pass the unit suite,
+> glibc 2.7 upward. The Debian 9 VM row is green again and Driven, after three fixes to
+> the tests' own assumptions.
+>
+> **Previously — M735b**, which fixes the `head -c` that M735 was pushed with past a red
+> gate (ANECDOTES #104):
+> **tonight's drive keeps each run's work on a branch of its own.** `corpus-drive.sh`
+> commits a run's changes on `drive/<date>/<task>/<arm>` and pushes it plainly -- a
+> prefix outside `drive/` is refused, so `master` is out of reach, and the token
+> reaches git through a one-command credential helper -- and `--mode` drives one task
+> list single, with subagents or in parallel. The plan for the night, written before it
+> runs: `plans/2026-09-24-overnight-drive.md`.
+>
+> **Previously — M734:**
+> **an inferred constraint advises, and a negation ends at its sentence.** The operator
+> chose both of D2's remedies. A rule jichi reads out of an `--auto` prompt is now shown
+> to the model as a guess and never refuses a call; one the operator wrote refuses as
+> before, and is checked first. The scanner's negation stops at its sentence, which on
+> M730's 289 prompts keeps the three right rules and drops the six wrong ones. Every
+> call against an inferred rule is journalled, `advised=N` in `runs` -- the rate the
+> decision was taken without, measured from tonight's drive on.
+>
+> **Previously — M733:**
+> **the same call answered the same way is told at three.** M432 tells a model its
+> failing call keeps failing; a call that *succeeds* with the same answer every time met
+> no detector, and one run made 200 successful calls after it had the answer. The third
+> identical successful call in a turn -- tool, arguments and result -- now gets one
+> sentence in its result and a `no_progress` journal event. Two of the plan's reset rules
+> were settled by replaying yesterday's drive through the rule as built: a shell command
+> resets every other call's count but not its own, and compaction resets nothing, since a
+> reset at every elision erased a real loop. As built, the note fires in the four futile
+> turns and in none of the other 44. The stop is not built.
+>
+> **Previously — M732:**
+> **the journal names the stop a run really had.** An interrupted run and a run whose
+> model call failed were both journalled `done` — the end event classified a hard-coded
+> success, on a comment's assumption that neither ever reached it — while the same run's
+> stream said `interrupted` or `error`. Found by reading one run of yesterday's drive;
+> fixed check first, with the two other recording defects that reading found: LM
+> Studio's overflow wording joins the M73 hint's signatures, and `search_code` passes on
+> grep's warning about a pattern instead of answering a bare `(no matches)`.
+>
+> **Previously — M731:**
+> **D1's note belongs at three, and reading the drive found three recording defects no
+> count would have.** Threadwork's 48-run drive, read turn by turn: every futile repeat
+> of a successful call reaches three identical calls with nothing changed between (35,
+> 13, 5 and 4 of them), and no productive turn in either model exceeds two — M432's
+> shape. Provisional until the workstation's 500 turns are read the same way; the stop
+> is not fitted. The same reading found the journal calling an interrupted run `done`,
+> an overflow recorded as an answer after a request 14 % over the declared window, and
+> `search_code` dropping grep's warning about a malformed pattern. M714's fix held: 96
+> of 96 re-checkable no-match searches were true.
+>
+> **Previously — M730:**
+> **D2 is measured: six of nine inferred constraints were wrong, and every one of them
+> crossed a sentence.** Over the 289 prompts in the workstation's session store, the
+> constraint scanner inferred nine rules. Three were right. The other six, in three prompts,
+> each forbade the gate its own task named, and all six joined a negation to a word in the
+> next sentence: *"never runs. Wire … into build"*. Scanned a sentence at a time, the right
+> three survive and the wrong six vanish. The policy stays the operator's, now with a
+> narrower option on the table.
+>
+> **Previously — M729:**
+> **the unit suite finishes where its fixtures cannot be written.** On a `TMPDIR` it cannot
+> write, the environment of a phone or a guest without `/tmp`, the suite segfaulted in
+> `test_config`, and `test_gradecore`, whose `chdir` had failed, wrote seven spec files into
+> the source tree. Nine crash sites and a transform over 51 more later, it completes there:
+> 13,452 checks, 405 failures, nothing new in the tree. `make ci` now runs it there and
+> requires exactly that. 120 lines of the same shape remain, registered.
+>
+> **Previously — M728:**
+> **`make test` can no longer delete your `TMPDIR`.** The unit suite removed its fixtures with
+> `rm -rf %s` built in fixed buffers, 25 of them. A buffer cuts a path to a prefix, and a
+> prefix of a fixture path is the `TMPDIR` or a parent: under a 127-character `TMPDIR` a canary
+> inside it was deleted. Removal is now one helper with no shell that refuses anything not
+> strictly below `TMPDIR`, and fails the suite when it does. The 38 `sprintf` calls in the tests
+> are bounded, and the suite refuses a `TMPDIR` longer than 160 characters, the length it is
+> measured clean under. The same canary survives. Nothing the gate ran was exposed: it runs with
+> `TMPDIR` unset.
+>
+> **Previously — M727:**
+> **the FreeMiNT rig is a script, and its first fresh disk found a recursion that a silent skip
+> had hidden.** `jc_path_resolve` recursed once per symlink hop at ~16.5 KB a call, so a
+> `loop -> loop` needed ~700 KB of stack. MiNT's stack is a fixed 512 KB, so the guest took a
+> bus error, while Linux's 8 MB never noticed. M726's hand runs had passed only because the
+> test's fixture outlived each run, MiNT's pids repeat from boot to boot, and the test skipped
+> itself without a word. The resolver is a loop now, and the gate runs the curl-free suite
+> under 512 KB. In the guest the suite completes: 13,707 checks, 19 failures. Proving it
+> found one more thing: the unit suite can `rm -rf` its own `TMPDIR` when that path is 127
+> characters long.
+>
+> **Previously — M726:**
+> **jichi runs on FreeMiNT.** Under the ARAnyM emulator, cross-built, the unit suite
+> completes (13,680 checks, 25 failures, most of them utilities the minimal guest lacks),
+> and `jichi --version` and `describe` exit 0. It crashed first: MiNT's stack is fixed at
+> 64 KB, a test kept a 64 KB buffer on it, and the environment beside it was overwritten
+> with the buffer's `x` fill. MiNT builds now carry 512 KB, held by a lint that caught my
+> own first placement compiling to nothing. The rig is still a hand procedure; no model
+> call has been made there.
+>
+> **Previously — M725:**
+> **a JSON string costs its own length, not the rest of the document, and the fast path D3
+> designed was built, measured and dropped.** The parser sized every string's buffer to the
+> rest of the input and kept it: an embeddings reply held ~190 MB, the peak M700's massif found
+> and credited to float nodes. Fixed, an index build's requested heap falls 88%. Resident memory
+> barely moves, because jichi's 128 KB mmap threshold had left those buffers untouched, so the
+> fix counts where requested memory is real: FreeMiNT, a strict commit limit, a `ulimit`. D3's
+> parser bypass, measured on top, changed the peak by zero bytes. Two parser defects went with
+> it: a duplicate `index` returned an uninitialized row, and `index` 1e300 reached an undefined cast.
+>
+> **Previously — M724:**
+> **a model-issued command runs without your keys, however many a config names.** The
+> popen path's `unset …;` prefix lived in a 1 KB buffer, and when it did not fit it
+> was dropped whole: twelve long `apiKeyEnv` names put every key, the built-ins too,
+> into a model's shell command. The registry behind it stopped at 32 names, so a 33rd
+> leaked on the fork paths as well. Both were reproduced before they were fixed. The
+> registry grows now, the prefix is sized exactly, and a command whose prefix cannot
+> be built is refused.
+>
+> **Previously — M723:**
+> **the source stops assuming glibc's headers where POSIX promises less, and the tree
+> cross-compiles for FreeMiNT.** MiNTLib, an older glibc derivative, showed four such
+> places: `struct timeval` without `<sys/time.h>`, `pid_t` without `<sys/types.h>`,
+> `lstat` declared only at an X/Open level, and no `mmap` at all. Each is fixed for
+> every file, not the ones that failed, and held by a lint; two probes switch on
+> `-D_XOPEN_SOURCE=600` and a copy instead of a mapping only where they are needed; and
+> `make ci` now compiles both fallback paths, which no platform the gate runs takes.
+> gcc 4.6.4 builds and links `jichi` and `run_tests` clean under `WERROR=1`. Nothing
+> has run there yet — that needs the emulator.
+>
+> **Previously — M722:**
+> **gcc before 7 builds jichi again.** Since M472 the Makefile passed `-Walloca` to
+> every compile, and an old gcc rejects an unknown `-W` option as an error, so not
+> one file compiled on CentOS 7, on Debian 9, or on the CentOS 6 / Debian 7 floor
+> `INSTALL.md` promises — and no compiler in the gate could notice. The FreeMiNT
+> step 0 cross-compile found it in its first second, with gcc 4.6.4. The flag is
+> probed now, and the mandatory list is held to the nine flags gcc 4.6.4 actually
+> compiled with. The two old rows are expected to build again; neither is re-run yet.
+>
+> **Previously — M721:**
+> **every part of a shell command's stderr reaches the model.** A trailing `2>&1`
+> bound to the last command only, so in `A; B` or `A | B` the first command's
+> errors went to jichi's stderr — the screen, in the TUI — and never to the model;
+> `make test | tail -20` lost every compiler error. The pilot that first saw it had
+> ruled the cause out with checks that matched the command's own text. On the same
+> lines: a command longer than the 8 KB shell line used to run its beginning, cut
+> short; it is refused now, with the way forward.
+>
+> **Previously — M720:**
+> **the measurements count real runs, and say what they left out.** 40 % of this
+> machine's recent telemetry was agent probes against the mock model; the five
+> scripts that price register decisions now classify the population first — a
+> model named `mock`, or every answered call under 50 ms, measured against a gap of
+> 1.25 ms to 244.9 ms — print what they dropped, and restore it on request. The
+> journal names its model. What the clean corpus says: DEFERRED item 7 has **no**
+> real capped one-shot yet, so it still waits for a drive.
+>
+> **Previously — M719:**
+> **jichi guesses neither a model's dialect nor its key, and `config validate` means
+> what it says.** The two fallbacks M709 left were observed before they were
+> removed: an entry naming no provider sent `x-api-key: <ANTHROPIC_API_KEY>` to
+> whatever host it named. A vendor's variable now goes only to that vendor's own
+> endpoint unless the config names it, an entry with no dialect is refused where a
+> model is called, `jichi-convert` stops writing `OPENAI_API_KEY` into keyless
+> entries, and `validate` fails, in doctor's words, the two configs jichi refuses
+> to run. Breaking, so the next release is 0.11.0 — and the CHANGELOG leads with
+> what to write if an upgrade stops working.
+>
+> **Previously — M717:**
+> **v0.10.1 is public, published from the other machine by a handoff that travelled
+> in the tree.** Public `cd62411` = private `f23dd158`, covering M710–M716: 2,073
+> files identical by `cmp` and again by blob hash and mode, the same two omissions as
+> every state since v0.9.0, tag `v0.10.1` on both remotes, and the hosted runner green
+> on the branch before the tag was pushed, then on the tag. The rehearsal's numbers
+> held — 2,075 archived, 2,073 staged — and its version-bump list was two files short.
+> The same evening D1's step 0 ran on the machine that holds the post-M432 corpus: the
+> loop's rate agrees across machines (4.0 % against 4.9 %), its tail is far longer
+> there (`run_tests` 163 times with nothing changed in between), and 40 % of that
+> corpus's recent tool calls turned out to be agent probes against the mock model.
+> The operator decided D4 (strict) and D5 (fail) for v0.11.0.
+>
+> **Previously — M716:**
 > **a volunteer can now verify a platform without a maintainer beside them.** Two
 > macOS users reported compiling jichi; the matrix still says *Never compiled*,
 > because no log, count or commit reached it, and the only procedure was three
@@ -41916,3 +42129,1375 @@ OK (2 drivers swept, 0 excluded)`, `e2e: OK`. The page's own figures -- 1,870 ch
 the build stamp `8e3972be` -- are the ones its worked example measured, and it says
 which commit they belong to. This paragraph was written after the green run, so the
 drivers that read this file were re-run on the final tree.
+
+### M717 -- the public tree advanced to the M716 state, tagged v0.10.1 -- done
+
+Public `cd62411` = private `f23dd158`, covering **M710-M716** -- seven milestones,
+and the first advance since v0.10.0 (the M709 state, public `7180954`). Done on the
+workstation, the machine that holds the public keys, from a handoff written on
+threadwork and committed to the tree (in `docs/internal/`, which does not ship)
+rather than pasted between machines, as the operator put it when it was written:
+*"That's the whole point of having a git repository with different people, and
+agents working on the same codebase."*
+
+**Tagged, as a PATCH.** The operator took the handoff's recommendation: `JC_VERSION`
+moved 0.10.0 -> 0.10.1 in the release commit `f23dd158`, because two defects in the
+band are ones a public user can hit -- `search_code`'s basic-regex dialect (M714) and
+a resumed turn reporting its predecessor's answer (M715) -- and nothing on the Stable
+tier was removed or renamed. The CHANGELOG section opens with the one thing a user
+may need to act on: `search_code` patterns are now extended regular expressions.
+
+**Verified before committing, not after.**
+
+- `make ci` on exactly `f23dd158`, started 18 s after the commit and alone in the
+  tree: `ci: OK (gcc + clang build/test, asan/ubsan, leakcheck, valgrind, curl-free
+  link, faults, smoke, mutant, e2e)` in **17 m 35 s**; **13,610 checks, 0 failures**
+  in every build (13,617 under `FAULT=1`); `smoke: OK (319 drivers, 1872 checks)`.
+- The archive: **2,075 files** from `f23dd158` -- 2,077 tracked, less the two pages
+  under export-ignored `docs/internal/`, this advance's handoff among them.
+- Against public `7180954`: **2,073 staged**, 134 files changed. `cmp` of every staged
+  file against the archive: **0 differing**. The two-way file list: the archive side
+  holds exactly `.jichi/agents/docs-reviewer-{junior,tutor}.md`, private since v0.9.0;
+  the staged side, nothing.
+- **A second route, new at this cut:** the staged index's (mode, blob, path) against
+  `git ls-tree -r f23dd158` -- **identical for all 2,073 paths** (1,671 regular,
+  402 executable). `cmp` cannot see a lost executable bit; a blob comparison can, and
+  `.gitattributes` applies no filter that could make the two routes disagree.
+- `make check-target` in a **fresh clone of the public commit**, not in the public
+  checkout (whose ignored build products from the v0.10.0 cut were still there):
+  exit 0 in **793 s**, `13610 checks, 0 failures`, `smoke: OK (319 drivers, 1872
+  checks)`, and the binary says `jichi 0.10.1` / `build: cd62411`.
+
+**Pushed in two steps, on purpose.** `master` went to both remotes first
+(`7180954..cd62411`); the tag followed only after the hosted runner had gone green on
+the branch -- run `35890567218`, green in 18 minutes -- so a red run could never leave a published tag on a
+commit that would have to be replaced. The tag's own run: `35892695841`, green in 17 minutes.
+
+**What went differently from the handoff**, each now in this entry so the next one
+starts from it:
+
+1. **Its version-bump list named three places; five carry the version.**
+   `docs/DAEMON.md`'s `hello.ok` example and `docs/INTERFACE_TUTORIAL.md`'s contract
+   header moved too, as they had at v0.10.0 -- and the tutorial's exit-codes line had
+   drifted from the real output (`(SIGTERM)` against `(SIGTERM, graceful).`), so those
+   lines are now copied from `./jichi describe`. The header's list of stamped versions
+   had stopped at 0.9.2 and gained 0.10.0 and 0.10.1.
+2. **README's "which tree reads what" sentence was written to be true in both
+   trees.** At 0.9.2 the release commit said *"the public tree still reads 0.9.1 until
+   the next snapshot is cut"* -- and the snapshot then carried that sentence, so the
+   public README denied its own version until the next advance. This release commit
+   said *"This tree reads 0.10.1 ... The public tree reaches it with the curated state
+   that carries this sentence"*, which the public copy satisfies too.
+3. **No `git pull` in the public checkout:** `ls-remote` on both remotes showed
+   `master` at `7180954`, equal to the checkout's `HEAD`, which is the fact the pull
+   exists to establish. The checkout's tracking refs were stale ("ahead 5") -- the
+   known trap of pushing by explicit URL -- and are now refreshed.
+4. **The tag after the branch run, not with it** -- above.
+
+**Found the same evening, recorded in the plan rather than here:** D1's step 0 ran on
+this machine's post-M432 corpus (the plan's §2 has the numbers); 40 % of that corpus's
+recent tool calls were agent probes against `mockmodel` (§12, owed); and the operator
+decided D4 -- strict: a conventional key goes only to its vendor's own endpoint -- and
+D5 -- `config validate` fails what `doctor` fails -- both for v0.11.0 (§13).
+
+### M718 -- no house key, no house dialect: the two fallbacks M709 left, observed and removed (plan D4, decided "strict") -- done
+
+**The reproduction the review could not run.** M713 read two fallbacks out of the
+code and could not observe them: its loopback probe was refused. The check-first
+driver, `tests/smoke/no_house_key.sh`, used the tier's own `mockmodel` capture and
+fake keys, and on 0.10.1 its first run was the observation. An entry naming no
+provider sent
+
+```
+POST /v1/messages HTTP/1.1
+anthropic-version: 2023-06-01
+x-api-key: house-key-canary-anthropic-XXXX
+```
+
+to the mock -- the Anthropic dialect and `ANTHROPIC_API_KEY`, for an entry that
+named neither -- and exited 0. `"provider": "ollama"` did the same. Provider
+`openai` at a host that is not OpenAI's sent `OPENAI_API_KEY`. 10 of the driver's
+12 checks were red; the two green ones are a control (a NAMED `apiKeyEnv` must be
+sent) and a guard (no output prints a key), each shown red afterwards by its own
+perturbation.
+
+**The decision, as the operator took it.** A vendor's conventional variable is read
+without being named only when the entry names that vendor AND the endpoint is the
+vendor's own: `https://`, the exact host, no userinfo, port 443 or none
+(`jc_config_convention_key_env`, with the bypass rows -- `api.openai.com@evil.example`,
+`api.openai.com.evil.example`, `http://`, `:8443`, a trailing dot -- unit-tested).
+Naming the variable in `apiKeyEnv` is honoured anywhere. And no dialect is guessed:
+`jc_provider_create` returns NULL for an unset or unrecognised provider, where it
+used to take OpenAI's for a model id containing `gpt` and Anthropic's otherwise.
+
+**Four things changed on contact with the code.**
+
+1. **The refusal moved from program start to the turn.** The first draft refused at
+   startup and the full smoke tier failed four drivers -- `assignments_stages`,
+   `learner_flow`, `sessions_footprint`, `flags` -- because the TUI's local commands,
+   the assignments listing and `/model` need no model, and the empty config the tier
+   runs on names none. The house dialect had been filling that slot harmlessly.
+   Now one guard at the top of `jc_agent_run_turn` refuses a turn with no provider,
+   with the sentence that says why; every front-end passes through it. A run that
+   exists only to call a model (`-p`, `serve`, `daemon`) is still refused before
+   anything is sent, exit 2; interactively the sentence is said once, up front.
+2. **The converter had the same defect one layer down.** `jichi-convert` wrote
+   `"apiKeyEnv": "OPENAI_API_KEY"` for every keyless model and dropped the name
+   inside `${{ secrets.X }}` -- and the runtime honours a named variable anywhere.
+   A converted keyless Ollama entry sent the OpenAI key to the Ollama host. I had
+   told the operator and written into the plan, hours earlier, that the converter
+   was "not affected"; it was true of the dialect and false of the key. It now
+   writes no key line it was not given, the variable a template names
+   (`jc_convert_key_env_ref`, shared with opencode's importer), and no provider
+   where the source names none. Configs converted earlier still carry the line, so
+   `doctor` warns when `apiKeyEnv` sends a vendor's variable to another host. Three
+   importer warnings that passed a possibly-NULL name to `%s` became one helper.
+3. **A latent bug became reachable.** `jc_app_switch_model` made the new entry
+   active before building its provider and returned with it active on failure; the
+   old provider reads the active entry through a pointer, so it would have spoken
+   its dialect to the new entry's endpoint with the new entry's key. Unreachable
+   while building a provider failed only on OOM. It now restores the previous entry;
+   `test_switch_refused_restores` fails three checks without the restore.
+4. **`doctor` says where the key comes from and which host receives it** -- `from
+   $OPENAI_API_KEY (the openai convention), sent only to https://api.openai.com`,
+   or that a set variable was withheld and the one line that would send it -- and
+   fails an active entry that names no provider. The same sentences serve the run,
+   a subagent's refusal, `/model` and `config validate` (M719): `jc_config_provider_problem`
+   and `jc_config_no_model_advice`, one text each.
+
+**The front page stopped teaching the pattern.** README's configuration section led
+with two priced vendor examples, one with no pricing declared, and its roles example
+sent `OPENAI_API_KEY` to `https://my-host/v1` -- exactly what `doctor` now warns
+about. It leads with CONFIG_TUTORIAL §0a's free local server; the one vendor
+example declares its pricing; `my-host` has a variable of its own. The MCP example's
+model line was a third priced id, and is the local model now. CONFIG_TUTORIAL §1.5,
+MODELS, CONVERT and JUPYTERHUB said the old rule and say the new one; DEFERRED's
+row is closed (DECISIONS carries two rows for this milestone).
+
+**What the perturbation ritual caught before anything shipped.** Check 7 first
+grepped stderr for `apiKeyEnv`, and the generic no-key warning also contains that
+word -- it would have stayed green with the specific "set but not sent" note
+deleted; it now asserts the note. One perturbation's build failed (disabling the
+host check left `is_vendor_endpoint` unused, and `-Werror` refused it), and the
+ritual reported the proof void instead of running the stale binary. And
+`snapshot_lint` read a unit test's userinfo URL -- a user name, an `@`, then the
+vendor host -- as a real email address; the literal is split, with a comment
+saying why.
+
+**Verified.** Unit suite 13,687 checks / 0 in every build (13,694 under
+`FAULT=1`); the two new drivers 18 checks; every new check, in all three layers,
+shown red by its own perturbation and the source restored byte for byte each
+time. `make ci` on the tree of this commit: `ci: OK (gcc + clang build/test,
+asan/ubsan, leakcheck, valgrind, curl-free link, faults, smoke, mutant, e2e)` in
+17 m 52 s, `smoke: OK (321 drivers, 1890 checks)`, `mutant: OK (2 drivers swept,
+0 excluded)`, `e2e: OK`. This paragraph, the CHANGELOG's key-rotation note and
+`SECURITY.md`'s secret-handling bullet were written after the green run, and the
+drivers that read those files were re-run on the final tree.
+
+### M719 -- `config validate` fails what jichi refuses to run (plan D5, decided "fail") -- done
+
+`{"models":[{"name":"a"}]}` printed `OK ... exit 0` from `config validate` while
+`doctor` failed the same file (measured at M713). It now exits 1 with `doctor`'s own
+sentence for exactly what jichi refuses to run with: no model id, and -- since
+M718 -- a named model with no wire dialect. Everything else stays a parse check:
+doctor's warnings (no key, no pricing) do not fail it, because two renderers of one
+judgement drift apart. `tests/smoke/validate_runs.sh` (6 checks) lifts doctor's
+sentence from doctor's actual output and requires validate to print it word for
+word -- a perturbation that changed only the wording turned exactly that check red
+-- and holds the other side of the line: a config doctor warns about still
+validates OK, and a malformed one still fails. DEFERRED's row, which had waited
+since M505 for "someone to report the OK as misleading", is closed.
+
+### M720 -- the measurements count real runs, and say what they left out -- done
+
+**Why first.** Four register decisions and plan D1 wait on this machine's corpus,
+and on 2026-09-23 that corpus turned out to be 40 % agent probes: sessions that had
+run jichi against `mockmodel` with the real `HOME`, so their telemetry and journals
+landed in the same `~/.jichi.d` as real work. Every script in `tests/measure/`
+counted them as real. DEFERRED item 7 counts capped runs, and a mock's cap test is
+exactly that shape -- the evidence for a stable-tier exit code was on course to be
+manufactured by fixtures.
+
+**The rule, and its threshold measured before it was written.**
+`tests/measure/corpus_filter.py`: a session is *synthetic* when a model it called is
+named `mock` (the smoke tier's `write_config` names it so) or when every call it had
+answered took under 50 ms; *unanswered* when no call was answered (kept, counted
+apart); *real* otherwise. Over this machine's 243 sessions and 23,278 model calls --
+every one carrying `ok` and `latency_ms` -- the slowest answered call of any
+named-mock session took **1.25 ms**, and the fastest real session's slowest call
+**244.9 ms** (then 654, 688, 826). A journal is classified by its own `start.model`
+when that names a mock, else by joining its `run` id to telemetry; one with neither
+is *unverified*, kept and counted. The journal's `start` event now names the model
+(`src/chat/jc_agent.c`, beside M715's `one_shot`) -- the id only, never endpoint or
+key -- which is also the first covariate any rate read from journals needed.
+
+**The five decision instruments use it**: `success_repeats` (D1), `compaction_pressure`
+(the latch's re-arm rule), `reread_ratio`'s telemetry route (the re-read advisory),
+`capped_oneshot` (item 7) and `strict_green_fp` (the tracked-path rule). Each prints a
+`population:` line naming what it dropped and why, and `--include-synthetic` restores
+the old population, so a surprising number can be traced to the rule.
+
+**What the real corpus says now.** 170 real sessions, 52 synthetic (51 named `mock`,
+one fast under a realistic name), 21 never answered. D1's rates and M710's 248 core
+compaction passes are unchanged -- the probes happened to be `read_file` and
+compaction-free -- and item 7 has **0** real capped one-shots: of 133 completed
+journals, 43 were synthetic, 23 real, 67 unverified, and the 4 real ones that record
+a `stop_reason` all ended `done`. `reread_ratio.py` had never run on this corpus: it
+opened files without `errors="replace"` and died on the first telemetry line cut
+mid-character at the event-log cap. It now reads 2,946 telemetry reads over 774
+paths -- a by-path ratio, which it labels as such, because the corpus predates
+M715's ranges.
+
+**The check, and what building it caught.** `tests/e2e/measure_corpus.py` (12 checks;
+the e2e tier, because `smoke_lint` rightly keeps python3 out of the smoke tier)
+builds a fixture corpus of the four kinds and requires every script to count only the
+real one, to name what it dropped, and to restore it on request. Red on 11 of 12
+before the filter; the twelfth was vacuous (compaction_pressure read the flag as a
+directory and counted everything), and nine perturbations -- each rule, the join, the
+journal's own model, and each script's flag -- turned exactly their predicted checks
+red. **The fixture was wrong once:** its named mock answered in 0.2 ms, so the latency
+rule caught it too and the name rule was tested by nothing; it answers in 300 ms now,
+so each rule has a session only it can catch. `turn_answer.sh` gained check 8b for the
+journal's `model`, red before the one-line change. And `rig_lint` refused the fixture
+for a JSON key named `"jichi"` -- read, correctly by its own rule, as a literal binary
+name -- so the key went. The runbook gains the rule the contamination teaches: probe
+jichi with a scratch `HOME` (`SESSION_RUNBOOK.md` §3).
+
+### M721 -- every part of a shell command's stderr reaches the model, and a command too long for the line is refused -- done
+
+**The defect, as it actually was.** The corpus pilot (M714) saw a model's shell
+stderr on jichi's own stderr under `--auto` and wrote that the error "reaches the
+model AND appears on jichi's stderr", with a five-check reproduction that ruled out
+the trailing `2>&1` as the cause. Both halves were wrong, and the cause was that
+one. Re-run by hand with the whole stderr read: in plain `-p` the commands **never
+ran** -- headless without `--auto` refuses `run_terminal_command` ("Tool requires
+approval, unavailable in headless mode"), so "plain: stderr empty" compared nothing;
+and under `--auto` the error **never reached the model** -- the reproduction's
+checks 2-3 grepped the next request for the probe *path*, which is there anyway as
+the command echoed in the assistant's tool call. The popen path
+(`jc_app_run_command_ex`, the default: no timeout, no memory budget) ran
+`sh -c "<unset prefix><command> 2>&1"`, and a trailing redirection binds to the LAST
+simple command: in `A; B` and `A | B`, A's stderr went to the stderr the child
+inherited -- jichi's, the screen in the TUI -- and to nobody else.
+`make test | tail -20` handed the model the tail of stdout and none of the
+compiler's errors. The watched path (a timeout or a budget) was never affected: its
+child `dup2()`s the pipe onto fd 2. `append_shell`, the `!` interpolation of custom
+command templates, built the same string.
+
+**The fix:** `exec 2>&1;` first, for the whole shell -- POSIX, and no parsing of the
+command, so heredocs, trailing comments and `&` are untouched -- on the popen path and
+in `append_shell`.
+
+**Found on the same lines: a truncation that ran the beginning of a command.** Both
+local paths formatted the line into `char shell[8400]` with `jc_snprintf`, whose
+return (the would-be length) nobody checked. A 9 KB command whose first word was
+`touch MARKER` created the marker on BOTH paths and returned OK -- a cut heredoc
+writes a partial file and silently drops everything after its missing terminator.
+Both paths now refuse a line that does not fit (`JC_ERR_INVALID`), and the tool says
+so first, with the way forward: *"the command is N bytes, and the local shell runs at
+most M whole; it was NOT run. Write long content with write_file ..."*
+(`jc_app_command_fits` / `jc_app_command_max`, computed because the secret-`unset`
+prefix varies). Reading that prefix found one more thing, recorded and not fixed:
+`jc_proc_secret_env_prefix` drops the prefix silently when it would not fit its 1 KB
+buffer, which fails open (DEFERRED, "found while fixing M721").
+
+**The checks.** `tests/smoke/shell_stderr_captured.sh` -- the pilot's driver
+rewritten, 6 checks -- prints every marker by arithmetic (`echo E1_$((40+2)) >&2`),
+so `E1_42` exists only in the output and never in the command's text; check 1 now
+proves the commands EXECUTED (`OUT_42` is output), and check 6 covers the template
+interpolation. Red on 2, 3, 5 and 6 against the unfixed tree, and each fix piece
+perturbed alone turned exactly its checks red: the popen prefix {2, 3, 5}, the
+template's prefix {6}, the watched path's `dup2` {4, 5}, a tool that never runs
+{1-4}. `test_run_command_every_stderr` (unit) holds both paths' capture and the
+refusal with a marker proving nothing ran -- red first against a stub that encoded
+today's "everything fits", then per-perturbation: each overflow check {2 failures},
+the helper {1}. The pilot page carries the correction beside its original text, and
+its Appendix A is marked superseded.
+
+### M722 -- a warning flag an old compiler lacks is probed, and gcc before 7 builds jichi again -- done
+
+**The defect.** M472 (2026-08-17) added eleven warning flags, each measured against
+the tree one at a time, and put `-Walloca` on the mandatory `WARN` list beside
+`-Wvla`: a pure tripwire, since neither construct is C89 at all. It was measured
+against gcc 13 and clang 18, which both know it. The flag arrived in GCC 7, and gcc
+rejects an unknown `-W` option as an **error** -- with or without `-Werror`, exactly
+as it rejects a made-up flag. So from M472 on, no gcc before 7 could compile a
+single file of this tree: not CentOS 7 (gcc 4.8.5, row V2a) or Debian 9 (gcc 6, row
+V2f), both recorded green before M472, and not the CentOS 6 / Debian 7 floor
+`docs/INSTALL.md` promises. M475 had already written `cc_warn_ok` for the flags
+clang lacks; it was never applied to this one.
+
+**Why nothing could see it for five weeks.** Every compiler the gate runs knows
+the flag, and neither old row was re-run after M472. Found by the FreeMiNT step 0
+cross-compile (`docs/plans/2026-09-freemint-aranym.md` §8) with gcc 4.6.4: 314
+compiles, all dead in 1.1 s before reading a line of source. It is the kind of
+finding a platform row exists for -- a defect of every old toolchain, found by the
+one platform that is not Linux, a BSD or SysV.
+
+**The fix:** `$(call cc_warn_ok,-Walloca)` in `WARN_OPTIONAL`, off the mandatory
+list. gcc 13 keeps it (`make info` lists it); gcc 4.6.4 builds without it.
+
+**The checks.** `portability_lint` check 26 holds the mandatory list to a
+**measured** baseline: exactly the nine flags gcc 4.6.4 compiled 299 files with in
+step 0, not a list recalled from release notes. A flag outside it must go through
+`cc_warn_ok`, or join the baseline with evidence that an old gcc accepts it, which
+also catches the next flag of this kind rather than only this one. Check 27 keeps
+`-Walloca` probed, because check 26 alone passes if the flag is deleted outright,
+and that would trade the defect for the loss of M472's tripwire on the compilers
+that have it. Both red against the unfixed Makefile (26 named `-Walloca` among the
+ten flags it extracted; 27 found no probe), and each perturbed alone: a non-baseline
+`-Wshadow` on the mandatory list turns 26 red; a renamed `WARN` trips its floor of
+9; deleting only the probe line turns 27 red and leaves 26 green.
+
+**The effect, measured two ways.** A wrapper compiler that rejects `-Walloca` as gcc
+6 does, and otherwise runs the host gcc: against the old Makefile it compiled
+nothing (180 of 180 compiles failed on the flag); against the fixed one it built and
+linked `jichi` in 2 s, and the binary runs. The real gcc 4.6.4 now compiles the same
+299 files step 0's hand-patched copy did, and stops on the same four MiNTLib header
+gaps, which are M723's.
+
+**Not done, and registered.** The two old rows are *expected* to build again, an
+inference from gcc 4.6.4 and the wrapper; neither was re-run. About 450 milestones
+separate M273 from today, so a re-run may find other old-platform gaps that this
+error was hiding -- the way it hid MiNT's four. `DEFERRED.md` carries that as its
+own row. The wrapper the step 0 row asked for proved the fix by hand rather than
+joining the gate, for the reason check 26 exists: a check written for one flag
+catches one flag.
+
+### M723 -- the source stops assuming glibc's headers where POSIX promises less, and the tree cross-compiles for FreeMiNT -- done
+
+**What step 0 found once M722 let it compile.** With `-Walloca` probed, gcc 4.6.4
+against MiNTLib 0.60.1 compiled 299 of 314 files and stopped on four gaps, the same
+for 68000 and `-m68020-60` (`docs/plans/2026-09-freemint-aranym.md` §8):
+
+1. `struct timeval` incomplete at 13 sites in 10 files. MiNTLib's `<sys/select.h>`
+   only forward-declares it, where POSIX.1-2001 says that header defines it;
+   `<sys/time.h>` defines it on every libc, and the four files that already included
+   it compiled.
+2. `lstat`, `readlink` and `symlink` undeclared. MiNTLib's headers predate
+   POSIX.1-2001 moving them into the base and still want `__USE_BSD` or
+   `__USE_XOPEN_EXTENDED`.
+3. No `<sys/mman.h>`, and no `mmap` in `libc.a`.
+4. `pid_t` undeclared in `tests/test_proc.c`. Step 0 blamed `<signal.h>`, having
+   tried that header alone; the file includes `<unistd.h>`, which POSIX says defines
+   `pid_t`, and MiNTLib's does so only at an X/Open level. Measured here: `<unistd.h>`
+   alone fails, and `-D_XOPEN_SOURCE=600` or `<sys/types.h>` succeeds. The register
+   row keeps its first wording beside the correction.
+
+**The fixes, each for the class rather than the file.** `<sys/time.h>` in the ten
+files. `<sys/types.h>`, which is `pid_t`'s home on every libc, in the five files
+that used `pid_t` without it: only `test_proc.c` failed, because the other four got
+it through `<sys/wait.h>` or `<fcntl.h>`. Two probes, shaped like M657c's
+`__EXTENSIONS__` and M326u's clock probe:
+- `HAVE_LSTAT` adds `-D_XOPEN_SOURCE=600` only where the three are hidden. It asks
+  with `-Werror=implicit-function-declaration`, because the symbols ARE in MiNT's
+  libc: measured, a probe that merely links answers yes there. That is M449's lesson
+  in a new place.
+- `HAVE_MMAP` sets the negative `JC_NO_MMAP`. Under it, `map_blob` returns the
+  failure its callers already handle (M141), and `release_blob` frees; `jc_index_free`
+  now calls `release_blob` rather than repeating it.
+`make info` reports both. On gcc 13 and clang both probes answer that nothing is
+needed, and nothing is added.
+
+**The checks.** `portability_lint` 28-31, every one red against the M722 tree and
+naming exactly the files MiNT failed on:
+- 28: every file that declares a `struct timeval` includes `<sys/time.h>` (14 files,
+  floor 14);
+- 29: every file that uses `pid_t` includes `<sys/types.h>` (16). One enumeration
+  found 15 files and the other 16; the difference, `include/jc_workerpool.h`, is why
+  the floor is 16;
+- 30: every `<sys/mman.h>` include sits under `#ifndef JC_NO_MMAP`, and the probe
+  that sets it exists;
+- 31: both lstat probes carry the M449 flag, and their consumer exists.
+Each was perturbed alone and turned exactly its own check red: a lost include, a
+lost guard, a lost probe line, the probe's flag, its consumer. And `make ci` gained
+`fallbacks-compile`, which compiles both probe-switched paths, `JC_NO_CLOCK_GETTIME`
+and `JC_NO_MMAP`, under the gate's own flags, since no platform the gate runs takes
+either. `INSTALL.md` had said the clock fallback "is compiled under -Werror"; until
+this milestone no stage of the gate did it.
+
+**The effect.** The tree cross-compiles for FreeMiNT with no shim: `make -k
+CC=m68k-atari-mint-gcc HAVE_CURL= WERROR=1 jichi run_tests` succeeds in 7.7 s for
+68000 and for `-m68020-60`, with no error and no warning, and links `jichi` (2,022,443
+bytes) and `run_tests` (3,171,920). Nothing has run there. That is steps 1 and 2 of
+the plan, and it needs ARAnyM.
+
+**Not done, and registered.** On MiNT, `jc_now_millis` runs on its whole-second
+`time()` fallback. `gettimeofday` would be finer and costs no monotonicity `time()`
+has, but it is a new branch and a new probe, so it is a `DEFERRED` row, to be
+measured on the guest first.
+
+### M724 -- a model-issued command runs without your keys, however many a config names -- done
+
+**The defect DEFERRED recorded, reproduced first.** The popen path of
+`run_terminal_command` -- the default, with no per-call timeout -- cannot scrub its
+child, because popen execs the shell directly. So it prefixes the command with
+`unset NAME ...;` for the 15 built-in key names and every configured `apiKeyEnv`.
+That prefix was built into a 1 KB buffer, and `jc_proc_secret_env_prefix` answered 0
+when it did not fit -- the same answer as "nothing to drop" -- so the caller ran the
+command with no prefix at all. The row found while fixing M721 said "read, not
+reproduced", and estimated roughly forty names. The new driver needed twelve names of
+104 bytes: all twelve keys, and a stray `JICHI_API_KEY` beside them, reached the
+command. The built-in prefix is 238 characters, so configured names overflowed the
+buffer once they reached 786 characters, each counted with its space.
+
+**A second hole behind the first.** The estimate was off because the registry itself
+was bounded: 32 names of under 128 bytes, with anything past either bound ignored.
+Its header documented that. So a 33rd configured name was never scrubbed on *any*
+path -- the row's "the fork paths ... are not affected" was wrong. Measured: 1 of 33
+names reached a popen-path command, and 1 of 33 reached a fork-path one (a timeout
+set).
+
+**The fix.** The registry grows, by `realloc` and `jc_strdup`, and keeps every valid
+name. `jc_proc_secret_env_prefix_size` gives the exact size, and the popen path
+allocates exactly that. The prefix answers -1, never 0, when it cannot be built, and
+the popen path then refuses the command (`JC_ERR_OOM`) rather than run it bare.
+`jc_proc_secret_env_add` returns -1 only when memory ran out, and `main` then refuses
+to start instead of forking with an unscrubbed key. Two small functions,
+`jc_proc_secret_env_count` and `_truncate`, let a test leave the process-wide
+registry as it found it: forty 200-byte names left behind would shrink every later
+test's command room to about 100 bytes.
+
+**The checks.** `tests/smoke/secret_env_many_names.sh`, five checks:
+- 1: the command ran, the denominator;
+- 2: none of 12 long names reached it;
+- 3: nor a stray built-in;
+- 4 and 5: all 33 short names were dropped on the popen path and on the fork path.
+Red on 2-5 against the M723 tree. `test_secret_env_many_names` covers 40 names of 200
+bytes: all kept, the size exact, one byte short answering -1 with the buffer empty,
+and the 40th scrubbed in a forked child. Perturbed per part:
+- reinstating the 32-name cap turns the unit's count, prefix and fork checks red, and
+  driver checks 4 and 5;
+- "does not fit" answering 0 again turns exactly the unit's -1 check red; the driver
+  cannot see it, since the exact-size buffer never overflows;
+- a 1 KB buffer with the refusal kept turns driver checks 1-3 red, because the command
+  was *refused* -- fail-closed, with no key reaching it.
+
+**What a user should do.** A config that names a handful of keys was never affected.
+One naming more than 32 distinct key variables, or names that together run past about
+780 characters, exposed those keys to every command a model ran through the default
+path, and the 33rd onward to every child. The CHANGELOG says to rotate them.
+`docs/HARDENING.md`'s "both paths therefore drop exactly the same set" was false for
+such configs, and it now says when it became true.
+
+### M725 -- a JSON string costs its own length, and the embeddings fast path that measured zero -- done
+
+**D3, built as designed.** The plan after M712 took M700's massif page at its word: an
+embeddings reply becomes one cJSON node per float, 92 % of `jichi index`'s peak heap,
+so read the floats straight out of the text. Built that way: a string-aware scan with
+cJSON's own number scanner, so the floats were bit-identical by construction; a
+hollowed copy of the reply for the envelope; a bit-identity test that also required
+the fast path to *take* each case; and a fuzz property that aborted on a planted
+trailing-comma bug the seed did not contain.
+
+**Then check 3 was measured, and the design was wrong.** On a 199-file corpus
+(2,751 chunks, LM Studio `text-embedding-nomic-embed-text-v1.5`, 768 dimensions), the
+fast path took massif's peak heap from 219,112,560 B to 217,122,976 B: **1 %**. The
+massif tree said why, as M700's own output had in its second line: the allocations
+were in **`parse_string`**. It sized each string's buffer to the *rest of the input*
+-- `cap = (c->end - p) + 1`, a worst-case bound -- and kept that buffer as the node's
+key or value. An LM Studio batch is ~1.5 MB of pretty-printed text with ~260 strings,
+so ~190 MB. M700's arithmetic on float nodes had matched it to within 1% by
+coincidence, and the hollowed copy kept every string at the same position.
+
+**The fix is a first pass to the closing quote.** Size the buffer to the string's own
+span: every escape decodes to no more bytes than it occupies, so the decoded string
+never outgrows its source. The same corpus then peaks at **25,596,080 B (-88 %)**. The
+fast path on top of the fix changed that peak by **zero bytes**, the raw massif data
+identical to the byte, because the peak comes while the index is assembled, after each
+batch's tree is freed. So the fast path, its cJSON extension and its property went:
+about 240 lines for nothing measurable. `DECISIONS.md` records why.
+
+**Resident memory barely moved, and that is its own finding.** Over this tree (2,072
+files, 13,297 chunks) peak RSS was 136,080 kB before and 130,692 kB after. jichi pins
+glibc's mmap threshold at 128 KB (`src/util/jc_memtrim.c`), so each oversized buffer
+was a fresh mapping of which a page or two was ever touched: address space, not
+memory, on this Linux. The requested bytes are real where nothing pages them lazily:
+FreeMiNT, the platform this work sits beside, a strict commit limit, or a `ulimit -v`.
+There the fix is the difference between an index build that completes and one that
+cannot. What the resident 130 MB *is* remains open, and `DEFERRED.md` has the row:
+the vectors alone are 40.8 MB at this scale.
+
+**Two defects of the embeddings parser, found while building the design.**
+- A duplicate `"index"` wrote one row twice and returned another uninitialized, with
+  whatever `malloc` held. It is refused now.
+- `(int)idx_node->valuedouble` is undefined for `"index": 1e300`. Measured under
+  UBSan: "1e+300 is outside the range of representable values of type 'int'". It
+  reads cJSON's clamped `valueint` now, which is what M469 put there for.
+
+**One claim of mine, dropped by measurement.** I added a clamp for a vector element
+past float's range, believing UBSan's float-cast-overflow flags `double` to `float`.
+It does not: clang checks only float-to-integer conversions, because IEEE floats
+represent infinity. The clamp came out.
+
+**The checks.**
+- `test_json_string_alloc` parses 400 short strings ahead of a 64 KB tail and holds
+  the parser's string bytes, a counter exposed for tests, under twice the document. It
+  is red on the old sizing and green on the new, and it also asserts the counter
+  counted.
+- `test_embed_parse_recorded` parses a real LM Studio reply, formatting verbatim, cut
+  to 12 of its 768 dimensions for C89's literal limit, and holds both defects. The
+  duplicate check is red with its guard removed. The 1e300 case aborts under UBSan
+  with the old cast.
+- The `embed` fuzz target, now 23 targets, runs the parser under ASan and UBSan in
+  `make ci`'s fuzz stage.
+
+### M726 -- jichi runs on FreeMiNT: a stack MiNT will not grow, and the first boots of the rig -- done
+
+**Steps 1 and 2 of the FreeMiNT plan, by hand.** `aranym` was installed by the operator.
+Everything the procedure found is in the plan's §9 and in the run directory's
+`results.txt`. The rig script is still to be written from it, and `DEFERRED.md` has the
+row.
+
+**Step 1 -- an unattended boot, about 12 seconds.** FreeMiNT booted, ran a script, wrote a
+sentinel carrying the run id to a case-sensitive HostFS drive, and halted. ARAnyM then
+exited by itself. That took four measured facts:
+- ARAnyM 1.1.0 refuses the archive's 1024k EmuTOS, and then does not exit. EmuTOS 1.4's
+  generic 512k image boots.
+- No halt command ships in the image, so the halt is a 132 KB helper calling
+  `Shutdown(0)`.
+- `/dev/nfstderr` reaches the host and the console does not.
+- The archive's own configuration maps D: to the whole home directory and puts the
+  network on the LAN's subnet, so the rig writes its own.
+
+**Step 2 -- the cross-built unit suite in the guest, and a jichi fact.** It died with a
+bus error after about 156 tests, in `getenv` and, on a rerun, in `setenv`, reading
+`0x78787878`: ASCII `xxxx`. FreeMiNT gives a program a **fixed** stack of `_stksize`
+bytes, 64 KB by MiNTLib's default, and `tests/test_vision.c` keeps a 64 KB buffer on it,
+filled with `x`. The stack ran over the environment beside it. The same binary with a
+4 MB stack did not start ("insufficient memory": MiNT's initial allocation is 1,024 KB).
+With 512 KB it completed.
+
+**The fix:** `long _stksize = 512L * 1024L;` under `#ifdef __MINT__` in
+`src/platform/jc_platform_posix.c`. MiNT's crt0 reads the symbol, and that one definition
+covers `jichi`, `jichi-convert` and `run_tests`. With it, the tree's own cross-build
+**completes in the guest: 13,680 checks, 25 failures**, 23 seconds from power-on to halt,
+with no post-link tool. And **`jichi --version` and `jichi describe` exit 0 on FreeMiNT**,
+the first time the agent has executed there. The host build is unchanged: 13,764 checks,
+0 failures, the block compiled away.
+
+**The check, and the mistake it is shaped by.** My first placement of the block sat
+inside `#if defined(__APPLE__)`. It compiled to nothing on MiNT, the build stayed green,
+and only `m68k-atari-mint-stack -P` reading 64 KB showed it. So `portability_lint`
+check 32 holds the definition at conditional depth zero and at least 512 KB. It is red
+with the block removed, red with it nested in the Apple conditional, and red at 64 KB.
+
+**What the 25 failures are, so far.** Most shell out to utilities the minimal guest lacks
+(`sleep`, `grep`, `echo`, `false`), which is step 3's userland question arriving early. A
+few may be platform differences: a FIFO on HostFS, a directory check, and files under
+`TMPDIR=u:/tmp`, where the guest's own `mkdir -p` fails. None is classified yet, and the
+register row says which files they are in.
+
+**The words.** *Cross-built, emulated*. FreeMiNT is still **Never compiled**, because no
+compiler on FreeMiNT has seen the tree. It is not **Driven**: no model call has been made,
+and that needs step 4's network and the operator's `aratapif`.
+
+**Correction (M727).** *With 512 KB it completed* was measured with one test not running.
+`test_symlink_escape` names its fixture after the pid, the suite is pid 5 on every boot, and
+the fixture outlived each run, so every hand run after the first found it, failed its
+`mkdir` and returned silently. On the rig's fresh disk the suite crashed at 512 KB, in that
+test's symlink loop. M727 has the recursion that needed more.
+
+### M727 -- the FreeMiNT rig, and the recursion its fresh disk found -- done
+
+**The rig.** `scripts/tier-v-freemint.sh` is M726's hand procedure as a script. It pins the
+archive by commit hash and sha256, and EmuTOS 1.4's 512k image by the zip's sha256 and the
+image's. It writes its own configuration, hooks `mint.cnf`, links `sh` to `bash`, builds
+the `Shutdown(0)` helper, sets `TMPDIR=/tmp`, and checks for a sentinel carrying the run
+id. Step 1 boots, writes the sentinel and halts in 9 s. Step 2 cross-builds `run_tests` and
+`jichi`, runs them and halts in 31 s. Output goes to `$TIER_V_DIR`. Exit 3 means the guest
+never wrote this run's sentinel, which is not a result.
+
+**Its first step 2 crashed where the hand runs had completed.** It was a bus error at a wild
+PC, `0x20424A80`, in a binary that completed in the hand directory. What differed was the
+disk: the rig extracts a fresh one, and the hand directory had kept its `/tmp` from boot to
+boot. Emptying it made the hand directory crash too, and a line-buffered build of the suite
+put the crash in `test_path`.
+
+**Why the hand runs had passed.** `test_symlink_escape` makes
+`$TMPDIR/jichi_path_test_<pid>`, and on FreeMiNT the suite is pid 5 on every boot. Its
+cleanup never removed `sym_dir`, so the directory outlived every run; this workstation's
+`/tmp` held 125 of them, harmless on Linux only because pids vary. In the guest the first
+run to create one was M726's 64 KB crash. Every run after it failed the `mkdir`, and the
+test returned without a word (*"skip silently"*), so 18 checks never ran. M726's 512 KB
+result was measured that way, and its entry now carries a correction.
+
+**The defect.** `jc_path_resolve` followed each symlink hop by a recursive call, up to its
+40-hop bound. Each call's frame held its path buffers, 16,564 bytes on m68k and 16,704 on
+x86-64 (gcc, no `-O`), so a `loop -> loop` took about 700 KB of stack before it was
+refused. MiNT's is a fixed 512 KB, and past its end lies the heap. The host shows it too,
+once it is given that stack. Under `ulimit -s 512` the curl-free suite segfaults in
+`realpath`, 30 frames deep on the loop, and under 1 MB it passes. The path fence calls this
+function for every file a model names, so a cycle in a workspace was one `write_file` away
+from the same crash on FreeMiNT. That is reasoned from the code; it was not run in the guest.
+
+**The fix.** The resolver is a loop: one hop per pass, in one frame of 16,556 bytes on
+m68k. It carries the missing tail as a suffix and appends it to the answer, as the
+recursion did on its way back. The bound is the same and so are the answers.
+
+**The checks, each shown red first:**
+- `make ci` runs the curl-free suite, the build FreeMiNT runs, under `ulimit -s 512`. It
+  was red with the old resolver (a segfault, rc 139) and is green with the loop: 13,766
+  checks, 0 failures. The fixed suite passed every run here from 112 KB up, and two runs in
+  four crashed at 96 KB. Its peak is just under 96 KB, so 512 KB is about five times it.
+- `portability_lint` check 33 holds that limit at or below `_stksize`. It is red with no
+  limit, with 1024, and with the limit moved to another recipe line.
+- `test_path` clears its fixture before making it, fails if `mkdir` still fails, and must
+  leave nothing. Each was proven by planting a fixture under the pid the suite would run as,
+  since a shell that `exec`s keeps its pid. With a stale fixture the old test skipped
+  silently (13,748 checks, 0 failures) and the new one runs all 13,766. With one it cannot
+  clear, it fails at the `mkdir`. With the cleanup made to leave `sym_dir`, it fails at the
+  cleanup.
+
+**The result.** In the guest: **13,707 checks, 19 failures**, no bus error and no fixture
+left, the same in two runs. `jichi --version` and `jichi describe` exit 0. Six of M726's 25 went with `TMPDIR=/tmp`, and the other 19
+are the register's row, still unclassified.
+
+**Found while proving it, and registered rather than fixed.** Several tests build a
+`$TMPDIR` path in a fixed buffer and hand it to `rm -rf`. Under a 127-character `TMPDIR`,
+`tests/test_bounds.c`'s 128-byte `home` truncates to the `TMPDIR` itself, and a traced run
+executed `rm -rf "$TMPDIR"` four times. A longer `TMPDIR` truncates to a prefix, and a
+prefix can be a parent directory. The gate here runs with `TMPDIR` unset, so nothing it ran
+was exposed. It is the next milestone.
+
+**The words.** Unchanged: *cross-built, emulated*, **Never compiled**, and not **Driven**.
+
+### M728 -- `make test` can no longer delete your TMPDIR -- done
+
+**The finding, from proving M727.** Twenty-five sites in ten test files built `rm -rf %s`
+into a fixed buffer and handed it to `system()`, every one with its argument unquoted.
+A buffer cuts a path short, and a cut path is a **prefix**. Under a 127-character `TMPDIR`,
+`tests/test_bounds.c`'s 128-byte `home` came out as the `TMPDIR` itself, and a traced run
+executed `rm -rf "$TMPDIR"` four times. A canary file inside that `TMPDIR` was deleted. A
+`TMPDIR` whose 127th character is a `/` cuts to its parent, and a space would have split the
+argument in two. The gate runs with `TMPDIR` unset, so in `/tmp`, where nothing truncates:
+nothing it ran was exposed, and nothing had ever fired.
+
+**The fix.**
+- **`jc_test_rm_rf`** (`tests/test_main.c`) removes a fixture with no command line at all. It
+  refuses any path that is not strictly below `jc_test_tmpdir()`: the directory itself, a
+  parent, a sibling that shares the prefix (`/tmpx` for `/tmp`), a `.` or `..` step, or
+  anything when the fixture directory is `/`. A refusal fails the suite, because it is a
+  harness bug. The walk uses `lstat`, never follows a link, and keeps child paths in an arena,
+  not on the stack (M727's lesson). The 25 sites became 29 calls.
+- **Fixture roots check that they fit**, and `jc_test_tmp` reports a path that does not.
+- **The 38 `sprintf` calls in the tests became `jc_snprintf`**, and `sprintf_lint` now covers
+  `tests/`. Its old exclusion rested on "known-safe buffers", and the buffers were only as
+  safe as `TMPDIR` was short.
+- **The suite refuses a `TMPDIR` longer than 160 characters** before touching the filesystem.
+  It is measured clean at 160: 0 failures, plain and under ASan/UBSan. At 200 there are four
+  truncation false reds, at 240 a segfault, and at 327 the old suite smashed its stack.
+
+**The checks, each shown red first:**
+- `test_harness` runs first and holds the refusal rule and the walk. It is red under four
+  perturbations: allow everything (10 failures), drop the sibling test (1), drop the step
+  test (3), and `stat` for `lstat` (4, because a link out of the tree was followed and its
+  target deleted).
+- `test_fixture_lint` has five checks: its matcher (on a planted template and on test data),
+  no `rm -r` template in `tests/*.c`, the helper's refusal, at least 29 call sites, and the
+  length guard. Against HEAD's tests it names exactly the 25 templates, and each other check
+  is red with its piece removed.
+- The widened `sprintf_lint` names HEAD's 38 calls.
+- `make ci` runs the suite under a `TMPDIR` one character too long, read from the source, that
+  does not exist, and requires the refusal. With the guard compiled out, that line was red.
+
+**The effect.** A canary in a 127-character `TMPDIR` was deleted by the old suite and is kept
+by the new one, which passes there with 0 failures. A 327-character `TMPDIR` built to cut to
+its parent is refused, and both canaries survive. On FreeMiNT the rig's step 2 ran this tree:
+13,743 checks, the same 19 failures as M727, and nothing from the harness, so the walk works
+on HostFS.
+
+**Found while proving it, and registered.** On a `TMPDIR` it cannot write, the suite
+segfaults: `test_config`, then `test_session`, at HEAD too. There `test_gradecore`, whose
+`chdir` into the fixture fails, writes its spec files into the directory it runs from. It is
+M452's class, found again.
+
+### M729 -- the unit suite finishes where its fixtures cannot be written -- done
+
+**The finding, from proving M728.** Run on a `TMPDIR` it could not write, the suite died of
+a segfault in `test_config` after 88 failures, at HEAD as after M728. It is M452's
+environment, a host without a writable `/tmp`, and the gate had never been in it. The
+shape was the one `JC_REQUIRE` exists for: `JC_CHECK(sb.data != NULL)` records and
+continues, and the next line was `strstr(sb.data, ...)`. And `test_gradecore`, whose `chdir`
+into its fixture had failed, carried on in the current directory and wrote `noverify.md`,
+`cannotrun.md`, `pass.md` and four more there. Run from the repository root, that is the
+source tree.
+
+**The fix, iterated crash by crash** under a `TMPDIR` below a regular file, which fails
+with `ENOTDIR` even for root:
+- nine sites guarded by hand: `test_config`, `test_session` (a failed reload had left
+  `loaded` as uninitialized stack, and the test read it for 200 lines), a listed-session
+  dereference, `test_index`'s cached index, `test_rules`, `test_agentdef`, `test_fallback`'s
+  model lookup, `test_memory` and `test_output_style`;
+- `test_patch` writes its eight fixtures through a checked `put_file`, and its `slurp`
+  returns a sentinel no fixture holds, where it returned the NULL every caller handed to
+  `strcmp`;
+- `test_gradecore` refuses to go on without a way back, or when its `chdir` fails;
+- 51 lines of the shape, those whose next lines are one-line checks on the same
+  expression, became `JC_REQUIRE` guards by a transform. A normal run's count did not move
+  (13,802 checks, 0 failures, before and after).
+
+**The result.** On that `TMPDIR` the suite completes: 13,452 checks, 405 failures, rc 1,
+and nothing new in the directory it ran from. A normal run has 13,814 checks and 0
+failures.
+
+**The checks, each shown red first.** `make ci` runs the suite on a `TMPDIR` below a
+regular file. It requires a summary line, rc 1 and an unchanged listing of the directory it
+ran from. With the old binary the line was red (rc 139). With only `test_gradecore`
+reverted it was red on the files: the run completed and left `cannotrun.md`, `fail.md`,
+`marker`, `notask.md` and three more. `test_fixture_lint` check 6 holds both of the gate's
+`TMPDIR` lines, and it is red with this one deleted.
+
+**Registered, not fixed:** 120 more lines of the shape, in 42 files, in forms a transform
+cannot rewrite blind. The gate line holds the environment where they bite.
+
+### M730 -- D2 measured: six of nine inferred constraints were wrong, and all six crossed a sentence -- done
+
+**What D2 was waiting for.** The plan after M712 left D2, whether an inferred constraint
+stays binding in `--auto`, to the operator. Its recommendation turned on one number: the
+scanner's false-positive rate, measured offline with `jichi brief-check` over prompts the
+session store already holds. Nobody had measured it.
+
+**The measurement.** It covered the first user message of every stored session: 289 prompts,
+scanned by `39a35b91`'s `brief-check`, with no model call. M720's synthetic filter cannot
+classify sessions, because telemetry never names a session file's id, so the populations
+were split by workspace instead: 175 under `~/development`, 105 under `/tmp` (benchmark
+briefs and probes), and 9 elsewhere. Four prompts inferred anything, all under
+`~/development`: nine constraints, classified by hand.
+- **Three right**, in the one prompt that says so: *"Do not run build. Do not run tests!"*
+- **Six wrong**, in the other three prompts. Each forbade the verification its own task
+  demanded: `zig build test` as the gate in two, *"Verify by running the command
+  yourself"* in the third.
+
+**The mechanism.** Bisected to the shortest span that still fires, every misparse joins a
+negation to a target word across a sentence boundary:
+- *"Do not touch build.zig. Verify by running"* became *do not run build commands*;
+- *"never runs. Wire exactly three of the simplest ones into build"* became the same;
+- *"never the body of a `pub fn` nothing calls. A subsystem is proven when a test"* became
+  *do not run tests*.
+
+No single sentence of any of the three fires on its own. Scanned one sentence at a time, the
+right prompt keeps its three constraints, and the three wrong prompts infer none.
+
+**What it changes.** By the plan's own test the rate is high, 6 of 9, and that argues for
+making the constraints advisory. But all six errors have one cause, and a scanner whose
+negation stops at its sentence would have scored 3 of 3 on this corpus. That is a narrower
+change than advisory, and not a guard for one more phrase. The plan's D2 section and the
+register row now carry the numbers and the three options. The decision is still the
+operator's. The sample is small: four prompts with any inference, on one machine, most of
+them briefs an agent wrote.
+
+**No code changed.** This milestone is the measurement and its record.
+
+### M731 -- the corpus drive, read: where D1's note belongs, and three defects no count would have found -- done
+
+**Why.** Plan D1's thresholds had to be fitted to a corpus, and the operator's decided
+order put D1 next once threadwork's drive landed (plan §13). It landed on 2026-09-23:
+48 headless runs on zigodot, `jlu/qwen3-coder-next` and `prism-ml/bonsai-27b`, 24 tasks
+each, the M714 build, every event at the `full` tier. The workstation's own corpus, read
+the evening before, could not fit thresholds (40 % of its post-M432 calls were
+`mockmodel` probes; 75 real turns), so the plan named this drive the fit and that corpus
+its cross-check. The record is
+[`analysis/2026-09-24-the-corpus-drive.md`](analysis/2026-09-24-the-corpus-drive.md).
+
+**Read before counted.** Four runs were read first because their numbers looked odd.
+bonsai 16 is spoiled -- my own probe hit its model server the day before -- and is
+excluded (47 turns remain). bonsai 18's "answer" is LM Studio's overflow error. bonsai 14
+edited nothing and ended on a statement of intent. qwen 12 was asked for a test and added
+none, under a green gate.
+
+**The fit.** `success_repeats.py` gained `--per-turn FILE`: one row per turn, joinable to
+the journal on `run`, with the largest raw and unchanged repeat and the tool behind it.
+Every turn at three or more was then read: bonsai 19 searched `parser.zig` for a name it
+does not contain **35 times in a row** (the `(no matches)` was true -- checked on
+`70801ac`); 08 repeated a Perl-dialect pattern 13 times after grep warned about it; 24
+re-asked a search five times; 06 re-ran the same failing build three times running. Every
+other turn in both models peaks at **two**, and every two is benign. So the note belongs at
+**three**, M432's threshold and margin. The stop is not fitted -- 47 turns print `NOT
+EVIDENCE`, and its exit code is item 7's question -- so D1's next milestone ships the note
+only, as the plan says for this case. The fit is **provisional until the workstation's 500
+real turns are read the same way**; the plan now carries the command.
+
+**What a repeat detector cannot see.** bonsai 12 reached the cap after 202 calls without
+making one call four times. D1 is blind to that by construction; a register row says so.
+
+**Three recording defects, found by reading, recorded and not fixed here** (so this
+milestone carries no product code): the journal's `end` passes `JC_OK` to the stop-reason
+classifier, on a comment's assumption an interrupt disproves, so bonsai 16 is journalled
+`done` / `running` while its stream says `interrupted`; bonsai 18's request was 74,866
+tokens against a declared 65,536-token window and the overflow came back as its answer,
+`done` / `ok`, with LM Studio's wording absent from M73's six signatures; and `search_code`
+drops grep's warning on the no-match path, because its pattern probe runs only when grep
+fails. Each has a register row with its reproduction.
+
+**Confirmed in the field.** Of 543 `search_code` calls, 340 answered `(no matches)`; the
+96 made in read-only tasks were re-run on `70801ac`: **0 false negatives** (the pilot, before
+M714: 11 of 45). DEFERRED item 7 gains three anecdotes, none an answer: one capped
+one-shot left 0 bytes, two left 196 and 226 bytes of mid-thought -- the case M715 recorded
+`answer_bytes` rather than `answered` for.
+
+**Also.** The FreeMiNT rig's steps 1 and 2 reproduce on threadwork (Ubuntu 26.04 carries
+the PPA toolchain and ARAnyM 1.1.0): boot and halt in 9 s; the unit suite in the guest
+`13753 checks, 19 failures`, the identical failure set by file as the workstation's
+(`test_tool` 5, `test_proc` 5, `test_pdf` 3, `test_app` 2, one each in four others). The
+plan's summary table was stale and is corrected (D1 fitted, D2 measured, D3 closed).
+
+**Teeth.** Two checks in `tests/e2e/measure_corpus.py`, each shown red alone: the
+per-turn file must hold one row per real turn keyed on `run` (red when the writer drops the
+key), and must carry the maxima and the tool (red when the tool is lost). 14 checks now.
+
+### M732 -- the journal names the stop a run really had, and two more records put right -- done
+
+**Why.** M731 read the drive run by run and found three recording defects no count
+would have shown; the overnight drive would have journalled the same way, so they are
+fixed before it runs.
+
+**1. The journal's stop reason.** The `end` event called `jc_agent_stop_reason(app,
+JC_OK)`, with a comment explaining that *"reaching this line means the loop returned
+normally -- a transport error never gets here."* Both halves were false.
+`tests/smoke/journal_stop_reason.sh` proves each: under `--auto --journal`, a run
+interrupted mid-call (the `signals.sh` stall, SIGINT) exits 130 and was journalled `done`;
+a run whose only model call answers HTTP 500 was journalled `done` too; and the
+interrupted run's stream said `interrupted` while its journal said `done`. The loop's
+real status, `st`, was in scope all along; the end event passes it now, as the stream and
+the reach footer always did. `outcome` still reads `running` for these two endings --
+the envelope has no terminal value for them -- and that is a register row, because a new
+outcome value is a vocabulary decision, not a fix.
+
+**2. LM Studio's overflow wording.** *"request (74866 tokens) exceeds the available
+context size (65536 tokens)"* -- bonsai 18's answer -- matched none of
+`jc_text_is_context_overflow`'s six signatures. It and the error type beside it,
+`exceed_context_size`, are the seventh and eighth. The rest of that row -- an overflow
+recorded as an answer, and why jichi's estimate let a request 14 % over the declared
+window through -- stays open.
+
+**3. grep's warning.** `search_code` discards grep's standard error on the normal path, so
+a warning never reads as a match, and asked about the pattern only when grep *failed*.
+A pattern grep accepts with a warning therefore came back as a bare `(no matches)`. The
+probe is now `pattern_probe()`, returning grep's exit and first line; on the no-match path
+an exit-1 line is a warning, and the result says so in grep's words, with what `grep -E`
+does not do. The unit check asks this platform's grep what it does with `(?:alpha|beta)`
+before asserting, so a grep that stays silent must get a bare `(no matches)`.
+
+**Teeth.** Red first: the new driver 1 ok / 3 not ok, the unit checks 3 failures of 13,822.
+Per check: the end event back to `JC_OK` turns driver checks 2, 3 and 4 red; an end event
+that always says `interrupted` turns 1 and 3 red (the denominator has teeth too); removing
+the signature fails `tests/test_cli.c:225`; disabling the warning fails
+`tests/test_tool.c:731` and `:732`. The 27 smoke drivers that read the journal's end event
+or `search_code` stayed green -- none had pinned the old `done`.
+
+**What I got wrong, kept.** The first run of the new driver after the fix still failed: I
+had rebuilt with `make test`, which builds the unit-test binary and not `jichi`, and the
+smoke tier runs `./jichi`. The mirror of the trap `SESSION_RUNBOOK` already names (`make`
+does not build the test binary). And beside this milestone, I launched the V2f VM row
+without `TIERV_CPU`, which the rig's own comment names for exactly that row -- its 4.9
+kernel panics under `-cpu host` on this host -- so the guest's panic was my omission, not
+a finding.
+
+### M733 -- the same call answered the same way is told at three (plan D1, the note) -- done
+
+**Why.** M432 tells a model that a *failing* call keeps failing. A call that *succeeds*
+with the same answer every time met no detector: M687 made 200 successful calls, 0
+errors, after it had the answer by the sixteenth, and on the 2026-09-23 drive bonsai 19
+ran one `search_code` 35 times in a row, answered `(no matches)` -- truthfully -- each
+time. M731 fitted the note at three on that drive, and the plan said the milestone would
+ship the note alone if the stop could not be fitted. It could not.
+
+**What was built.** `jc_noprogress`, a sibling of `jc_toolloop` in the same files and of
+the same shape -- fixed size, per turn, heap-free. The key is the tool, the whole
+arguments and the result, each kept as a djb2 hash (`jc_reread_hash`, already in the
+tree) and a length. It is called on the success branch of the tool loop, beside M105's
+redo note and M432's, at any depth. The third identical successful call gets one
+sentence folded into its result -- *"this exact `search_code` call has now returned the
+same result 3 times this turn. Repeating it will not change the answer -- use the result
+you already have, or change the approach"* -- once per call per turn, plus a WARN line,
+an `on_status`, a `no_progress` journal event and `same=N` in `jichi runs`. The note
+claims only what was measured: it never says nothing changed, because for a shell
+command the loop cannot know.
+
+**What a successful call does to the watch** is one pure function,
+`jc_noprogress_role`, so the table can be read in one place. A read-only tool is
+counted, and so are the two that run things, `run_terminal_command` and `run_tests`,
+which the registry calls mutating: their output is the answer asked for again, and
+they are the loops the corpora measured most. Any other mutating tool resets every
+count, as do `ask_user`, `ask_for_help` and `hint`, which bring an answer from outside.
+`read_file` is left to M287's re-read advisory, background-output polling repeats by
+design, and the todo list is bookkeeping.
+
+**Two of the plan's rules did not survive contact, and both were settled by replaying
+the drive.** `tests/measure/noprogress_replay.py` runs the recorded tool calls through
+the rule as built, with the read-only flags taken from `jichi describe`.
+
+1. *A shell command resets the count unless M689's attribution shows the tree
+   unchanged.* M689's sweep runs at turn end, not per command, so no such attribution
+   exists inside the loop. A shell command now resets every OTHER call's count and
+   keeps its own: an edit made through `sed` makes the test after it a new question,
+   while the same command answering the same way is still the loop. On the drive this
+   drops exactly one turn from the fit's list: bonsai 12's `sed -i`, which the analysis
+   had already argued was two, not three, inside the loop.
+2. *A compaction pass resets it.* The first build did, and the replay showed the cost:
+   bonsai 06's loop, the same failing build three times running, was erased. Under
+   pressure a mid-turn pass elides something nearly every round -- 9 of the 21 rounds
+   around that loop -- and what it elides is old, since recent results are protected.
+   The note is appended to the newest result, which is always whole, so "use the result
+   you already have" stays true whatever an earlier pass elided. The reset is gone.
+
+As built, the replay tells the note in four turns -- bonsai 19, 08, 24 and 06, 15 times
+in all -- and in none of qwen's 24. Those are the four turns the analysis read as futile
+(§3); every other turn in both arms peaks at two.
+
+**What was not built.** The stop, the plan's second threshold: 47 turns print `NOT
+EVIDENCE`, and its exit code is DEFERRED item 7's question. The register row stays open
+for that half, with tonight's drive as the measurement: its journal's `no_progress`
+events against the turns that kept repeating after being told. And the workstation's
+cross-check of the threshold is still owed (plan §2).
+
+**Teeth.** `tests/smoke/no_progress.sh`, 8 checks, and 40 unit check sites in
+`tests/test_toolloop.c` (48 checks; some sit in loops). With the note switched off --
+the fix absent -- driver checks 1, 3, 4, 5 and 8 fail; 2, 6 and 7 assert an absence
+and are vacuous there, so each has its own perturbation. 29 perturbations in all, each
+rebuilt with `WERROR=1`, each followed by a restore and a rebuild, the tree green after
+the last: the threshold at one and at two, `told` never set, the result and then the
+arguments out of the key, the reset a no-op and then clearing `told`, the shell rule
+reversed both ways, the full table refusing new calls, the runners read by the
+registry flag, the three name lists emptied, the render's three phrases, the journal
+event, the runs view, and the agent's two call sites. Every one of the 48 checks went
+red under at least one.
+
+**What the ritual found, kept.** The check that the note never claims "nothing changed"
+was a case-sensitive `strstr` for `nothing`, and the perturbation that inserted
+*"Nothing changed."* left the whole suite green. It lowers the text first now, and
+turns red. Two perturbations first failed to build under `-Werror` -- an unused
+parameter -- which proves nothing, and were re-run with the parameter consumed. And the
+driver's own first run failed check 6 for a reason outside the watch: the fixture's
+`edit_file` was refused with *"read the file before editing it"*, so nothing had
+changed and nothing was reset. The fixture reads first now, and the check requires the
+edit to have LANDED before it counts the absence of a note, so an edit that fails can
+no longer make that check pass.
+
+### M734 -- an inferred constraint advises, and a negation ends at its sentence (plan D2, option (c)) -- done
+
+**Why.** In `--auto`, M110 reads rules such as *"do not run the build"* out of the request
+and, until now, enforced them. M730 measured the scanner over 289 stored prompts: nine
+inferred rules, six wrong, each forbidding the gate its own task named, and all six a
+negation joined to a word in the NEXT sentence. A refusal is what turns a misparse into a
+lost run: `1d31473d` refused its own builds for 21 minutes and 2,215,762 tokens. The plan
+offered three answers -- (a) scope the negation to its sentence and keep inferred rules
+binding, (b) make them advisory, (c) both -- and on 2026-09-24 the operator chose (c).
+
+**1. The scope.** `jc_constraint_scan` used to hand `scan_window` the 95 characters after
+a negation, wherever they fell. `sentence_len` now ends the window at the sentence: `.`,
+`!` or `?` before white space (after any closing quote, bracket or emphasis mark), a blank
+line, or a newline that opens a list item. The dot in `build.zig` or `3.5` does not end a
+sentence, and neither does a single line break in hard-wrapped prose. M730's three
+bisected misparses infer nothing; *"Do not run build. Do not run tests!"* keeps its three
+constraints. An abbreviation (*"e.g. the build"*) ends the scope early -- toward inferring
+less, the safe direction for a guess.
+
+**2. The advice.** `jc_constraint_judge` returns what the gate does with a call:
+`REFUSE` for an AUTHORED rule that forbids it, tried first so a guess beside a policy can
+never soften it; `ADVISE` for an INFERRED one; `ALLOW` otherwise. `jc_constraint_blocks`
+and `_ex` are unchanged -- they answer whether a rule forbids a call, and the fuzz target
+and M459's tests still ask them that. What the model sees: inferred rules in their own
+prompt section, *"Inferred from the request (ADVISORY -- not enforced)"*, which says they
+were read from wording and asks it to report acting against one; and, on the first call
+per rule per turn that goes against one, a note in that call's result. What the operator
+sees: the adoption notice says `ADVISORY for THIS SESSION (not enforced, not saved)`, the
+journal's `constraint` event carries `advisory: true`, and every call against an inferred
+rule is a `constraint_advisory` event, `advised=N` in `jichi runs`. That count is the rate
+at which a guessed rule met the work -- the number D2 was decided without, measured by
+every journalled `--auto` run from now on, tonight's drive first.
+
+**3. M459, one step softer.** The exemption let an explicit `--edit-scope` outrank an
+inferred read-only. Nothing inferred refuses now, so what it outranks is advice: on the
+declared path an inferred read-only is not even advised against, and the announcement --
+reworded from *"did not block"* to *"does not apply to"* -- still fires where it changed
+the outcome. `constraint_vs_scope.sh` passes unchanged, for a different reason in two
+checks, which its header now says: the out-of-scope writes are refused by the
+`--edit-scope` fence itself, the operator's declaration, not by the guess.
+
+**Not built.** Plan item 3, the stuck-verifier note naming inferred refusals as a cause:
+with no refusal there is nothing to name.
+
+**Two weak checks, found by the change.** `constraints_scope.sh` checks 3 and 7 grepped the
+whole captured request for *"constraint"*, which the system prompt alone satisfies, so both
+stayed green when the inferred rule stopped refusing. They read the tool result now: check 3
+requires the advisory note and no refusal, check 7 the refusal.
+
+**Teeth.** `tests/smoke/constraint_advisory.sh`, 8 checks, and 31 new unit checks in
+`tests/test_constraint.c` (the scope rule, the verdict, the split render), plus three
+`JC_REQUIRE` guards described below. 25
+perturbations, each rebuilt with `WERROR=1`, each restored and rebuilt after: the scope
+removed, the window emptied, every dot a sentence end, the closers ignored, the blank line
+and the list item ignored, a single newline treated as an end; an inferred rule
+refusing, an authored one advising, the inferred ones tried first, the exemption
+ignored for advice, the rule's text and index dropped, the verdict never allowing, the
+index never reset; the render merging, reordering, and calling every rule a guess; the
+pure predicate skipping guesses; and at the agent, the note, its once-a-turn latch, the
+journal event, the adoption's `advisory`, the notice's wording and the runs count. Every
+one of the 39 new checks went red under at least one, and so did `constraints_scope.sh`
+checks 3 and 7 and `constraint_vs_scope.sh` checks 5 and 9.
+
+**What the ritual found, kept.** Four perturbations first failed to BUILD -- removing a
+call left `sentence_len`, `is_blank` or `opens_list_item` unused, which `-Werror` refuses
+-- and proved nothing until re-run with the function still referenced. Two checks were
+toothless and were rewritten: the closing-quote case put the full stop *outside* the
+quote (`"notes.txt".`), where the closer rule is never asked, and stayed green with the
+rule removed; and `make.sh` inferred the build rule with the in-word-dot rule removed,
+because `make` alone names the build key. And an empty window crashed the unit suite
+twice: a pre-existing block read `cs[0..2]` after a scan it only `JC_CHECK`ed, and my
+own new render checks called `strstr` on a render that had produced nothing. Both are
+`JC_REQUIRE` now -- M729's shape, on the one file this milestone touched -- and the
+suite finishes under that perturbation with its 43 failures counted.
+
+### M735 -- the drive keeps each run's work on a branch of its own, and one task list runs in several modes -- done
+
+**Why.** Tonight's drive ([plan](plans/2026-09-24-overnight-drive.md)) asks what D1's note
+and D2's advice do in the field and what delegation does on real work, and the operator
+asked for the runs' work on branches of zigodot. `scripts/corpus-drive.sh` reset the
+workspace after every task and kept only a patch file, and it could drive a task list one
+way only.
+
+**What changed.** Two things, both in the script and both refusing before any request.
+
+1. **`--mode NAME`** prepends `TASKS/_mode-NAME.md` to every prompt. The preamble is data
+   beside the tasks, named in the manifest and in a new `mode=` column of runs.tsv, and it
+   is the only thing that differs between an arm and its single twin -- which is what makes
+   a subagent arm comparable with the plain one.
+2. **`--branch PREFIX`, `--push URL`, `--token-file FILE`, `--git-name`, `--git-email`.** A
+   run that leaves changes is committed on `PREFIX/TASK/ARM` from the base, one commit
+   whose message carries where it started, what ran it, how it stopped, and its own final
+   answer; the workspace goes back to the base, detached, for the next task. The rules,
+   each a refusal: the prefix must start with `drive/`, so the drive cannot name `master`
+   or a branch a person made; no trailing slash, `..` or white space; a commit needs an
+   identity; an https push needs a token file, and one that group or others can read is
+   refused. The push is plain -- never `--force`, never a delete -- so a name that exists
+   remotely fails and runs.tsv says `push=failed` rather than overwriting it. The token
+   reaches git through a credential helper given on the one push command, reading the file
+   when asked: never on a command line, never in a git config file, never printed.
+
+**Teeth.** The script's `--self-test` grew from 7 cases to 15. Six refusals, each checked
+for its exit code AND its own message; one end-to-end run of a fake jichi into a local bare
+repository, which must produce exactly `drive/st/t/st` with the change and the answer, leave
+`master` where it was, and hand the workspace back detached at the base; and the runs.tsv
+columns. Ten perturbations, one per rule: every one turned its case red -- after one fix.
+With the no-token rule deleted, the case stayed green, because the next rule ("the token
+file is not readable") refused the same run for another reason; a refusal is now checked
+by its message, and the deletion turns it red.
+
+### M735b -- the drive script's self-test used `head -c`; M735 was pushed past the red gate that said so -- done
+
+**What happened.** M735's `make ci` failed in the smoke tier: `posix_utils_lint` check 3,
+*'head -c' -- OpenBSD head has only -n*, at the new refusal helper in
+`scripts/corpus-drive.sh`'s `--self-test`. The commit was pushed anyway, because the push ran
+in the same command that printed the log's tail, and the completion notice's *exit code 0*
+belonged to the wrapper, not to `make ci` (ANECDOTES #104).
+
+**The fix.** `dd bs=200 count=1` where `head -c 200` was, the portable form the other scripts
+use. The self-test is unchanged otherwise, 15 cases, and all 66 smoke-tier lints were run
+before this commit rather than a chosen few.
+
+**The practice, changed.** A push now reads the gate's own `make ci rc=` line in the same
+command -- `grep -q 'make ci rc=0' log && git push` -- so nothing read afterwards can come too
+late to stop it.
+
+### M736 -- the floor INSTALL.md promised, measured: it did not build, and now builds lower -- done
+
+**Why.** The register asked for the two oldest-toolchain rows to be re-run once M722 had
+let gcc before 7 build again, on the suspicion that the `-Walloca` error had been hiding
+other old-platform gaps. The operator asked the same question from the other end: *find
+the oldest Linux jichi can support*. `docs/INSTALL.md` answered with a floor -- libcurl
+7.19.4, glibc 2.12, "CentOS 6 and Debian 7, exactly at the line" -- that came from
+upstream release dates. Nothing had ever built there.
+
+**1. The userland ladder.** `scripts/tier-v-ladder.sh`, new: jichi built with each
+distribution's own gcc, glibc and libcurl in a container, newest first, and its unit suite
+run there; `git archive` of a named commit in, results out to `$TIER_V_DIR`. Its first run,
+on M734, found the floor did not compile. CentOS 6 and Debian 7 failed in
+`src/net/jc_http.c` on three identifiers newer than 7.19.4, used bare: `CURL_SSLVERSION_TLSv1_2`
+(7.34.0), `CURL_SOCKOPT_OK` (7.21.5) and `CURL_SEEKFUNC_CANTSEEK` (7.19.5). The TLS minimum is
+now asked for where libcurl can name it and falls back to `CURL_SSLVERSION_TLSv1` -- any TLS,
+never an SSL fallback -- where it cannot; the other two get the fallback definitions their
+values always had. Then Debian 5 built and failed 81 unit checks, every one formatted output
+(`jc_group_num` printed `%..0f`): on glibc 2.7 `snprintf` is declared under `-std=c89` only at
+the X/Open level, the probe asked only at the POSIX level, and the build took the C89
+fallback formatter, which has no width, precision or flags. The probe asks at both now, and
+shares the `-D_XOPEN_SOURCE=600` M723's `lstat` probe may add. And Debian 4's gcc 4.1.2
+rejected all 171 compiles on `-Wvla`, which gcc gained in 4.3 -- M722 again, one flag
+older -- so `-Wvla` is probed like `-Walloca`. On one tree, the committed rig then reported:
+Debian 9, 8, 7, 6 and 5 and CentOS 7 and 6 build and pass, 13,840 checks each, 0 failures
+(the checks that need git skip, since the rungs install none; with git 2.11 on Debian 9,
+13,892 / 0). Below it, Debian 4 does not build (libcurl 7.15.5 predates the socket
+callbacks) and CentOS 5 cannot be provisioned. **So the documented floor is now true, and
+glibc reaches 2.7**, two releases below what the page used to claim; INSTALL.md carries the
+table and the new floor.
+
+**2. The Debian 9 VM row, re-run.** `tier-v-vm.sh v2f`, with the CPU pinned as its comment
+requires. The unit suite passed at once; the smoke tier stopped three times, each on the
+TESTS' assumptions, not the product's: `undo_across_branch.sh` made its fixture branch with
+`git switch` (git 2.23; the row has 2.11), so the branch never existed and one check passed
+with nothing to test; `i18n_tracks_lint.sh` called `/usr/bin/grep`, which a system before the
+merged `/usr` does not have; and `ptydrive` included `<sys/filio.h>` because glibc before 2.30
+ships a stub `<stropts.h>` that satisfies the STREAMS probe. Each fixed where it was, and the
+row went green: 326 drivers, 1,899 checks, in 756 s. Both live turns passed, on this run and
+on V2e's re-run earlier in the day, so both rows are **Driven** now.
+
+**3. The lints, so none of it recurs.** `portability_lint` check 34 holds every libcurl
+identifier in `src/` and `include/` to a table of the version each appeared in, generated
+from curl's own `symbols-in-versions`: one newer than 7.19.4 must be guarded by
+`LIBCURL_VERSION_NUM` or have a fallback, and one missing from the table fails. Check 35
+refuses `git switch` and `git restore` in the smoke tier and scripts; check 36 allows
+`/usr/bin/grep` only in the `G=` form with its fallback. Check 26's baseline moves from gcc
+4.6.4 to the measured gcc 4.1.2, and check 27 holds `-Walloca` and `-Wvla` both probed.
+
+**Teeth.** The platform fixes were proven red where they were found -- each rung and each
+V2f stop failed before its fix and passed after it, on the rig that found it. The lints: eight
+perturbations, each turning its own check red -- a bare `CURL_SOCKOPT_OK`, an identifier
+missing from the table, `git switch` back in the fixture, an unguarded `/usr/bin/grep`, a
+`G=` without its fallback, `-Wvla` back on the mandatory list, its probe dropped, and the
+floor's year changed under check 4 -- and all 36 green after. This commit's first gate failed,
+and was not pushed: `docs_flags` did not know `--arch`, the rig flag the new Driven rows cite
+with the command that drove them. It is allowlisted with that reason. My pre-commit pass had
+run every `*_lint.sh`, and `docs_flags.sh` is not named that way -- the second time today a
+chosen set of checks missed the one that fired.
+
+**Also driven today, from the same clone.** The two musl-static rows the Driven table
+still listed as undriven: `tier-v-arch.sh --drive` on `x86_64-linux-musl` (native,
+`TIER-A-6177E8`) and `aarch64-linux-musl` (under `qemu-aarch64`, `TIER-A-DA0D95`), each a
+static binary with a TLS-free minimal libcurl, unit suite 13,898 / 0.
+
+**Not done, and recorded.** The kernel floor: a container shares the host's kernel, so the
+ladder answers the userland question only (a register row). The C89 fallback formatter's
+missing width, precision and flags: no measured platform reaches it now, but the formatter
+is still wrong, and whether to finish it or refuse to build without `vsnprintf` is a
+question of which platforms it exists for (a register row). FreeMiNT steps 3 and 4 were not
+run today: step 3 needs a guest userland that can carry the smoke tier, which is still to be
+found, and step 4 needs `aratapif`, which Ubuntu 26.04's `aranym` package does not ship --
+building it from the ARAnyM sources with `sudo` is the operator's step.
+
+### M737 -- FreeMiNT, Driven: jichi calls a model from the Atari guest, over a network the emulator did not have -- done
+
+**Why.** The operator asked for FreeMiNT steps 3 and 4 today. Step 4 is the driven task --
+the two turns every Driven row runs -- from inside the guest, and it needed three things the
+row did not have: a libcurl for MiNT, a network between guest and host, and a jichi that
+links the one and uses the other.
+
+**The libcurl.** curl 8.18.0 builds for `m68k-atari-mint` unchanged, library and tool, with no
+TLS, the threaded resolver, IPv6 or zlib. The plan had named Thorsten Otto's prebuilt 7.56.0 as
+the escape route; it was not needed. `scripts/minimal-curl.sh --tls none --target
+m68k-atari-mint` is the recipe now: the one cross rung that is not zig's, since zig ships no
+MiNTLib, and it refuses any TLS backend there. jichi then cross-builds against it clean under
+`WERROR=1`, `HAVE_CURL = yes`, 2.6 MB.
+
+**The network, and the finding.** The first guest came up with only `lo0`. `nfeth-config`
+answered "No such file or directory", and `strace` showed ARAnyM never opening `/dev/net/tun`:
+**Ubuntu 26.04's ARAnyM has no ethernet at all**, and ships no `aratapif` for the same reason.
+ARAnyM's `configure.ac` probes TUN/TAP with a test program that calls `memset` without
+`<string.h>`; gcc 14 made that an error, so the probe fails, and ethernet is compiled out in
+silence. Built from the 1.1.0 source with `ac_cv_tun_tap_support=yes`, it has it. And the
+plan's `aratapif`-setuid step turned out unnecessary: in `bridge` mode ARAnyM only opens an
+existing tap, so the operator's one-time `sudo` was three `ip` commands and a firewall rule
+for one port. The rig refuses an ARAnyM without the TunTap code, naming the build that
+works, and refuses a missing tap device, naming the three commands.
+
+**The rig.** `tier-v-freemint.sh --step 4 --live-port P --live-model M`, with `TIER_V_ARANYM`
+pointing at an ethernet-capable ARAnyM: it builds the MiNT libcurl if it is not cached,
+cross-builds jichi with it, sets `[ETH0]` to bridge mode on the tap with its own addresses
+(not the archive's `192.168.0.x`, the LAN's own subnet), keeps the archive's `eth0-config.sh`,
+and writes the task from `_rig_live.sh` -- its config, its phrase, its fixture, its two
+prompts -- into the shared E: drive. The guest's boot script runs the two turns; the host
+checks `jc_rig_live`'s own two assertions. A model server that listens on every address is
+used as it is; a loopback-bound one is forwarded from the tap address alone, for the run.
+Without `--live-port` the step announces itself not attempted, as every driving rig must.
+
+**The result.** Both turns, `prism-ml/bonsai-27b`: `OK`, and the tool turn reported the phrase
+only `note.txt` held, `TIER-M-5D5D0C` -- 17 seconds from power-on to halt, 21 with the
+cross-build. The FreeMiNT row is **Driven**, still *cross-built, emulated*, and still
+**Never compiled**: no compiler on MiNT has seen the tree.
+
+**Registered.** The guest boots with the same clock, loads jichi at the same address and has
+no `/dev/urandom`, so `jc_uuid` produced the same id on every boot -- harmless for session
+ids, not for a journal's `run` id, which the measurement scripts join on. Step 3, the smoke
+tier in the guest, still waits for a MiNT userland: the image has `bash` and not the
+utilities the drivers call.
+
+### M738 -- Guix System, Driven, headless; and the check that said twelve rigs parse `--live-port` had checked eight -- done
+
+**Why.** The operator asked for every undriven platform row that can run on threadwork,
+*"guix included"*. The Guix row had been verified for the unit suite since M450, M458 and
+M468 and never driven: the published image has no sshd, `sendkey` dropped keys in GRUB's
+editor at M468, and a person typed the boot edit at the desktop.
+
+**The route.** Under `-nographic` GRUB reads the serial line (M468 found that much). The
+2026-08 serial attempts navigated the editor with `Ctrl-N`, which landed on `search`, or
+typed a whole command line and lost a token. M738 edits the entry with the arrow key's
+escape sequence -- `e`, three Downs 300 ms apart (into the `linux` line, which wraps over
+four screen rows), `Ctrl-E`, ` console=ttyS0`, `Ctrl-X` -- and Guix starts a login on the
+console the kernel names; `guest` has no password. Which of those differences mattered is
+not isolated: `Ctrl-N` was not re-tried. Three runs, three clean edits.
+
+**The rig.** `scripts/tier-v-guix.sh --image PATH [--rev REV] [--live-port P --live-model M]`,
+the transcript of the hand run: an overlay with no size argument (M468's truncation), a 9p
+share holding `git archive` of the tree and `_rig_live.sh`'s config, fixture and prompts; in
+the guest it mounts the share, waits for `/etc/resolv.conf` to name a server (a `guix shell`
+that starts before NetworkManager finds no substitutes and bootstraps from source --
+measured), then `guix shell` builds with `CC=gcc WERROR=1`, runs the unit suite and the two
+turns against the host's model server through QEMU's host alias. The host checks the
+results; nothing is written to the tree. `--dry-run` prints the plan and every refusal a
+real run would make; the refusals are collected, not first-wins; `--live-port` without
+`--live-model` is refused rather than skipping the turns in silence.
+
+**The result.** Guix System 1.5.0, `guix describe` d58da8a, kernel 6.17.12-gnu, the store's
+gcc 15.2.0 and libcurl 8.6.0: `WERROR=1` clean, **13,846 unit checks / 0 failures**, both
+turns with `prism-ml/bonsai-27b`, agentic phrase **`TIER-G-B31F57`**, 67 s from power-on to
+the last assertion. The row is **Driven**. Teeth: a fixture carrying a different phrase
+turned the tool assertion red with the other three green.
+
+**What the new rig found in the gate.** `rig_live_lint` check 6 -- *"all 12 rigs advertising
+`--live-port` parse it (checked in `--dry-run`)"* -- had checked eight. Every rig but two was
+called with `--ref-secs 7 --dry-run` BEFORE the live flags, and `tier-v-arch`, `tier-v-tiny`,
+`tier-v-freemint` and the new `tier-v-guix` take no `--ref-secs`: each died on it before
+reading `--live-port`, and "exit 2 with a complaint that does not name the flag" counted as a
+pass. The Guix rig was counted among the twelve on the day it was written, when it did not
+have a `--dry-run` at all. Now the live flags go first, each rig gets only arguments it takes,
+the pass is the dry run completing (exit 0), and HOME and `TIER_V_DIR` point into the check's
+temp dir, so a bench's caches cannot make it pass; the floor is today's 12. **Teeth, per
+guard:** removing freemint's `--live-port` arm, guix's `--dry-run` arm, tiny's dry-run
+tolerance, or the `shift` after arch's `--live-port` (the M677 class) each turns the new check
+6 red -- and HEAD's check 6 stayed green on all four. A floor of 13 turns it red.
+
+**And what the fixed check found behind that.** Once `tier-v-tiny`'s dry run got past the
+argument it refused on this bench's own state (a dynamically linked `./jichi`) and, with
+`--live-model` and no cached kernel, **downloaded one** from Alpine's CDN. A dry run now
+reports each missing prerequisite and goes on, prints `+ fetch ...` instead of fetching, and
+says `DYNAMIC -- a real run refuses it` where it used to say `static`. **Check 7** makes it a
+rule: no dry run may leave a file in `TIER_V_DIR`. Re-enabling the fetch turns check 7 red
+(`v6-vmlinuz`) while check 6 stays green, which is the case it exists for. And running all
+twelve dry runs under `env -i PATH=/usr/bin:/bin` found `tier-v-arch`'s completing only where
+zig and the binfmt handlers are installed -- green here, red on any host without them. It
+now reports those and an unvalidated `--arch` in a dry run, and still refuses in a real one;
+all twelve complete that way on threadwork.
+
+**Corrected on the way.** `LOW_MEMORY.md` still called `parallel_abort` on Guix an open
+finding, closed by measurement at M468; and DEFERRED's *"the one step that needs a human is
+five minutes at that image's graphical console"* is superseded, with the addendum on the
+2026-08-17 analysis page saying what changed and what is not known.
+
+**Before tonight's drive.** All nine arm configs named LM Studio's embedder, where the plan
+said two did: a lane's first `codebase_search` embeds its whole workspace (2,097 chunks on the
+seed), so an HRZ lane that searched would have put two thousand requests on LM Studio in the
+middle of a bonsai run -- the one-user rule broken by configuration. The seven HRZ configs now
+embed with `jlu/qwen3-embedding` (in the free listing re-read at 14:18; a full index in 75 s,
+4096 dimensions); the configs live outside the tree, and the plan's §3 and the handoff say
+so, including the cost -- `qwen` now differs from 2026-09-23's config by that field, which
+`codebase_search` used once in 48 runs.
+
+### M739 -- the smoke tier removes its temp dirs, which it never had -- done
+
+**Why.** In the middle of M738 every tool that made a temp file failed with *No space left on
+device*, the session's own shell included, while `df -h /tmp` said 18% used. `df -i`: all
+1,048,576 of the tmpfs's inodes were in use, by **20,284** directories named
+`jichi_smoke.XXXXXX` -- every smoke temp dir created on threadwork since its last boot (the
+oldest 2026-09-23 09:00), the largest holding 12,700 files. ANECDOTES #105.
+
+**Root cause.** `smoke_tmp` recorded each directory in `SMOKE_TMPDIRS` for the EXIT trap to
+remove, and all 319 drivers that use it call `tmp=$(smoke_tmp)`. A command substitution runs in
+a subshell and its assignments die with it, so the trap looped over an empty list -- from M209
+(2026-07-31), the tier's first commit (`git log -S`). A reboot empties a tmpfs, which is why a
+two-month leak surfaced only on a day with many gates. Measured on M738's own gate: one
+`make ci` left **915** more of them and **24,301** more used inodes (`jichi_smoke` entries 84 ->
+999, `/tmp` inodes 113,720 -> 138,021).
+
+**The fix.** The registry is a file, `$TMPDIR/jichi_smoke_reg.$$` -- `$$` is the driver's pid in
+the subshell too, so `smoke_tmp` and the trap agree on it -- and the trap reads it line by line.
+It removes only a path named `jichi_smoke.XXXXXX` (the registry is a file on a shared `/tmp`, so
+a stray line must not be able to name anything else), and it `chmod -R u+rwx`es first, because a
+fixture left mode 000 keeps everything beneath it from `rm -rf`.
+
+**The test.** `tests/smoke/smoke_tmp_lint.sh` runs a driver in miniature -- it sources the
+real `_smoke.sh`, makes two temp dirs the way every driver does, one holding a mode-000 fixture,
+and appends a line naming a directory it did not make -- with `TMPDIR` inside the test's own
+temp dir, so what it leaves is countable: the instrument (two dirs were made), nothing left
+after a clean exit, nothing after `exit 1`, the planted directory untouched. **Teeth, per
+guard:** dropping the registry write (the bug itself) turns checks 2 and 3 red and leaks the
+test's own dir too; dropping the `chmod`, 2 and 3; dropping the name check, 4; keeping the
+registry file, 2 and 3; renaming the dirs, 1.
+
+**Not fixed, noted.** A driver killed with SIGKILL runs no trap and still leaks; the runner
+sends TERM first. And on TERM the trap cleans up and the driver then carries on without its temp
+dirs, as it always has -- a separate question.
+
+**Found the same afternoon, registered rather than fixed before the drive.** `corpus-drive.sh`'s
+MANIFEST prints `branches: drive/2026-09-24/TASK/qwen-subdrive/2026-09-24` -- `${BRPFX:-(none)}`
+expands to the prefix when one is set, so it is appended twice; the branch names themselves are
+right, and each run's `branch=` in `runs.tsv` is the record. And its `--dry-run` resets the
+workspace and appends to the arm's MANIFEST before it reaches the dry-run branch, so a dry run
+pointed at a real drive directory is not dry. Both wait until the drive has finished with the
+pinned copy.
+
+### M740 -- a database for the agent, a report you can send, and an example that let a label write files -- done
+
+**Why.** The operator asked twelve questions on 2026-09-24. This milestone ships the three that
+could be answered with something runnable: what a tester sends the developers (1), how SQLite
+reaches an agent (6), and which agent use cases are sought after or overlooked (12). The design
+plans for the other nine come next (M741). Six read-only research passes over the tree fed all
+twelve. Their findings that this milestone did not measure are in `DEFERRED.md`, most urgent
+first; the first of them has to be reproduced before it is called a defect.
+
+**Question 1: sending a report.** `PLATFORM_TESTING.md` gains §5. It covers where to send (the
+public issue tracker, or email to the address on the commits, the convention `SECURITY.md`
+already uses, because the tree carries no personal address and `snapshot_lint` keeps it that
+way), what to send, what never to send, a one-minute check before sending, an email template
+to copy, and one filled in from the Guix row. The page's own example of "copy the numbers" used
+thousands separators the tools never print; it now quotes a real line.
+
+**Question 6: SQLite, `docs/SQLITE.md` and `examples/sqlite/`.** Three routes, all run on
+2026-09-24 with `jlu/qwen3-coder-next`:
+- an MCP server in one file of standard-library Python, read-only five ways, each layer tested;
+- a user-defined tool around `sqlite3 -safe -readonly`;
+- the shell, with `undo` measured on a database the model had emptied.
+
+The lesson under all three was measured first. `sqlite3 -readonly` makes the *file* read-only,
+not the *program*: `.shell`, `writefile()` and `readfile()` all ran against a read-only
+database, and `-safe` refused each. A user tool marked `readonly: true` runs without a prompt,
+so the difference is an unprompted shell. Route 2 reads its query from stdin, because a
+`JICHI_ARG_*` variable is cut at 1023 bytes, silently. A 1,236-byte query cut there was still
+valid SQL and ran.
+
+**The defect that lesson found at home.** `examples/autonomous-loop/db-report.sh`, the
+project's example of a database behind a user tool, put a model-chosen status into the sqlite3
+shell's `.param set`. Its comment and `AUTONOMOUS_LOOPS.md` called that parameter binding, "a
+hostile value is inert data". `.param set` *evaluates* its value as SQL when it can. `(SELECT
+6*7)` was stored as 42, and `(SELECT writefile(char(112), char(104,105)))` created a file. The
+tool is mutating, so under `--auto` it runs without asking. Two walls now, each enough alone: a
+whitelist on the label, and `-safe`. `tests/smoke/db_report_lint.sh` proves each separately:
+- HEAD's script fails checks 2, 3 and 4;
+- with only `-safe` removed, check 4 fails;
+- with only the whitelist removed, check 2 fails, while check 3 still holds because `-safe`
+  stops the write.
+
+It skips on a host without sqlite3.
+
+**Question 12: `docs/analysis/2026-09-24-agent-use-cases.md`.** It reports three primary
+sources, each with its date and what it cannot say: LangChain's *State of AI Agents* (survey of
+Nov-Dec 2025), Anthropic's *Economic Index* (Sep 2025 and Jun 2026), and Stack Overflow's 2025
+survey. Sought after: coding for developers, customer service and research for organisations.
+Overlooked, argued rather than measured and labelled so:
+- an agent whose deliverable includes the evidence for its claims (quality is the first
+  barrier, and fewer than 53% run offline evaluations);
+- an agent that teaches instead of doing;
+- read-only operations help;
+- agents on modest hardware with free models.
+
+**Also corrected.** `DATA_STRUCTURES.md` said `bsearch` was used in 2 files. It is used in none:
+the count matched *websearch*, a grep without `-w`. The page now also names the live instance of
+its own tie-breaking trap (`dream_meta_cmp`). `PREPARE_AND_BUILD.md` still said jichi had no
+public repository, a month after the first release. `USER_TOOLS.md` called arguments
+"validated", which they are not.
+
+**And a table restated rather than an allowance raised.** `db_report_lint` made the tree 329
+drivers, and `platform_retest_lint` refused: `PLATFORM_RETEST.md` computed coverage debt
+against 303, 26 back, one past its 25-driver allowance. Restated at 329, the NetBSD and OpenBSD
+rows now cite their 2026-09-19 runs. `PLATFORMS.md` records those as executing the whole
+303-driver tree, but the retest table still cited the 209-driver runs of M480/M481. **WSL2 (209
+drivers, M475) is at 120, past 100: by the page's own rule a historical datum until it is re-run.**

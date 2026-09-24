@@ -67,6 +67,7 @@ policy) in your hands.
 | [`autonomous-loop`](autonomous-loop/) | reference artifacts for running jichi as an unattended, supervised loop over a task queue (tmux/systemd/cron); the C89 supervisor is built by `make examples`. See [`../docs/AUTONOMOUS_LOOPS.md`](../docs/AUTONOMOUS_LOOPS.md). |
 | [`web-bridge`](web-bridge/) | a Python-stdlib sidecar (`bridge.py`) that drives headless jichi and streams events as SSE to a browser — the minimal web front-end track. See [`../docs/WEB_FRONTEND.md`](../docs/WEB_FRONTEND.md). |
 | [`robot-sim`](robot-sim/) | a simulated robot for the kinetic/robotics gate (`docs/ROBOTICS.md`) — jichi as the seconds-scale deliberative layer over an E-stop-protected device. |
+| [`sqlite`](sqlite/) | a practice database, a read-only SQLite **MCP server** in one file of standard-library Python, and a user-defined tool around `sqlite3 -safe -readonly` — the files for [`../docs/SQLITE.md`](../docs/SQLITE.md), which explains why a read-only database is not a read-only tool. Run by hand on 2026-09-24; no smoke driver yet (the tier is Python-free). |
 | [`skills`](skills/) | example `SKILL.md` files illustrating the progressively-disclosed skills mechanism. |
 | [`stress`](stress/) | stress/soak test products for the measurement harness. |
 

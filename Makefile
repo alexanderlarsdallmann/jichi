@@ -153,16 +153,33 @@ endif
 #
 # The trivial program carries no '#' so the \043 dance the other probes need
 # (make 3.82 strips '#' inside $(shell ...)) is not required here.
+#
+# -Walloca is probed too, for a different reason (M722): it is not GCC-only but
+# GCC-7-and-later, and gcc rejects an unknown -W option as an ERROR, with or
+# without -Werror. M472 put it on the mandatory list below, measured against
+# gcc 13 and clang 18, which both know it -- so from M472 on, no gcc before 7
+# could compile one file of this tree, including the CentOS 6 / Debian 7 floor
+# docs/INSTALL.md promises and two recorded rows (CentOS 7's gcc 4.8.5, Debian
+# 9's gcc 6). Every compiler in the gate knows the flag, so nothing here could
+# see it. Found by the FreeMiNT step 0 cross-compile with gcc 4.6.4
+# (docs/plans/2026-09-freemint-aranym.md section 8): all 314 compiles died in 1.1 s.
+# portability_lint check 26 holds the mandatory list to the flags gcc 4.6.4
+# compiled with; check 27 keeps -Walloca probed here, so the compilers that have
+# it keep the tripwire.
 cc_warn_ok = $(shell printf 'int main(void){return 0;}\n' \
   | $(CC) -Werror $(1) -xc - -o $(PROBE_OUT) 2>/dev/null && echo $(1); rm -f $(PROBE_OUT) $(PROBE_OUT).exe)
 
+# -Wvla is probed as well since the userland ladder (2026-09-24): gcc gained it in
+# 4.3, and Debian 4's gcc 4.1.2 rejected all 171 compiles on it -- the M722 defect
+# again, one flag older. Every compiler that knows it keeps the tripwire.
 WARN_OPTIONAL := $(call cc_warn_ok,-Wlogical-op) \
                  $(call cc_warn_ok,-Wduplicated-cond) \
-                 $(call cc_warn_ok,-Wjump-misses-init)
+                 $(call cc_warn_ok,-Wjump-misses-init) \
+                 $(call cc_warn_ok,-Walloca) \
+                 $(call cc_warn_ok,-Wvla)
 
 WARN     = -Wall -Wextra \
            -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition \
-           -Wvla -Walloca \
            -Wpointer-arith -Wredundant-decls -Wundef \
            $(WARN_OPTIONAL)
 POSIX    = -D_POSIX_C_SOURCE=200112L
@@ -206,6 +223,22 @@ INCLUDE  = -Iinclude -Isrc/json
 # it removes the failure MODE, which is the one that cost a whole uClibc row.
 HAVE_VSNPRINTF := $(shell printf '\043include <stdio.h>\nint main(void){char b[8];return snprintf(b,sizeof b,"%%d",1)<0;}\n' \
   | $(CC) -std=c89 -Werror=implicit-function-declaration -D_POSIX_C_SOURCE=200112L -xc - -o $(PROBE_OUT) 2>/dev/null && echo yes; rm -f $(PROBE_OUT) $(PROBE_OUT).exe)
+# ...and ask again at the X/Open level before concluding there is none. An older
+# glibc declares snprintf under -std=c89 only for C99 or X/Open: measured on
+# Debian 5's glibc 2.7 by the userland ladder (2026-09-24), where the POSIX form
+# above failed, so the build took the C89 fallback formatter -- which has no
+# width, precision or flags -- and the unit suite reported 81 failures, all of
+# them output formatted wrong. The declaration was there all along. The same
+# -D_XOPEN_SOURCE=600 the lstat probe below may add, and added once.
+ifneq ($(HAVE_VSNPRINTF),yes)
+  HAVE_VSNPRINTF_XOPEN := $(shell printf '\043include <stdio.h>\nint main(void){char b[8];return snprintf(b,sizeof b,"%%d",1)<0;}\n' \
+    | $(CC) -std=c89 -Werror=implicit-function-declaration -D_POSIX_C_SOURCE=200112L -D_XOPEN_SOURCE=600 -xc - -o $(PROBE_OUT) 2>/dev/null && echo yes; rm -f $(PROBE_OUT) $(PROBE_OUT).exe)
+  ifeq ($(HAVE_VSNPRINTF_XOPEN),yes)
+    HAVE_VSNPRINTF := yes
+    XOPEN_ADDED := yes
+    STD += -D_XOPEN_SOURCE=600
+  endif
+endif
 ifeq ($(HAVE_VSNPRINTF),yes)
   STD += -DJC_HAVE_VSNPRINTF
 endif
@@ -328,6 +361,43 @@ HAVE_STREAMS_PTY := $(shell printf '$(STREAMS_PROBE)' \
   | $(CC) -std=c89 -D_POSIX_C_SOURCE=200112L $(if $(filter yes,$(HAVE_WINSZ)),,-D__EXTENSIONS__) -xc - -o $(PROBE_OUT) 2>/dev/null && echo yes; rm -f $(PROBE_OUT) $(PROBE_OUT).exe)
 ifeq ($(HAVE_STREAMS_PTY),yes)
   STD += -DJC_HAVE_STREAMS_PTY
+endif
+
+# MiNTLib (FreeMiNT) hides lstat, readlink and symlink under strict
+# _POSIX_C_SOURCE=200112L: its headers predate POSIX.1-2001 moving them into the
+# base, and still want __USE_BSD or __USE_XOPEN_EXTENDED. -D_XOPEN_SOURCE=600 --
+# the X/Open level that matches this build's POSIX level -- exposes all three
+# (M723, measured with gcc 4.6.4 and MiNTLib 0.60.1). Probed like __EXTENSIONS__
+# above, and WITH -Werror=implicit-function-declaration: the symbols ARE in MiNT's
+# libc and only the declarations are hidden, so a probe that merely links says
+# yes there and the build then fails -- measured, and M449's lesson in a new
+# place. On glibc, musl, the BSDs and illumos the first form succeeds and nothing
+# is added. portability_lint check 31 holds both probes to the flag.
+LSTAT_PROBE := \043include <sys/stat.h>\n\043include <unistd.h>\nint main(void){struct stat s;char b[2];return lstat(".",&s)+(int)readlink(".",b,1)+symlink(".",".");}\n
+HAVE_LSTAT := $(shell printf '$(LSTAT_PROBE)' \
+  | $(CC) -std=c89 -D_POSIX_C_SOURCE=200112L $(if $(filter yes,$(HAVE_WINSZ)),,-D__EXTENSIONS__) -Werror=implicit-function-declaration -xc - -o $(PROBE_OUT) 2>/dev/null && echo yes; rm -f $(PROBE_OUT) $(PROBE_OUT).exe)
+ifneq ($(HAVE_LSTAT),yes)
+  HAVE_LSTAT_XOPEN := $(shell printf '$(LSTAT_PROBE)' \
+    | $(CC) -std=c89 -D_POSIX_C_SOURCE=200112L -D_XOPEN_SOURCE=600 -Werror=implicit-function-declaration -xc - -o $(PROBE_OUT) 2>/dev/null && echo yes; rm -f $(PROBE_OUT) $(PROBE_OUT).exe)
+  ifeq ($(HAVE_LSTAT_XOPEN),yes)
+    ifneq ($(XOPEN_ADDED),yes)
+      STD += -D_XOPEN_SOURCE=600
+    endif
+  endif
+endif
+
+# No mmap on FreeMiNT: MiNTLib has neither <sys/mman.h> nor the symbol (M723).
+# jc_index maps its vector blob where it can and already reads a copy when a
+# mapping fails (M141), so absence needs only a compile-time guard. NEGATIVE,
+# like JC_NO_CLOCK_GETTIME and for the same reason: without the flag, today's
+# behaviour stands, and it is set only when the probe has proved mmap
+# unreachable. `make ci` compiles the guarded path (fallbacks-compile), because
+# nothing else in the gate would.
+MMAP_PROBE := \043include <sys/mman.h>\nint main(void){void *p=mmap(0,1,PROT_READ,MAP_PRIVATE,-1,0);return p==MAP_FAILED;}\n
+HAVE_MMAP := $(shell printf '$(MMAP_PROBE)' \
+  | $(CC) -std=c89 -D_POSIX_C_SOURCE=200112L $(if $(filter yes,$(HAVE_WINSZ)),,-D__EXTENSIONS__) -Werror=implicit-function-declaration -xc - -o $(PROBE_OUT) 2>/dev/null && echo yes; rm -f $(PROBE_OUT) $(PROBE_OUT).exe)
+ifneq ($(HAVE_MMAP),yes)
+  STD += -DJC_NO_MMAP
 endif
 
 # libm for floor() in the JSON number printer.
@@ -742,7 +812,7 @@ TARGET  ?=
 
 # --- targets ---------------------------------------------------------------
 .PHONY: all test clean info ci install install-check uninstall e2e \
-        elisp-compile elisp-test fuzz libfuzz examples cpp-check
+        elisp-compile elisp-test fuzz libfuzz examples cpp-check fallbacks-compile
 
 
 # Install locations (override with `make install PREFIX=... DESTDIR=...`).
@@ -1129,7 +1199,44 @@ ci:
 # repair this same drift once before (~28 link errors then, one now), and both
 # times it was found by someone cross-building, not by the gate. A text lint
 # cannot see it; only a link can.
-	$(MAKE) clean && $(MAKE) WERROR=1 HAVE_CURL= $(TEST) && ./$(TEST)
+#
+# And it RUNS UNDER 512 KB OF STACK (M727), the stack jichi gives itself on
+# FreeMiNT, which runs exactly this build. MiNT does not grow a stack: `_stksize`
+# in src/platform/jc_platform_posix.c fixes it (portability_lint 32 holds it at
+# 512 KB or more, and 33 holds this limit to it), and past its end is the heap.
+# The path resolver recursed once per symlink hop at ~16.5 KB a call, so the
+# suite's `loop -> loop` case needed ~700 KB: a bus error in the guest and
+# nothing at all under a host's 8 MB. Before the fix this stage segfaulted
+# here; with it, the suite passes from 112 KB up.
+	$(MAKE) clean && $(MAKE) WERROR=1 HAVE_CURL= $(TEST) && \
+	         (ulimit -s 512 && ./$(TEST))
+# M728: the suite refuses a TMPDIR longer than its fixtures were measured clean
+# under (JC_TEST_TMPDIR_MAX), and it refuses BEFORE touching the filesystem, so
+# a path one character too long that does not exist proves it. Past the limit
+# the fixture buffers truncate, and a truncated `rm -rf` once removed the whole
+# TMPDIR. The length is read from the source, not repeated here.
+	n=$$(sed -n 's/^#define JC_TEST_TMPDIR_MAX \([0-9]*\).*/\1/p' tests/test_main.c) && \
+	  TMPDIR=$$(printf "/%0$${n}d" 0) ./$(TEST) > /dev/null; test $$? -eq 2
+# M729: and the suite COMPLETES on a TMPDIR it cannot write, reporting failures
+# rather than dying of a signal, and writes nothing into the directory it runs
+# from. The TMPDIR is a path below a regular file, which fails with ENOTDIR even
+# for root. On one, the suite segfaulted in test_config (a JC_CHECK that read
+# NULL on the next line, five more behind it), and test_gradecore, whose chdir
+# had failed, wrote seven spec files into the tree. That is M452's host without
+# a writable /tmp, which the gate had never been.
+	t=$${TMPDIR:-/tmp}/jc_unwritable.$$$$ && : > $$t.file && ls -A | sort > $$t.before && \
+	  { TMPDIR=$$t.file/x ./$(TEST) > $$t.log 2>&1; rc=$$?; }; \
+	  ls -A | sort > $$t.after; \
+	  if grep -q '^[0-9]* checks, [0-9]* failures$$' $$t.log && [ $$rc -eq 1 ] && \
+	     cmp -s $$t.before $$t.after; then rm -f $$t.file $$t.before $$t.after $$t.log; \
+	  else echo "unwritable TMPDIR: rc=$$rc, and the run did not complete or wrote into ."; \
+	       echo "  log: $$t.log (M729)"; exit 1; fi
+# The fallback paths the probes switch on, compiled under the gate's own flags
+# (M723). Each is taken only on a platform the gate does not run -- FreeMiNT has
+# neither clock_gettime nor mmap -- so without this line the first such platform
+# is where a fallback's compile error is found. INSTALL.md said the clock
+# fallback "is compiled under -Werror"; until M723 no stage of this gate did it.
+	$(MAKE) WERROR=1 fallbacks-compile
 # The FAULT=1 tier (M482). It is a SEPARATE BUILD, which is why it was missing:
 # three drivers exist for jichi's error paths, each SKIPS on a normal binary, and
 # no stage of this gate ever built one -- so they ran only when somebody typed
@@ -1145,7 +1252,14 @@ ci:
 	$(MAKE) WERROR=1 smoke
 	$(MAKE) smoke-mutant
 	$(MAKE) e2e
-	@echo "ci: OK (gcc + clang build/test, asan/ubsan, leakcheck, valgrind, curl-free link, faults, smoke, mutant, e2e)"
+	@echo "ci: OK (gcc + clang build/test, asan/ubsan, leakcheck, valgrind, curl-free link, fallbacks, faults, smoke, mutant, e2e)"
+
+# Compile each probe-switched fallback with its macro forced on (M723). -o
+# /dev/null and no DEPFLAGS: this checks that the path compiles and leaves
+# nothing behind, not even a .d file.
+fallbacks-compile:
+	$(CC) $(filter-out $(DEPFLAGS),$(CFLAGS)) -DJC_NO_CLOCK_GETTIME -c src/platform/jc_platform_posix.c -o /dev/null
+	$(CC) $(filter-out $(DEPFLAGS),$(CFLAGS)) -DJC_NO_MMAP -c src/index/jc_index.c -o /dev/null
 
 # Can a driver notice the product disappearing? `make smoke-mutant`.
 #
@@ -1262,11 +1376,13 @@ endif
 info:
 	@echo "CC             = $(CC)"
 	@echo "STD_DIALECT    = $(STD_DIALECT)"
-	@echo "HAVE_VSNPRINTF = $(HAVE_VSNPRINTF)"
+	@echo "HAVE_VSNPRINTF = $(HAVE_VSNPRINTF)$(if $(filter yes,$(HAVE_VSNPRINTF_XOPEN)), (declared only at -D_XOPEN_SOURCE=600))$(if $(filter yes,$(HAVE_VSNPRINTF)),, -- the C89 fallback formatter has no width/precision/flags)"
 	@echo "HAVE_CURL      = $(HAVE_CURL)"
 	@echo "CURL_HEADER    = $(if $(filter yes,$(HAVE_CURL)),$(if $(filter yes,$(CURL_HDR_CLEAN)),clean under this dialect,needs $(strip $(CURL_HDR_CFLAGS)) for src/net/jc_http.o),n/a (no libcurl))"
 	@echo "HAVE_MALLOC_TRIM = $(HAVE_MALLOC_TRIM)"
 	@echo "CLOCK_GETTIME  = $(if $(filter yes,$(HAVE_CLOCK)),in libc,$(if $(RT_LIBS),needs -lrt,absent (coarse time() fallback)))"
+	@echo "LSTAT          = $(if $(filter yes,$(HAVE_LSTAT)),declared under strict POSIX,$(if $(filter yes,$(HAVE_LSTAT_XOPEN)),needs -D_XOPEN_SOURCE=600 (MiNTLib),ABSENT -- the build will not compile))"
+	@echo "MMAP           = $(if $(filter yes,$(HAVE_MMAP)),in libc,absent (jc_index reads a copy))"
 	@echo "WINSIZE        = $(if $(filter yes,$(HAVE_WINSZ)),visible under strict POSIX,$(if $(filter yes,$(HAVE_WINSZ_EXT)),needs -D__EXTENSIONS__ (illumos/Solaris),ABSENT))"
 	@echo "SOCKET_LIBS    = $(if $(filter yes,$(HAVE_SOCK)),in libc,$(if $(SOCK_LIBS),$(SOCK_LIBS),UNRESOLVED))"
 	@echo "STREAMS_PTY    = $(if $(filter yes,$(HAVE_STREAMS_PTY)),yes (pty slave needs ptem/ldterm pushed),no (a pty slave is a terminal already))"

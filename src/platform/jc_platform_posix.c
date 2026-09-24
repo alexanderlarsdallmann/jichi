@@ -30,6 +30,20 @@
 #include <pwd.h>   /* getpwuid: ask the system for home, don't guess /tmp (M472) */
 #if defined(__APPLE__)
 #include <sys/sysctl.h>
+
+#endif
+
+/* M726: FreeMiNT gives a program a FIXED stack of `_stksize` bytes -- 64 KB by
+ * MiNTLib's default -- and it does not grow. The unit suite ran past it
+ * (tests/test_vision.c keeps a 64 KB buffer on the stack) and overwrote the
+ * environment next to it: a bus error in getenv, then in setenv, reading
+ * 0x78787878, which is that buffer's 'x' fill. 512 KB is measured to carry the
+ * whole suite in the guest and fits MiNT's default 1,024 KB initial allocation;
+ * a 4 MB stack did not start ("insufficient memory"). MiNT's crt0 reads this
+ * symbol, and a definition here overrides MiNTLib's for every program that
+ * links the platform layer: jichi, jichi-convert and run_tests. */
+#ifdef __MINT__
+long _stksize = 512L * 1024L;
 #endif
 
 const char *jc_status_str(jc_status s)

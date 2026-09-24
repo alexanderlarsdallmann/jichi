@@ -41,6 +41,24 @@ static const char *JSON_SAMPLE =
     "\"model\": \"gpt-4o\", \"apiBase\": \"https://api.example/v1\", "
     "\"completionOptions\": { \"maxTokens\": 1000 } } ] }";
 
+/* M718: the shapes that sent a vendor's key to a host that was not the
+ * vendor's. A keyless local server, an OpenRouter secret, and a model whose
+ * source names no provider at all. */
+static const char *YAML_NO_HOUSE_KEY =
+    "models:\n"
+    "  - name: Local\n"
+    "    provider: ollama\n"
+    "    model: qwen2.5-coder\n"
+    "    apiBase: http://gpu-box:11434/v1\n"
+    "  - name: Router\n"
+    "    provider: openrouter\n"
+    "    model: some-model\n"
+    "    apiBase: https://openrouter.example/api/v1\n"
+    "    apiKey: ${{ secrets.OPENROUTER_API_KEY }}\n"
+    "  - name: Nameless\n"
+    "    model: some-model\n"
+    "    apiBase: http://127.0.0.1:1234/v1\n";
+
 static const char *YAML_TEMPLATED_KEY =
     "models:\n"
     "  - name: Claude\n"
@@ -56,8 +74,9 @@ static void test_yaml_parser_basics(void)
     struct jc_yaml *m0;
     struct jc_yaml *m1;
 
-    JC_CHECK(root != NULL);
-    JC_CHECK_STR(jc_yaml_get_str(root, "name", "?"), "my-assistant");
+    if (JC_REQUIRE(root != NULL)) { /* a guard (M729) */
+        JC_CHECK_STR(jc_yaml_get_str(root, "name", "?"), "my-assistant");
+    }
 
     models = jc_yaml_get(root, "models");
     JC_CHECK(models != NULL && jc_yaml_seq_len(models) == 2);
@@ -196,8 +215,11 @@ static void test_convert_json(void)
     JC_CHECK_STR(jc_json_get_str(model, "model", "?"), "gpt-4o");
     JC_CHECK_STR(jc_json_get_str(model, "apiBase", "?"),
                  "https://api.example/v1");
-    /* No literal key in legacy sample => env reference. */
-    JC_CHECK_STR(jc_json_get_str(model, "apiKeyEnv", "?"), "OPENAI_API_KEY");
+    /* No key in the source => NO key variable is written (M718). This used to
+     * assert "OPENAI_API_KEY" -- the converter inventing a vendor's variable
+     * for a model at api.example, which the runtime then honours as NAMED and
+     * sends there. The runtime's own rule is the whole default now. */
+    JC_CHECK(jc_json_get_str(model, "apiKeyEnv", NULL) == NULL);
     JC_CHECK(jc_json_get_num(model, "maxTokens", -1.0) == 1000.0);
 
     cJSON_Delete(root);
@@ -216,9 +238,12 @@ static void test_convert_templated_key(void)
              == JC_OK);
     root = jc_json_parse(res.json);
     model = cJSON_GetArrayItem(jc_json_get_obj(root, "models"), 0);
-    /* A ${{...}} secret template is not a literal key. */
+    /* A ${{...}} secret template is not a literal key -- and the variable is
+     * the one the template NAMES (M718). This used to assert the provider's
+     * conventional "ANTHROPIC_API_KEY", discarding the name the user wrote;
+     * on an OpenRouter model the same rule produced OPENAI_API_KEY. */
     JC_CHECK(jc_json_get_str(model, "apiKey", NULL) == NULL);
-    JC_CHECK_STR(jc_json_get_str(model, "apiKeyEnv", "?"), "ANTHROPIC_API_KEY");
+    JC_CHECK_STR(jc_json_get_str(model, "apiKeyEnv", "?"), "ANTHROPIC");
 
     cJSON_Delete(root);
     free(res.json);
@@ -457,8 +482,9 @@ static void test_convert_assets_roundtrip(void)
     cmd_md = find_asset(res.ir, "commands/ship");
     JC_CHECK(cmd_md != NULL);
     jc_md_parse(cmd_md, a, &doc);
-    JC_CHECK(doc.front != NULL);
-    JC_CHECK_STR(jc_yaml_get_str(doc.front, "agent", "?"), "reviewer");
+    if (JC_REQUIRE(doc.front != NULL)) { /* a guard (M729) */
+        JC_CHECK_STR(jc_yaml_get_str(doc.front, "agent", "?"), "reviewer");
+    }
     JC_CHECK(strstr(doc.body, "$ARGUMENTS") != NULL);
     jc_md_free(&doc);
 
@@ -475,7 +501,11 @@ static void test_convert_claude(void)
     struct jc_convert_result res;
     long pid = (long)getpid();
 
-    jc_snprintf(base, sizeof base, "%s/jctest-claude-%ld", jc_test_tmpdir(), pid);
+    if (!JC_REQUIRE(jc_snprintf(base, sizeof base, "%s/jctest-claude-%ld",
+                                jc_test_tmpdir(), pid) < (int)sizeof base)) {
+        jc_arena_free(a);
+        return; /* a cut fixture path is a different path (M728) */
+    }
     jc_snprintf(sub, sizeof sub, "%s/.claude/agents", base);
     jc_mkdir_p(sub);
     jc_snprintf(sub, sizeof sub, "%s/.claude/commands", base);
@@ -519,12 +549,56 @@ static void test_convert_claude(void)
     /* warnings mention hooks (unmapped). */
     JC_CHECK(res.warning_count > 0);
 
-    /* cleanup (best-effort). */
-    {
-        char rm[600];
-        jc_snprintf(rm, sizeof rm, "rm -rf %s", base);
-        if (system(rm) != 0) { /* ignore */ }
-    }
+    /* cleanup (best-effort), without a shell (M728). */
+    (void)jc_test_rm_rf(base);
+    jc_arena_free(a);
+}
+
+static void test_convert_no_house_key(void)
+{
+    struct jc_arena *a = jc_arena_new(0);
+    struct jc_convert_result res;
+    cJSON *root;
+    cJSON *models;
+    cJSON *m0;
+    cJSON *m1;
+    cJSON *m2;
+
+    /* The reference parser, every form, and the ones it must not read. */
+    JC_CHECK_STR(jc_convert_key_env_ref("${{ secrets.OPENROUTER_API_KEY }}", a),
+                 "OPENROUTER_API_KEY");
+    JC_CHECK_STR(jc_convert_key_env_ref("${{secrets.X_1}}", a), "X_1");
+    JC_CHECK_STR(jc_convert_key_env_ref("${MY_KEY}", a), "MY_KEY");
+    JC_CHECK_STR(jc_convert_key_env_ref("$MY_KEY", a), "MY_KEY");
+    JC_CHECK_STR(jc_convert_key_env_ref("{env:MY_KEY}", a), "MY_KEY");
+    JC_CHECK(jc_convert_key_env_ref("${{ inputs.X }}", a) == NULL);
+    JC_CHECK(jc_convert_key_env_ref("${{ secrets. }}", a) == NULL);
+    JC_CHECK(jc_convert_key_env_ref("${{ secrets.X }} trailing", a) == NULL);
+    JC_CHECK(jc_convert_key_env_ref("$MY-KEY", a) == NULL);
+    JC_CHECK(jc_convert_key_env_ref("${}", a) == NULL);
+    JC_CHECK(jc_convert_key_env_ref("sk-literal", a) == NULL);
+    JC_CHECK(jc_convert_key_env_ref(NULL, a) == NULL);
+
+    JC_CHECK(jc_convert_run(YAML_NO_HOUSE_KEY, JC_SRC_CONTINUE_YAML, &res, a)
+             == JC_OK);
+    root = jc_json_parse(res.json);
+    models = jc_json_get_obj(root, "models");
+    m0 = cJSON_GetArrayItem(models, 0);
+    m1 = cJSON_GetArrayItem(models, 1);
+    m2 = cJSON_GetArrayItem(models, 2);
+    /* Keyless Ollama: the dialect is mapped, and NO key variable is invented. */
+    JC_CHECK_STR(jc_json_get_str(m0, "provider", "?"), "openai");
+    JC_CHECK(jc_json_get_str(m0, "apiKeyEnv", NULL) == NULL);
+    JC_CHECK(jc_json_get_str(m0, "apiKey", NULL) == NULL);
+    /* OpenRouter's secret keeps its own name -- not OPENAI_API_KEY. */
+    JC_CHECK_STR(jc_json_get_str(m1, "apiKeyEnv", "?"), "OPENROUTER_API_KEY");
+    /* No provider in the source: none in the output (no house provider). */
+    JC_CHECK(jc_json_get_str(m2, "provider", NULL) == NULL);
+    JC_CHECK(res.json != NULL && strstr(res.json, "OPENAI_API_KEY") == NULL);
+    JC_CHECK(res.json != NULL && strstr(res.json, "ANTHROPIC_API_KEY") == NULL);
+
+    cJSON_Delete(root);
+    free(res.json);
     jc_arena_free(a);
 }
 
@@ -536,6 +610,7 @@ void test_convert(void)
     test_convert_yaml();
     test_convert_json();
     test_convert_templated_key();
+    test_convert_no_house_key();
     test_convert_opencode();
     test_convert_continue_mcp();
     test_convert_assets_roundtrip();

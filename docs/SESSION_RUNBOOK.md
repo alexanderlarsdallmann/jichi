@@ -176,6 +176,22 @@ supervisor `grep`ped an accumulating journal and accused jichi of mis-reporting
 - Clear per-run artifacts at start, by name.
 - Filter a shared log by the run id, never by "the last line in the file".
 
+**Probe jichi with a scratch `HOME`, never the real one.** [not counted -- measured:
+40 % of a corpus] An agent session that runs jichi -- against `mockmodel` or anything
+else -- with the real `HOME` writes telemetry and a run journal into `~/.jichi.d`, the
+store `tests/measure/` reads to price register decisions. On 2026-09-23 the
+workstation's held 51 mock sessions (1,230 of 3,096 post-M432 tool calls) and 28 of
+the 32 journals carrying a `stop_reason`, all left by earlier probe sessions; only
+luck meant no decision had been priced on them yet. The smoke and e2e tiers isolate
+`HOME` for exactly this reason. Do the same by hand:
+
+```sh
+h=$(mktemp -d) && HOME=$h jichi --config ./probe.json -p '...' < /dev/null
+```
+
+`tests/measure/corpus_filter.py` now drops such sessions and prints what it dropped
+(M720), but it is a filter for accidents, not a licence.
+
 **A check must be able to fail.** [4]
 
 ```sh

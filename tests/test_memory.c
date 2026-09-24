@@ -4,7 +4,8 @@
 /* test_memory.c - persistent agent memory: pure helpers + the remember tool. */
 
 #include "jc_test.h"
-#include "jc_platform.h"   /* jc_is_dir */
+#include "jc_platform.h"   /* jc_is_dir, jc_mkdir_p */
+#include "jc_snprintf.h"
 #include "jc_memory.h"
 #include "jc_tool.h"
 #include "jc_app.h"
@@ -124,7 +125,7 @@ static void test_add_and_tool(void)
     struct jc_tool_registry reg;
     struct jc_tool_result res;
     const char *dir = jc_test_tmp("jichi_mem_test");
-    char path[256];
+    char path[600];
     char rm[512];
     char *content;
     int was_new = 0;
@@ -138,14 +139,11 @@ static void test_add_and_tool(void)
     jc_tool_register_builtins(&reg);
     app.tools = &reg;
 
-    /* Fresh workspace dir as cwd. */
-    {
-        char cmd[300];
-        sprintf(cmd, "rm -rf %s && mkdir -p %s", dir, dir);
-        if (system(cmd) != 0) { /* ignore */ }
-    }
+    /* Fresh workspace dir as cwd, made without a shell (M728). */
+    (void)jc_test_rm_rf(dir);
+    JC_CHECK(jc_mkdir_p(dir) == JC_OK);
     strcpy(app.cwd, dir);
-    sprintf(path, "%s/.jichi/memory.md", dir);
+    jc_snprintf(path, sizeof path, "%s/.jichi/memory.md", dir);
 
     /* remember is a registered builtin. */
     JC_CHECK(jc_tool_registry_find(&reg, "remember") != NULL);
@@ -183,9 +181,10 @@ static void test_add_and_tool(void)
     JC_CHECK(res.is_error == 0);
     jc_tool_result_free(&res);
     content = slurp(path);
-    JC_CHECK(content != NULL);
-    JC_CHECK(strstr(content, "- use tabs not spaces\n") != NULL);
-    JC_CHECK(strstr(content, "- prefer small commits\n") != NULL);
+    if (JC_REQUIRE(content != NULL)) { /* a guard (M729) */
+        JC_CHECK(strstr(content, "- use tabs not spaces\n") != NULL);
+        JC_CHECK(strstr(content, "- prefer small commits\n") != NULL);
+    }
 
     /* remember is a mutating tool (gated like other writes). */
     JC_CHECK(jc_tool_registry_find(&reg, "remember")->readonly == 0);
@@ -197,11 +196,12 @@ static void test_add_and_tool(void)
                      "spaces are fine now (M78)", &changed) == JC_OK);
         JC_CHECK(changed == 2); /* 1 removed + 1 added */
         content = slurp(path);
-        JC_CHECK(content != NULL);
-        JC_CHECK(strstr(content, "use tabs not spaces") == NULL);
-        JC_CHECK(strstr(content, "- spaces are fine now (M78)\n") != NULL);
-        /* the other note is untouched. */
-        JC_CHECK(strstr(content, "- prefer small commits\n") != NULL);
+        if (JC_REQUIRE(content != NULL)) { /* a guard (M729) */
+            JC_CHECK(strstr(content, "use tabs not spaces") == NULL);
+            JC_CHECK(strstr(content, "- spaces are fine now (M78)\n") != NULL);
+            /* the other note is untouched. */
+            JC_CHECK(strstr(content, "- prefer small commits\n") != NULL);
+        }
     }
     /* Correcting a note that isn't there is a harmless no-op (no write). */
     {
@@ -211,11 +211,7 @@ static void test_add_and_tool(void)
         JC_CHECK(changed == 0);
     }
 
-    {
-        char cmd[300];
-        sprintf(cmd, "rm -rf %s", dir);
-        if (system(cmd) != 0) { /* ignore */ }
-    }
+    (void)jc_test_rm_rf(dir);
     jc_vec_free(&app.read_files);
     jc_vec_free(&app.read_recs);
     free(app.memory); /* M199: malloc-owned since the notes reload */
@@ -233,7 +229,7 @@ static void test_over_budget(void)
     struct jc_tool_registry reg;
     struct jc_tool_result res;
     const char *dir = jc_test_tmp("jichi_mem_big_test");
-    char path[256];
+    char path[600];
     char *loaded;
     FILE *f;
     int i;
@@ -246,21 +242,22 @@ static void test_over_budget(void)
     jc_tool_registry_init(&reg);
     jc_tool_register_builtins(&reg);
     app.tools = &reg;
+    (void)jc_test_rm_rf(dir);
     {
-        char cmd[300];
-        sprintf(cmd, "rm -rf %s && mkdir -p %s/.jichi", dir, dir);
-        if (system(cmd) != 0) { /* ignore */ }
+        char jd[600];
+        jc_snprintf(jd, sizeof jd, "%s/.jichi", dir);
+        (void)jc_mkdir_p(jd);
     }
     /* PRECONDITION, checked once rather than guarded at every deref.
-     * This test needs a directory that system() creates, and system()
-     * runs /bin/sh -- which Android does not have (its shell is
-     * /system/bin/sh). There the directory never appears, and every
-     * assertion below was operating on NULL: the run segfaulted rather
-     * than reporting anything (M457). One check, one honest red, and the
-     * remaining ~9 test files still get to run. */
+     * Until M728 this directory was made by system(), which runs /bin/sh
+     * -- which Android does not have (its shell is /system/bin/sh). There
+     * the directory never appeared, and every assertion below was
+     * operating on NULL: the run segfaulted rather than reporting anything
+     * (M457). jc_mkdir_p needs no shell, and the check stays: one check,
+     * one honest red, and the remaining ~9 test files still get to run. */
     {
         char probe[600];
-        sprintf(probe, "%s/.jichi", dir);
+        jc_snprintf(probe, sizeof probe, "%s/.jichi", dir);
         if (!JC_REQUIRE(jc_is_dir(probe))) {
             jc_tool_registry_free(&reg);
             jc_arena_free(a);
@@ -268,7 +265,7 @@ static void test_over_budget(void)
         }
     }
     strcpy(app.cwd, dir);
-    sprintf(path, "%s/.jichi/memory.md", dir);
+    jc_snprintf(path, sizeof path, "%s/.jichi/memory.md", dir);
 
     /* No file: size 0. */
     JC_CHECK(jc_memory_file_size(&app) == 0);
@@ -292,10 +289,11 @@ static void test_over_budget(void)
     /* Load keeps the tail: the newest note survives, the oldest does not,
      * and the loaded block respects the budget. */
     loaded = jc_memory_load(&app);
-    JC_CHECK(loaded != NULL);
-    JC_CHECK(strstr(loaded, "THE NEWEST NOTE") != NULL);
-    JC_CHECK(strstr(loaded, "old note number 0 ") == NULL);
-    JC_CHECK(strlen(loaded) <= (size_t)JC_MEMORY_MAX);
+    if (JC_REQUIRE(loaded != NULL)) { /* a guard (M729) */
+        JC_CHECK(strstr(loaded, "THE NEWEST NOTE") != NULL);
+        JC_CHECK(strstr(loaded, "old note number 0 ") == NULL);
+        JC_CHECK(strlen(loaded) <= (size_t)JC_MEMORY_MAX);
+    }
 
     /* The remember tool warns that old notes no longer reach the prompt. */
     jc_tool_execute(&reg, "remember",
@@ -306,11 +304,7 @@ static void test_over_budget(void)
     jc_tool_result_free(&res);
     free(loaded); /* M199 */
 
-    {
-        char cmd[300];
-        sprintf(cmd, "rm -rf %s", dir);
-        if (system(cmd) != 0) { /* ignore */ }
-    }
+    (void)jc_test_rm_rf(dir);
     jc_vec_free(&app.read_files);
     jc_vec_free(&app.read_recs);
     free(app.memory); /* M199: malloc-owned since the notes reload */

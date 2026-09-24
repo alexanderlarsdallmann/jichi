@@ -22,7 +22,7 @@
 # Compiles nothing and runs no jichi (hence *_lint.sh).
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 6
+t_plan 7
 tmp=$(smoke_tmp)
 SC="$SMOKE_ROOT/scripts"
 LIVE="$SC/_rig_live.sh"
@@ -158,37 +158,77 @@ fi
 # So: ask each rig, in DRY-RUN, to accept the flag. This runs no VM and boots
 # nothing -- every rig here short-circuits on --dry-run -- and it is the whole
 # distance between "the flag exists in a case arm" and "the flag works".
+#
+# AND THIS CHECK WAS ITSELF VACUOUS FOR FOUR RIGS, until M738. Every rig but two
+# got `--ref-secs 7 --dry-run` BEFORE the live flags, and tier-v-arch, tier-v-tiny,
+# tier-v-freemint and tier-v-guix take no --ref-secs: each died on it before
+# --live-port was read, and "exit 2 with a complaint that does not name the flag"
+# counted as a pass. "all 12 rigs parse it" was eight. It came to light because the
+# Guix rig was counted among the twelve on the day it was written -- without a
+# --dry-run at all. Behind it sat a second defect: tier-v-tiny's dry run, once it got
+# that far, refused on this bench's own state and, with --live-model and no cached
+# kernel, DOWNLOADED one.
+#
+# So now: the live flags go FIRST, each rig gets only the arguments it takes, and
+# the pass is the dry run COMPLETING -- exit 0 -- never the absence of one kind of
+# complaint. HOME and TIER_V_DIR point into this check's temp dir, so a bench's
+# caches can neither make a dry run pass nor absorb what it writes; a dry run must
+# therefore be host-independent, which is what "touch nothing" meant all along.
 : > "$tmp/unparsed"
 np=0
+mkdir -p "$tmp/home" "$tmp/tierv"
 for f in "$SC"/tier-*.sh "$SC"/jhub-*.sh; do
     [ -f "$f" ] || continue
     grep -q 'live-port' "$f" || continue
     np=$((np+1))
-    # Each rig needs its own required arguments before --dry-run will get far;
-    # supply the minimum and look only for the usage exit (2) with a complaint
-    # naming the flag or its value.
+    # Each rig's own required arguments, and --ref-secs only where its parser has
+    # the arm: an argument a rig refuses stops the parse before anything is shown.
     case $(basename "$f") in
-        tier-v-vm.sh)      _args="v2e --dry-run" ;;
-        tier-b-device.sh)  _args="user@host --ref-secs 7 --dry-run" ;;
-        *)                 _args="--ref-secs 7 --dry-run" ;;
+        tier-v-vm.sh)       _args="v2e" ;;
+        tier-b-device.sh)   _args="user@host" ;;
+        tier-v-arch.sh)     _args="--arch aarch64-linux-musl" ;;
+        tier-v-freemint.sh) _args="--step 4" ;;
+        *)                  _args="" ;;
     esac
+    grep -q -e '--ref-secs)' "$f" && _args="$_args --ref-secs 7"
     # shellcheck disable=SC2086
-    _out=$(sh "$f" $_args --live-port 1234 --live-model test/model 2>&1); _rc=$?
-    if [ "$_rc" -eq 2 ] && printf '%s' "$_out" | grep -qE '1234|test/model|live-port|live-model'; then
-        printf '%s: %s\n' "$(basename "$f")" \
-            "$(printf '%s' "$_out" | grep -iE 'unknown|usage|needs' | head -1)" \
-            >> "$tmp/unparsed"
+    _out=$(HOME="$tmp/home" TIER_V_DIR="$tmp/tierv" \
+           sh "$f" --live-port 1234 --live-model test/model $_args --dry-run 2>&1 < /dev/null)
+    _rc=$?
+    if [ "$_rc" -ne 0 ]; then
+        printf '%s (exit %s): %s\n' "$(basename "$f")" "$_rc" \
+            "$(printf '%s\n' "$_out" | grep -v '^[[:space:]]*$' | head -n 1)" >> "$tmp/unparsed"
     fi
 done
-if [ "$np" -ge 4 ] && [ ! -s "$tmp/unparsed" ]; then
-    t_ok "all $np rigs advertising --live-port parse it (checked in --dry-run)"
+if [ "$np" -ge 12 ] && [ ! -s "$tmp/unparsed" ]; then
+    t_ok "all $np rigs advertising --live-port parse it: each dry run, live flags first, completed"
 else
-    t_fail "rig(s) that advertise --live-port and reject it ($np scanned):
+    t_fail "rig(s) that advertise --live-port and did not complete a dry run with it ($np scanned):
 $(cat "$tmp/unparsed")
-A case arm is not a parser. tier-v-vm.sh uses \`for arg in \"\$@\"\`, where
-\$2 is the script's second argument and shift does not skip an iteration --
-the \"\$2\"; shift idiom the other rigs use is wrong there. (Under 4 rigs
-means the search broke.)"
+A case arm is not a parser, and a dry run that stops early has shown nothing:
+the pass is exit 0 with the live flags given FIRST. If the complaint names the flag
+or its value, the parser is wrong -- tier-v-vm.sh uses \`for arg in \"\$@\"\`, where
+\$2 is the script's second argument and shift does not skip an iteration. If it
+names something else, the dry run depends on the host or wants an argument this
+check does not pass: report a missing prerequisite in a dry run rather than exit,
+or add the rig's arguments to the case above. (Fewer than 12 rigs means the
+search broke, or a rig was removed -- then lower the floor on purpose.)"
+fi
+
+# --- 7: a dry run leaves nothing behind -------------------------------------
+# Check 6's dry runs all ran with TIER_V_DIR in this check's temp dir, where every
+# rig keeps its images, kernels and results. Anything there now was written by a
+# dry run. The case that motivated it: tier-v-tiny with --live-model and no cached
+# kernel fetched one from Alpine's CDN in its dry run (fixed at M738) -- exit 0, so
+# check 6 alone would have called that a pass.
+find "$tmp/tierv" -type f > "$tmp/written" 2> /dev/null
+if [ "$np" -ge 12 ] && [ ! -s "$tmp/written" ]; then
+    t_ok "none of the $np dry runs wrote a file into TIER_V_DIR"
+else
+    t_fail "a dry run wrote into TIER_V_DIR ($np rigs ran):
+$(sed "s#^$tmp/tierv/##" "$tmp/written" | head -n 10)
+A dry run prints the plan and touches nothing -- no fetch, no image, no results
+file. Print what a real run would do instead (tier-v-tiny's \`+ fetch ...\` line)."
 fi
 
 t_done

@@ -72,8 +72,9 @@ static void test_advice_ordering(void)
     /* M628: the "answered with NOTHING" advice belongs to UNKNOWN -- that is
      * the empty reply it describes. */
     a = jc_toolprobe_advice(JC_TOOLPROBE_UNKNOWN, "native");
-    JC_CHECK(a != NULL);
-    JC_CHECK(strstr(a, "NOTHING") != NULL);
+    if (JC_REQUIRE(a != NULL)) { /* a guard (M729) */
+        JC_CHECK(strstr(a, "NOTHING") != NULL);
+    }
     /* Names the request as the first suspect... */
     JC_CHECK(strstr(a, "request") != NULL);
     /* ...tells the operator how to check it... */

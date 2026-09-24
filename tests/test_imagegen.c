@@ -17,13 +17,14 @@ static void test_build_body(void)
     cJSON *root;
     JC_CHECK(body != NULL);
     root = jc_json_parse(body);
-    JC_CHECK(root != NULL);
-    JC_CHECK_STR(jc_json_get_str(root, "model", ""), "dall-e-3");
-    JC_CHECK_STR(jc_json_get_str(root, "prompt", ""), "a red cube");
-    JC_CHECK_STR(jc_json_get_str(root, "response_format", ""), "b64_json");
-    JC_CHECK_STR(jc_json_get_str(root, "size", ""), "1024x1024");
-    JC_CHECK_STR(jc_json_get_str(root, "output_format", ""), "png");
-    JC_CHECK(jc_json_get_num(root, "n", 0.0) == 1.0);
+    if (JC_REQUIRE(root != NULL)) { /* a guard (M729) */
+        JC_CHECK_STR(jc_json_get_str(root, "model", ""), "dall-e-3");
+        JC_CHECK_STR(jc_json_get_str(root, "prompt", ""), "a red cube");
+        JC_CHECK_STR(jc_json_get_str(root, "response_format", ""), "b64_json");
+        JC_CHECK_STR(jc_json_get_str(root, "size", ""), "1024x1024");
+        JC_CHECK_STR(jc_json_get_str(root, "output_format", ""), "png");
+        JC_CHECK(jc_json_get_num(root, "n", 0.0) == 1.0);
+    }
     cJSON_Delete(root);
     free(body);
 

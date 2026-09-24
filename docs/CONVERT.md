@@ -35,7 +35,15 @@ by hand (`docs/HOOKS.md`, `permissions`/`editScope`).
 - **Models** → jichi `models[]`. The provider maps to `anthropic` or `openai`
   (anything else becomes OpenAI-compatible — set `apiBase`). API keys are **never**
   written literally unless the source had a real literal key; templates
-  (`${{ secrets.X }}`, `{env:VAR}`, `$VAR`) and env references become `apiKeyEnv`.
+  (`${{ secrets.X }}`, `{env:VAR}`, `$VAR`, `${VAR}`) and env references become
+  `apiKeyEnv` **naming the variable the source named** — `X`, `VAR`. A model whose
+  source names **no** key gets no key line, and one whose source names no
+  provider gets no provider (jichi then refuses it and says what to write).
+  *Until 0.11.0 (M718)* the Continue importer ignored the name inside a template
+  and wrote the provider's conventional variable instead, and wrote
+  `"apiKeyEnv": "OPENAI_API_KEY"` for every keyless model — so a keyless Ollama
+  entry sent your OpenAI key to the Ollama host if that variable was set. A config
+  converted before 0.11.0 may carry that line; `jichi doctor` names it.
   opencode's `provider/model` selector is split, and `provider.<id>.options`
   supplies `apiBase`/`apiKeyEnv`. Roles carry through (`chat`/`edit`/`embed`/…);
   opencode's `model`→`[chat,edit,apply]`, `small_model`→`[summarize,autocomplete]`.

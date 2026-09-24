@@ -233,7 +233,10 @@ scope     : <what this did NOT test>
 ```
 
 **Copy the numbers, do not summarise them.** "the tests passed" is not a result;
-`13,362 checks / 0 failures` and `smoke: OK (311 drivers, 1,806 checks)` are.
+`13909 checks, 0 failures` and `smoke: OK (328 drivers, 1944 checks)` are — copied here
+exactly as a run on 2026-09-24 printed them, with no thousands separators, because the
+tools print none. (This page used to show them *with* separators, which is a paraphrase:
+a reader searching a log for `13,909` finds nothing.)
 
 ---
 
@@ -248,7 +251,150 @@ work rather than read about it.
 
 ---
 
-## 5. When it goes wrong
+## 5. Sending it to the jichi developers
+
+A row that stays on your disk teaches you something. A row that reaches the developers
+can become a line in [`PLATFORMS.md`](PLATFORMS.md) — and on this project that is the
+contribution that matters most, because it has one author and one main machine: almost
+every defect found on a platform that is not that machine arrived from outside
+([`../CONTRIBUTING.md`](../CONTRIBUTING.md)). **A failing row is worth more than a passing
+one**, and "I only got as far as rung 1" is a complete, useful report.
+
+### 5.1 Where
+
+- **An issue on the public repository** — GitHub
+  (`https://github.com/alexanderlarsdallmann/jichi`) or its HRZ GitLab mirror
+  (`jichi-public/jichi`). Public and searchable: the next person with your machine finds
+  it.
+- **Email**, if an issue tracker is not an option for you — no account, a closed network,
+  a course — to **the maintainer's address on the commits in this repository**, the same
+  address [`../SECURITY.md`](../SECURITY.md) names for private reports. In a clone:
+  `git log -1 --format=%ae`. Start the subject with **`jichi platform`**. (The address is
+  not written out on this page on purpose: the tree carries no personal addresses, and a
+  lint keeps it that way.)
+- A security problem is never a public issue: follow [`../SECURITY.md`](../SECURITY.md).
+
+### 5.2 What to send
+
+Always:
+
+- **the row** from §3, and **your log** from §4;
+- **`./jichi --version`** — its `build:` line names the exact commit you tested;
+- **`./jichi doctor`** — the single most useful thing to paste, and it never prints
+  secrets (keys are reported present or absent);
+- **`make info`** — what the build detected about your system;
+- **what you did *not* test** (§2.3), in a sentence.
+
+If something failed, add **the first failure, in full** — the driver's name and every line
+it printed, pasted rather than paraphrased — and whether the runner said *in-suite only* or
+*also fails alone*. Both labels are evidence. If you had to change anything to make it build,
+add the change (`git diff`). If you ran rung 5, add the model and the server you used.
+
+The full procedure for a whole-platform report — every command, and one archive to
+attach — is [`VERIFY_A_PLATFORM.md`](VERIFY_A_PLATFORM.md) §4. This section is the short
+version for one rung.
+
+One way to collect the facts, run in the checkout; a command that does not exist on your
+system is itself a fact, so leave its error in:
+
+```sh
+# in the jichi checkout
+{ uname -a; cc --version | head -n 1; curl-config --version; ./jichi --version; } > ~/jichi-facts.txt 2>&1
+./jichi doctor >> ~/jichi-facts.txt 2>&1
+make info > ~/jichi-make-info.txt 2>&1
+```
+
+### 5.3 What never to send
+
+API keys, `~/.jichi.env` or any config file that holds a key; telemetry, run journals and
+session files; anything from a real project. The reasons, and what to do if a second round
+asks for a log, are [`VERIFY_A_PLATFORM.md`](VERIFY_A_PLATFORM.md) §5. Your user name
+appears in paths; replacing it with `<user>` loses nothing.
+
+**Before you press send, a one-minute check:** search what you are about to attach for
+`key`, `token`, `Bearer` and `sk-`. If one appears, look at it before you decide it is
+harmless.
+
+### 5.4 An email to copy
+
+Replace everything in `<…>`; delete a line rather than guess at it.
+
+```text
+Subject: jichi platform: <OS and version> on <CPU / architecture> -- rung <0-5> -- <works | fails | partly>
+
+Hello,
+
+I tested jichi on a machine the project may not have. The facts are below and attached.
+
+Machine
+  what it is  : <e.g. a 2015 laptop, Intel Core i5-5200U, 8 GB RAM>
+  OS / kernel : <the output of: uname -a>
+  compiler    : <the output of: cc --version | head -n 1>
+  libcurl     : <the output of: curl-config --version>
+
+Source
+  jichi build : <the "build:" line of ./jichi --version>
+  my changes  : <none | attached as git.diff>
+
+What I ran, exactly
+  <e.g. make check-target>
+
+What it printed, copied
+  unit suite  : <e.g. 13909 checks, 0 failures>
+  smoke tier  : <e.g. smoke: OK (328 drivers, 1944 checks) -- or the first failure, attached>
+  model turns : <rung 5 only: the server and model; turn 1 ok or not; turn 2 reported the phrase or not>
+
+What I did not test
+  <e.g. no model call; a virtual machine, not the hardware>
+
+Anything surprising
+  <even if everything passed>
+
+Credit
+  <name me as ... | please do not name me>
+
+Attached: <jichi-facts.txt, jichi-make-info.txt, and a log if something failed>
+```
+
+A filled-in one, from a row this project recorded on 2026-09-24, so you can see the level of
+detail that is useful — no more than this:
+
+```text
+Subject: jichi platform: Guix System 1.5.0 on x86-64 (KVM guest) -- rung 5 -- works
+
+Machine
+  what it is  : the published guix-system-vm-image-1.5.0, 4 vCPUs, 4 GB, under KVM
+  OS / kernel : Linux 6.17.12-gnu x86_64
+  compiler    : gcc (GCC) 15.2.0, from guix shell
+  libcurl     : libcurl 8.6.0
+
+Source
+  jichi build : 34e7e069
+  my changes  : none
+
+What I ran, exactly
+  scripts/tier-v-guix.sh --image <image> --live-port 1234 --live-model prism-ml/bonsai-27b
+
+What it printed, copied
+  unit suite  : 13846 checks, 0 failures
+  model turns : LM Studio, prism-ml/bonsai-27b; turn 1 ok; turn 2 reported TIER-G-B31F57
+
+What I did not test
+  the smoke tier; real hardware (this is a virtual machine)
+```
+
+### 5.5 What happens next
+
+A person reads it. Nobody can re-run your machine, so a report is checked rather than
+trusted — the `build:` line against the public commit, the numbers against what the tools
+print — which is why §3 asks for numbers copied exactly
+([`VERIFY_A_PLATFORM.md`](VERIFY_A_PLATFORM.md) §6). There is one maintainer and no
+promised response time. If your row becomes part of the matrix, it is credited the way you
+asked in the last line of the email.
+
+---
+
+## 6. When it goes wrong
 
 | Symptom | What it usually is |
 |---|---|
@@ -262,7 +408,7 @@ work rather than read about it.
 
 ---
 
-## 6. Where to go next
+## 7. Where to go next
 
 - [`PLATFORMS.md`](PLATFORMS.md) — every row this project has measured, and what
   each one taught. Read a row before you write one.

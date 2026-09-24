@@ -270,10 +270,47 @@ static void test_context_config(void)
     jc_arena_free(a);
 }
 
+/* M718: a switch to an entry jichi cannot build a provider for leaves the
+ * PREVIOUS entry active. The old provider reads the active entry through a
+ * pointer to config.model, so returning with the new entry active would send the
+ * old dialect to the new entry's endpoint -- latent while provider creation
+ * failed only on OOM, reachable once an entry naming no provider is refused. */
+static void test_switch_refused_restores(void)
+{
+    struct jc_arena *a = jc_arena_new(0);
+    struct jc_app app;
+    struct jc_provider *before;
+
+    memset(&app, 0, sizeof(app));
+    app.arena = a;
+    app.quiet = 1;
+    JC_CHECK(jc_config_load_json(
+        "{\"models\":[{\"name\":\"good\",\"provider\":\"openai\","
+        "\"model\":\"m-good\",\"apiBase\":\"http://127.0.0.1:1/v1\"},"
+        "{\"name\":\"bare\",\"model\":\"m-bare\","
+        "\"apiBase\":\"http://127.0.0.1:2/v1\"}]}", 0, &app.config, a) == JC_OK);
+    app.provider = jc_provider_create(&app.config.model);
+    JC_CHECK(app.provider != NULL);
+    before = app.provider;
+
+    JC_CHECK(jc_app_switch_model(&app, 1) == JC_ERR_INVALID);
+    JC_CHECK(app.config.active == 0);
+    JC_CHECK_STR(app.config.model.model, "m-good");
+    JC_CHECK_STR(app.config.model.api_base, "http://127.0.0.1:1/v1");
+    JC_CHECK(app.provider == before);
+
+    if (app.provider != NULL) {
+        app.provider->vt->free(app.provider);
+    }
+    jc_config_free(&app.config);
+    jc_arena_free(a);
+}
+
 void test_routing(void)
 {
     test_parse_and_resolve();
     test_route_to();
+    test_switch_refused_restores();
     test_context_escalate();
     test_context_deescalate();
     test_context_config();

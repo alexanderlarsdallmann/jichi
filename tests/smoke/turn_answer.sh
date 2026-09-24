@@ -35,7 +35,7 @@
 # `"outcome":"ok","stop_reason":"max_iters"`. That is plan D1's case in miniature.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 10
+t_plan 11
 smoke_home
 tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
@@ -156,6 +156,17 @@ if [ "$(printf '%s' "$ke" | "$JQ" .answer_bytes 2>/dev/null)" = "12" ]; then
     t_ok "an answering run records answer_bytes 12 for ANSWER_12345"
 else
     t_fail "answer_bytes is not 12 for a 12-byte answer: $(printf '%s' "$ke" | head_bytes 240)"
+fi
+
+# --- 8b: the start event names the model (M720) --------------------------------
+# A journal is read to price decisions about how runs BEHAVE, and the model is the
+# first covariate of that -- and it is how tests/measure/corpus_filter.py tells a
+# mockmodel probe that wrote into the real store from real work, without joining
+# telemetry. The model id only: never the endpoint, never the key.
+if [ "$(printf '%s' "$cs" | "$JQ" .model 2>/dev/null)" = "mock" ]; then
+    t_ok "the start event names the model the run used"
+else
+    t_fail "the start event does not name the model: $(printf '%s' "$cs" | head_bytes 200)"
 fi
 
 # --- part 3: the M73 overflow hint belongs to the turn that got the overflow ----

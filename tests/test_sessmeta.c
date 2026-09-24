@@ -11,6 +11,7 @@
 
 #include "jc_test.h"
 #include "jc_sessmeta.h"
+#include "jc_snprintf.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -123,7 +124,7 @@ void test_sessmeta(void)
         /* A workspace longer than JC_SESSMETA_WS: truncated, still trustworthy,
          * because these values are display/compare-only. */
         JC_CHECK((int)strlen(big) > JC_SESSMETA_WS);
-        sprintf(buf, "{\"sessionId\":\"x\",\"workspaceDirectory\":\"%s\","
+        jc_snprintf(buf, sizeof buf, "{\"sessionId\":\"x\",\"workspaceDirectory\":\"%s\","
                      "\"history\":[]}", big);
         JC_CHECK(scan(buf, &m) == 1);
         JC_CHECK(m.has_workspace);

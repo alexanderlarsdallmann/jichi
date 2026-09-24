@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2026 Justus-Liebig-Universität Gießen
  * Author: Alexander-Lars Dallmann */
-/* test_toolloop.c - the in-turn tool-call loop detector's pure cores (M432). */
+/* test_toolloop.c - the in-turn tool-call loop detector's pure cores (M432), and
+ * its success twin (plan D1, M733). */
 
 #include "jc_test.h"
 #include "jc_toolloop.h"
@@ -212,4 +213,120 @@ void test_toolloop(void)
     jc_toolloop_render(JC_TOOLLOOP_EXACT, NULL, JC_FAIL_OTHER, 3, buf, sizeof buf);
     JC_CHECK(strstr(buf, "(null)") == NULL);
     JC_CHECK(strstr(buf, "this tool") != NULL);
+}
+
+/* The success twin (plan D1, M733): the same call answered the same way. */
+void test_noprogress(void)
+{
+    struct jc_noprogress w;
+    char buf[400];
+    char key[32];
+    int i;
+
+    /* --- the role table ---------------------------------------------------
+     * The two RUN tools are counted although the registry calls them mutating:
+     * their output is the answer being re-asked for, and they are the loop
+     * shapes the corpora measured (13 identical shell calls in M687's turn,
+     * run_tests 163 times on the workstation). */
+    JC_CHECK(jc_noprogress_role("run_terminal_command", 0) == JC_NOPROGRESS_COUNT);
+    JC_CHECK(jc_noprogress_role("run_tests", 0) == JC_NOPROGRESS_COUNT);
+    JC_CHECK(jc_noprogress_role("search_code", 1) == JC_NOPROGRESS_COUNT);
+    /* Any other mutating tool changed the tree: a repeat after it is new. */
+    JC_CHECK(jc_noprogress_role("edit_file", 0) == JC_NOPROGRESS_RESET);
+    JC_CHECK(jc_noprogress_role("some_mcp_tool", 0) == JC_NOPROGRESS_RESET);
+    /* An answer from outside the tree is new information too. */
+    JC_CHECK(jc_noprogress_role("ask_user", 1) == JC_NOPROGRESS_RESET);
+    /* Owned elsewhere, or repeated by design. */
+    JC_CHECK(jc_noprogress_role("read_file", 1) == JC_NOPROGRESS_IGNORE);
+    JC_CHECK(jc_noprogress_role("read_background_output", 1)
+             == JC_NOPROGRESS_IGNORE);
+    JC_CHECK(jc_noprogress_role("todowrite", 1) == JC_NOPROGRESS_IGNORE);
+    JC_CHECK(jc_noprogress_role(NULL, 1) == JC_NOPROGRESS_IGNORE);
+
+    /* --- at three, not before, and once ----------------------------------- */
+    jc_noprogress_init(&w);
+    JC_CHECK(jc_noprogress_note(&w, "search_code", "{\"pattern\":\"x\"}",
+                                "(no matches)") == 0);
+    JC_CHECK(jc_noprogress_note(&w, "search_code", "{\"pattern\":\"x\"}",
+                                "(no matches)") == 0);
+    JC_CHECK(jc_noprogress_note(&w, "search_code", "{\"pattern\":\"x\"}",
+                                "(no matches)") == 3);
+    /* Told once per turn: bonsai 19 made this call 35 times in a row. */
+    JC_CHECK(jc_noprogress_note(&w, "search_code", "{\"pattern\":\"x\"}",
+                                "(no matches)") == 0);
+
+    /* --- the key is the RESULT too: the same question, a different answer -- */
+    jc_noprogress_init(&w);
+    for (i = 0; i < 4; i++) {
+        jc_snprintf(buf, sizeof buf, "%d", i);
+        JC_CHECK(jc_noprogress_note(&w, "run_terminal_command",
+                                    "{\"command\":\"wc -c < c.txt\"}", buf) == 0);
+    }
+    /* ...and the whole arguments: a different question, the same answer. */
+    jc_noprogress_init(&w);
+    for (i = 0; i < 4; i++) {
+        jc_snprintf(key, sizeof key, "{\"pattern\":\"p%d\"}", i);
+        JC_CHECK(jc_noprogress_note(&w, "search_code", key, "(no matches)") == 0);
+    }
+
+    /* --- a reset starts the count again, and keeps what was told ----------- */
+    jc_noprogress_init(&w);
+    JC_CHECK(jc_noprogress_note(&w, "git_diff", "{}", "same") == 0);
+    JC_CHECK(jc_noprogress_note(&w, "git_diff", "{}", "same") == 0);
+    jc_noprogress_reset(&w);                     /* an edit landed */
+    JC_CHECK(jc_noprogress_note(&w, "git_diff", "{}", "same") == 0);
+    JC_CHECK(jc_noprogress_note(&w, "git_diff", "{}", "same") == 0);
+    JC_CHECK(jc_noprogress_note(&w, "git_diff", "{}", "same") == 3);
+    jc_noprogress_reset(&w);
+    for (i = 0; i < 3; i++) {
+        JC_CHECK(jc_noprogress_note(&w, "git_diff", "{}", "same") == 0);
+    }
+
+    /* --- a shell command resets every OTHER call, not itself --------------- */
+    jc_noprogress_init(&w);
+    JC_CHECK(jc_noprogress_note(&w, "search_code", "{\"pattern\":\"y\"}", "r") == 0);
+    JC_CHECK(jc_noprogress_note(&w, "search_code", "{\"pattern\":\"y\"}", "r") == 0);
+    JC_CHECK(jc_noprogress_note(&w, "run_terminal_command",
+                                "{\"command\":\"sed -i s/a/b/ f\"}", "") == 0);
+    /* The sed may have changed what the search sees: this is its first again. */
+    JC_CHECK(jc_noprogress_note(&w, "search_code", "{\"pattern\":\"y\"}", "r") == 0);
+    JC_CHECK(jc_noprogress_note(&w, "search_code", "{\"pattern\":\"y\"}", "r") == 0);
+    JC_CHECK(jc_noprogress_note(&w, "search_code", "{\"pattern\":\"y\"}", "r") == 3);
+    /* The same command answering the same way three times is the loop itself --
+     * bonsai 06: the same failing build output three times running. */
+    jc_noprogress_init(&w);
+    JC_CHECK(jc_noprogress_note(&w, "run_terminal_command",
+                                "{\"command\":\"zig build test\"}", "FAIL") == 0);
+    JC_CHECK(jc_noprogress_note(&w, "run_terminal_command",
+                                "{\"command\":\"zig build test\"}", "FAIL") == 0);
+    JC_CHECK(jc_noprogress_note(&w, "run_terminal_command",
+                                "{\"command\":\"zig build test\"}", "FAIL") == 3);
+
+    /* --- a full table forgets the call seen longest ago -------------------- */
+    jc_noprogress_init(&w);
+    JC_CHECK(jc_noprogress_note(&w, "git_log", "{}", "K") == 0);
+    JC_CHECK(jc_noprogress_note(&w, "git_log", "{}", "K") == 0);
+    for (i = 0; i < JC_NOPROGRESS_MAX_ENTRIES; i++) {
+        jc_snprintf(key, sizeof key, "{\"n\":%d}", i);
+        (void)jc_noprogress_note(&w, "list_files", key, "same listing");
+    }
+    /* Evicted, so this is its first again -- a missed note, never a false one. */
+    JC_CHECK(jc_noprogress_note(&w, "git_log", "{}", "K") == 0);
+    JC_CHECK(w.n == JC_NOPROGRESS_MAX_ENTRIES);
+
+    /* --- the note says what was measured, and no more ----------------------- */
+    jc_noprogress_render("search_code", 3, buf, sizeof buf);
+    JC_CHECK(strstr(buf, "`search_code`") != NULL);
+    JC_CHECK(strstr(buf, "same result 3 times") != NULL);
+    JC_CHECK(strstr(buf, "will not change the answer") != NULL);
+    /* It cannot know that nothing changed -- a shell command between the repeats
+     * may have written a file -- so it must not say so, in any capitalisation. */
+    for (i = 0; buf[i] != '\0'; i++) {
+        if (buf[i] >= 'A' && buf[i] <= 'Z') {
+            buf[i] = (char)(buf[i] - 'A' + 'a');
+        }
+    }
+    JC_CHECK(strstr(buf, "nothing") == NULL);
+    jc_noprogress_render(NULL, 3, buf, sizeof buf);
+    JC_CHECK(strstr(buf, "(null)") == NULL);
 }

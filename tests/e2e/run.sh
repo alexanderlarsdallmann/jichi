@@ -16,7 +16,8 @@ fi
 # carries the ported coverage; only a permanently-Python residual is left
 # here -- redraw's VT emulator, the stress/web_bridge Python *products*,
 # curriculum_graders (needs a C compiler at test time), rig_lint (it lints
-# the Python rig), and the two model-gated live checks. So a missing
+# the Python rig), measure_corpus (the tests/measure/ scripts are Python, M720),
+# and the two model-gated live checks. So a missing
 # python3 is a LOUD SKIP (exit 0), mirroring elisp-compile/slides, not a
 # hard failure -- a python-free box gets its full gate from
 # `make check-target` (unit + smoke).
@@ -107,7 +108,7 @@ run_driver() {
 # M210: the offline subprocess drivers + the docs_flags/arena_lint lints
 # moved to the Python-free smoke tier (tests/smoke/, same names, .sh) --
 # one driver, one tier, enforced by tests/smoke/smoke_lint.sh.
-for t in rig_lint redraw probes; do
+for t in rig_lint redraw probes measure_corpus; do
     echo "--- e2e: $t"
     run_driver "$t" 60 || exit 1
 done

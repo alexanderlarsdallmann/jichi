@@ -122,3 +122,20 @@ the vector arrays — reading the floats straight out of the response text into 
 `f32` buffer the index already keeps, without building the tree — would remove
 the tenfold expansion at its source. It is confined to `jc_embed_parse`, and
 `vectors.f32` shows the destination format is already flat.
+
+## Afterwards: it was the strings, and the heap was mostly address space (M725, 2026-09-24)
+
+Kept above as written, because both of its conclusions were wrong in a way worth reading.
+
+**The allocation site was `parse_string`**, as the massif tree above says in its second line; the
+arithmetic on float nodes matched by coincidence. `parse_string` sized every string's buffer to
+the *rest of the input* and kept it, so a reply of ~1.5 MB with ~260 strings held ~190 MB. Sized
+to each string's own span, the same 199-file corpus peaks at **25,596,080 B** of heap, from
+**219,112,560 B**. The fast path this page sketched was then built on top and measured: **zero
+bytes** off the peak, so it was not kept (ROADMAP M725).
+
+**Resident memory barely moved: 136,080 kB to 130,692 kB** over this tree. jichi pins glibc's mmap
+threshold at 128 KB (`src/util/jc_memtrim.c`), so each oversized buffer was a fresh mapping of
+which a page or two was ever touched. The requested bytes are real only where nothing pages them
+in lazily, such as FreeMiNT, a strict commit limit or a `ulimit -v`, and there the fix matters. The
+170 MB this page measured is something else, and DEFERRED has the row for finding out what.

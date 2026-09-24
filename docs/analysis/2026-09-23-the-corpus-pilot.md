@@ -208,6 +208,20 @@ the mechanism is not established. The reproduction is a five-check smoke driver 
 fails its check 5 today, by design, so it is kept out of the tier; its full text is
 [Appendix A](#appendix-a-the-reproduction-for-6-kept-where-it-can-be-found).
 
+> **Corrected at M721 — two sentences above were wrong, and the mechanism was the
+> one this page ruled out.** Plain `-p` never ran the command: headless without
+> `--auto` refuses `run_terminal_command` (*"Tool requires approval, unavailable in
+> headless mode"*), so its empty stderr compared nothing. Under `--auto` the error
+> did **not** reach the model: the reproduction's checks 2–3 grepped the next
+> request for the probe *path*, which is there anyway — as the command itself,
+> echoed back in the assistant's tool call. The cause is the popen path's trailing
+> `2>&1`, which binds to the last simple command only, so in `A; B` and `A | B`
+> A's stderr went to jichi's stderr and to nobody else; `make test | tail -20`
+> lost every compiler error. Fixed in M721 (`exec 2>&1` first, for the whole
+> shell), and `tests/smoke/shell_stderr_captured.sh` now uses markers that exist
+> only in output. The text above is kept, because a correction that erases what
+> it corrects teaches nothing.
+
 ---
 
 ## 7. The bench: uutils timeout, and the number M713 got wrong
@@ -312,6 +326,10 @@ server, and `--self-test` proves that refusal two-sided.
 ---
 
 ## Appendix A: the reproduction for §6, kept where it can be found
+
+*Superseded at M721: checks 2–4 of this version are vacuous (see the correction
+in §6); the driver that shipped as `tests/smoke/shell_stderr_captured.sh` is a
+rewrite.*
 
 This is the five-check smoke driver that reproduces §6. It is **not** in
 `tests/smoke/`, because its check 5 fails on today's code by design and the tier

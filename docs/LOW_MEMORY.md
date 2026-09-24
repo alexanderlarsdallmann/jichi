@@ -83,6 +83,8 @@ stack**, not jichi.
 > | **Arduino UNO Q** ("sybila") — quad A53 Qualcomm SoC, **3669 MB (4 GB variant)**, aarch64, Debian 13, eMMC, USB-C dongle Ethernet (M282) | **73 s** | **green** — 9,770 checks + 96 smoke drivers, measured `JC_SMOKE_TIMEOUT_MULT=19` | **8.5 MB** (`/context`) / **15.3 MB** (`doctor`) |
 > | **V2e: Debian 12 VM** — 256 MB, 1 core, KVM `-cpu host` | 4 s *at the 256 MB ceiling* | **green** — 9,731 checks + smoke OK (95 drivers), measured mult 2 | 8.8 MB (`/context` resident) |
 > | **V2f: Debian 9 VM** — 512 MB, kernel 4.9, gcc 6 / glibc 2.24 / git 2.11 / libcurl 7.52, KVM `-cpu IvyBridge` (`TIERV_CPU`; 4.9 panics under `-cpu host` on 2026 silicon) | 2 s | **green (M273)** — 9,731 checks + smoke OK (95 drivers), at the *measured* multiplier, after three product fixes proven in-row: `git_stash` on git 2.11, the `spawn_parallel` worktree leak on git < 2.17, and `Expect: 100-continue` (M273). Yesterday's `turn_scratch` "wedge" was mockmodel's own unscaled 120 s watchdog, reached because each model call idled a second in libcurl; that driver now runs in **2.1 s, down from 200 s**. | — |
+> | **V2e re-run, 2026-09-24 (M736)** -- Debian 12, 256 MB (217 visible), 1 core, KVM | 5 s | **green** -- 13,814 checks + smoke OK (324 drivers, 1,887 checks), measured mult 2, gate 772 s; **Driven** (`TIER-V-5CDDC7`) | 8.7 MB / 11.8 MB |
+> | **V2f re-run, 2026-09-24 (M736)** -- Debian 9, 512 MB (492 visible), kernel 4.9, gcc 6.3 / glibc 2.24 / git 2.11 / libcurl 7.52, KVM `-cpu IvyBridge` | 4 s | **green** -- 13,865 checks + smoke OK (326 drivers, 1,899 checks), measured mult 2, gate 756 s, after three test-tooling fixes found in-row; **Driven** (`TIER-V-D4BD81`) | 7.5 MB / 10.4 MB |
 >
 > **The UNO Q row is the first non-Raspberry-Pi arm64 board, and it is the one
 > where the Comfortable tier was *measured* rather than prescribed.** With
@@ -256,6 +258,7 @@ No hardware needed; these are the cheap rows, and historically the ones that fou
 | **presented-RAM** | qemu `-m 768` and `-m 1024` | what the kernel actually hands userspace | 768 → **721 MB**; 1024 → **973 MB** | M448 |
 | **Guix container** | `guix shell -C` — glibc but **non-FHS** | no `/usr`, store-path `pkg-config` | **11,592 checks / 0 failures** | M450 |
 | **Guix System, headless** | a real `guix system image` VM under KVM — sshd + serial console | the non-FHS axis on a **whole system**, not a namespace | **11,599 checks / 0 failures**; all offline surfaces OK; **one smoke driver deadlocks** (see below) | M458 |
+| **Guix System 1.5.0, the published image** | the image Guix publishes, under KVM, headless -- GRUB edited over the serial line | the same axis with the store's current toolchain, and a **model call** | **13,846 checks / 0 failures**; both model turns (**Driven**) | M468, M738 |
 | **uClibc** | Bootlin buildroot toolchain, native x86-64 | a third libc, no emulation | **11,593 / 0**, zero diagnostics | M449 |
 
 ### Guix System — what a non-FHS distribution actually costs you
@@ -278,12 +281,16 @@ Guix keeps **exactly two FHS paths**, and everything else lives in `/gnu/store`:
 > is already the right choice — an environment `CC=gcc` wins — so the fix is
 > `CC=gcc make`, and `scripts/tier-b-device.sh --cc gcc` does it for a device row (M458).
 
-**One open finding.** `tests/smoke/parallel_abort.sh` **deadlocks on Guix System**: after
-SIGINT the parent does not exit. Two things it is *not*: it is not a timeout artefact
-(it fails identically at `JC_SMOKE_TIMEOUT_MULT` 1 and 6), and it is not the missing
-process groups that explain the container's failure (`pgrp` is a normal non-zero value on
-the real system). The unit suite passes 11,599 / 0, so it is isolated to the parallel
-abort/reaping path. Recorded rather than explained — see M458.
+**One finding, closed by measurement at M468.** `tests/smoke/parallel_abort.sh`
+**deadlocked on M458's Guix System**: after SIGINT the parent did not exit. Two things it
+was *not*: a timeout artefact (it failed identically at `JC_SMOKE_TIMEOUT_MULT` 1 and 6),
+or the missing process groups that explain the container's failure (`pgrp` is a normal
+non-zero value on the real system). The same words then appeared on OpenBSD, three
+commits touched the shared reaping path, and in the published 1.5.0 image the driver
+**passes 2/2** (M468) -- not a byte-identical re-run of M458's system, and which commit
+fixed it is a structural guess, which is why this says *closed by measurement* and not
+*explained*. See `docs/DEFERRED.md`, "parallel_abort does
+NOT reproduce on Guix".
 
 ### libc coverage
 
@@ -294,7 +301,7 @@ abort/reaping path. Recorded rather than explained — see M458.
 | **uClibc** | **Verified** | Bootlin buildroot toolchain, native, `--version` RSS **384 KB**, 0 shared libs | M449 |
 | **bionic** | **Verified** | Android 16. Cross-built with the NDK (M456) **and** built on-device by Termux's clang 21 with the full gate green (M459); needs `-std=gnu89` | M456, M459 |
 | **glibc on an Android kernel** | **Verified** | Debian 13 under `proot-distro`, gcc 14.2 / glibc 2.41 — a second, entirely different userland on the same silicon | M459 |
-| **Guix (glibc, non-FHS)** | **Verified for the unit suite** | 11,599 checks / 0 failures on a **headless Guix System** VM (gcc 10.3.0, glibc 2.33), and 11,592 in a `guix shell -C` container. `make check-target` completes except **`parallel_abort`**, which deadlocks there and is an open finding, not a timing artefact | M450, M458 |
+| **Guix (glibc, non-FHS)** | **Verified for the unit suite, and Driven** | 11,599 checks / 0 failures on a **headless Guix System** VM (gcc 10.3.0, glibc 2.33), and 11,592 in a `guix shell -C` container. `make check-target` completed there except **`parallel_abort`**, which deadlocked on that system and passes 2/2 in the published image (M468). **Driven at M738**: the published 1.5.0 image, headless, gcc 15.2.0 and libcurl 8.6.0 from the store, 13,846 / 0, both model turns | M450, M458, M468, M738 |
 
 ### RAM tiers — what the code actually does, on hardware
 

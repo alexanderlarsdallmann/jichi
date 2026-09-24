@@ -4,6 +4,7 @@
 /* jc_toolloop.c - the in-turn tool-call loop detector (see jc_toolloop.h). */
 
 #include "jc_toolloop.h"
+#include "jc_reread.h"
 #include "jc_snprintf.h"
 
 #include <string.h>
@@ -248,4 +249,141 @@ void jc_toolloop_render(enum jc_toolloop_verdict v, const char *tool,
             (tool != NULL) ? tool : "this tool", count,
             jc_fail_class_name(cls), advice);
     }
+}
+
+/* ---- the success twin (plan D1, M733) -- see jc_toolloop.h ---------------- */
+
+void jc_noprogress_init(struct jc_noprogress *w)
+{
+    if (w != NULL) {
+        memset(w, 0, sizeof(*w));
+    }
+}
+
+enum jc_noprogress_role jc_noprogress_role(const char *tool, int readonly)
+{
+    static const char *const IGNORED[] = {
+        "read_file", "read_background_output", "todowrite", "todoread", NULL
+    };
+    static const char *const OUTSIDE[] = {
+        "ask_user", "ask_for_help", "hint", NULL
+    };
+    int i;
+
+    if (tool == NULL || tool[0] == '\0') {
+        return JC_NOPROGRESS_IGNORE;
+    }
+    for (i = 0; IGNORED[i] != NULL; i++) {
+        if (strcmp(tool, IGNORED[i]) == 0) {
+            return JC_NOPROGRESS_IGNORE;
+        }
+    }
+    for (i = 0; OUTSIDE[i] != NULL; i++) {
+        if (strcmp(tool, OUTSIDE[i]) == 0) {
+            return JC_NOPROGRESS_RESET;
+        }
+    }
+    if (strcmp(tool, "run_terminal_command") == 0 ||
+        strcmp(tool, "run_tests") == 0) {
+        return JC_NOPROGRESS_COUNT;
+    }
+    return readonly ? JC_NOPROGRESS_COUNT : JC_NOPROGRESS_RESET;
+}
+
+void jc_noprogress_reset(struct jc_noprogress *w)
+{
+    int i;
+
+    if (w == NULL) {
+        return;
+    }
+    for (i = 0; i < w->n; i++) {
+        w->count[i] = 0;
+    }
+}
+
+int jc_noprogress_note(struct jc_noprogress *w, const char *tool,
+                       const char *args, const char *result)
+{
+    unsigned long th, ah, an, rh, rn;
+    int i;
+    int hit = -1;
+
+    if (w == NULL || tool == NULL || tool[0] == '\0') {
+        return 0;
+    }
+    if (args == NULL) {
+        args = "";
+    }
+    if (result == NULL) {
+        result = "";
+    }
+    th = jc_reread_hash(tool, (unsigned long)strlen(tool));
+    an = (unsigned long)strlen(args);
+    ah = jc_reread_hash(args, an);
+    rn = (unsigned long)strlen(result);
+    rh = jc_reread_hash(result, rn);
+    w->clock++;
+
+    for (i = 0; i < w->n; i++) {
+        if (w->tool_h[i] == th && w->args_h[i] == ah && w->args_n[i] == an &&
+            w->res_h[i] == rh && w->res_n[i] == rn) {
+            hit = i;
+            break;
+        }
+    }
+    if (hit < 0) {
+        if (w->n < JC_NOPROGRESS_MAX_ENTRIES) {
+            hit = w->n++;
+        } else {
+            /* Full: forget the call seen longest ago. A forgotten call starts
+             * again at one, so the cost is a missed or a later note. */
+            hit = 0;
+            for (i = 1; i < w->n; i++) {
+                if (w->last[i] < w->last[hit]) {
+                    hit = i;
+                }
+            }
+        }
+        w->tool_h[hit] = th;
+        w->args_h[hit] = ah;
+        w->args_n[hit] = an;
+        w->res_h[hit] = rh;
+        w->res_n[hit] = rn;
+        w->count[hit] = 0;
+        w->told[hit] = 0;
+    }
+    w->count[hit]++;
+    w->last[hit] = w->clock;
+
+    /* A shell command may have changed what every OTHER call observes, and
+     * nothing here can see whether it did, so their repeats start again. Its own
+     * count is kept: the same command answering the same way is the loop. */
+    if (strcmp(tool, "run_terminal_command") == 0) {
+        for (i = 0; i < w->n; i++) {
+            if (i != hit) {
+                w->count[i] = 0;
+            }
+        }
+    }
+    if (!w->told[hit] && w->count[hit] >= JC_NOPROGRESS_NOTE_AT) {
+        w->told[hit] = 1;
+        return w->count[hit];
+    }
+    return 0;
+}
+
+void jc_noprogress_render(const char *tool, int count, char *out, jc_size cap)
+{
+    if (out == NULL || cap == 0) {
+        return;
+    }
+    /* Only what was measured: the same arguments and the same result. Not
+     * "nothing changed" -- a shell command between the repeats may have changed
+     * files, and the loop cannot tell. */
+    jc_snprintf(out, cap,
+        "\n\n[jichi] NOTE: this exact `%s` call has now returned the same result "
+        "%d times this turn. Repeating it will not change the answer -- use the "
+        "result you already have, or change the approach.",
+        (tool != NULL && tool[0] != '\0') ? tool : "tool", count);
 }

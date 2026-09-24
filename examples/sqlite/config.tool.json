@@ -1,0 +1,24 @@
+{
+  "comment": "Route 2 of docs/SQLITE.md: a user-defined tool around the sqlite3 shell. The SQL is read from the JSON on stdin, because a JICHI_ARG_ variable is cut at 1023 bytes without a word. -safe is NOT optional: without it the shell runs .shell commands and readfile()/writefile() even on a read-only database, and readonly:true means no approval prompt.",
+  "tools": [
+    {
+      "name": "sql_query",
+      "description": "Run ONE read-only SQLite query against learning.db and return the rows as JSON. Tables: lessons(id, title, minutes), progress(lesson_id, done_on, score). Writes are refused.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "sql": {
+            "type": "string",
+            "description": "a single SELECT statement"
+          }
+        },
+        "required": [
+          "sql"
+        ]
+      },
+      "shell": "python3 -c 'import json, sys; sys.stdout.write(json.load(sys.stdin)[\"sql\"])' | sqlite3 -safe -readonly -json -bail learning.db",
+      "readonly": true,
+      "timeout": 20
+    }
+  ]
+}

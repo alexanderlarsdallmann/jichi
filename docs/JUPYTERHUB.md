@@ -584,7 +584,9 @@ right vehicle for `JC_CONFIG`: one path, same for everyone, not a secret.
    documented mechanism, not a measurement of ours.)
 2. **Setting it to an empty string does nothing at all.** jichi's `resolve_key`
    uses `getenv(apiKeyEnv)` *only when the value is non-empty*, and otherwise
-   falls through to the provider convention (`OPENAI_API_KEY`). An earlier draft
+   falls through to the provider convention (`OPENAI_API_KEY`) -- which, since
+   0.11.0 (M718), applies only to a model pointed at `api.openai.com` itself, so
+   against an institutional gateway nothing falls through at all. An earlier draft
    of this page had `"JICHI_API_KEY": ""` in the dict; it was removed, because a
    line that looks like it reserves a variable and in fact does nothing is worse
    than no line — and in the fall-through case it could quietly let a stray

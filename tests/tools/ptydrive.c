@@ -43,6 +43,7 @@
 #include "pd_core.h"
 #include "tt.h"
 
+#include <sys/types.h> /* pid_t: MiNTLib's <unistd.h> declares it only under an X/Open level (M723) */
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -65,7 +66,14 @@
 #include <termios.h>
 #ifdef JC_HAVE_STREAMS_PTY
 #include <stropts.h>
-#include <sys/filio.h>          /* FIONREAD is not in <sys/ioctl.h> here */
+/* FIONREAD is not in <sys/ioctl.h> on illumos; <sys/filio.h> has it. But the
+ * probe cannot tell illumos from glibc before 2.30, which ships a stub
+ * <stropts.h> with I_PUSH defined and has no <sys/filio.h> at all -- so on
+ * Debian 9 the smoke TOOLING did not compile (V2f, 2026-09-24). Ask for the
+ * header only where the macro is still missing, which is the question. */
+#ifndef FIONREAD
+#include <sys/filio.h>
+#endif
 #endif
 #include <time.h>
 #include <unistd.h>

@@ -97,18 +97,20 @@ static void write_session_of_size(const char *dir, const char *sid, long total)
 
 static void test_read_cap_visibility(void)
 {
-    char home[128];
-    char dir[256];
-    char cmd[512];
+    char home[512];
+    char dir[640];
     struct jc_arena *a;
     struct jc_vec metas;
     int skipped = 0;
     const char *small = "aaaaaaaa-0000-4000-8000-000000000001";
     const char *huge  = "bbbbbbbb-0000-4000-8000-000000000002";
 
-    jc_snprintf(home, sizeof home, "%s/jichi_bounds_%ld", jc_test_tmpdir(), (long)getpid());
-    jc_snprintf(cmd, sizeof cmd, "rm -rf %s", home);
-    system(cmd);
+    if (!JC_REQUIRE(jc_snprintf(home, sizeof home, "%s/jichi_bounds_%ld",
+                                jc_test_tmpdir(), (long)getpid())
+                    < (int)sizeof home)) {
+        return; /* a cut fixture path is a different path (M728) */
+    }
+    (void)jc_test_rm_rf(home);
     jc_snprintf(dir, sizeof dir, "%s/.jichi.d/sessions", home);
     JC_CHECK(jc_mkdir_p(dir) == JC_OK);
     setenv("HOME", home, 1);
@@ -141,16 +143,15 @@ static void test_read_cap_visibility(void)
 
     jc_vec_free(&metas);
     jc_arena_free(a);
-    system(cmd);
+    (void)jc_test_rm_rf(home);
 }
 
 /* --- #6: the listing order must be TOTAL ---------------------------------- */
 
 static void test_total_order(void)
 {
-    char home[128];
-    char dir[256];
-    char cmd[512];
+    char home[512];
+    char dir[640];
     struct jc_arena *a;
     struct jc_vec m1, m2;
     char first_run[8][64];
@@ -167,9 +168,12 @@ static void test_total_order(void)
         "dddddddd-0000-4000-8000-000000000004"
     };
 
-    jc_snprintf(home, sizeof home, "%s/jichi_order_%ld", jc_test_tmpdir(), (long)getpid());
-    jc_snprintf(cmd, sizeof cmd, "rm -rf %s", home);
-    system(cmd);
+    if (!JC_REQUIRE(jc_snprintf(home, sizeof home, "%s/jichi_order_%ld",
+                                jc_test_tmpdir(), (long)getpid())
+                    < (int)sizeof home)) {
+        return; /* a cut fixture path is a different path (M728) */
+    }
+    (void)jc_test_rm_rf(home);
     jc_snprintf(dir, sizeof dir, "%s/.jichi.d/sessions", home);
     JC_CHECK(jc_mkdir_p(dir) == JC_OK);
     setenv("HOME", home, 1);
@@ -215,7 +219,7 @@ static void test_total_order(void)
     jc_vec_free(&m1);
     jc_vec_free(&m2);
     jc_arena_free(a);
-    system(cmd);
+    (void)jc_test_rm_rf(home);
 }
 
 void test_bounds(void)

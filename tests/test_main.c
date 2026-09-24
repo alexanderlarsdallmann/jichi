@@ -5,9 +5,17 @@
 
 #include "jc_test.h"
 #include "jc_snprintf.h"   /* jc_snprintf */
+#include "jc_platform.h"   /* jc_list_dir */
+#include "jc_vec.h"
+#include "jc_mem.h"
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>   /* getenv */
+#include <string.h>
+#include <unistd.h>   /* unlink, rmdir */
+#include <sys/types.h>
+#include <sys/stat.h> /* lstat */
 
 int jc_test_checks = 0;
 int jc_test_fails = 0;
@@ -47,9 +55,139 @@ const char *jc_test_tmp(const char *name)
     }
     b = bufs[next];
     next = (next + 1) % 16;
-    jc_snprintf(b, sizeof bufs[0], "%s/%s", dir, name);
+    if (jc_snprintf(b, sizeof bufs[0], "%s/%s", dir, name)
+        >= (int)sizeof bufs[0]) {
+        /* M728: a fixture path cut to fit is a DIFFERENT path, and the
+         * prefix it leaves can be $TMPDIR itself or a parent of it. Say so,
+         * and fail; jc_test_rm_rf refuses whatever such a path would name. */
+        jc_test_checks++;
+        jc_test_fails++;
+        printf("  FAIL jc_test_tmp: \"%s/%s\" does not fit %lu bytes -- "
+               "set a shorter TMPDIR (M728)\n",
+               dir, name, (unsigned long)sizeof bufs[0]);
+    }
     return b;
 }
+
+/* jc_test_rm_rf - remove a fixture tree, WITHOUT a shell, and only strictly
+ * below the fixture directory (M728).
+ *
+ * Twenty-five sites used to build "rm -rf %s" into a fixed buffer and hand it
+ * to system(). A path is cut short when the buffer is, and a cut path is a
+ * PREFIX: under a 127-character TMPDIR, tests/test_bounds.c's 128-byte `home`
+ * came out as the TMPDIR itself, and a traced run of the suite executed
+ * `rm -rf "$TMPDIR"` four times. A longer TMPDIR cuts to a prefix of itself,
+ * which can be a parent directory; a TMPDIR with a space split the argument in
+ * two. Nothing checked any of it: the gate runs with TMPDIR unset, and a
+ * system() whose result is ignored reports nothing either way.
+ *
+ * So the removal takes the path itself, never a command line, and refuses any
+ * path that is not strictly below jc_test_tmpdir() -- the directory itself, a
+ * parent, a sibling that merely shares a prefix ("/tmpx" for "/tmp"), a `.` or
+ * `..` step, or anything at all when the fixture directory is "/". A refusal is
+ * a harness bug, so it FAILS the suite rather than skipping. The walk uses
+ * lstat and never follows a symlink out of the tree, and each child path lives
+ * in an arena, not on the stack (FreeMiNT's is a fixed 512 KB, M727). */
+int jc_test_rm_rf_allowed(const char *path)
+{
+    const char *td = jc_test_tmpdir();
+    size_t tl = strlen(td);
+    const char *c;
+
+    while (tl > 1 && td[tl - 1] == '/') {
+        tl--; /* "/tmp/" is "/tmp" */
+    }
+    if (path == NULL || tl == 0 || (tl == 1 && td[0] == '/')) {
+        return 0; /* no path, or a fixture directory of "/" */
+    }
+    if (strncmp(path, td, tl) != 0 || path[tl] != '/') {
+        return 0; /* not below it: a parent, a prefix-sibling, elsewhere */
+    }
+    c = path + tl;
+    while (*c == '/') {
+        c++;
+    }
+    if (*c == '\0') {
+        return 0; /* the fixture directory itself */
+    }
+    for (;;) {
+        const char *e = strchr(c, '/');
+        size_t cl = (e != NULL) ? (size_t)(e - c) : strlen(c);
+        if ((cl == 1 && c[0] == '.') ||
+            (cl == 2 && c[0] == '.' && c[1] == '.')) {
+            return 0; /* a step, which could climb back out */
+        }
+        if (e == NULL) {
+            break;
+        }
+        c = e + 1;
+    }
+    return 1;
+}
+
+static int rm_tree(const char *path)
+{
+    struct stat st;
+
+    if (lstat(path, &st) != 0) {
+        return (errno == ENOENT) ? 0 : -1; /* absent is already removed */
+    }
+    if (S_ISDIR(st.st_mode)) {
+        struct jc_arena *a = jc_arena_new(0);
+        struct jc_vec names;
+        jc_size i;
+        int rc = 0;
+
+        if (a == NULL) {
+            return -1;
+        }
+        jc_vec_init(&names, sizeof(char *));
+        if (jc_list_dir(path, &names, a) != JC_OK) {
+            rc = -1;
+        }
+        for (i = 0; rc == 0 && i < names.len; i++) {
+            const char *name = *(char **)jc_vec_at(&names, i);
+            jc_size need = (jc_size)(strlen(path) + 1 + strlen(name) + 1);
+            char *child = (char *)jc_arena_alloc(a, need);
+            if (child == NULL) {
+                rc = -1;
+                break;
+            }
+            jc_snprintf(child, need, "%s/%s", path, name);
+            if (rm_tree(child) != 0) {
+                rc = -1;
+            }
+        }
+        jc_vec_free(&names);
+        jc_arena_free(a);
+        if (rc == 0 && rmdir(path) != 0) {
+            rc = -1;
+        }
+        return rc;
+    }
+    return (unlink(path) == 0) ? 0 : -1; /* a file, or a link itself */
+}
+
+int jc_test_rm_rf(const char *path)
+{
+    if (!jc_test_rm_rf_allowed(path)) {
+        jc_test_checks++;
+        jc_test_fails++;
+        printf("  FAIL jc_test_rm_rf refused \"%s\": not strictly below the "
+               "fixture directory \"%s\" (M728)\n",
+               path != NULL ? path : "(null)", jc_test_tmpdir());
+        return -1;
+    }
+    return rm_tree(path);
+}
+
+/* The longest TMPDIR the fixtures are MEASURED clean under (M728): 0 failures
+ * at 160 characters, plain and under ASan/UBSan; at 200, four truncation false
+ * reds in test_session.c; at 240, a segfault. Their buffers were sized for
+ * "/tmp", and a TMPDIR past this length is refused before any test runs,
+ * rather than run into buffers nobody sized for it. Raising it means measuring
+ * again, not editing the number. */
+#define JC_TEST_TMPDIR_MAX 160
 
 int main(void)
 {
@@ -60,6 +198,17 @@ int main(void)
      * one check (seen once on the M146 ci run; ANECDOTES #17). */
     signal(SIGPIPE, SIG_IGN);
 
+    if (strlen(jc_test_tmpdir()) > JC_TEST_TMPDIR_MAX) {
+        printf("run_tests: TMPDIR is %lu characters, and the fixtures are "
+               "measured clean up to %d (M728).\n"
+               "run_tests: set a shorter one, for example TMPDIR=/tmp.\n",
+               (unsigned long)strlen(jc_test_tmpdir()), JC_TEST_TMPDIR_MAX);
+        return 2;
+    }
+
+    /* First: every later test removes its fixtures through this fence. */
+    printf("test_harness\n");
+    test_harness();
     printf("test_str\n");
     test_str();
     printf("test_sb_reserve_bounds\n");
@@ -73,6 +222,8 @@ int main(void)
     test_json_number_range();
     printf("test_json_depth_limit\n");
     test_json_depth_limit();
+    printf("test_json_string_alloc\n");
+    test_json_string_alloc();
     printf("test_json_bool_lenient\n");
     test_json_bool_lenient();
     printf("test_walk_skip_dir\n");
@@ -409,6 +560,8 @@ int main(void)
     test_delegreport();
     printf("test_toolloop\n");
     test_toolloop();
+    printf("test_noprogress\n");
+    test_noprogress();
     printf("test_constraint_source_line\n");
     test_constraint_source_line();
 

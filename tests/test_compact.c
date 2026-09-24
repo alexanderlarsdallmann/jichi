@@ -104,12 +104,13 @@ static void test_render(void)
     build_session(&h, huge);
 
     txt = jc_compact_render_transcript(&h, 4, ar);
-    JC_CHECK(txt != NULL);
-    JC_CHECK(strstr(txt, "User: first request") != NULL);
-    JC_CHECK(strstr(txt, "Assistant: working") != NULL);
-    JC_CHECK(strstr(txt, "-> called read_file(") != NULL);
-    JC_CHECK(strstr(txt, "Tool result: ") != NULL);
-    JC_CHECK(strstr(txt, "...[truncated]") != NULL);
+    if (JC_REQUIRE(txt != NULL)) { /* a guard (M729) */
+        JC_CHECK(strstr(txt, "User: first request") != NULL);
+        JC_CHECK(strstr(txt, "Assistant: working") != NULL);
+        JC_CHECK(strstr(txt, "-> called read_file(") != NULL);
+        JC_CHECK(strstr(txt, "Tool result: ") != NULL);
+        JC_CHECK(strstr(txt, "...[truncated]") != NULL);
+    }
     /* end=4 excludes the second user request. */
     JC_CHECK(strstr(txt, "second request") == NULL);
 

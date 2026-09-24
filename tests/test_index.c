@@ -107,10 +107,11 @@ static void test_docs_html(void)
         "<script>var x = 1 < 2;</script></head><body>"
         "<h1>Title</h1><p>Hello &amp; welcome to <b>jichi</b>.</p>"
         "<p>Line&nbsp;two.</p></body></html>", &out);
-    JC_CHECK(out.data != NULL);
-    JC_CHECK(strstr(out.data, "Title") != NULL);
-    JC_CHECK(strstr(out.data, "Hello & welcome to jichi.") != NULL);
-    JC_CHECK(strstr(out.data, "Line two.") != NULL);
+    if (JC_REQUIRE(out.data != NULL)) { /* a guard (M729) */
+        JC_CHECK(strstr(out.data, "Title") != NULL);
+        JC_CHECK(strstr(out.data, "Hello & welcome to jichi.") != NULL);
+        JC_CHECK(strstr(out.data, "Line two.") != NULL);
+    }
     /* No leftover tags or script source. */
     JC_CHECK(strstr(out.data, "<") == NULL);
     JC_CHECK(strstr(out.data, "color:red") == NULL);
@@ -157,8 +158,9 @@ static void test_endian_tag(void)
     union { unsigned int u; unsigned char c[sizeof(unsigned int)]; } probe;
 
     /* Exactly one of the two known tags. */
-    JC_CHECK(tag != NULL);
-    JC_CHECK(strcmp(tag, "le") == 0 || strcmp(tag, "be") == 0);
+    if (JC_REQUIRE(tag != NULL)) { /* a guard (M729) */
+        JC_CHECK(strcmp(tag, "le") == 0 || strcmp(tag, "be") == 0);
+    }
 
     /* Agrees with an independent probe of the host's byte order. */
     probe.u = 1u;
@@ -260,18 +262,23 @@ static void test_cached_load(void)
         idx = NULL;
         JC_CHECK(jc_index_build(ws, &m, 0, NULL, 0, &idx, &st, NULL,
                                 NULL) == JC_OK);
-        JC_CHECK(idx != NULL);
         JC_CHECK(st.embedded == 0);  /* fully served from the cache */
         JC_CHECK(st.reused == 1);
-        JC_CHECK(jc_index_count(idx) == 1);
-        JC_CHECK(jc_index_dim(idx) == 2);
-        JC_CHECK(strcmp(jc_index_chunk_text(idx, 0), text) == 0);
-        q[0] = 3.0f;
-        q[1] = 4.0f;
-        JC_CHECK(jc_index_search(idx, q, 1, &hit, &score) == 1);
-        JC_CHECK(hit == 0);
-        JC_CHECK(score > 0.999); /* same vector: cosine ~1 */
-        jc_index_free(idx);
+        /* Guards, not checks (M729): with no cache written -- a TMPDIR it
+         * cannot write -- the index is empty, and strcmp read the NULL that
+         * jc_index_chunk_text returns for a chunk that does not exist. */
+        if (JC_REQUIRE(idx != NULL) && JC_REQUIRE(jc_index_count(idx) == 1)) {
+            JC_CHECK(jc_index_dim(idx) == 2);
+            JC_CHECK(strcmp(jc_index_chunk_text(idx, 0), text) == 0);
+            q[0] = 3.0f;
+            q[1] = 4.0f;
+            JC_CHECK(jc_index_search(idx, q, 1, &hit, &score) == 1);
+            JC_CHECK(hit == 0);
+            JC_CHECK(score > 0.999); /* same vector: cosine ~1 */
+        }
+        if (idx != NULL) {
+            jc_index_free(idx);
+        }
     }
 
     remove(src);

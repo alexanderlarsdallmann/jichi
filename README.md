@@ -22,9 +22,9 @@ needs the rest of this page first.
 **Two things worth knowing before you invest an hour:**
 
 - **Platforms.** **20 rows Verified** — compiled *and* gate-run on each, with the
-  numbers kept per row — plus **3 Partly verified** (a named gap each) and
-  **1 Never compiled**. Linux across **14 architectures** and five libcs, down to a
-  256 MB VM; **FreeBSD, NetBSD and OpenBSD** all run the full gate; **WSL2** runs
+  numbers kept per row — plus **5 Partly verified** (a named gap each) and
+  **2 Never compiled**. Linux across **14 architectures** and five libcs, down to a
+  256 MB VM and, in containers, to **Debian 5's glibc 2.7** (2007); **FreeBSD, NetBSD and OpenBSD** all run the full gate; **WSL2** runs
   the whole of `make ci`, Cygwin the unit and smoke tiers; Android both cross-built
   and built on-device. **illumos is partly verified and driven** (OmniOS under KVM; M658, re-measured M703 2026-09-22: clean build, 13,458 unit checks, **317 of 317** smoke drivers, both model turns driven. *Partly* names the gate — `make ci` has never run there). **Never compiled: macOS** — there is no Mac on
   this project, and its one Darwin-specific line went months un-compilable because
@@ -180,7 +180,7 @@ opencode, and Claude Code) configurations —
 
 **Never compiled from source before?** [`docs/PREPARE_AND_BUILD.md`](docs/PREPARE_AND_BUILD.md) walks you from an empty terminal to a working build on Linux, macOS, or Windows/WSL. Linux and **WSL2** are both verified paths — the WSL2 walkthrough has been executed end to end, by a non-root user, against pristine HEAD. **macOS is the one door nobody has opened**, and [`docs/PLATFORMS.md`](docs/PLATFORMS.md) is the one page that states, per platform, what was actually compiled and gate-run.
 
-Built incrementally in milestones — **709 of them**, 693 written up in full (the
+Built incrementally in milestones — **730 of them**, 714 written up in full (the
 gap is numbers merged, split or skipped) — each with its design and its failures
 recorded. **The documentation ships in full, on purpose** — the analyses, plans,
 dialogues and anecdotes, including every recorded failure, mis-diagnosis and dead
@@ -278,8 +278,8 @@ unit suite (**over 13,000 checks** — a growing figure, so stated as a bound
 per the M307 rule), `make smoke` adds a **python-free** tier that makes
 `make check-target` a full gate on any POSIX box, and `make ci` additionally runs
 the suite under two compilers, AddressSanitizer + UndefinedBehaviorSanitizer,
-Valgrind, and a fuzzer. Green end to end at **M691** on the development box:
-**13,426 checks / 0 failures**, smoke **315 drivers / 1,836 checks**.
+Valgrind, and a fuzzer. Green end to end at **M732** on the development box:
+**13,822 checks / 0 failures**, smoke **325 drivers / 1,920 checks**.
 
 Each verified platform is **kept as its own stamped datum** rather than
 overwritten, because "it passes on a small machine" and "it passes on that
@@ -552,39 +552,57 @@ go to stderr so stdout stays pipe-clean.
 Configuration is JSON (no YAML). Resolution order: `--config <path>`, then
 `$JC_CONFIG`, then `./local/config.json` (project-local, git-ignored — handy for
 dev), then `~/.jichi`. New to the model/routing/autonomy options? See the
-step-by-step [`docs/CONFIG_TUTORIAL.md`](docs/CONFIG_TUTORIAL.md). Example:
+step-by-step [`docs/CONFIG_TUTORIAL.md`](docs/CONFIG_TUTORIAL.md). The shortest
+config that works costs nothing — a model server on your own machine (LM Studio,
+`llama.cpp`, Ollama):
 
 ```json
 {
-  "model": {
-    "provider": "anthropic",
-    "model": "claude-opus-4-8",
-    "apiKeyEnv": "ANTHROPIC_API_KEY",
-    "maxTokens": 4096,
-    "temperature": 0.0,
-    "inputCostPer1M": 15.0,
-    "outputCostPer1M": 75.0
-  },
+  "models": [
+    { "name": "local", "provider": "openai",
+      "model": "<the id your server lists>",
+      "apiBase": "http://localhost:1234/v1" }
+  ],
   "maxToolIters": 25,
   "maxRetries": 4
 }
 ```
 
-Both the **Anthropic Messages API** and **OpenAI-compatible** chat completions
-are supported through a pluggable provider abstraction.
-
-### Multiple models
-
-Provide a `models` array instead of a single `model` to configure several and
-switch between them at runtime. The first entry is active on startup.
+No key line: a server on your own machine usually wants none. **`provider` is
+the wire dialect, not a company** — `"openai"` means any OpenAI-compatible server,
+`"anthropic"` the Anthropic Messages API — and jichi guesses neither the dialect
+nor a key: an entry that names no `provider` is refused, and a vendor's key
+variable is read without being named only for that vendor's own endpoint
+([`docs/CONFIG_TUTORIAL.md`](docs/CONFIG_TUTORIAL.md) §1.5). A paid endpoint takes
+its key from the environment, named with `apiKeyEnv`, and should declare what it
+costs, so `/cost`, the exit total and any budget mean something:
 
 ```json
 {
   "models": [
     { "name": "Claude", "provider": "anthropic", "model": "claude-opus-4-8",
-      "apiKeyEnv": "ANTHROPIC_API_KEY" },
-    { "name": "GPT-4o", "provider": "openai", "model": "gpt-4o",
-      "apiKeyEnv": "OPENAI_API_KEY" }
+      "apiKeyEnv": "ANTHROPIC_API_KEY",
+      "inputCostPer1M": 15.0, "outputCostPer1M": 75.0 }
+  ]
+}
+```
+
+Both dialects are supported through a pluggable provider abstraction.
+
+### Multiple models
+
+List several entries in `models` to switch between them at runtime (a single
+`model` object works too). The first entry is active on startup.
+
+```json
+{
+  "models": [
+    { "name": "local", "provider": "openai",
+      "model": "<the id your server lists>",
+      "apiBase": "http://localhost:1234/v1" },
+    { "name": "Claude", "provider": "anthropic", "model": "claude-opus-4-8",
+      "apiKeyEnv": "ANTHROPIC_API_KEY",
+      "inputCostPer1M": 15.0, "outputCostPer1M": 75.0 }
   ],
   "maxToolIters": 25
 }
@@ -611,17 +629,22 @@ summarizer and `autocomplete` the completion model. The rest (`chat`, `edit`,
 ```json
 {
   "models": [
-    { "name": "GPT-4o", "provider": "openai", "model": "gpt-4o",
-      "apiKeyEnv": "OPENAI_API_KEY", "roles": ["chat", "edit"] },
-    { "name": "Embedder", "provider": "openai", "model": "text-embedding-3-small",
-      "apiBase": "https://my-host/v1", "apiKeyEnv": "OPENAI_API_KEY",
+    { "name": "local", "provider": "openai",
+      "model": "<the id your server lists>",
+      "apiBase": "http://localhost:1234/v1", "roles": ["chat", "edit"] },
+    { "name": "Embedder", "provider": "openai", "model": "<an embedding model>",
+      "apiBase": "https://my-host/v1", "apiKeyEnv": "MY_HOST_API_KEY",
       "roles": ["embed"] },
-    { "name": "Reranker", "provider": "openai", "model": "rerank-1",
-      "apiBase": "https://my-host/v1", "apiKeyEnv": "OPENAI_API_KEY",
+    { "name": "Reranker", "provider": "openai", "model": "<a rerank model>",
+      "apiBase": "https://my-host/v1", "apiKeyEnv": "MY_HOST_API_KEY",
       "roles": ["rerank"] }
   ]
 }
 ```
+
+`my-host`'s key has a name of its own: a vendor's variable such as
+`OPENAI_API_KEY` sent to a host that is not that vendor's is exactly what
+`jichi doctor` warns about.
 
 ### Multiple servers & fallback
 
@@ -921,7 +944,8 @@ Claude Code / Continue shape) in your config:
 
 ```json
 {
-  "model": { "provider": "anthropic", "model": "claude-opus-4-8" },
+  "model": { "provider": "openai", "model": "<the id your server lists>",
+             "apiBase": "http://localhost:1234/v1" },
   "mcpServers": [
     { "name": "fs", "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
@@ -1153,7 +1177,7 @@ Use `--model <selector>` to override the role-default model for `embed`/`rerank`
 
 ## Roadmap
 
-**Where we stand: latest milestone M716.** The engineering loop is healthy; the
+**Where we stand: latest milestone M740.** The engineering loop is healthy; the
 **first public release shipped 2026-08-27**: **v0.9.0**, one curated commit,
 published to the HRZ GitLab (`jichi-public/jichi`) and to GitHub, tag `v0.9.0`
 on both ([`docs/plans/2026-08-public-snapshot.md`](docs/plans/2026-08-public-snapshot.md),
@@ -1174,11 +1198,20 @@ rather than a release. The tree was then **advanced to the M709 state on
 2026-09-22** — public commit `7180954` = private `02ef9c25`, covering M691–M709,
 **2,063 files compared byte for byte with 0 differing**, and **tag `v0.10.0`**
 on both remotes, because `JC_VERSION` moved 0.9.2 → 0.10.0 for the one breaking
-change in it (M709 removed the vendor default). **This tree reads 0.10.1**, a
-PATCH over 0.10.0 for two fixes a user could hit (M714's `search_code` dialect,
-M715's resumed-turn answer). The public tree reaches it with the curated state
-that carries this sentence, and that advance is recorded here after the push,
-as each one above was. The release checklist, as it
+change in it (M709 removed the vendor default). The tree was then **advanced to
+the M716 state on 2026-09-23** — public commit `cd62411` = private `f23dd158`,
+covering M710–M716, **2,073 files compared byte for byte with 0 differing**, and
+**tag `v0.10.1`** on both remotes, a PATCH for two fixes a user could hit (M714's
+`search_code` dialect, M715's resumed-turn answer), with the hosted runner green
+on the branch before the tag was pushed and then on the tag. **This tree reads
+0.12.0**, a MINOR over 0.10.1 by way of 0.11.0, which was cut on 2026-09-24 and never
+published on its own: 0.11.0 removed two defaults (M718, M719 -- a config may need one
+line) and landed two safety fixes (M724, M728); 0.12.0 makes a rule jichi infers from an
+`--auto` prompt advise rather than refuse (M734, the MINOR), names a call that keeps
+returning the same result (M733), and fixes the smoke tier's `/tmp` leak (M739) and an
+example that let a label write files (M740). The public tree reaches it with the
+curated state that carries this sentence, and that advance is recorded here after the
+push, as each one above was. The release checklist, as it
 landed:
 
 - **done** — the rename to jichi (name, binaries, paths, remote, dependent

@@ -53,6 +53,11 @@
 . "$(dirname "$0")/_smoke.sh"
 
 t_plan 5
+# The absolute path, where there is one: in an agent session bare `grep` can be a
+# shell function (CLAUDE.md). But guarded -- Debian 9 predates the merged /usr and
+# has only /bin/grep, and this lint died there of "not found" (V2f, 2026-09-24).
+G=/usr/bin/grep
+[ -x "$G" ] || G=grep
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 tmp=$(smoke_tmp)
 
@@ -78,10 +83,10 @@ is_exempt() {
 # trivially over an empty corpus, so a `find` that matched nothing -- a renamed
 # directory, a moved docs tree in the snapshot -- would print four greens and mean
 # nothing. This check is what those four are measured against.
-n_tr=$(cd "$ROOT" && find docs/i18n -name '*.md' | /usr/bin/grep -c .)
-n_mk=$(cd "$ROOT" && /usr/bin/grep -rl '<!-- tracks:' docs/i18n | /usr/bin/grep -c .)
-n_dk=$(cd "$ROOT" && find docs/i18n -path '*/presentations/*.md' | /usr/bin/grep -c .)
-n_en=$(cd "$ROOT" && find docs/presentations -name '*.md' | /usr/bin/grep -c .)
+n_tr=$(cd "$ROOT" && find docs/i18n -name '*.md' | "$G" -c .)
+n_mk=$(cd "$ROOT" && "$G" -rl '<!-- tracks:' docs/i18n | "$G" -c .)
+n_dk=$(cd "$ROOT" && find docs/i18n -path '*/presentations/*.md' | "$G" -c .)
+n_en=$(cd "$ROOT" && find docs/presentations -name '*.md' | "$G" -c .)
 if [ "$n_tr" -ge 40 ] && [ "$n_mk" -ge 40 ] && [ "$n_dk" -ge 24 ] && [ "$n_en" -ge 7 ]; then
     t_ok "corpus: $n_tr translated pages, $n_mk carrying a marker, $n_dk decks against $n_en English"
 else
@@ -144,8 +149,8 @@ for f in $(cd "$ROOT" && find docs/i18n -path '*/presentations/*.md' | sort); do
     b=$(basename "$f")
     en="$ROOT/docs/presentations/$b"
     [ -f "$en" ] || continue
-    k=$(sed 's/\r$//' "$ROOT/$f" | /usr/bin/grep -c '^---$')
-    m=$(sed 's/\r$//' "$en" | /usr/bin/grep -c '^---$')
+    k=$(sed 's/\r$//' "$ROOT/$f" | "$G" -c '^---$')
+    m=$(sed 's/\r$//' "$en" | "$G" -c '^---$')
     [ "$k" = "$m" ] && continue
     want=$((m - k))
     got=$(sed -n 's/.*<!-- slides-behind: *\([0-9][0-9]*\).*/\1/p' "$ROOT/$f" | sed -n 1p)
@@ -209,7 +214,7 @@ _strip_comments() {
 }
 nums() {
     _strip_comments "$1" |
-        /usr/bin/grep -oE '[0-9]+([.,][0-9]{3})+|[0-9]{3,}' |
+        "$G" -oE '[0-9]+([.,][0-9]{3})+|[0-9]{3,}' |
         tr -d '.,' | sort -u
 }
 for f in $(cd "$ROOT" && find docs/i18n -name '*.md' | sort); do
@@ -223,7 +228,7 @@ for f in $(cd "$ROOT" && find docs/i18n -name '*.md' | sort); do
     esac
     [ -f "$en" ] || continue
     nums "$ROOT/$f" > "$tmp/t.n"; nums "$en" > "$tmp/e.n"
-    want=$(comm -23 "$tmp/t.n" "$tmp/e.n" | /usr/bin/grep -c . || true)
+    want=$(comm -23 "$tmp/t.n" "$tmp/e.n" | "$G" -c . || true)
     [ "$want" = "0" ] && continue
     got=$(sed -n 's/.*<!-- figures-behind: *\([0-9][0-9]*\).*/\1/p' "$ROOT/$f" | sed -n 1p)
     if [ "$got" != "$want" ]; then

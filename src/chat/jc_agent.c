@@ -1650,6 +1650,10 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
      * many times each file was edited this run so we can nudge on thrash. */
     struct jc_editwatch editwatch;
     struct jc_toolloop toolloop;   /* M432: per-turn, heap-free */
+    struct jc_noprogress noprog;   /* D1 (M733): its success twin, same shape */
+    /* M734: which INFERRED rules this turn has already told the model it went
+     * against -- once each, since the rule is in the system prompt as well. */
+    unsigned char advised[JC_CONSTRAINT_MAX];
     /* M572: CONSECUTIVE refusals this turn, INDEPENDENT OF TOOL. The M570 stop
      * used jc_toolloop's counters, and both of its keys include the tool name --
      * so a model that rotates tools multiplies its budget. The operator measured
@@ -1670,6 +1674,8 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
 
     jc_editwatch_init(&editwatch);
     jc_toolloop_init(&toolloop);
+    jc_noprogress_init(&noprog);
+    memset(advised, 0, sizeof advised);
     app->last_run_capped = 0; /* set only on the iteration-cap exit (M62 #5) */
     app->last_run_budget_stopped = 0; /* set only on a delegate's budget stop */
     app->last_fail_tool[0] = '\0';    /* M437: this run's last failing call */
@@ -2224,7 +2230,10 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
             char *args_copy;
             char *id_copy;
             enum jc_approval verdict;
+            int advise_rule = -1;    /* M734: an inferred rule this call breaks */
+            char advise_text[256];
 
+            advise_text[0] = '\0';
             /* Drain/reap background processes opportunistically (M26). */
             if (app->bg != NULL) {
                 jc_bg_poll(app->bg);
@@ -2393,7 +2402,13 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
              * the build") REFUSES a violating tool call mechanically, even if the
              * model forgot the instruction after a compaction / lost window. The
              * durable constraint text lives in the system prompt; this is the
-             * backstop that makes it binding, not advisory. */
+             * backstop that makes it binding, not advisory.
+             *
+             * M734 (plan D2 (c)): binding for a rule the operator WROTE. A rule
+             * INFERRED from the prompt's wording now advises -- the call runs, is
+             * journalled, and its result says which rule it went against -- since
+             * M730 measured 6 of 9 inferred rules wrong, each forbidding the gate
+             * its own task named. */
             if (app->constraints_on && app->n_constraints > 0) {
                 char creason[256];
                 const char *cmd = NULL;
@@ -2401,6 +2416,8 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                 cJSON *o2;
                 int blocked;
                 int scope_exempt = 0;
+                int crule = -1;
+                enum jc_constraint_verdict cverdict;
                 if (strcmp(gate_name, "run_terminal_command") == 0 ||
                     strcmp(gate_name, "run_tests") == 0) {
                     aj = cJSON_Parse(args_copy);
@@ -2443,31 +2460,49 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                         }
                     }
                 }
-                blocked = jc_constraint_blocks_ex(app->constraints,
+                cverdict = jc_constraint_judge(app->constraints,
                     app->n_constraints, name_copy, cmd,
                     tool != NULL ? tool->readonly : 0, scope_exempt,
-                    creason, sizeof creason);
+                    creason, sizeof creason, &crule);
+                blocked = (cverdict == JC_CONSTRAINT_REFUSE);
+                /* M734: advice, not refusal. Remember the rule so the result can
+                 * say so, and journal EVERY such call: how often a guessed rule
+                 * meets the work is the rate the next decision about it needs. */
+                if (cverdict == JC_CONSTRAINT_ADVISE) {
+                    advise_rule = crule;
+                    jc_snprintf(advise_text, sizeof advise_text, "%s", creason);
+                    o2 = jc_env_journal_begin(app->env, "constraint_advisory");
+                    if (o2 != NULL) {
+                        cJSON_AddStringToObject(o2, "tool", name_copy);
+                        cJSON_AddStringToObject(o2, "rule", advise_text);
+                        jc_env_journal_end(app->env, o2);
+                    }
+                    creason[0] = '\0';
+                }
                 /* Announce it. A constraint quietly not applied is as opaque as
                  * one quietly applied: either way the operator cannot see which
                  * rule decided. Emitted only when the exemption CHANGED the
-                 * outcome, so an ordinary in-scope write stays silent. */
-                if (scope_exempt && !blocked &&
-                    jc_constraint_blocks(app->constraints, app->n_constraints,
-                                         name_copy, cmd,
-                                         tool != NULL ? tool->readonly : 0,
-                                         creason, sizeof creason)) {
+                 * outcome, so an ordinary in-scope write stays silent. Since M734
+                 * the outcome it changes is advice: without the operator's
+                 * declared path, an inferred read-only would have been told. */
+                if (scope_exempt && cverdict == JC_CONSTRAINT_ALLOW &&
+                    jc_constraint_judge(app->constraints, app->n_constraints,
+                                        name_copy, cmd,
+                                        tool != NULL ? tool->readonly : 0, 0,
+                                        creason, sizeof creason, NULL)
+                        == JC_CONSTRAINT_ADVISE) {
                     /* WARN, not INFO. M167 made the adoption of an inferred
                      * rule visible for precisely this reason -- INFO sits below
                      * the default threshold, so a rule that changed behaviour
                      * did so in silence. Declining to apply one changes
                      * behaviour just as much. */
                     jc_logf(JC_LOG_WARN,
-                            "[constraint] an inferred read-only did not block "
-                            "%s: --edit-scope explicitly permits this path",
+                            "[constraint] an inferred read-only does not apply "
+                            "to %s: --edit-scope explicitly permits this path",
                             name_copy);
                     if (cb != NULL && cb->on_status != NULL) {
                         cb->on_status(cb->user,
-                            "inferred read-only overridden: --edit-scope "
+                            "inferred read-only set aside: --edit-scope "
                             "explicitly permits this path");
                     }
                     o2 = telem(app, "constraint_exempt");
@@ -3293,6 +3328,82 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                             cb->on_status(cb->user, lb);
                         }
                     }
+                } else {
+                    /* D1 (M733): the success twin of the block above. The same
+                     * call answered the same way three times is a loop M432
+                     * cannot see -- 0 errors, 200 calls (M687). The role table
+                     * and the reset rules are jc_toolloop.h's; the threshold is
+                     * the M731 fit. Any depth, like M432: the watch is this
+                     * (sub)run's own, and the note goes into the history that
+                     * is looping. */
+                    enum jc_noprogress_role prole = jc_noprogress_role(
+                        gate_name, tool != NULL ? tool->readonly : 0);
+                    if (prole == JC_NOPROGRESS_RESET) {
+                        jc_noprogress_reset(&noprog);
+                    } else if (prole == JC_NOPROGRESS_COUNT) {
+                        int pcount = jc_noprogress_note(&noprog, gate_name,
+                                                        args_copy, content);
+                        if (pcount > 0) {
+                            char pnote[400];
+                            jc_noprogress_render(name_copy, pcount,
+                                                 pnote, sizeof pnote);
+                            if (!have_combined) {
+                                jc_sb_init(&combined);
+                                jc_sb_append(&combined, content);
+                                have_combined = 1;
+                            }
+                            jc_sb_append(&combined, pnote);
+                            jc_logf(JC_LOG_WARN,
+                                    "no progress: %s returned the same result "
+                                    "%dx this turn", name_copy, pcount);
+                            /* The operator's table, not only the model's
+                             * history -- M422's lesson, as for tool_loop. */
+                            if (env_active(app)) {
+                                cJSON *po = jc_env_journal_begin(app->env,
+                                                                 "no_progress");
+                                if (po != NULL) {
+                                    cJSON_AddStringToObject(po, "name",
+                                                            name_copy);
+                                    cJSON_AddNumberToObject(po, "repeat",
+                                                            (double)pcount);
+                                }
+                                jc_env_journal_end(app->env, po);
+                            }
+                            if (cb != NULL && cb->on_status != NULL) {
+                                char pb[160];
+                                jc_snprintf(pb, sizeof pb,
+                                            "no progress: %s returned the "
+                                            "same result %dx", name_copy,
+                                            pcount);
+                                cb->on_status(cb->user, pb);
+                            }
+                        }
+                    }
+                }
+                /* M734: the inferred rule this call went against, told once a
+                 * turn per rule. After the call, because advice about a call
+                 * that never ran would be noise, and in the result, because
+                 * that is what the model reads when it decides what next. */
+                if (advise_rule >= 0 && advise_rule < JC_CONSTRAINT_MAX &&
+                    !advised[advise_rule]) {
+                    char anote[512];
+                    advised[advise_rule] = 1;
+                    jc_snprintf(anote, sizeof anote,
+                        "\n\n[jichi] note: this call goes against a rule jichi "
+                        "inferred from your request -- \"%s\". Inferred rules "
+                        "are advisory, so it ran. If the request really forbids "
+                        "this, stop and say so in your final answer.",
+                        advise_text);
+                    if (!have_combined) {
+                        jc_sb_init(&combined);
+                        jc_sb_append(&combined, content);
+                        have_combined = 1;
+                    }
+                    jc_sb_append(&combined, anote);
+                    jc_logf(JC_LOG_WARN,
+                            "[constraint] %s went against an inferred rule "
+                            "(advisory, not enforced): %s", name_copy,
+                            advise_text);
                 }
                 jc_history_add_tool_result(hist, call_id,
                     have_combined ? combined.data : content, res.is_error);
@@ -3874,6 +3985,29 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
      * answer_bytes counts only those. */
     jc_size turn_from = jc_history_len(hist);
 
+    /* NO HOUSE DIALECT (M718): a turn is where a model is called, so it is where
+     * a missing provider is refused -- with the sentence that says why, before
+     * any state moves. The program may run without one (main.c says when);
+     * every caller of a turn -- the TUI, headless, the daemon, ACP -- passes
+     * through here, so this is the single place it can be missed. */
+    if (app->provider == NULL) {
+        char why[640];
+        if (app->config.model.model == NULL ||
+            app->config.model.model[0] == '\0') {
+            jc_snprintf(why, sizeof(why), "no model is configured -- %s",
+                        jc_config_no_model_advice());
+        } else if (!jc_config_provider_problem(&app->config.model, why,
+                                               sizeof(why))) {
+            jc_snprintf(why, sizeof(why), "no provider could be created for "
+                        "the active model");
+        }
+        jc_logf(JC_LOG_ERROR, "%s", why);
+        if (cb != NULL && cb->on_status != NULL) {
+            cb->on_status(cb->user, why);
+        }
+        return JC_ERR_INVALID;
+    }
+
     jc_vec_init(&core_allow, sizeof(char *));
     app->turn_capped = 0;   /* M322: this turn's own cap-exit, not a subagent's */
 
@@ -3966,14 +4100,19 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
                     jc_constraint_join_text(app->constraints, before,
                                             app->n_constraints,
                                             names, sizeof names);
+                    /* M734: advisory now, and the notice says so -- an
+                     * operator reading "enforced" would expect refusals that
+                     * no longer happen. */
                     jc_logf(JC_LOG_WARN,
-                            "[constraint] inferred from your request and "
-                            "enforced for THIS SESSION (not saved): %s -- lift "
-                            "with `/constraints clear`, or rephrase and re-run "
-                            "if that is not what you meant", names);
+                            "[constraint] inferred from your request, ADVISORY "
+                            "for THIS SESSION (not enforced, not saved): %s -- "
+                            "the model is told to follow it unless the task "
+                            "needs otherwise; `/constraints add` makes a rule "
+                            "binding", names);
                     if (cb != NULL && cb->on_status != NULL) {
                         cb->on_status(cb->user,
-                            "adopted constraints from your request (enforced)");
+                            "inferred constraints from your request "
+                            "(advisory, not enforced)");
                     }
                     /* Journal it, so a post-mortem does not depend on having
                      * watched stderr. An adoption announces itself once and never
@@ -3991,6 +4130,9 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
                                 (double)(app->n_constraints - before));
                             cJSON_AddStringToObject(cj, "names", names);
                             cJSON_AddStringToObject(cj, "source", "inferred");
+                            /* M734: what a reader of the journal needs to
+                             * know about an adoption -- whether it binds. */
+                            cJSON_AddBoolToObject(cj, "advisory", 1);
                             jc_env_journal_end(app->env, cj);
                         }
                     }
@@ -4131,6 +4273,16 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
              * which is the whole of DEFERRED item 7's question, and nothing in
              * the journal could say it. */
             cJSON_AddBoolToObject(o, "one_shot", app->env->one_shot);
+            /* M720: WHICH model answered. The journal is read to price decisions
+             * about how runs behave, and the model is the first covariate of that
+             * -- it recorded the cap, the verifier and the scope, and not the
+             * model. It is also how a mockmodel probe that wrote into the real
+             * store is told from real work without joining telemetry (on
+             * 2026-09-23, 28 of the 32 workstation journals carrying a
+             * stop_reason were such probes; tests/measure/corpus_filter.py). The
+             * id only -- never the endpoint, never the key. */
+            cJSON_AddStringToObject(o, "model",
+                app->config.model.model != NULL ? app->config.model.model : "");
             /* M503: a supervisor reading `verify: make test` could not tell an
              * operator's choice from a config inheritance, and the two mean
              * different things when the gate then fails. */
@@ -4355,12 +4507,15 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
              * supposed to answer it. The row said the journal already carried
              * stop_reason. It did not; that claim was read, not measured.
              *
-             * JC_OK is passed because reaching this line means the loop
-             * returned normally -- a transport error never gets here. So the
-             * value distinguishes exactly what the agent can know: done,
-             * max_iters, and the three envelope verdicts. */
+             * M732: this used to pass JC_OK, "because reaching this line means
+             * the loop returned normally -- a transport error never gets here".
+             * Both halves were false. An interrupt reaches this line (a drive's
+             * wall-clock SIGINT was journalled `done` while its own stream said
+             * `interrupted`, M731), and so does a failed model call. `st` is the
+             * loop's real status, and the classifier was always able to read it
+             * -- which is also what the stream and the reach footer pass. */
             cJSON_AddStringToObject(o, "stop_reason",
-                jc_run_stop_wire(jc_agent_stop_reason(app, JC_OK)));
+                jc_run_stop_wire(jc_agent_stop_reason(app, st)));
             cJSON_AddBoolToObject(o, "rolled_back", app->env->rolled_back);
             /* M715: the size of what this turn answered -- a fact, not a verdict.
              * A capped turn's last words ("Let me try with explicit tabs:") are

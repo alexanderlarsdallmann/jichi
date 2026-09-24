@@ -135,6 +135,17 @@ t_done() {
 
 # --- temp dirs + cleanup -------------------------------------------------------
 SMOKE_TMPDIRS=""
+# THE REGISTRY IS A FILE, because the variable above cannot carry it. Every driver
+# calls `tmp=$(smoke_tmp)`; a command substitution runs in a subshell, and what a
+# subshell assigns is gone when it returns. So from M209 on, smoke_cleanup looped
+# over an empty list and every temp dir of every driver stayed behind. Nobody saw
+# it because /tmp is a tmpfs a reboot empties -- until 2026-09-24 on threadwork:
+# 20,284 of them since the last boot, all 1,048,576 of the tmpfs's inodes used
+# with 102 GB of its space free, and every tool that made a temp file failing
+# with "No space left on device" (M739). `$$` is the driver's pid in a subshell
+# too, which is what lets smoke_tmp's subshell and the driver's trap agree on the
+# file. The variable stays for a caller that does not use a subshell.
+SMOKE_TMPREG="${TMPDIR:-/tmp}/jichi_smoke_reg.$$"
 
 # smoke_md_corpus OUT DIR... -- concatenate every *.md under DIR(s) into OUT.
 #
@@ -174,6 +185,7 @@ smoke_tmp() {
         exit 1
     }
     SMOKE_TMPDIRS="$SMOKE_TMPDIRS $_st_d"
+    printf '%s\n' "$_st_d" >> "$SMOKE_TMPREG"
     printf '%s\n' "$_st_d"
 }
 
@@ -216,6 +228,18 @@ smoke_can_fence_owner() {
     printf '%s\n' "$_cfo_ans"
 }
 
+# smoke_rm_tmp DIR -- remove one directory smoke_tmp made, and nothing else: the
+# registry is a file on a shared /tmp, so the name is checked rather than trusted.
+# chmod first, because a fixture left mode 000 -- an unreadable store, an
+# unlistable index root -- makes rm -rf fail on everything beneath it.
+smoke_rm_tmp() {
+    case ${1##*/} in
+        jichi_smoke.??????)
+            chmod -R u+rwx "$1" 2>/dev/null
+            rm -rf "$1" ;;
+    esac
+}
+
 smoke_cleanup() {
     # EVERY mock this driver started, not just the last one (M459).
     #
@@ -235,9 +259,16 @@ smoke_cleanup() {
         wait "$_sc_p" 2>/dev/null
     done
     MM_PIDS=""
+    if [ -f "$SMOKE_TMPREG" ]; then
+        while IFS= read -r _sc_d; do
+            smoke_rm_tmp "$_sc_d"
+        done < "$SMOKE_TMPREG"
+        rm -f "$SMOKE_TMPREG"
+    fi
     for _sc_d in $SMOKE_TMPDIRS; do
-        rm -rf "$_sc_d"
+        smoke_rm_tmp "$_sc_d"
     done
+    SMOKE_TMPDIRS=""
 }
 trap smoke_cleanup EXIT INT TERM
 

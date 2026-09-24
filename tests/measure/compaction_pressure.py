@@ -88,6 +88,9 @@ import os
 import statistics
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import corpus_filter  # noqa: E402 -- M720: which sessions are real
+
 ELIDE_MIN_BYTES = 800           # jc_compact.c
 MIDTURN_HIGH_PCT = 80
 MIDTURN_TARGET_PCT = 60
@@ -134,8 +137,19 @@ def served_size(e):
 
 
 def main(argv):
-    dirs = argv[1:] or [os.path.expanduser("~/.jichi.d/telemetry")]
+    include_synthetic = "--include-synthetic" in argv[1:]
+    dirs = ([a for a in argv[1:] if a != "--include-synthetic"]
+            or [os.path.expanduser("~/.jichi.d/telemetry")])
     by_sid, nfiles = load(dirs)
+    # M720: classify the population before counting anything in it.
+    pop = corpus_filter.Population()
+    for evs in by_sid.values():
+        for e in evs:
+            pop.feed(e)
+    if not include_synthetic:
+        for sid in pop.synthetic_sids():
+            by_sid.pop(sid, None)
+    print(pop.session_report(include_synthetic))
     nev = sum(len(v) for v in by_sid.values())
     print("corpus: %d events, %d sessions, %d files" % (nev, len(by_sid), nfiles))
 

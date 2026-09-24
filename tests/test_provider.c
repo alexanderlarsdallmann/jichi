@@ -867,8 +867,42 @@ static void test_length_cap_marks_truncated(void)
     p->vt->free(p);
 }
 
+/* M718 (plan D4): NO HOUSE DIALECT. The factory used to guess the dialect from
+ * the model id -- "gpt" in it meant OpenAI -- and default to Anthropic's, so an
+ * entry naming no provider, or "ollama", spoke the Anthropic Messages API to
+ * whatever server it named. Every row below used to return a provider. */
+static void test_no_house_dialect(void)
+{
+    struct jc_model_cfg m;
+    struct jc_provider *p;
+
+    make_model(&m, NULL, (char *)"some-model");
+    JC_CHECK(jc_provider_create(&m) == NULL);
+    make_model(&m, NULL, (char *)"gpt-4o");          /* the old heuristic */
+    JC_CHECK(jc_provider_create(&m) == NULL);
+    make_model(&m, (char *)"ollama", (char *)"qwen");
+    JC_CHECK(jc_provider_create(&m) == NULL);
+    make_model(&m, (char *)"", (char *)"qwen");
+    JC_CHECK(jc_provider_create(&m) == NULL);
+    JC_CHECK(jc_provider_create(NULL) == NULL);
+    /* The two dialects still construct. */
+    make_model(&m, (char *)"openai", (char *)"some-model");
+    p = jc_provider_create(&m);
+    JC_CHECK(p != NULL);
+    if (p != NULL) {
+        p->vt->free(p);
+    }
+    make_model(&m, (char *)"anthropic", (char *)"some-model");
+    p = jc_provider_create(&m);
+    JC_CHECK(p != NULL);
+    if (p != NULL) {
+        p->vt->free(p);
+    }
+}
+
 void test_provider(void)
 {
+    test_no_house_dialect();
     test_length_cap_marks_truncated();
     test_placeholder_not_serialised();
     test_openai();

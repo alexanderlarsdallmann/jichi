@@ -113,17 +113,28 @@ GUEST_IP=10.0.2.15
 
 say() { echo "== $*"; }
 res() { if [ "$DRY" -eq 1 ]; then sed 's/^/[results] /'; else cat >> "$RESULTS"; fi; }
+# A missing prerequisite ends a real run; a DRY run reports it and goes on, because
+# its job is the whole plan and it must touch nothing. Until M738 the dry run
+# refused on this bench's own state (a dynamic ./jichi) and, with --live-model and
+# no cached kernel, DOWNLOADED one -- invisible because rig_live_lint's call died
+# on an option this rig does not take before it got that far.
+stop() {
+    if [ "$DRY" -eq 1 ]; then echo "tier-v-tiny: (dry run) a real run stops here" >&2; return 0; fi
+    exit 2
+}
 
-command -v qemu-system-x86_64 >/dev/null 2>&1 || { echo "tier-v-tiny: no qemu-system-x86_64" >&2; exit 2; }
-command -v cpio >/dev/null 2>&1 || { echo "tier-v-tiny: no cpio" >&2; exit 2; }
-[ -n "$BUSYBOX" ] || { echo "tier-v-tiny: no busybox on PATH (apt install busybox-static)" >&2; exit 2; }
+command -v qemu-system-x86_64 >/dev/null 2>&1 || { echo "tier-v-tiny: no qemu-system-x86_64" >&2; stop; }
+command -v cpio >/dev/null 2>&1 || { echo "tier-v-tiny: no cpio" >&2; stop; }
+[ -n "$BUSYBOX" ] || { echo "tier-v-tiny: no busybox on PATH (apt install busybox-static)" >&2; stop; }
 # THE TURN RUNG FETCHES ITS OWN KERNEL, from the SAME release as the modules.
 # Before M680 it took whatever kernel happened to be cached and downloaded
 # modules from a floating URL; when Alpine moved from 6.12.81 to 6.12.110 the
 # two stopped matching, insmod refused the module without saying so, and the
 # guest ran the turn with no network at all. Fetching both from one place
 # removes the failure rather than detecting it.
-if [ "$TURN" -eq 1 ] && [ -z "${TINY_KERNEL:-}" ] && [ ! -r "$KERNEL" ]; then
+if [ "$TURN" -eq 1 ] && [ -z "${TINY_KERNEL:-}" ] && [ ! -r "$KERNEL" ] && [ "$DRY" -eq 1 ]; then
+    echo "+ fetch the Alpine virt kernel (same release as the modloop) -> $KERNEL"
+elif [ "$TURN" -eq 1 ] && [ -z "${TINY_KERNEL:-}" ] && [ ! -r "$KERNEL" ]; then
     _nb="https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/netboot"
     say "fetch the Alpine virt kernel (same release as the modloop)"
     if curl -fL --no-progress-meter -o "$KERNEL.part" "$_nb/vmlinuz-virt" 2>/dev/null; then
@@ -136,22 +147,24 @@ if [ "$TURN" -eq 1 ] && [ -z "${TINY_KERNEL:-}" ] && [ ! -r "$KERNEL" ]; then
 fi
 [ -r "$KERNEL" ] || { echo "tier-v-tiny: no readable kernel at $KERNEL" >&2
     echo "  (the host's /boot/vmlinuz-* is mode 0600 root; run a tier-v-vm.sh" >&2
-    echo "   row first, or point TINY_KERNEL at any bzImage you can read)" >&2; exit 2; }
-[ -x "$BIN" ] || { echo "tier-v-tiny: no jichi at $BIN" >&2; exit 2; }
+    echo "   row first, or point TINY_KERNEL at any bzImage you can read)" >&2; stop; }
+[ -x "$BIN" ] || { echo "tier-v-tiny: no jichi at $BIN" >&2; stop; }
 
 # A DYNAMIC binary cannot work here: the initramfs has no ld.so and no libc.
 # Refuse loudly rather than produce a guest that dies with a confusing message.
+_linkage=static
 if ldd "$BIN" 2>&1 | grep -qv 'not a dynamic executable'; then
+    _linkage="DYNAMIC -- a real run refuses it"
     echo "tier-v-tiny: $BIN is dynamically linked -- the initramfs has no libc." >&2
     echo "  Build a static one:" >&2
     echo '    make clean && make CC="zig cc -target x86_64-linux-musl" \' >&2
     echo '         HAVE_CURL= SIZE=1 jichi' >&2
-    exit 2
+    stop
 fi
 
 say "tiny guest"
 echo "   kernel  : $KERNEL"
-echo "   jichi   : $BIN ($(wc -c < "$BIN" | tr -d '[:space:]') bytes, static)"
+echo "   jichi   : $BIN ($(wc -c < "$BIN" | tr -d '[:space:]') bytes, $_linkage)"
 echo "   busybox : $BUSYBOX"
 echo "   results : $RESULTS"
 echo

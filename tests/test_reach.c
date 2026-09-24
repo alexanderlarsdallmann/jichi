@@ -38,10 +38,11 @@ static void test_verifier_green_and_scope(void)
     JC_CHECK(strstr(buf, "0 test edits") != NULL);
     JC_CHECK(strstr(buf, "not checked: (nothing") != NULL);
     o = jc_reach_json(&r);
-    JC_CHECK(o != NULL);
-    JC_CHECK(strcmp(cJSON_GetObjectItem(o, "verify")->valuestring, "green") == 0);
-    JC_CHECK(strcmp(cJSON_GetObjectItem(o, "scope")->valuestring, "clean") == 0);
-    JC_CHECK(cJSON_GetObjectItem(o, "tool_errors")->valueint == 0);
+    if (JC_REQUIRE(o != NULL)) { /* a guard (M729) */
+        JC_CHECK(strcmp(cJSON_GetObjectItem(o, "verify")->valuestring, "green") == 0);
+        JC_CHECK(strcmp(cJSON_GetObjectItem(o, "scope")->valuestring, "clean") == 0);
+        JC_CHECK(cJSON_GetObjectItem(o, "tool_errors")->valueint == 0);
+    }
     cJSON_Delete(o);
 }
 

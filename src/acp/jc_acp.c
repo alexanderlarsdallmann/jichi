@@ -41,6 +41,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/select.h>
+#include <sys/time.h> /* struct timeval: MiNTLib's <sys/select.h> only forward-declares it (M723) */
 
 #define ACP_RESULT_MAX 8192   /* cap on tool-result text echoed to the client */
 

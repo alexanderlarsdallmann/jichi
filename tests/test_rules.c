@@ -118,8 +118,9 @@ void test_rules(void)
             app3.arena = a;
             jc_snprintf(app3.cwd, sizeof(app3.cwd), "%s/p", dir);
             r3 = jc_rules_load(&app3);
-            JC_CHECK(r3 != NULL);
-            JC_CHECK(jc_utf8_valid(r3, strlen(r3)));
+            if (JC_REQUIRE(r3 != NULL)) { /* a guard: strlen(NULL) (M729) */
+                JC_CHECK(jc_utf8_valid(r3, strlen(r3)));
+            }
         }
     }
 

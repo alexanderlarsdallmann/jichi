@@ -207,8 +207,10 @@ check where you launched from before checking the config (M379).
 Every model entry is self-contained: its own `provider` (anthropic/openai-
 compatible), `apiBase`, key (`apiKeyEnv` → an env-var name, or a literal
 `apiKey`), and `roles`. So one config can freely mix providers and distinct keys
-— e.g. an Anthropic model on `$ANTHROPIC_API_KEY`, an OpenAI-compatible one on
-`$OPENAI_API_KEY`, and a keyless local server. Switching model (`/model`, routing,
+— e.g. an Anthropic model on `$ANTHROPIC_API_KEY`, an OpenAI-compatible gateway
+on a variable of its own (`$GATEWAY_API_KEY`), and a keyless local server. Give a
+non-vendor host its own variable: `doctor` warns when `OPENAI_API_KEY` or
+`ANTHROPIC_API_KEY` is sent anywhere but that vendor's endpoint (M718). Switching model (`/model`, routing,
 fallback) rebuilds the provider against that model's own base + key.
 
 **Specialists for orchestration** are just **named agent profiles**

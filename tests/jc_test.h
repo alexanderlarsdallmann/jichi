@@ -121,7 +121,17 @@ extern int jc_test_fails;
 const char *jc_test_tmp(const char *name);
 const char *jc_test_tmpdir(void);
 
+/* Remove a fixture file or tree without a shell. Refuses -- and FAILS the
+ * suite -- unless `path` is strictly below jc_test_tmpdir(); never follows a
+ * symlink. Returns 0 when the path is gone, -1 otherwise (M728: a truncated
+ * "rm -rf %s" once removed the whole TMPDIR). Use it for every fixture
+ * removal; tests/smoke/test_fixture_lint.sh refuses an `rm -rf` template. */
+int jc_test_rm_rf(const char *path);
+/* The refusal rule alone, for the harness's own test: 1 = removable. */
+int jc_test_rm_rf_allowed(const char *path);
+
 /* Test entry points (one per tests/test_*.c). */
+void test_harness(void);
 void test_str(void);
 void test_sb_reserve_bounds(void);
 void test_suggest(void);
@@ -129,6 +139,7 @@ void test_vec(void);
 void test_json(void);
 void test_json_number_range(void);
 void test_json_depth_limit(void);
+void test_json_string_alloc(void);
 void test_json_bool_lenient(void);
 void test_walk_skip_dir(void);
 void test_priv_verdict(void);
@@ -298,6 +309,7 @@ void test_lease(void);
 void test_env_panel(void);
 void test_delegreport(void);
 void test_toolloop(void);
+void test_noprogress(void);
 void test_constraint_source_line(void);
 
 #endif /* JC_TEST_H */

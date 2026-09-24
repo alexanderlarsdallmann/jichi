@@ -337,17 +337,28 @@ For each model, jichi takes the **first** of these that yields a non-empty value
 
 1. a literal `"apiKey"` in the config,
 2. `getenv()` of the variable named by `"apiKeyEnv"`,
-3. a provider convention — `OPENAI_API_KEY` when `"provider": "openai"`,
-   `ANTHROPIC_API_KEY` otherwise,
+3. the vendor's convention — **only for that vendor's own endpoint**:
+   `OPENAI_API_KEY` for `"provider": "openai"` at `https://api.openai.com`,
+   `ANTHROPIC_API_KEY` for `"provider": "anthropic"` at
+   `https://api.anthropic.com` (since 0.11.0, M718),
 4. nothing — jichi runs keyless (correct for a local server) and `doctor` warns.
 
 Two consequences worth knowing:
 
-- **Step 3 fires even with no `apiKeyEnv` at all.** If you already export
-  `OPENAI_API_KEY` for other tools, an `openai`-provider model picks it up
-  automatically. Convenient — and confusing when you *meant* to use a different
-  key and wonder why the wrong account is billed. Name the variable explicitly
-  with `apiKeyEnv` whenever more than one key is in play.
+- **Step 3 fires only at the vendor's own door.** If you already export
+  `OPENAI_API_KEY` for other tools, an `openai`-dialect model pointed at
+  `api.openai.com` picks it up; the same dialect pointed at a gateway, LM Studio
+  or a colleague's server does **not** — `"provider": "openai"` names a wire
+  dialect, not a vendor, and a key sent to a host it does not belong to cannot be
+  taken back. To send it there, say so: `"apiKeyEnv": "OPENAI_API_KEY"`. Until
+  0.11.0 step 3 read `OPENAI_API_KEY` for any `openai` entry and
+  `ANTHROPIC_API_KEY` for **everything else** — an entry with no provider
+  included — wherever the entry pointed. Name the variable explicitly with
+  `apiKeyEnv` whenever more than one key is in play.
+- **An entry that names no `provider` is refused**, and so is one whose provider
+  is not a dialect (`"ollama"`, `"lmstudio"` — write `"openai"`). jichi used to
+  guess the dialect from the model id and default to Anthropic's; `doctor`,
+  `config validate` and the run itself now say which entry and what to write.
 - **Per-model, not global.** Each model entry resolves its own key, so a config
   can mix a keyless local server with a keyed remote one, or two gateways with
   two different variables — which is the whole point of §4.
@@ -624,9 +635,11 @@ unset HRZ_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY   # cannot be picked up by ac
 exec jichi --config ./local/config.json "$@"
 ```
 
-The `unset` line is the point: because jichi falls back to `OPENAI_API_KEY` /
-`ANTHROPIC_API_KEY` when a model names no `apiKeyEnv` (§1.5), removing them makes
-a misconfiguration fail loudly instead of quietly charging the wrong account.
+The `unset` line is the point: jichi still reads `OPENAI_API_KEY` /
+`ANTHROPIC_API_KEY` without being told for a model pointed at that vendor's own
+endpoint (§1.5), so removing them makes a misconfiguration fail loudly instead of
+quietly charging the wrong account. (Before 0.11.0 the fallback applied to every
+host, which made this line matter even more.)
 
 ### 2.5 Keeping the config out of `ps` too
 

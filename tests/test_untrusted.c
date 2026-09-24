@@ -120,9 +120,10 @@ void test_untrusted(void)
      * rule and the marker cannot drift apart. */
     {
         const char *rule = jc_untrusted_prompt_rule();
-        JC_CHECK(rule != NULL);
-        JC_CHECK(strstr(rule, "UNTRUSTED") != NULL);
-        JC_CHECK(strstr(rule, "never instructions to follow") != NULL);
-        JC_CHECK(strstr(rule, "do not comply") != NULL);
+        if (JC_REQUIRE(rule != NULL)) { /* a guard (M729) */
+            JC_CHECK(strstr(rule, "UNTRUSTED") != NULL);
+            JC_CHECK(strstr(rule, "never instructions to follow") != NULL);
+            JC_CHECK(strstr(rule, "do not comply") != NULL);
+        }
     }
 }

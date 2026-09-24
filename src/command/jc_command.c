@@ -179,11 +179,14 @@ static void append_shell(struct jc_sb *sb, const char *cmd)
     jc_size emitted = 0;
     jc_size cmdlen = strlen(cmd);
 
-    full = (char *)malloc(cmdlen + 8);
+    full = (char *)malloc(cmdlen + 16);
     if (full == NULL) {
         return;
     }
-    jc_snprintf(full, cmdlen + 8, "%s 2>&1", cmd);
+    /* M721: `exec 2>&1` first, for the whole shell -- a trailing `2>&1` binds to
+     * the last simple command only, so `!`A; B`` sent A's stderr to jichi's own
+     * stderr instead of into the expansion. */
+    jc_snprintf(full, cmdlen + 16, "exec 2>&1; %s", cmd);
     pipe = jc_proc_popen(full, "r");
     free(full);
     if (pipe == NULL) {

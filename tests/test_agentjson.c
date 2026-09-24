@@ -94,9 +94,10 @@ void test_agentjson(void)
 
     /* Event: stamped with v + type. */
     o = jc_agentjson_event("tool_call");
-    JC_CHECK(o != NULL);
-    JC_CHECK(cJSON_GetObjectItem(o, "v")->valuedouble == 1.0);
-    JC_CHECK_STR(cJSON_GetObjectItem(o, "type")->valuestring, "tool_call");
+    if (JC_REQUIRE(o != NULL)) { /* a guard (M729) */
+        JC_CHECK(cJSON_GetObjectItem(o, "v")->valuedouble == 1.0);
+        JC_CHECK_STR(cJSON_GetObjectItem(o, "type")->valuestring, "tool_call");
+    }
     cJSON_Delete(o);
 
     /* Result: full shape, no error, session id present, work kept. */
@@ -161,10 +162,11 @@ void test_agentjson(void)
     JC_CHECK(cJSON_GetObjectItem(o, "session_id") == NULL);
     {
         cJSON *e = cJSON_GetObjectItem(o, "error");
-        JC_CHECK(e != NULL);
-        JC_CHECK(cJSON_GetObjectItem(e, "code")->valuedouble == 5.0);
-        JC_CHECK_STR(cJSON_GetObjectItem(e, "type")->valuestring, "error");
-        JC_CHECK_STR(cJSON_GetObjectItem(e, "message")->valuestring, "boom");
+        if (JC_REQUIRE(e != NULL)) { /* a guard (M729) */
+            JC_CHECK(cJSON_GetObjectItem(e, "code")->valuedouble == 5.0);
+            JC_CHECK_STR(cJSON_GetObjectItem(e, "type")->valuestring, "error");
+            JC_CHECK_STR(cJSON_GetObjectItem(e, "message")->valuestring, "boom");
+        }
     }
     cJSON_Delete(o);
 

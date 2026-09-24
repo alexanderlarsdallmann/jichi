@@ -147,7 +147,14 @@ sequenceDiagram
 scrub directly in the child. The default `run_terminal_command` path uses
 `popen()`, whose child we can't instrument — so `jc_proc_secret_env_prefix()`
 emits an `unset A B C; ` shell prefix built from the *same* registry, prepended
-to the command. Both paths therefore drop exactly the same set.
+to the command. Both paths therefore drop exactly the same set — and since M724
+that holds however many names a config registers. Until then it did not: the
+registry ignored a 33rd name, or one of 128 bytes or more, on both paths, and a
+prefix longer than its 1 KB buffer was dropped whole on the popen path, so the
+command ran with every key in place. The registry grows now, the prefix is sized
+exactly (`jc_proc_secret_env_prefix_size`), a prefix that cannot be built answers
+-1 rather than the 0 that means "nothing to drop", and the popen path then refuses
+the command. `tests/smoke/secret_env_many_names.sh` drives both holes.
 
 ### Decisions & trade-offs
 

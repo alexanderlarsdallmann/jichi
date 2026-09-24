@@ -30,7 +30,8 @@ jc_status jc_embed_texts(const struct jc_model_cfg *m,
 /* Parse an OpenAI embeddings response body. Expects exactly `expected`
  * vectors; orders them by their "index" field. On success sets *out_dim and
  * returns a malloc'd array of expected*(*out_dim) floats via *out (caller
- * frees). Returns JC_ERR_PARSE on malformed/short input. Network-free. */
+ * frees). Returns JC_ERR_PARSE on malformed/short input, including a duplicate
+ * "index" (M725: it returned one row uninitialized). Network-free. */
 jc_status jc_embed_parse(const char *json, int expected,
                          float **out, int *out_dim);
 

@@ -16,6 +16,7 @@
 #include "jc_toolout.h"
 #include "jc_str.h"
 #include "jc_snprintf.h"
+#include <string.h>
 
 
 static cJSON *run_schema(void)
@@ -83,6 +84,20 @@ static jc_status run_run(const cJSON *args, struct jc_tool_result *out,
             tu_ok_copy(out, msg);
             return JC_OK;
         }
+    }
+
+    /* M721: a command too long for the local shell is refused, never run cut
+     * short -- and told so, with the way forward, since a truncated heredoc
+     * would have written a partial file and reported success. */
+    if (app->cmd == NULL && !jc_app_command_fits(command)) {
+        char msg[480];
+        jc_snprintf(msg, sizeof(msg), "error: the command is %lu bytes, and the "
+                    "local shell runs at most %lu whole; it was NOT run. Write "
+                    "long content with write_file, then run a short command "
+                    "that uses it.", (unsigned long)strlen(command),
+                    (unsigned long)jc_app_command_max());
+        tu_err(out, msg);
+        return JC_OK;
     }
 
     jc_sb_init(&sb);

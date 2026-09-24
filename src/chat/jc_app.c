@@ -25,6 +25,7 @@
 #include "jc_telemetry.h"
 #include "jc_eventlog.h"
 #include "cJSON.h"
+#include <sys/types.h> /* pid_t: MiNTLib's <unistd.h> declares it only under an X/Open level (M723) */
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,7 +33,14 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/select.h>
+#include <sys/time.h> /* struct timeval: MiNTLib's <sys/select.h> only forward-declares it (M723) */
 #include <errno.h>
+
+/* M721: the one buffer both local shell paths format a command into, and
+ * the redirection that sends EVERY part's stderr where stdout goes (see
+ * jc_app_run_command_ex). */
+#define JC_SHELL_LINE_MAX 8400
+#define JC_SHELL_STDERR_FIRST "exec 2>&1; "
 
 #define JC_REACH_MAX 64 /* model-count cap for the reachability cache */
 
@@ -576,7 +584,8 @@ static jc_status run_command_watched(struct jc_app *app, const char *command,
                                      int *exit_code, int *truncated,
                                      long budget_kb, long timeout_sec)
 {
-    char shell[8400];
+    char shell[JC_SHELL_LINE_MAX];
+    int need;
     int outp[2];
     pid_t pid;
     int status = 0;
@@ -585,7 +594,11 @@ static jc_status run_command_watched(struct jc_app *app, const char *command,
     double next_check;
     double deadline = 0.0;
 
-    jc_snprintf(shell, sizeof(shell), "%s 2>&1", command);
+    /* The child dup2()s the pipe onto fd 2 below, so THAT is what captures every
+     * part's stderr here; the suffix is redundant, and harmless. M721: a command
+     * too long for the buffer is refused rather than run truncated. */
+    need = jc_snprintf(shell, sizeof(shell), "%s 2>&1", command);
+    if (need < 0 || (jc_size)need >= sizeof(shell)) return JC_ERR_INVALID;
     if (jc_pipe_cloexec(outp) != 0) return JC_ERR_IO;
     pid = fork();
     if (pid < 0) { close(outp[0]); close(outp[1]); return JC_ERR_IO; }
@@ -733,12 +746,32 @@ jc_status jc_app_run_command(struct jc_app *app, const char *command,
                                  exit_code, truncated);
 }
 
+/* M721: the one buffer both local shell paths format a command into. A command
+ * that does not fit is REFUSED, never run cut short: jc_snprintf truncates, and a
+ * truncated shell line still runs its beginning -- a cut heredoc writes a partial
+ * file and silently drops everything after its missing terminator. Measured with
+ * a 9 KB command whose first word was `touch MARKER`: before M721 the marker
+ * appeared on both paths and the call returned OK. */
+
+jc_size jc_app_command_max(void)
+{
+    /* M724: the prefix's exact size (it counts the NUL). A 1 KB buffer used to
+     * stand in for it, and a prefix that did not fit counted as zero bytes. */
+    jc_size fixed = strlen(JC_SHELL_STDERR_FIRST) + jc_proc_secret_env_prefix_size();
+    return (fixed < JC_SHELL_LINE_MAX) ? (jc_size)JC_SHELL_LINE_MAX - fixed : 0;
+}
+
+int jc_app_command_fits(const char *command)
+{
+    return command != NULL && strlen(command) <= jc_app_command_max();
+}
+
 jc_status jc_app_run_command_ex(struct jc_app *app, const char *command,
                                 jc_size byte_limit, long timeout_sec,
                                 struct jc_sb *out, int *exit_code,
                                 int *truncated)
 {
-    char shell[8400];
+    char shell[JC_SHELL_LINE_MAX];
     char chunk[4096];
     FILE *pipe;
     size_t n;
@@ -788,11 +821,34 @@ jc_status jc_app_run_command_ex(struct jc_app *app, const char *command,
 
     /* Local path: combine stderr into stdout so the model sees diagnostics.
      * Prefix an `unset` of the provider keys so a model-issued command cannot
-     * read them from the environment (popen's child can't call the scrub). */
+     * read them from the environment (popen's child can't call the scrub).
+     *
+     * M721: `exec 2>&1` FIRST, for the whole shell. This built `<command> 2>&1`,
+     * and a trailing redirection binds to the LAST simple command only -- so in
+     * `A; B` or `A | B`, A's stderr went to jichi's own stderr (the screen, in
+     * the TUI) and never to the model: `make test | tail -20` handed it the tail
+     * of stdout and none of the compiler's errors. `exec` with only a redirection
+     * applies it to the current shell (POSIX), and needs no parsing of the
+     * command, so heredocs, trailing comments and `&` are untouched. */
     {
-        char unset[1024];
-        jc_proc_secret_env_prefix(unset, sizeof(unset));
-        jc_snprintf(shell, sizeof(shell), "%s%s 2>&1", unset, command);
+        /* M724: the key-dropping prefix is sized to fit, and a command whose
+         * prefix cannot be built is refused, never run with the keys in place.
+         * The 1 KB buffer this replaces dropped the WHOLE prefix when it did not
+         * fit -- twelve configured names of ~100 bytes did it -- and the command
+         * ran with every key, the built-ins included, in its environment. */
+        jc_size psize = jc_proc_secret_env_prefix_size();
+        char *unset = (char *)malloc(psize);
+        int need;
+        if (unset == NULL || jc_proc_secret_env_prefix(unset, psize) < 0) {
+            free(unset);
+            return JC_ERR_OOM;
+        }
+        need = jc_snprintf(shell, sizeof(shell), "%s%s%s", JC_SHELL_STDERR_FIRST,
+                           unset, command);
+        free(unset);
+        if (need < 0 || (jc_size)need >= sizeof(shell)) {
+            return JC_ERR_INVALID;   /* refused, never run cut short (M721) */
+        }
     }
     pipe = jc_proc_popen(shell, "r");
     if (pipe == NULL) {
@@ -885,12 +941,20 @@ int jc_app_was_read(const struct jc_app *app, const char *path)
 jc_status jc_app_switch_model(struct jc_app *app, int i)
 {
     struct jc_provider *p;
+    int prev = app->config.active;
 
     if (jc_config_set_active(&app->config, i) != JC_OK) {
         return JC_ERR_INVALID;
     }
     p = jc_provider_create(&app->config.model);
     if (p == NULL) {
+        /* M718: PUT THE PREVIOUS ENTRY BACK. The old provider reads the active
+         * entry through a pointer to config.model, so returning with the new
+         * entry active would send the OLD dialect to the NEW entry's endpoint
+         * with its key -- a dialect nobody chose for it. Latent while creation
+         * failed only on OOM; reachable once an entry naming no provider is
+         * refused rather than guessed. */
+        (void)jc_config_set_active(&app->config, prev);
         return JC_ERR_INVALID;
     }
     if (app->provider != NULL) {

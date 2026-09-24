@@ -293,6 +293,11 @@ matches in `DEFERRED.md`).
 **160 MB** and **96 MB** of total RAM. An index of this repository peaks above both.
 `codebase_search` builds the same index.
 
+> **Corrected at M725.** The mechanism above is M700's, and it was wrong. The allocations were
+> `parse_string` sizing every string to the rest of the input, not one node per float; fixing that
+> cut the requested heap by 88% but resident memory only by 4%, because those buffers were barely
+> touched. The resident peak this section cites is real, and its cause is open (DEFERRED).
+
 ### 3.4 M709's "no house vendor" stops at two fallbacks (read, not reproduced)
 
 M709 removed three built-in defaults that together pointed a fresh install at a

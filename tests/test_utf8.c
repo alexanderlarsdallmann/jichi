@@ -92,8 +92,9 @@ static void test_sanitize(void)
     /* the wedging byte becomes U+FFFD, and the result is well-formed */
     out = NULL;
     JC_CHECK(jc_utf8_sanitize("Phase \xe2\n", 8, &out, &out_len) == 1);
-    JC_CHECK(out != NULL);
-    JC_CHECK(jc_utf8_valid(out, out_len));
+    if (JC_REQUIRE(out != NULL)) { /* a guard (M729) */
+        JC_CHECK(jc_utf8_valid(out, out_len));
+    }
     JC_CHECK(out_len == 10);                    /* 1 bad byte -> 3 bytes */
     JC_CHECK(memcmp(out, "Phase \xef\xbf\xbd\n", 10) == 0);
     JC_CHECK(out[out_len] == '\0');

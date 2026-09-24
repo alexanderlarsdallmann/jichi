@@ -280,7 +280,7 @@ of the job.
   allow-lists — which is a deliberate and *weaker* position, and the honest
   comparison says so.
 - **Deterministic replay of a crash.** `smelt` fuzzes with a fixed clock and
-  stubbed I/O so any crash replays. jichi fuzzes 22 targets and has a fault tier,
+  stubbed I/O so any crash replays. jichi fuzzes 23 targets and has a fault tier,
   but does not offer replay of an arbitrary crash.
 - **Ready-made orchestration.** `NEEDLE` (a SQLite bead queue driving headless
   agent CLIs as a deterministic state machine) and `tmuxlet` (which normalises

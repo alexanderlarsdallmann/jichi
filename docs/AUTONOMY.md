@@ -834,6 +834,17 @@ invisible before M422.
 notices that already shipped: M89 for a verify that keeps failing, M429 for a
 policy-blocked call retried.
 
+**Its success twin, since M733.** A call that *succeeds* and returns the same result
+three times in one turn — the same tool, the same arguments, the same answer — is
+told too: *repeating it will not change the answer*. That is the loop counting
+failures cannot see: M687 made 200 successful calls after the answer was in hand.
+The threshold is the fit on the 2026-09-23 drive
+([analysis](analysis/2026-09-24-the-corpus-drive.md)). A successful mutating call
+starts every count again, and a shell command starts every count but its own;
+`read_file` is left to its own re-read advisory. Journalled as `no_progress` and
+surfaced as `same=N` in `runs`. It notes and never stops: the stop half is not
+fitted, and its exit code is [DEFERRED](DEFERRED.md) item 7's question.
+
 ### 3z. Before you spend a run: `brief-check`
 
 ```sh
@@ -850,7 +861,10 @@ declared `goal` gate is already green, so a wrapper can gate on it:
    compiled"*. They do not look like constraints when you read them, which is why the
    line number is most of the value: the canonical text (`do not run build commands`)
    appears nowhere in your brief. One run was banned from the sweeps it depended on
-   and died with no deliverable.
+   and died with no deliverable. Since M734 an inferred constraint advises rather
+   than refuses, and a negation stops at its sentence, so a misparse no longer bans
+   anything -- but the model still reads the rule, so the line is still how to find
+   a phrase jichi will read as an order.
 2. **The envelope the flags declare** — budgets, edit scope, verifier, declared kind —
    including the absences, so `writes are NOT fenced` is stated rather than left blank.
 3. **The gate's baseline colour**, via M343's probe. A `goal` gate that already passes

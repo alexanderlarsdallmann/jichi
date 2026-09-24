@@ -40,6 +40,10 @@ import argparse
 import glob
 import json
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import corpus_filter  # noqa: E402 -- M720: which runs are real
 
 
 # M684: THE JOURNAL NOW RECORDS THE ANSWER, so this is the fallback rather than
@@ -104,6 +108,7 @@ def scan(paths):
         if start is None or outcome is None or outcome == "running":
             continue
         rows.append({"file": os.path.basename(p),
+                     "run": start.get("run"), "model": start.get("model"),
                      "scope": int(start.get("edit_scope") or 0),
                      "globs": start.get("edit_scope_globs"),
                      "outcome": outcome, "oos": oos, "sg": sg})
@@ -117,6 +122,11 @@ def main():
     ap.add_argument("paths", nargs="*",
                     help="journal .jsonl files or directories "
                          "(default: ~/.jichi.d/runs)")
+    ap.add_argument("--telemetry", action="append",
+                    help="telemetry dir/file to classify runs by (default: "
+                         "~/.jichi.d/telemetry); repeatable")
+    ap.add_argument("--include-synthetic", action="store_true",
+                    help="count mock/probe runs too (corpus_filter.py)")
     args = ap.parse_args()
 
     files = []
@@ -127,6 +137,14 @@ def main():
             files.append(p)
 
     rows = scan(files)
+    # M720: classify every journal before counting anything in it -- by its own
+    # start.model when that names a mock, else by the telemetry of its run id.
+    pop = corpus_filter.Population().feed_files(corpus_filter.telemetry_files(
+        args.telemetry or [corpus_filter.DEFAULT_TELEMETRY]))
+    kinds = [pop.run_kind(r["run"], r["model"]) for r in rows]
+    population = corpus_filter.journal_report(kinds, args.include_synthetic)
+    if not args.include_synthetic:
+        rows = [r for r, k in zip(rows, kinds) if k != "synthetic"]
     # A NONZERO scope is not the same as a REAL one. `--edit-scope '**'` records
     # edit_scope: 1 and permits the whole workspace, so nothing can ever be
     # flagged out-of-scope and the run contributes a free 0 to the rate. Before
@@ -149,6 +167,7 @@ def main():
 
     print("journals scanned: %d   completed runs: %d   with an edit scope: %d"
           % (len(files), len(rows), len(scoped)))
+    print(population)
     if vac:
         print("excluded as VACUOUSLY scoped (a glob permitting everything): %d"
               % len(vac))

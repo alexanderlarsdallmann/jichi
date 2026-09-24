@@ -34,7 +34,8 @@ static int journal_exclusive(const char *ev)
         "baseline", "checkpoint", "preserved", "strict_green", "self_review",
         "ask", "control", "post_outcome", "verify_stuck",
         "test_assertion_edit", "learn_on_stop", "out_of_scope",
-        "blocked_repeat", "tool_loop", NULL
+        "blocked_repeat", "tool_loop", "no_progress", "constraint_advisory",
+        NULL
     };
     int i;
 
@@ -160,6 +161,16 @@ static void feed_event(struct jc_run_summary *s, const char *line,
          * model once per (tool, cause), so the count is how many distinct loops
          * this run had to be told about. */
         s->tool_loops++;
+    } else if (strcmp(ev, "constraint_advisory") == 0) {
+        /* M734: one event per call that broke an inferred rule, so the count is
+         * the rate at which a guess met the work -- the number D2 was decided
+         * without. */
+        s->advised++;
+    } else if (strcmp(ev, "no_progress") == 0) {
+        /* M733: the success twin. Counted the same way -- the note is told once
+         * per call per turn, so the count is how many calls the run had to be
+         * told were answering the same way. */
+        s->no_progress++;
     } else if (strcmp(ev, "verify_stuck") == 0) {
         /* M420: M89 emits this when the verify output's failure signature
          * repeats. Counting the EVENTS, not the `repeat` field's value: the
@@ -323,6 +334,12 @@ cJSON *jc_runsview_json(const struct jc_run_summary *s)
     if (s->tool_loops > 0) {
         cJSON_AddNumberToObject(o, "tool_loops", (double)s->tool_loops);
     }
+    if (s->no_progress > 0) {
+        cJSON_AddNumberToObject(o, "no_progress", (double)s->no_progress);
+    }
+    if (s->advised > 0) {
+        cJSON_AddNumberToObject(o, "advised", (double)s->advised);
+    }
     if (s->ws[0] != '\0') {
         cJSON_AddStringToObject(o, "ws", s->ws);
     }
@@ -420,6 +437,12 @@ void jc_runsview_render_row(const struct jc_run_summary *s, struct jc_sb *out)
     }
     if (s->tool_loops > 0) {
         jc_sb_append_fmt(&notes, "loops=%ld ", s->tool_loops);
+    }
+    if (s->no_progress > 0) {
+        jc_sb_append_fmt(&notes, "same=%ld ", s->no_progress);
+    }
+    if (s->advised > 0) {
+        jc_sb_append_fmt(&notes, "advised=%ld ", s->advised);
     }
     if (s->test_edits > 0) {
         jc_sb_append_fmt(&notes, "goalposts=%ld ", s->test_edits);

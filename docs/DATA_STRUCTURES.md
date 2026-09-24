@@ -214,9 +214,16 @@ slower than iterating an array of them, for the same asymptotic complexity.
 
 ### What jichi does instead
 
-**`qsort` + `bsearch` is the tree jichi did not write** — `qsort` in 4 `.c` files,
-`bsearch` in 2. Sort once, then answer ordered queries in O(log n) over
-contiguous memory, with no nodes, no balancing and perfect locality.
+**A sorted array is the tree jichi did not write** — `qsort` in 4 `.c` files. Sort
+once, then answer ordered queries over contiguous memory, with no nodes, no balancing
+and perfect locality; a binary search makes each lookup O(log n).
+
+*Corrected 2026-09-24 (M740):* this page used to say `bsearch` was used in 2 `.c`
+files. It is used in none — `grep -rnw bsearch src include` finds nothing; the old
+count matched the word *websearch*. jichi sorts and then **scans**, because its sorted
+sets (the repo map, the session list) are read whole, in order, not looked up by key.
+The count was a grep without `-w`, which is the exact mistake this page's own method
+warns about: read what a count matched, not only how many.
 
 This is the right structure for a set that is **built, then queried**: the repo
 map, a sorted session list, a converted config's key table.
@@ -225,7 +232,11 @@ map, a sorted session list, a converted config's key table.
 does not say what it does with equal keys. A sort keyed on
 second-granularity mtime made an output nondeterministic — equal keys, arbitrary
 order, a diff that changed between runs. If ties must be broken, **break them in
-the comparator**, explicitly.
+the comparator**, explicitly. (The session list's comparator was fixed at M198 and
+breaks ties by id. `dream_meta_cmp` in `src/main.c` still returns 0 on equal mtimes,
+and three `qsort` calls use it to choose which dream files retention removes —
+recorded in `docs/DEFERRED.md`, and a good first exercise: write the test that shows
+two runs choosing differently, then fix it.)
 
 ### When sorted-array is wrong
 

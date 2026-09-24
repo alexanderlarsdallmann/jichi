@@ -172,3 +172,38 @@ was a Guix System built from the recorded config; this is `guix shell` inside th
 published desktop image with 6 vCPUs and 8 GB. A pass in a *different* environment is
 weaker evidence than a pass in the same one. Combined with three named fixes landing in
 between, "does not reproduce at HEAD" is the defensible claim — not "was never real".
+
+## Addendum, 2026-09-24 (M738): headless after all
+
+This page ranked three next moves for driving the image without its desktop. The first,
+QEMU monitor `sendkey`, was tried at M468 and dropped keys at every pacing, and M468
+also found that GRUB reads the serial line only when no display exists (`-nographic`);
+then a person typed the edit at the desktop. The other two moves were never needed.
+M738 went back to the serial line under `-nographic` and edited the entry GRUB already
+holds, with the arrow key's escape sequence rather than attempts 2-3's `Ctrl-N`:
+
+```
+e   Down Down Down (ESC [ B, 300 ms apart)   Ctrl-E   " console=ttyS0"   Ctrl-X
+```
+
+The entry is `setparams`, `search`, a `linux` line that wraps over four screen rows,
+then `initrd`; three Downs land inside the `linux` line, `Ctrl-E` goes to its end, and
+fourteen characters are typed -- where attempt 4 typed a whole command line and lost a
+token. Guix then starts a login on the console the kernel names, and `guest` has no
+password. **Which difference mattered is not isolated** -- `-nographic`, the arrow key,
+the pacing or the short input: M738 did not re-try `Ctrl-N`. What is measured is that
+this sequence worked three runs of three, the evidence being the login that appeared on
+the serial line each time.
+
+`scripts/tier-v-guix.sh` is the transcript: a 9p share with `git archive` of the tree,
+`guix shell` with the store's gcc 15.2.0 and libcurl 8.6.0, a `WERROR=1` build, the unit
+suite (13,846 / 0), and both turns of `scripts/_rig_live.sh` against the host's model
+server through QEMU's host alias -- 67 s from power-on to the last assertion, agentic
+phrase `TIER-G-B31F57`. One wait was learned the hard way: NetworkManager brings the
+network up after the login, and a `guix shell` that runs first finds no substitute
+server and starts to bootstrap from source, so the rig waits for `/etc/resolv.conf` to
+name a server.
+
+The sentence this page and DEFERRED carried -- *the one step that needs a human is five
+minutes at that image's graphical console* -- was true of the moves tried by then. It
+was a statement about those moves, and read as one about the image.

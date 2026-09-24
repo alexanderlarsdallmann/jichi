@@ -5,6 +5,7 @@
 
 #include "jc_test.h"
 #include "jc_path.h"
+#include "jc_snprintf.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -115,6 +116,31 @@ static void test_resolve(void)
     JC_CHECK(jc_path_resolve("", out, sizeof(out)) == JC_ERR_INVALID);
 }
 
+/* Remove everything test_symlink_escape creates under `base`, and say whether
+ * `base` itself went (0) or not (-1). M727: the name carries the pid, and
+ * FreeMiNT's pids repeat from boot to boot (the suite is pid 5), while the
+ * final cleanup here had never removed `sym_dir` -- so every run left `base`
+ * behind (125 of them in one Linux /tmp), the next boot's mkdir failed, and
+ * the test returned without a word. That hid a stack overflow in its `loop`
+ * case through every hand run in one guest directory; the rig's fresh disk
+ * found it. So the fixture is cleared before it is made, a mkdir that still
+ * fails is a failure, and the cleanup must leave nothing. */
+static int clear_symlink_fixture(const char *base)
+{
+    static const char *const leaves[] = {
+        "/inside/real.txt", "/inside", "/sym_dir", "/escape",
+        "/dangle_out", "/dangle_in", "/loop"
+    };
+    char p[700];
+    size_t i;
+
+    for (i = 0; i < sizeof leaves / sizeof leaves[0]; i++) {
+        jc_snprintf(p, sizeof p, "%s%s", base, leaves[i]);
+        (void)remove(p);
+    }
+    return remove(base) == 0 ? 0 : -1;
+}
+
 /* Build a per-process scratch dir under /tmp and verify a symlink that points
  * outside the root is detected (resolves out, so not contained). */
 static void test_symlink_escape(void)
@@ -138,6 +164,9 @@ static void test_symlink_escape(void)
         /* itoa without sprintf */
         if (v == 0) { num[nn++] = '0'; }
         while (v > 0 && nn < 30) { num[nn++] = (char)('0' + (v % 10)); v /= 10; }
+        if (!JC_REQUIRE(pl + (size_t)nn < sizeof base)) {
+            return; /* the fixture path does not fit (M728) */
+        }
         {
             int i;
             memcpy(base, pfx, pl);
@@ -148,8 +177,9 @@ static void test_symlink_escape(void)
         }
     }
 
-    if (mkdir(base, 0700) != 0) {
-        return; /* environment without a writable /tmp: skip silently */
+    (void)clear_symlink_fixture(base); /* a previous run's, under this pid */
+    if (!JC_REQUIRE(mkdir(base, 0700) == 0)) {
+        return; /* red, not a silent skip (M727) */
     }
 
     /* base/inside (a real subdir) + a file in it. */
@@ -172,9 +202,7 @@ static void test_symlink_escape(void)
         memcpy(sym_dir + bl, "/sym_dir", 9);
         if (symlink(inside_dir, sym_dir) != 0) {
             /* Cleanup and bail if symlinks failed */
-            remove(inside_file);
-            remove(inside_dir);
-            remove(base);
+            (void)clear_symlink_fixture(base);
             return;
         }
 
@@ -204,10 +232,8 @@ static void test_symlink_escape(void)
         memcpy(link_path, base, bl);
         memcpy(link_path + bl, "/escape", 8);
         if (symlink(jc_test_tmpdir(), link_path) != 0) {
-            /* cleanup minimal and bail (symlinks unsupported here) */
-            remove(inside_file);
-            remove(inside_dir);
-            remove(base);
+            /* cleanup and bail (symlinks unsupported here) */
+            (void)clear_symlink_fixture(base);
             return;
         }
         memcpy(via_link, link_path, strlen(link_path));
@@ -293,11 +319,9 @@ static void test_symlink_escape(void)
         remove(loop);
     }
 
-    /* Cleanup (best-effort). */
-    remove(inside_file);
-    remove(inside_dir);
-    remove(link_path);
-    remove(base);
+    /* Cleanup, and nothing may be left: a leftover `base` is what skipped
+     * the next run on FreeMiNT (see clear_symlink_fixture). */
+    JC_CHECK(clear_symlink_fixture(base) == 0);
 }
 
 /* M192: pure lexical normalization for identity comparison. No filesystem

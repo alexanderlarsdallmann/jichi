@@ -85,9 +85,10 @@ static void test_journey_presets(void)
     a.reference_root = "/old/tree";
     jc_sb_init(&sb);
     JC_CHECK(jc_setup_build_config(&a, &sb) == JC_OK);
-    JC_CHECK(sb.data != NULL);
-    JC_CHECK(strstr(sb.data, "\"referenceRoots\"") != NULL);
-    JC_CHECK(strstr(sb.data, "/old/tree") != NULL);
+    if (JC_REQUIRE(sb.data != NULL)) { /* a guard (M729) */
+        JC_CHECK(strstr(sb.data, "\"referenceRoots\"") != NULL);
+        JC_CHECK(strstr(sb.data, "/old/tree") != NULL);
+    }
     jc_sb_free(&sb);
 
     /* Without the answer the key is omitted entirely. */
@@ -306,8 +307,9 @@ static void test_start_script(void)
      * data nobody meets. */
     {
         const struct jc_setup_preset *tp = jc_setup_find_preset("tester");
-        JC_CHECK(tp != NULL);
-        JC_CHECK_STR(jc_setup_script_name(tp), "test.sh");
+        if (JC_REQUIRE(tp != NULL)) { /* a guard (M729) */
+            JC_CHECK_STR(jc_setup_script_name(tp), "test.sh");
+        }
         jc_sb_init(&sb);
         jc_setup_start_script(tp, "local/config.json", &sb);
         /* Pin the EXEC continuation row (leading spaces), not the comment
@@ -653,8 +655,9 @@ static void test_sound_notify_emit(void)
     JC_CHECK(root != NULL);
     if (root != NULL) {
         cJSON *snd = jc_json_get_obj(root, "sound");
-        JC_CHECK(snd != NULL);
-        JC_CHECK_STR(jc_json_get_str(snd, "play", ""), "afplay");
+        if (JC_REQUIRE(snd != NULL)) { /* a guard (M729) */
+            JC_CHECK_STR(jc_json_get_str(snd, "play", ""), "afplay");
+        }
         JC_CHECK_STR(jc_json_get_str(root, "notify", ""), "osascript -e 'x'");
         cJSON_Delete(root);
     }

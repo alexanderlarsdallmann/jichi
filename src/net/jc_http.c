@@ -373,6 +373,13 @@ static size_t write_collect(char *ptr, size_t size, size_t nmemb, void *ud)
  * Note this file already reasons about the same socket crossing a fork (see the
  * pid-stamped cache above, which handles spawn_parallel's forked children). That
  * argument was never extended to children that EXEC. */
+/* CURL_SOCKOPT_OK arrived in libcurl 7.21.5; before it the callback returned a
+ * plain 0 for the same meaning. The documented floor is 7.19.4, and CentOS 6's
+ * 7.19.7 did not compile this file until the ladder measured it (2026-09-24). */
+#ifndef CURL_SOCKOPT_OK
+#define CURL_SOCKOPT_OK 0
+#endif
+
 static int sockopt_cloexec(void *clientp, curl_socket_t curlfd,
                            curlsocktype purpose)
 {
@@ -493,7 +500,13 @@ static size_t body_read_cb(char *buf, size_t size, size_t nmemb, void *ud)
 }
 
 /* A freed/streamed body cannot be rewound; refuse a seek so curl fails the
- * transfer cleanly (the caller re-sends) rather than reusing freed memory. */
+ * transfer cleanly (the caller re-sends) rather than reusing freed memory.
+ * CURL_SEEKFUNC_CANTSEEK is 7.19.5; on the documented floor, 7.19.4, any
+ * non-zero return fails the seek, which is the behaviour wanted, so the
+ * constant's value stands in for it there. */
+#ifndef CURL_SEEKFUNC_CANTSEEK
+#define CURL_SEEKFUNC_CANTSEEK 2
+#endif
 static int body_seek_cb(void *ud, curl_off_t offset, int origin)
 {
     (void)ud; (void)offset; (void)origin;
@@ -702,13 +715,23 @@ static void apply_common(CURL *curl, const struct jc_http_request *req,
      *
      * TLSv1_2 rather than TLSv1_3: 1.3 needs libcurl 7.52 with a TLS backend that
      * has it, and refusing to connect on an older row would be a portability
-     * regression dressed as hardening. 1.2 is 2008 and is the floor every
-     * supported backend can meet.
+     * regression dressed as hardening. TLS 1.2 is from 2008 and every supported
+     * backend can meet it.
      *
      * VERIFYHOST is 2L, not 1L: 1 was "check the name exists" and has been a
      * synonym for 2 since 7.28.1, but naming 2 says the intent. Anyone who ever
      * needs to turn these off should have to delete a line that says why. */
+    /* ...where libcurl can say so. CURL_SSLVERSION_TLSv1_2 is 7.34.0 (2013), not
+     * 2008: the protocol is older than the constant, and on the documented floor
+     * (7.19.4) and on Debian 7's 7.26 the name does not exist, so the file did
+     * not compile there (the userland ladder, 2026-09-24). TLSv1 is the most such a
+     * libcurl can ask for -- any TLS, never an SSL fallback; the TLS library still
+     * negotiates the highest version both ends have. */
+#if LIBCURL_VERSION_NUM >= 0x072200
     curl_easy_setopt(curl, CURLOPT_SSLVERSION, (long)CURL_SSLVERSION_TLSv1_2);
+#else
+    curl_easy_setopt(curl, CURLOPT_SSLVERSION, (long)CURL_SSLVERSION_TLSv1);
+#endif
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
 

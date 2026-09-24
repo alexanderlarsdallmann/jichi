@@ -168,9 +168,10 @@ static void test_hints(void)
     /* A `hints:` block sequence parses into the graded ladder. */
     JC_CHECK(jc_assign_parse(SPEC_HINTS, &spec, a) == JC_OK);
     JC_CHECK(spec.nhints == 3);
-    JC_CHECK(spec.hints != NULL);
-    JC_CHECK(strstr(spec.hints[0], "parser") != NULL);
-    JC_CHECK(strstr(spec.hints[2], "length check") != NULL);
+    if (JC_REQUIRE(spec.hints != NULL)) { /* a guard (M729) */
+        JC_CHECK(strstr(spec.hints[0], "parser") != NULL);
+        JC_CHECK(strstr(spec.hints[2], "length check") != NULL);
+    }
 
     /* The render advertises availability (not the content). */
     md = jc_assign_render(&spec, a);

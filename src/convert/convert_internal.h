@@ -10,12 +10,22 @@
 
 /* Map a source provider string onto one our app understands. Anything that is
  * not "anthropic" becomes "openai" (OpenAI-compatible, relying on apiBase);
- * *mapped is set to 1 when a non-native provider was remapped. NULL => the
- * anthropic default. */
+ * *mapped is set to 1 when a non-native provider was remapped. NULL or "" =>
+ * NULL: no provider is invented (M718; it used to be "anthropic"). */
 const char *jc_convert_map_provider(const char *p, int *mapped);
 
-/* The conventional API-key env var for a mapped provider. */
-const char *jc_convert_provider_key_env(const char *provider);
+/* If `key` REFERS to a secret rather than being one -- "{env:VAR}" (opencode),
+ * "$VAR" / "${VAR}" (shell), "${{ secrets.VAR }}" (Continue) -- return VAR, on
+ * the arena; else NULL. M718: the Continue importer used to drop the name inside
+ * a template and write the provider's conventional variable instead, so
+ * `${{ secrets.OPENROUTER_API_KEY }}` on an OpenRouter model became
+ * OPENAI_API_KEY. */
+const char *jc_convert_key_env_ref(const char *key, struct jc_arena *a);
+
+/* Warn about the active model's key: which variable to export, or -- when the
+ * source named none -- that none will be sent. Replaces three copies that
+ * passed a possibly-NULL name to "%s" (M718). */
+void jc_convert_note_active_key(struct jc_ir *ir);
 
 /* True when `key` is a usable literal (non-empty and not a template/env ref:
  * no "${", not a bare "$VAR", not a "{env:...}" form). */

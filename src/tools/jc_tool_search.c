@@ -57,7 +57,14 @@ static void append_quoted(struct jc_sb *sb, const char *s);
  * grep reading /dev/null is free. Fills `msg` with grep's first line when the
  * PATTERN is invalid and returns 1; returns 0 when the pattern is fine (so the
  * failure was about the files) or the probe itself could not run. */
-static int pattern_error(const char *pattern, char *msg, jc_size cap)
+/* M732: the probe, generalised. Asks grep about the pattern alone against
+ * /dev/null and returns grep's exit status (-1 when the probe could not run),
+ * with grep's first line of output in `msg` ("" when it printed nothing).
+ * /dev/null cannot match, so any line IS a diagnostic: with exit >= 2 it is the
+ * reason the pattern is invalid, with exit 1 it is a WARNING about a pattern
+ * grep accepted -- `(?:x)` gives "? at start of expression" and then matches
+ * something other than what was meant. */
+static int pattern_probe(const char *pattern, char *msg, jc_size cap)
 {
     struct jc_sb cmd;
     FILE *p;
@@ -84,14 +91,27 @@ static int pattern_error(const char *pattern, char *msg, jc_size cap)
     }
     msg[0] = '\0';
     st = pclose(p);
-    if (st == -1 || !WIFEXITED(st) || WEXITSTATUS(st) < 2) {
-        return 0;
-    }
     n = (jc_size)strlen(line);
     while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r')) {
         line[--n] = '\0';
     }
-    jc_snprintf(msg, cap, "%s", n > 0 ? line : "grep rejected it");
+    jc_snprintf(msg, cap, "%s", line);
+    if (st == -1 || !WIFEXITED(st)) {
+        return -1;
+    }
+    return WEXITSTATUS(st);
+}
+
+/* The failure-path question: is the PATTERN invalid (exit >= 2)? */
+static int pattern_error(const char *pattern, char *msg, jc_size cap)
+{
+    if (pattern_probe(pattern, msg, cap) < 2) {
+        msg[0] = '\0';
+        return 0;
+    }
+    if (msg[0] == '\0') {
+        jc_snprintf(msg, cap, "grep rejected it");
+    }
     return 1;
 }
 
@@ -257,7 +277,21 @@ static jc_status search_run(const cJSON *args, struct jc_tool_result *out,
     }
 
     if (result.len == 0) {
+        char warn[256];
         jc_sb_append(&result, "(no matches)");
+        /* M732: say so when grep WARNED about the pattern. The `2>/dev/null`
+         * above keeps warnings out of real results, and pattern_error() only
+         * runs when grep fails -- so a pattern grep accepts with a warning
+         * (exit 1) used to come back as a bare "(no matches)", and in the M731
+         * drive a model repeated one such search thirteen times. */
+        if (pattern_probe(pattern, warn, sizeof warn) == 1 && warn[0] != '\0') {
+            jc_sb_append(&result, "\ngrep warned about the pattern: ");
+            jc_sb_append(&result, warn);
+            jc_sb_append(&result, " -- grep -E is not Perl: it has no (?:...) "
+                                  "groups, lookaround or \\d, and matches one "
+                                  "line at a time, so \\n never matches. Write "
+                                  "( ) for a group and [0-9] for a digit.");
+        }
     } else if (truncated) {
         jc_sb_append(&result, "\n... [output truncated]");
     }

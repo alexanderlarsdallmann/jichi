@@ -85,12 +85,13 @@ void test_platform(void)
              == (jc_platform_row_verdict() == JC_PLATFORM_ROW_VERIFIED));
 
 
-    jc_snprintf(dir, sizeof dir, "%s/jichi_plat_test_%ld", jc_test_tmpdir(), (long)getpid());
-    {
-        char cmd[512];
-        jc_snprintf(cmd, sizeof cmd, "rm -rf %s", dir);
-        system(cmd);
+    if (!JC_REQUIRE(jc_snprintf(dir, sizeof dir, "%s/jichi_plat_test_%ld",
+                                jc_test_tmpdir(), (long)getpid())
+                    < (int)sizeof dir)) {
+        jc_arena_free(a);
+        return; /* a cut fixture path is a different path (M728) */
     }
+    (void)jc_test_rm_rf(dir);
     JC_CHECK(jc_mkdir_p(dir) == JC_OK);
 
     jc_snprintf(reg, sizeof reg, "%s/plain.txt", dir);
@@ -143,11 +144,7 @@ void test_platform(void)
     /* A missing path is NOTFOUND, distinct from the directory's IO. */
     JC_CHECK(jc_read_file("/nonexistent/x", &text, &len, a) == JC_ERR_NOTFOUND);
 
-    {
-        char cmd[512];
-        jc_snprintf(cmd, sizeof cmd, "rm -rf %s", dir);
-        system(cmd);
-    }
+    (void)jc_test_rm_rf(dir);
     jc_arena_free(a);
 }
 

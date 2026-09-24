@@ -66,7 +66,7 @@ code:
 
 - **Absence of runtime errors** — no overflow, no division by zero, no array index
   out of bounds, no read of an uninitialised variable. jichi reaches for the same
-  assurance with ASan, UBSan, valgrind and 22 fuzz targets, all of which sample
+  assurance with ASan, UBSan, valgrind and 23 fuzz targets, all of which sample
   inputs. A proof does not sample.
 - **Contracts** — `Pre`, `Post`, `Type_Invariant` — checked by the prover rather
   than by a test that must think to exercise the case.

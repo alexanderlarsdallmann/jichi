@@ -29,7 +29,9 @@
 #include "jc_docs.h" /* jc_docs_html_to_text -- as jc_rss.c uses it (M667) */
 
 #include <fcntl.h>
+#ifndef JC_NO_MMAP
 #include <sys/mman.h>
+#endif
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -377,7 +379,20 @@ static float *read_blob(const char *path, jc_size nfloats)
 
 /* M141: map the blob read-only instead of malloc+fread -- the pages stay
  * file-backed (evictable under memory pressure, shared COW across forks).
- * Returns NULL on any failure; callers fall back to read_blob. */
+ * Returns NULL on any failure; callers fall back to read_blob.
+ *
+ * M723: where the Makefile's probe found no mmap at all -- FreeMiNT's MiNTLib
+ * has neither the header nor the symbol -- JC_NO_MMAP makes this the failure
+ * it already handles, and every blob is read as a copy. */
+#ifdef JC_NO_MMAP
+static float *map_blob(const char *path, jc_size nfloats, jc_size *maplen)
+{
+    (void)path;
+    (void)nfloats;
+    *maplen = 0;
+    return NULL;
+}
+#else
 static float *map_blob(const char *path, jc_size nfloats, jc_size *maplen)
 {
     int fd;
@@ -405,6 +420,7 @@ static float *map_blob(const char *path, jc_size nfloats, jc_size *maplen)
     *maplen = len;
     return (float *)p;
 }
+#endif
 
 /* Release a blob obtained from map_blob (munmap) or read_blob (free). */
 static void release_blob(float *v, int mapped, jc_size maplen)
@@ -412,11 +428,16 @@ static void release_blob(float *v, int mapped, jc_size maplen)
     if (v == NULL) {
         return;
     }
+#ifndef JC_NO_MMAP
     if (mapped) {
         munmap((void *)v, maplen);
-    } else {
-        free(v);
+        return;
     }
+#else
+    (void)mapped; /* M723: nothing is ever mapped without mmap */
+    (void)maplen;
+#endif
+    free(v);
 }
 
 /* Look up a file's cached record by path in the manifest's "files" array.
@@ -640,11 +661,7 @@ void jc_index_free(struct jc_index *idx)
         free(idx->chunks[i].text);
     }
     free(idx->chunks);
-    if (idx->vec_mapped) {
-        munmap((void *)idx->vectors, idx->vec_maplen); /* M141 */
-    } else {
-        free(idx->vectors);
-    }
+    release_blob(idx->vectors, idx->vec_mapped, idx->vec_maplen); /* M141, M723 */
     free(idx->root);
     free(idx);
 }

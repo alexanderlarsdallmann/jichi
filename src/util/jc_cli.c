@@ -282,7 +282,12 @@ int jc_text_is_context_overflow(const char *s)
         "Context size has been exceeded",   /* terse llama.cpp variant */
         "context_length_exceeded",          /* OpenAI error code */
         "maximum context length",           /* OpenAI message */
-        "exceeds the model's context"       /* misc OpenAI-compatible */
+        "exceeds the model's context",      /* misc OpenAI-compatible */
+        /* M732: LM Studio, verbatim from the M731 drive -- "request (74866
+         * tokens) exceeds the available context size (65536 tokens)" -- and
+         * the error type it carries beside the message. */
+        "exceeds the available context size",
+        "exceed_context_size"
     };
     int i;
     int n = (int)(sizeof(sigs) / sizeof(sigs[0]));

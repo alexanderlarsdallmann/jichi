@@ -36,6 +36,16 @@ static char *build_body(const char *model, const char *const *texts, int n)
     return text;
 }
 
+/* An item's row: its "index", or its position when it has none. valueint, not
+ * (int)valuedouble: the cast is undefined outside int's range ("index":1e300),
+ * and cJSON already clamps valueint for exactly that (M469). Measured under
+ * UBSan at M725: "1e+300 is outside the range of representable values". */
+static int item_index(const cJSON *item, int k)
+{
+    const cJSON *n = cJSON_GetObjectItem(item, "index");
+    return cJSON_IsNumber(n) ? n->valueint : k;
+}
+
 jc_status jc_embed_parse(const char *json, int expected,
                          float **out, int *out_dim)
 {
@@ -43,6 +53,7 @@ jc_status jc_embed_parse(const char *json, int expected,
     cJSON *data;
     cJSON *item;
     float *vecs = NULL;
+    unsigned char *seen = NULL;
     int dim = -1;
     int count;
 
@@ -74,7 +85,12 @@ jc_status jc_embed_parse(const char *json, int expected,
     }
 
     vecs = (float *)malloc((jc_size)expected * (jc_size)dim * sizeof(float));
-    if (vecs == NULL) {
+    /* M725: a duplicate "index" wrote one row twice and returned another
+     * uninitialized -- whatever malloc held. It is malformed; refuse it. */
+    seen = (unsigned char *)calloc((jc_size)expected, 1);
+    if (vecs == NULL || seen == NULL) {
+        free(vecs);
+        free(seen);
         cJSON_Delete(root);
         return JC_ERR_OOM;
     }
@@ -83,17 +99,18 @@ jc_status jc_embed_parse(const char *json, int expected,
     count = 0;
     for (item = data->child; item != NULL; item = item->next) {
         cJSON *emb = cJSON_GetObjectItem(item, "embedding");
-        cJSON *idx_node = cJSON_GetObjectItem(item, "index");
-        int idx = cJSON_IsNumber(idx_node) ? (int)idx_node->valuedouble : count;
+        int idx = item_index(item, count);
         cJSON *v;
         int j;
 
         if (!cJSON_IsArray(emb) || cJSON_GetArraySize(emb) != dim ||
-            idx < 0 || idx >= expected) {
+            idx < 0 || idx >= expected || seen[idx]) {
             free(vecs);
+            free(seen);
             cJSON_Delete(root);
             return JC_ERR_PARSE;
         }
+        seen[idx] = 1;
         j = 0;
         for (v = emb->child; v != NULL && j < dim; v = v->next) {
             vecs[(jc_size)idx * (jc_size)dim + (jc_size)j] =
@@ -104,6 +121,7 @@ jc_status jc_embed_parse(const char *json, int expected,
     }
 
     cJSON_Delete(root);
+    free(seen);
     *out = vecs;
     *out_dim = dim;
     return JC_OK;

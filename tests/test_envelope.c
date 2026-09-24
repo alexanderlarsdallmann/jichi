@@ -325,12 +325,13 @@ static void test_budget_notice(void)
     e.tool_calls = 4;
     jc_sb_init(&sb);
     jc_env_budget_notice_render(&e, 0, &sb);
-    JC_CHECK(sb.data != NULL);
-    JC_CHECK(strstr(sb.data, "4 of 5 tool calls") != NULL);
-    JC_CHECK(strstr(sb.data, "tokens") == NULL);
-    JC_CHECK(strstr(sb.data, "reads") == NULL);
-    JC_CHECK(strncmp(sb.data, "[envelope]", 10) == 0);
-    JC_CHECK(strstr(sb.data, "final answer") != NULL);
+    if (JC_REQUIRE(sb.data != NULL)) { /* a guard (M729) */
+        JC_CHECK(strstr(sb.data, "4 of 5 tool calls") != NULL);
+        JC_CHECK(strstr(sb.data, "tokens") == NULL);
+        JC_CHECK(strstr(sb.data, "reads") == NULL);
+        JC_CHECK(strncmp(sb.data, "[envelope]", 10) == 0);
+        JC_CHECK(strstr(sb.data, "final answer") != NULL);
+    }
     jc_sb_free(&sb);
 
     memset(&e, 0, sizeof e);
@@ -879,8 +880,9 @@ static void test_relpath_and_write_set(void)
 {
     struct jc_envelope e;
     struct jc_arena *a = jc_arena_new(4096);
-    JC_CHECK(a != NULL);
-    JC_CHECK(jc_env_init(&e, a, "m501", NULL) == JC_OK);
+    if (JC_REQUIRE(a != NULL)) { /* a guard (M729) */
+        JC_CHECK(jc_env_init(&e, a, "m501", NULL) == JC_OK);
+    }
 
     /* The normaliser: absolute-under-root becomes root-relative, "./" goes,
      * and a sibling directory sharing the root's name is NOT mis-stripped
@@ -1010,10 +1012,11 @@ void test_env_panel(void)
 
     jc_sb_init(&sb);
     jc_env_panel_render(&e, 1120, &sb);
-    JC_CHECK(sb.data != NULL);
-    JC_CHECK(sb.data != NULL && strstr(sb.data, "400/1000 tokens (40%)") != NULL);
-    JC_CHECK(sb.data != NULL && strstr(sb.data, "8/20 tool calls") != NULL);
-    JC_CHECK(sb.data != NULL && strstr(sb.data, "120/600 seconds") != NULL);
+    if (JC_REQUIRE(sb.data != NULL)) { /* a guard (M729) */
+        JC_CHECK(sb.data != NULL && strstr(sb.data, "400/1000 tokens (40%)") != NULL);
+        JC_CHECK(sb.data != NULL && strstr(sb.data, "8/20 tool calls") != NULL);
+        JC_CHECK(sb.data != NULL && strstr(sb.data, "120/600 seconds") != NULL);
+    }
     /* The rate and the PROJECTION -- the two numbers M347's notice cannot give,
      * and the reason this exists: 600 tokens left at 40/call is ~15 calls. */
     JC_CHECK(sb.data != NULL && strstr(sb.data, "~40 tokens/call") != NULL);

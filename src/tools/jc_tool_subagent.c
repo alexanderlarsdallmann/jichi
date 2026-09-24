@@ -149,7 +149,17 @@ static jc_status subagent_run(const cJSON *args, struct jc_tool_result *out,
     } else {
         prov = jc_provider_create(mc);
         if (prov == NULL) {
-            tu_err(out, "error: could not create a provider for that model");
+            /* M718: say WHY -- since no dialect is guessed, the usual reason is
+             * an entry naming no provider, and the model can relay that. */
+            char why[512];
+            char msg[600];
+            if (jc_config_provider_problem(mc, why, sizeof(why))) {
+                jc_snprintf(msg, sizeof(msg), "error: %s", why);
+                tu_err(out, msg);
+            } else {
+                tu_err(out, "error: could not create a provider for that "
+                            "model");
+            }
             return JC_OK;
         }
         temp = 1;

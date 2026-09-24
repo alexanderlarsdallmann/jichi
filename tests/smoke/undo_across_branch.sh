@@ -36,10 +36,15 @@ ws="$tmp/ws"
 mkdir -p "$ws"
 
 # --- a repo with a feature branch that carries a file of its own -------------
+# `git checkout`, not `git switch`: switch arrived in git 2.23, and on Debian 9's
+# git 2.11 the branch was never made -- check 2 then passed with nothing to test
+# and checks 3 and 5 failed for a fixture's reason (V2f, 2026-09-24). The base
+# branch is whatever `git init` named it, read back rather than assumed.
 (cd "$ws" && git init -q . && git config user.email t@example.com && git config user.name t &&
  printf 'buy milk\nfeed the cat\n' > notes.txt && git add -A && git commit -qm base &&
- git switch -qc feat && printf 'only on the feature branch\n' > feat-only.txt &&
+ git checkout -q -b feat && printf 'only on the feature branch\n' > feat-only.txt &&
  git add -A && git commit -qm feat-file) >/dev/null 2>&1
+basebr=$(cd "$ws" && git for-each-ref --format='%(refname:short)' refs/heads/ | grep -v '^feat$' | head -1)
 
 cat > "$tmp/replies.mm" <<'MM'
 wire openai
@@ -86,12 +91,15 @@ else
 fi
 
 (cd "$ws" && git add -A && git commit -qm "the loop's work") >/dev/null 2>&1
-(cd "$ws" && git switch -q master) >/dev/null 2>&1
+(cd "$ws" && git checkout -q "$basebr") >/dev/null 2>&1
 
-if [ ! -f "$ws/feat-only.txt" ]; then
-    t_ok "on master, the branch-only file is absent (as git intends)"
+# The floor as well as the absence: the file must exist on feat, or its absence
+# here proves nothing.
+if [ ! -f "$ws/feat-only.txt" ] && [ -n "$basebr" ] &&
+   (cd "$ws" && git cat-file -e feat:feat-only.txt) 2>/dev/null; then
+    t_ok "on $basebr, the branch-only file is absent (as git intends)"
 else
-    t_fail "feat-only.txt is present on master -- the fixture's branches are wrong"
+    t_fail "the fixture's branches are wrong: base='$basebr', feat-only.txt on feat: $(cd "$ws" && git cat-file -e feat:feat-only.txt 2>&1 && echo yes)"
 fi
 
 # --- 3: the dry run NAMES the file it would bring across ---------------------
@@ -111,7 +119,7 @@ fi
 # --- 5: the real undo restores content regardless of the branch -------------
 (cd "$ws" && with_deadline 60 "$BIN" --config "$tmp/config.json" undo) > "$tmp/undo.out" 2>&1
 if [ -f "$ws/feat-only.txt" ] && grep -q 'recover' "$tmp/undo.out"; then
-    t_ok "undo restored the checkpoint's content onto master, and printed a recover handle"
+    t_ok "undo restored the checkpoint's content onto $basebr, and printed a recover handle"
 else
     t_fail "undo did not behave as documented (file=$([ -f "$ws/feat-only.txt" ] && echo present || echo absent)): $(head_bytes 200 < "$tmp/undo.out")"
 fi

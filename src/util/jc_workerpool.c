@@ -6,6 +6,7 @@
 #include "jc_workerpool.h"
 #include "jc_platform.h"
 
+#include <sys/types.h> /* pid_t: MiNTLib's <unistd.h> declares it only under an X/Open level (M723) */
 #include <stddef.h>
 #include <signal.h>
 #include <sys/wait.h>

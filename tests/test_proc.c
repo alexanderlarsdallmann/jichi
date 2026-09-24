@@ -5,8 +5,10 @@
 
 #include "jc_test.h"
 #include "jc_snprintf.h"
+#include <sys/types.h> /* pid_t: MiNTLib's <unistd.h> declares it only under an X/Open level (M723) */
 #include <stdio.h>
 #include <sys/select.h>
+#include <sys/time.h> /* struct timeval: MiNTLib's <sys/select.h> only forward-declares it (M723) */
 #include <signal.h>
 #include "jc_proc.h"
 #include "jc_str.h"
@@ -137,6 +139,74 @@ static void test_secret_env_scrub(void)
     }
 }
 
+/* M724: however many names a config registers, and however long, every one is
+ * dropped -- and a prefix that does not fit is refused, not emptied. The
+ * registry held 32 names of under 128 bytes and ignored the rest, and a prefix
+ * that did not fit its buffer came back as 0, "nothing to drop", so the popen
+ * path ran the command with every key in place. */
+static void jc_m724_name(char *name, jc_size cap, int i)
+{
+    jc_size len;
+    jc_snprintf(name, cap, "JC_M724_U%02d_", i);
+    len = strlen(name);
+    memset(name + len, 'K', 200 - len);  /* 200 bytes: past the old 127 */
+    name[200] = '\0';
+}
+
+static void test_secret_env_many_names(void)
+{
+    char sh[] = "/bin/sh";
+    char dashc[] = "-c";
+    char name[256];
+    char prog[320];
+    char *argv[4];
+    struct jc_sb out;
+    char *pfx;
+    jc_size need;
+    int i, n0, all = 1, code;
+
+    n0 = jc_proc_secret_env_count();
+    for (i = 0; i < 40; i++) {                   /* 40: past the old 32 */
+        jc_m724_name(name, sizeof(name), i);
+        JC_CHECK(jc_proc_secret_env_add(name) == 0);
+    }
+    JC_CHECK(jc_proc_secret_env_count() == n0 + 40);
+
+    need = jc_proc_secret_env_prefix_size();
+    pfx = (char *)malloc(need);
+    JC_CHECK(pfx != NULL);
+    if (pfx != NULL) {
+        JC_CHECK(jc_proc_secret_env_prefix(pfx, need) == 1);
+        JC_CHECK(strlen(pfx) + 1 == need);       /* the size is exact */
+        for (i = 0; i < 40; i++) {
+            jc_m724_name(name, sizeof(name), i);
+            if (strstr(pfx, name) == NULL) {
+                all = 0;
+            }
+        }
+        JC_CHECK(all);                           /* every one is in the prefix */
+        /* One byte short: refused as -1, which "nothing to drop" (0) is not. */
+        JC_CHECK(jc_proc_secret_env_prefix(pfx, need - 1) == -1);
+        JC_CHECK(pfx[0] == '\0');
+        free(pfx);
+    }
+
+    /* The fork path: the 40th name, set in the parent, is gone in the child. */
+    jc_m724_name(name, sizeof(name), 39);
+    setenv(name, "canary-m724", 1);
+    jc_snprintf(prog, sizeof(prog), "printf %%s \"$%s\"", name);
+    argv[0] = sh; argv[1] = dashc; argv[2] = prog; argv[3] = NULL;
+    jc_sb_init(&out);
+    code = jc_proc_capture(argv, NULL, NULL, &out, 4096, 5, NULL);
+    JC_CHECK(code == 0);
+    JC_CHECK(out.len == 0);
+    jc_sb_free(&out);
+    unsetenv(name);
+
+    jc_proc_secret_env_truncate(n0);             /* leave it as it was found */
+    JC_CHECK(jc_proc_secret_env_count() == n0);
+}
+
 void test_proc(void)
 {
     char sh[] = "/bin/sh";
@@ -144,6 +214,7 @@ void test_proc(void)
 
     test_memwatch();
     test_secret_env_scrub();
+    test_secret_env_many_names();
 
     /* Basic capture + exit code. */
     {

@@ -49,7 +49,7 @@ arguments, and returns its output as the tool result.
 
 ## How arguments reach the command
 
-The model's validated arguments are delivered two ways — **never on the command
+The model's arguments (parsed and repaired as JSON — not checked against the `schema`) are delivered two ways — **never on the command
 line**, so a tool's command string is fixed by your config and can't be
 injected by an argument value:
 
@@ -58,6 +58,11 @@ injected by an argument value:
 2. **As `JICHI_ARG_<NAME>` environment variables** — each *scalar* argument
    (string/number/bool), with the name uppercased and non-alphanumerics mapped
    to `_` (e.g. `text` → `$JICHI_ARG_TEXT`). Convenient for shell one-liners.
+   **A string longer than 1023 bytes is cut in its variable, silently** (a fixed
+   buffer); stdin always carries it whole. For anything a model may write long —
+   SQL, a patch, a document — read stdin. A cut SQL query can still be *valid*
+   and run with a different meaning ([`SQLITE.md`](SQLITE.md) §4.1, measured
+   2026-09-24).
 
 The command's combined stdout+stderr (so the model sees errors too) is captured,
 byte-capped (32 KB), and returned with a trailing `[exit status: N]`; a non-zero

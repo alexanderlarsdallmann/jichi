@@ -205,8 +205,11 @@ static void test_parse_roundtrip(void)
     }
     jc_sb_free(&sb);
 
-    /* A mixed set writes only the authored half. */
-    {
+    /* A mixed set writes only the authored half. It reads cs[0..2], so it needs
+     * the scan above to have produced three -- JC_REQUIRE, not JC_CHECK: with an
+     * empty scan the block serialised uninitialised structs and the suite died
+     * of a segfault (found by M734's perturbation of the scanner; M729's shape). */
+    if (JC_REQUIRE(n >= 3)) {
         struct jc_constraint mixed[3];
         int got;
         mixed[0] = cs[0];
@@ -240,11 +243,45 @@ static void test_render(void)
     struct jc_sb sb;
     int n;
 
+    /* M734: a scanned constraint is a guess, and is shown to the model as one. */
     n = jc_constraint_scan("do not run tests", cs, JC_CONSTRAINT_MAX, a);
     jc_sb_init(&sb);
     jc_constraint_render(cs, n, &sb);
-    JC_CHECK(strstr(sb.data, "Active constraints") != NULL);
-    JC_CHECK(strstr(sb.data, "REFUSED") != NULL);
+    if (JC_REQUIRE(sb.data != NULL)) {
+        JC_CHECK(strstr(sb.data, "ADVISORY") != NULL);
+        JC_CHECK(strstr(sb.data, "REFUSED") == NULL);
+    }
+    jc_sb_free(&sb);
+
+    /* The same rules written by the operator are limits, and say so. */
+    {
+        int k;
+        for (k = 0; k < n; k++) cs[k].origin = JC_CONSTRAINT_AUTHORED;
+    }
+    jc_sb_init(&sb);
+    jc_constraint_render(cs, n, &sb);
+    if (JC_REQUIRE(sb.data != NULL)) {
+        JC_CHECK(strstr(sb.data, "Active constraints") != NULL);
+        JC_CHECK(strstr(sb.data, "REFUSED") != NULL);
+        JC_CHECK(strstr(sb.data, "ADVISORY") == NULL);
+    }
+    jc_sb_free(&sb);
+
+    /* Both at once: each under its own heading, the guess never among the
+     * limits. */
+    cs[0].text = (char *)"LIMIT_TEXT";
+    cs[0].origin = JC_CONSTRAINT_AUTHORED;
+    cs[1].text = (char *)"GUESS_TEXT";
+    cs[1].origin = JC_CONSTRAINT_INFERRED;
+    jc_sb_init(&sb);
+    jc_constraint_render(cs, 2, &sb);
+    {
+        const char *lim = sb.data != NULL ? strstr(sb.data, "LIMIT_TEXT") : NULL;
+        const char *adv = sb.data != NULL ? strstr(sb.data, "ADVISORY") : NULL;
+        const char *gss = sb.data != NULL ? strstr(sb.data, "GUESS_TEXT") : NULL;
+        JC_CHECK(lim != NULL && adv != NULL && gss != NULL &&
+                 lim < adv && gss > adv);
+    }
     jc_sb_free(&sb);
 
     /* empty renders nothing */
@@ -559,8 +596,117 @@ static void test_blocks_ex_scope_exempt(void)
                                      reason, sizeof reason) == 1);
 }
 
+/* M734 (plan D2): a negation reaches to the end of its sentence. The first four
+ * are M730's measurement: its three misparses, bisected to the shortest span that
+ * still fired, and the one prompt it found right. */
+static void test_sentence_scope(void)
+{
+    struct jc_arena *a = jc_arena_new(0);
+    struct jc_constraint cs[JC_CONSTRAINT_MAX];
+    int n;
+
+    n = jc_constraint_scan("Do not touch build.zig. Verify by running", cs,
+                           JC_CONSTRAINT_MAX, a);
+    JC_CHECK(n == 0);
+    n = jc_constraint_scan("never runs. Wire exactly three of the simplest ones "
+                           "into build", cs, JC_CONSTRAINT_MAX, a);
+    JC_CHECK(n == 0);
+    n = jc_constraint_scan("never the body of a `pub fn` nothing calls. A "
+                           "subsystem is proven when a test", cs,
+                           JC_CONSTRAINT_MAX, a);
+    JC_CHECK(n == 0);
+    n = jc_constraint_scan("Do not run build. Do not run tests!", cs,
+                           JC_CONSTRAINT_MAX, a);
+    JC_CHECK(n == 3);
+    JC_CHECK(has_kind_subj(cs, n, JC_CONSTRAINT_DENY_CMD, "build"));
+    JC_CHECK(has_kind_subj(cs, n, JC_CONSTRAINT_DENY_TOOL, "run_tests"));
+    JC_CHECK(has_kind_subj(cs, n, JC_CONSTRAINT_DENY_CMD, "test"));
+
+    /* A dot inside a word is not the end of a sentence. (Not "make.sh": "make"
+     * alone names the build key, so that example inferred it with the dot rule
+     * removed, and proved nothing.) */
+    n = jc_constraint_scan("Never touch build.zig or run the tests", cs,
+                           JC_CONSTRAINT_MAX, a);
+    JC_CHECK(has_kind_subj(cs, n, JC_CONSTRAINT_DENY_CMD, "test"));
+    /* A closing bracket or quote AFTER the full stop does not keep the sentence
+     * open. (The first version of this check put the stop outside the quote --
+     * `"notes.txt".` -- where the closer rule is never consulted, and it stayed
+     * green with that rule removed.) */
+    n = jc_constraint_scan("Never touch it (the file is done.) Run the tests.",
+                           cs, JC_CONSTRAINT_MAX, a);
+    JC_CHECK(!has_kind_subj(cs, n, JC_CONSTRAINT_DENY_CMD, "test"));
+    n = jc_constraint_scan("Never say \"done.\" Run the tests.", cs,
+                           JC_CONSTRAINT_MAX, a);
+    JC_CHECK(!has_kind_subj(cs, n, JC_CONSTRAINT_DENY_CMD, "test"));
+    /* A blank line ends it, and so does the next list item... */
+    n = jc_constraint_scan("Do not change the API\n\nrun the tests", cs,
+                           JC_CONSTRAINT_MAX, a);
+    JC_CHECK(!has_kind_subj(cs, n, JC_CONSTRAINT_DENY_CMD, "test"));
+    n = jc_constraint_scan("Rules:\n- do not touch the docs\n- run the tests",
+                           cs, JC_CONSTRAINT_MAX, a);
+    JC_CHECK(!has_kind_subj(cs, n, JC_CONSTRAINT_DENY_CMD, "test"));
+    /* ...but a single newline does not: a hard-wrapped sentence goes on. */
+    n = jc_constraint_scan("Do not run the\ntests", cs, JC_CONSTRAINT_MAX, a);
+    JC_CHECK(has_kind_subj(cs, n, JC_CONSTRAINT_DENY_CMD, "test"));
+
+    jc_arena_free(a);
+}
+
+/* M734 (plan D2 (c)): a rule the operator wrote refuses; a guessed one advises. */
+static void test_judge(void)
+{
+    struct jc_constraint cs[2];
+    char reason[256];
+    int rule = 7;
+
+    cs[0].kind = JC_CONSTRAINT_DENY_TOOL;
+    cs[0].subject = (char *)"run_tests";
+    cs[0].text = (char *)"do not run tests";
+    cs[0].origin = JC_CONSTRAINT_INFERRED;
+    JC_CHECK(jc_constraint_judge(cs, 1, "run_tests", NULL, 0, 0, reason,
+                                 sizeof reason, &rule) == JC_CONSTRAINT_ADVISE);
+    JC_CHECK(rule == 0);
+    JC_CHECK(strcmp(reason, "do not run tests") == 0);
+    /* The pure predicate did not change: the rule still FORBIDS the call. What
+     * changed is what follows from a guess forbidding it. */
+    JC_CHECK(jc_constraint_blocks(cs, 1, "run_tests", NULL, 0, reason,
+                                  sizeof reason) == 1);
+
+    /* The same rule, written by the operator, refuses as it always did. */
+    cs[0].origin = JC_CONSTRAINT_AUTHORED;
+    JC_CHECK(jc_constraint_judge(cs, 1, "run_tests", NULL, 0, 0, reason,
+                                 sizeof reason, &rule) == JC_CONSTRAINT_REFUSE);
+    JC_CHECK(strstr(reason, "blocked by an active constraint") != NULL);
+
+    /* A call no rule speaks to is allowed, and names no rule. */
+    JC_CHECK(jc_constraint_judge(cs, 1, "read_file", NULL, 1, 0, reason,
+                                 sizeof reason, &rule) == JC_CONSTRAINT_ALLOW);
+    JC_CHECK(rule == -1);
+
+    /* A guess beside a policy cannot soften it, whichever comes first. */
+    cs[0].origin = JC_CONSTRAINT_INFERRED;
+    cs[1] = cs[0];
+    cs[1].origin = JC_CONSTRAINT_AUTHORED;
+    JC_CHECK(jc_constraint_judge(cs, 2, "run_tests", NULL, 0, 0, reason,
+                                 sizeof reason, &rule) == JC_CONSTRAINT_REFUSE);
+    JC_CHECK(rule == 1);
+
+    /* M459 still holds, now for advice: an inferred read-only is not even
+     * advised against on a path the operator's --edit-scope names. */
+    cs[0].kind = JC_CONSTRAINT_READ_ONLY;
+    cs[0].subject = NULL;
+    cs[0].text = (char *)"read-only";
+    cs[0].origin = JC_CONSTRAINT_INFERRED;
+    JC_CHECK(jc_constraint_judge(cs, 1, "write_file", NULL, 0, 1, reason,
+                                 sizeof reason, &rule) == JC_CONSTRAINT_ALLOW);
+    JC_CHECK(jc_constraint_judge(cs, 1, "write_file", NULL, 0, 0, reason,
+                                 sizeof reason, &rule) == JC_CONSTRAINT_ADVISE);
+}
+
 void test_constraint(void)
 {
+    test_sentence_scope();
+    test_judge();
     test_blocks_ex_scope_exempt();
     test_scan();
     test_verb_position();

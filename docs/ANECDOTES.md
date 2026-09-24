@@ -6560,3 +6560,113 @@ The guess was cheap; the enforcement was not. Where a system infers an
 instruction from a description, the failure is not that it guessed wrong — it is
 that the wrong guess is indistinguishable, at the point of use, from one the
 operator typed.
+
+---
+
+## 102. The test that passed because the machine had booted before (2026-09-24)
+
+**Symptom.** Run by hand under ARAnyM, jichi's cross-built unit suite completed on
+FreeMiNT with a 512 KB stack, several times, in the same guest directory. The rig written
+from that procedure crashed on its first step 2 with a bus error, at a program counter
+that pointed nowhere, running the same binary.
+
+**Dead ends.** The binary: the rig's own build completed when copied into the hand
+directory. `RedirConsole`, the one setting the hand directory had and the rig did not: the
+rig crashed with it added. What remained was the disk. The rig extracts a fresh one each run;
+the hand directory had kept its `/tmp` across every boot for three quarters of an hour.
+Emptying that `/tmp` made the hand directory crash too.
+
+**Root cause, in three parts, none of them sufficient alone.**
+1. `jc_path_resolve` recursed once per symlink hop, at ~16.5 KB a call, up to 40 hops, so
+   the suite's `loop -> loop` case needed ~700 KB. FreeMiNT's stack is fixed at 512 KB, and
+   past it lies the heap.
+2. `test_symlink_escape` names its fixture `jichi_path_test_<pid>` and never removed one of
+   its links, so the fixture outlived every run. On Linux that is litter: 125 of them in one
+   `/tmp`, each under a different pid.
+3. On FreeMiNT the suite is **pid 5 on every boot**. So from the second run in a directory,
+   the test's `mkdir` failed and it returned early, under a comment that said *"skip
+   silently"*. The loop case never ran, and the crash had nothing to happen in.
+
+**Lesson.** *A skip that reports nothing is a pass that did not happen, and a reused
+environment decides when it happens.* The early return was written for "no writable
+`/tmp`", and it was right for that. What made it dangerous was an identifier that is unique
+on one platform and constant on another, and a directory kept between runs. The fresh
+disk found it, not the hand runs, because the rig starts from nothing each time. That is
+the reason rigs exist. The test now clears its fixture first, fails loudly when it cannot
+make one, and must leave nothing behind. The gate runs the build FreeMiNT runs under
+FreeMiNT's stack (M727).
+
+---
+
+## 103. The lint exemption that assumed a short TMPDIR (2026-09-24)
+
+**Symptom.** Proving M727, I ran the unit suite with `TMPDIR` set to a scratch directory,
+to plant fixtures where I could see them. One check failed that had never failed, and a
+file planted inside `TMPDIR` vanished before the test that should have found it ran.
+
+**Root cause.** `strace` showed the suite executing `rm -rf "$TMPDIR"`, four times.
+`tests/test_bounds.c` built `$TMPDIR/jichi_bounds_<pid>` into 128 bytes, and my `TMPDIR` was
+127 characters long, so the path came out as the `TMPDIR` itself, and the next line removed
+it. Twenty-five sites had the shape. A buffer cuts a path to a prefix, and a prefix of a
+path is the directory it lives in or one above that. `sprintf_lint` had exempted `tests/` on
+the grounds that fixtures write into "known-safe buffers". They were safe exactly as long as
+`TMPDIR` was short, and nobody chose how long `TMPDIR` was.
+
+**Lesson.** *A size that is safe for an input you do not control is not a property of the
+buffer.* The exemption was a claim about every environment the suite would ever run in,
+written as if it were a claim about the code. The gate could not see it, because the gate
+sets no `TMPDIR`. A harness setting one, as agent sandboxes do, would have removed whatever
+was in it. The fix does not make the buffers big enough. It makes a cut path harmless: the
+removal refuses anything not strictly below `TMPDIR`, and the suite refuses a `TMPDIR` longer
+than it was measured under (M728).
+
+---
+
+## 104. The gate said 2, the notice said 0, and I pushed on the notice (2026-09-24)
+
+**Symptom.** M735 reached the remote with a red `make ci`. The completion notice for the
+background gate read *exited with code 0*, and the next command I ran printed the tail of the
+log, fetched, and pushed -- in that order, in one line. The tail it printed said
+`Command exited with non-zero status 2` and `make: *** [ci] Error 2`, three lines above the
+push's own output.
+
+**Root cause.** Two, and the second is the one that mattered. The notice's exit code was the
+wrapper's: the gate ran as `make ci > log; echo "make ci rc=$?"; tail log`, and a pipeline
+of commands ends with the status of its last one, `tail`. The rc that counted was printed on
+a line of its own, and I read the notice instead. Then the push ran in the same command as
+the reading, so nothing I read could stop it. The failure itself was small and mine:
+`posix_utils_lint` refuses `head -c`, which OpenBSD's `head` lacks, and the new self-test in
+`corpus-drive.sh` used it. My pre-commit pass had run the lints I expected the change to touch;
+that one I did not expect.
+
+**Lesson.** *A push reads the gate's own status, in the same command, or it does not run.*
+`grep -q 'make ci rc=0' log && git push` cannot push past a red gate; `cat log; git push`
+always can, however carefully the log is written. And a pre-commit pass that chooses its lints
+by what the change "should" touch is an audit, not a gate: running all 66 took two minutes,
+and would have found it. The fix went out as M735b, gated first.
+
+## 105. No space left on a disk with 102 GB free (2026-09-24)
+
+**Symptom.** Mid-milestone, every lint after the first few failed with `mktemp failed`, a
+snapshot check with `tar: ... Cannot open: No space left on device`, and then the session's own
+shell could not write its working-directory file. `df -h /tmp`: 124 GB, **18% used**.
+
+**Dead end.** Space. There was plenty; `df -h` answers the question it is asked.
+
+**Root cause.** `df -i /tmp`: **1,048,576 inodes, 1,048,576 used.** The tmpfs had run out of
+files, not bytes. 20,284 directories named `jichi_smoke.XXXXXX` -- the smoke tier's temp dirs,
+every one created since the machine's last boot, the largest holding 12,700 files. The tier
+has a cleanup trap and a registry for it, and the registry never held
+anything: `smoke_tmp` appended the new directory to a shell variable, and every one of the 319
+drivers that uses it writes `tmp=$(smoke_tmp)`. A command substitution runs in a subshell; the
+subshell's assignment dies with it; the trap in the driver looped over an empty list. So from
+M209, the day the tier was written, **no driver has removed a temp dir**. A reboot empties a
+tmpfs, and nothing else ever looked.
+
+**Lesson.** Two. *A variable set inside `$(...)` does not exist afterwards* -- a helper that
+returns a value on stdout cannot also record state in the caller, and the registry had to become
+a file (`$$` is the driver's pid inside the subshell too, which is what lets both sides find
+it). And the class: a cleanup is a claim that something was removed, and the only evidence it
+worked is the absence of the thing. The trap *ran*, on every exit, for two months; what it
+removed was never looked at. `smoke_tmp_lint.sh` now runs a driver in miniature and counts
+what is left.

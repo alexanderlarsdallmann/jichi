@@ -45,6 +45,10 @@ import argparse
 import glob
 import json
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import corpus_filter  # noqa: E402 -- M720: which runs are real
 
 FLOOR = 20          # capped one-shots below which no rate is reported
 
@@ -72,7 +76,10 @@ def scan(paths):
                     end = e
         if end is None:
             continue
-        rows.append({"file": os.path.basename(p), "start": start, "end": end})
+        head = start or end
+        rows.append({"file": os.path.basename(p), "start": start, "end": end,
+                     "run": head.get("run"),
+                     "model": (start or {}).get("model")})
     return rows
 
 
@@ -86,6 +93,11 @@ def main():
     ap.add_argument("--list", action="store_true",
                     help="print one line per capped run (file, shape, "
                          "answer_bytes, tool_calls, tokens_used)")
+    ap.add_argument("--telemetry", action="append",
+                    help="telemetry dir/file to classify runs by (default: "
+                         "~/.jichi.d/telemetry); repeatable")
+    ap.add_argument("--include-synthetic", action="store_true",
+                    help="count mock/probe runs too (corpus_filter.py)")
     args = ap.parse_args()
 
     files = []
@@ -96,6 +108,14 @@ def main():
             files.append(p)
 
     rows = scan(files)
+    # M720: classify every journal before counting anything in it -- by its own
+    # start.model when that names a mock, else by the telemetry of its run id.
+    pop = corpus_filter.Population().feed_files(corpus_filter.telemetry_files(
+        args.telemetry or [corpus_filter.DEFAULT_TELEMETRY]))
+    kinds = [pop.run_kind(r["run"], r["model"]) for r in rows]
+    population = corpus_filter.journal_report(kinds, args.include_synthetic)
+    if not args.include_synthetic:
+        rows = [r for r, k in zip(rows, kinds) if k != "synthetic"]
     # A journal written before M690 has no stop_reason at all.  Counted
     # separately rather than lumped in as "not capped", which would silently
     # dilute the rate with runs that could not have reported a cap.
@@ -104,6 +124,7 @@ def main():
     capped = [r for r in recorded if r["end"].get("stop_reason") == "max_iters"]
 
     print("journals scanned: %d   completed runs: %d" % (len(files), len(rows)))
+    print(population)
     print("runs whose journal records a stop_reason (post-M690): %d" % len(recorded))
     if silent:
         print("runs with NO stop_reason recorded (pre-M690): %d "

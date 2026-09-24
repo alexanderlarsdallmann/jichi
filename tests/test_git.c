@@ -135,11 +135,7 @@ static void test_mutate(void)
     JC_CHECK(jc_tool_git_branch()->readonly == 0);
     JC_CHECK(jc_tool_git_stash()->readonly == 0);
 
-    {
-        char cmd[700];
-        jc_snprintf(cmd, sizeof cmd, "rm -rf %s", dir);
-        system(cmd);
-    }
+    (void)jc_test_rm_rf(dir);
     if (system("command -v git >/dev/null 2>&1") != 0) {
         printf("  (skipping git mutation integration: no git)\n");
         jc_arena_free(a);
@@ -223,11 +219,7 @@ static void test_mutate(void)
     cJSON_AddBoolToObject(args, "pop", 1);
     JC_CHECK(run_git_tool(jc_tool_git_stash(), &app, args, NULL) == 0);
 
-    {
-        char cmd[700];
-        jc_snprintf(cmd, sizeof cmd, "rm -rf %s", dir);
-        system(cmd);
-    }
+    (void)jc_test_rm_rf(dir);
     jc_arena_free(a);
 }
 

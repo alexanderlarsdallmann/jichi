@@ -55,6 +55,7 @@ the two ever disagree, PLATFORMS.md is right.
 | **OpenBSD** | **Verified — the full gate**, and **Driven**. Build clean in **9 s** with clang 19.1.7. Its `/bin/sh` is **ksh**, so the smoke tier runs under a shell nothing else in the matrix exercises. | `pkg_add gmake curl` · `gmake` |
 | **illumos / Solaris** | **Partly verified, FULLY DRIVEN and GREEN since M703** (OmniOS CE) — both turns through the rig, re-driven 2026-09-22; `19 ok, 0 failed`, 317 of 317 smoke drivers, coverage debt 0. Clean `WERROR=1` build with gcc; **no source conditional was needed** — two build facts are probed. | [packages below](#illumos--solaris-partly-verified) · `gmake CC=gcc` |
 | **macOS** | **Never compiled.** Expected to build (BSD/POSIX), with **one** Darwin-specific code path — `jc_mem_total_mb`'s `sysctl(HW_MEMSIZE)`, which was un-compilable under this project's own C89 flags until M400 found it. "No Darwin-specific code" was this page's own claim, and it was wrong. | native |
+| **FreeMiNT (Atari) / MiNTLib** | **Never compiled** on FreeMiNT itself, but the tree **cross-compiles clean** since M723 (gcc 4.6.4, MiNTLib 0.60.1, `WERROR=1`). The cross-compile of 2026-09-24 had measured five gaps: M722 fixed jichi's own, `-Walloca`, which every gcc older than 7 rejects, and M723 the four places the source leaned on glibc's headers ([`DEFERRED.md`](DEFERRED.md)). Under ARAnyM the cross-built unit suite completes (13,707 checks, 19 failures) and `jichi --version` runs: M726 gave MiNT builds a 512 KB stack, and M727 made the path resolver a loop, since its recursion needed ~700 KB for a symlink cycle. The rig is `scripts/tier-v-freemint.sh`. | cross only: `m68k-atari-mint-gcc` from `ppa:vriviere/ppa` — [the plan](plans/2026-09-freemint-aranym.md) |
 | **Windows** | Not supported natively (POSIX process/terminal/signal/socket layers have no Win32 equivalent without a port). **WSL2 is the measured path**; **Cygwin** and **MSYS2** are *partly verified* — they build and pass the tier, but not `make ci`, and MSYS2 needs a mount option before jichi's file-privacy guarantees hold at all. | **WSL2 — measured (M475, 2026-08-18):** full `make ci` green on Ubuntu 24.04 / WSL2 (12,418 unit checks under gcc *and* clang, smoke 209 drivers at multiplier **1**). Keep the checkout on the Linux filesystem, **not `/mnt/c`**. [PLATFORMS.md](PLATFORMS.md) |
 
 ## Linux (supported — the reference platform)
@@ -435,8 +436,17 @@ third-party source.*
 
 The Makefile probes the toolchain at configure time:
 - `JC_HAVE_VSNPRINTF` — use C99 `vsnprintf` if present, else a fallback formatter.
+  Asked twice since M736, at the POSIX level and then at `-D_XOPEN_SOURCE=600`,
+  because an older glibc declares `snprintf` under `-std=c89` only at the second
+  (Debian 5's 2.7, where the one-question probe took the fallback). The fallback
+  has no width, precision or flags, so `make info` says so when it is chosen.
 - `HAVE_CURL` — libcurl is required for networking (M2+) and links via
   `pkg-config`. The core + tests still build without it.
+- …and more (the clock, `malloc_trim`, the terminal's `winsize`, sockets,
+  STREAMS ptys, `lstat` and `mmap` since M723, the optional warning flags --
+  `-Wvla` among them since M736, which gcc before 4.3 rejects).
+  **`make info` prints every probe's answer, and is the list to trust**; this one
+  names only the two every build meets.
 
 Dependencies: **libcurl** (HTTPS/TLS/SSE) — linked, not vendored — and nothing
 else. jichi vendors **no third-party source**: `src/json/cJSON.{c,h}` is original

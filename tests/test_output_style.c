@@ -100,8 +100,10 @@ static void test_load_and_select(void)
     jc_output_style_set_active(&set, "concise");
     jc_sb_init(&sb);
     jc_output_style_render_list(&set, &sb);
-    JC_CHECK(strstr(sb.data, "* concise") != NULL);
-    JC_CHECK(strstr(sb.data, "explain") != NULL);
+    if (JC_REQUIRE(sb.data != NULL)) { /* a guard: an empty set renders nothing (M729) */
+        JC_CHECK(strstr(sb.data, "* concise") != NULL);
+        JC_CHECK(strstr(sb.data, "explain") != NULL);
+    }
     jc_sb_free(&sb);
 
     jc_output_style_set_free(&set);

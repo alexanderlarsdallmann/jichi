@@ -110,15 +110,33 @@ It does now. **The kernel is not the constraint** — jichi uses `fork`, `exec`,
 
 | Component | Minimum | What sets the floor |
 | --- | --- | --- |
-| **libcurl** | **7.19.4** (Feb 2009) | `CURLOPT_PROTOCOLS` / `CURLOPT_REDIR_PROTOCOLS`, used in the pre-7.85 branch of the SSRF guard. `CURLOPT_SEEKFUNCTION` needs 7.18.0. The newer options are `#if`-guarded with fallbacks: `CURLOPT_XFERINFOFUNCTION` (7.32.0) falls back to `CURLOPT_PROGRESSFUNCTION`, and the `_STR` protocol options (7.85.0) to the bitmask form. |
-| **glibc** | **2.12** (2010) | POSIX.1-2001 throughout. Two glibc extensions are used and both are `#if defined`-guarded: `_SC_PHYS_PAGES` and `_SC_NPROCESSORS_ONLN`. On glibc **< 2.17** `clock_gettime` lives in **librt**, and the build probes for that and adds `-lrt` — see below. |
+| **libcurl** | **7.19.4** (Feb 2009) | `CURLOPT_PROTOCOLS` / `CURLOPT_REDIR_PROTOCOLS`, used in the pre-7.85 branch of the SSRF guard. `CURLOPT_SEEKFUNCTION` needs 7.18.0. The newer options are `#if`-guarded with fallbacks: `CURLOPT_XFERINFOFUNCTION` (7.32.0) falls back to `CURLOPT_PROGRESSFUNCTION`, the `_STR` protocol options (7.85.0) to the bitmask form, and the TLS minimum `CURL_SSLVERSION_TLSv1_2` (7.34.0) to `CURL_SSLVERSION_TLSv1` -- any TLS, never an SSL fallback, the most such a libcurl can ask for. `CURL_SOCKOPT_OK` (7.21.5) and `CURL_SEEKFUNC_CANTSEEK` (7.19.5) have fallback definitions. Until 2026-09-24 those last three were used bare, and nothing at this floor compiled (see below); `portability_lint` check 34 now holds every libcurl identifier newer than 7.19.4 to a guard or a fallback. A distribution's older libcurl can still meet the floor where the vendor backported the protocol options: Debian 5's 7.18.2 does. |
+| **glibc** | **2.7** (2007), measured | POSIX.1-2001 throughout. Two glibc extensions are used and both are `#if defined`-guarded: `_SC_PHYS_PAGES` and `_SC_NPROCESSORS_ONLN`. On glibc **< 2.17** `clock_gettime` lives in **librt**, and the build probes for that and adds `-lrt` — see below. On an older glibc `snprintf` is declared under `-std=c89` only at the X/Open level, so the build asks there too before it settles for its own C89 formatter, which has no width, precision or flags. |
 | **musl / uClibc-ng** | any current | `clock_gettime` is in libc; nothing else applies. |
-| **C compiler** | any C89 | Not the binding constraint. GNU make **3.82** is supported (the `\043` escape in the probes exists for it). |
+| **C compiler** | any C89 | Not the binding constraint. GNU make **3.82** is supported (the `\043` escape in the probes exists for it). Every warning flag a compiler may lack is probed — except `-Walloca` from M472 to M722, when no gcc before 7 could compile the tree at all. The oldest compiler measured since is gcc 4.6.4, cross-compiling (M722). |
 
-**In distribution terms:** RHEL/CentOS **6** (glibc 2.12, curl 7.19.7) and Debian
-**7** (glibc 2.13, curl 7.26) are the oldest that meet both floors — and they are
-*exactly* at the line, with no margin. RHEL/CentOS **7** (glibc 2.17, curl 7.29)
-and Debian **8** onward have room to spare.
+**In distribution terms, measured (2026-09-24).** The rows below come from the
+*userland ladder*: jichi built with each distribution's own gcc, glibc and libcurl
+in a container, and its unit suite run there. A container shares the host's kernel,
+so this is the userland floor; the kernel's is a different question, and the
+paragraph above answers it by construction, not by measurement.
+
+| Distribution | gcc | glibc | libcurl | Result |
+| --- | --- | --- | --- | --- |
+| Debian 9 | 6.3 | 2.24 | 7.52 | builds, unit suite 0 failures |
+| Debian 8 | 4.9 | 2.19 | 7.38 | builds, unit suite 0 failures |
+| CentOS 7 | 4.8.5 | 2.17 | 7.29 | builds, unit suite 0 failures |
+| Debian 7 | 4.7.2 | 2.13 | 7.26 | builds, unit suite 0 failures -- after the fixes of 2026-09-24 |
+| CentOS 6 | 4.4.7 | 2.12 | 7.19.7 | builds, unit suite 0 failures -- after the fixes of 2026-09-24 |
+| Debian 6 | 4.4.5 | 2.11.3 | 7.21.0 | builds, unit suite 0 failures -- after the fixes of 2026-09-24 |
+| Debian 5 | 4.3.2 | 2.7 | 7.18.2 (protocol options backported) | builds, unit suite 0 failures -- after the fixes of 2026-09-24 |
+| Debian 4 | 4.1.2 | 2.3.6 | 7.15.5 | **does not build**: libcurl predates the socket callbacks (7.16) |
+
+So **the documented floor holds, and is now true**: before these fixes, CentOS 6
+and Debian 7 -- the two distributions this page named as exactly at the line --
+did not compile `src/net/jc_http.c` at all. The ladder's first run found it; the
+libcurl guards above and the `snprintf` probe are what changed. Below them, Debian 5
+and 6 are older than the glibc floor this page used to state (2.12), and work.
 
 > **The `-lrt` story, because it was a real defect.** `jc_now_millis` guarded its
 > `clock_gettime` call with `#if defined(CLOCK_MONOTONIC)` — but `<time.h>`

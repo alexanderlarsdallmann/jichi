@@ -7,6 +7,10 @@ model can forget after a long turn or a compacted context window), a constraint 
 constraint text is re-injected into the system prompt every turn so it survives
 compaction.
 
+**Since M734, only the constraints you write are enforced.** The ones jichi
+*infers* from the wording of a prompt in `--auto` are shown to the model as advice,
+and a call that goes against one runs — see [Inferred rules advise](#inferred-rules-advise-m734).
+
 ## Why
 
 Telling an agent "don't run the tests" in a message is advice. On a long
@@ -17,10 +21,11 @@ anyway. Constraints fix this at two layers:
 1. **System prompt (compaction-proof).** The active constraints render into a
    `# Active constraints` block that `jc_sysmsg_build` emits every turn. The system
    prompt is never compacted (M73), so the limit is always in front of the model.
-2. **Tool gate (binding).** Before any tool runs, `jc_constraint_blocks` checks the
-   call against the active constraints. A violating call is refused with
-   `blocked by an active constraint: <reason>` — the model *cannot* work around a
-   forgotten instruction.
+2. **Tool gate (binding).** Before any tool runs, `jc_constraint_judge` checks the
+   call against the active constraints. A call that violates one you wrote is
+   refused with `blocked by an active constraint: <reason>` — the model *cannot*
+   work around a forgotten instruction. A call that violates only an inferred one
+   runs, and is told (M734).
 
 ## Kinds
 
@@ -44,23 +49,25 @@ boundaries keep `latest` from matching `test`.
   after you have read the draft — commits it as **authored** through this same
   scanner. A lesson that can be stated as a refusal thereby stops depending on the
   model remembering it ([LEARNING.md](LEARNING.md)).
-- **Auto-adopt in `--auto` (default on).** In unsupervised AUTO mode — where the
-  agent runs unwatched and most needs a hard limit — jichi scans each request for
-  constraints and enforces them immediately. This is the mode the whole feature
-  exists for. What it infers is **session-scoped** and announced by name at WARN
-  level — see Provenance below.
+- **Auto-adopt in `--auto` (default on).** In unsupervised AUTO mode jichi scans
+  each request for constraints and puts what it finds in front of the model, so an
+  instruction that scrolls out of a long run's context is not lost. What it infers
+  is **session-scoped**, announced by name at WARN level, and, since M734,
+  **advisory**: it is told, not enforced — see Provenance and
+  [Inferred rules advise](#inferred-rules-advise-m734) below.
 - **Interactive TUI.** Auto-adopt is *off* interactively; state a constraint and
   add it with `/constraints add`, so a casual mention isn't turned into a hard rule
   by surprise.
 
 ## Provenance: what outlives the session (M169)
 
-Every constraint is enforced identically. What differs is whether it *persists*:
+What differs is whether a constraint *persists*, and, since M734, whether it
+*binds*:
 
-| Origin | How it arrives | Lifetime |
-|---|---|---|
-| **authored** | `.jichi/constraints.md`, or `/constraints add <text>` | persists — it is a policy you wrote |
-| **inferred** | scanned out of a prompt by auto-adopt | **this session only** |
+| Origin | How it arrives | Lifetime | At the tool gate |
+|---|---|---|---|
+| **authored** | `.jichi/constraints.md`, or `/constraints add <text>` | persists — it is a policy you wrote | **refuses** a violating call |
+| **inferred** | scanned out of a prompt by auto-adopt | **this session only** | **advises**: the call runs, and its result names the rule (M734) |
 
 **Design decision — a guess must not outlive the turn that produced it.**
 Extraction is a keyword scan over prose, so it will sometimes be wrong. Being
@@ -77,7 +84,8 @@ that motivated this cost real work:
 
 Both phrasings are narrowed now, but the general problem is not closable by a
 better keyword list. Capping the blast radius is. So an inferred constraint is
-enforced for the run and never written; the store keeps only what you authored.
+never written; the store keeps only what you authored. M169 capped a misparse's
+reach in *time*; M734 capped what it can *do* within the run.
 `/constraints` marks each one `[saved]` or `[this session]`.
 
 If jichi infers something you *do* want to keep, the notice names it — add it with
@@ -87,6 +95,47 @@ it into the store by hand.
 Corollary: when nothing is authored, jichi **removes** `.jichi/constraints.md` rather
 than leaving a header-only file, and does not create `.jichi/` just to hold nothing.
 A run that only inferred a constraint leaves the workspace exactly as it found it.
+
+## Inferred rules advise (M734)
+
+**The measurement.** M730 ran the scanner over the first message of every stored
+session on the development workstation, 289 prompts, with no model call. It
+inferred nine constraints. Three were right — *"Do not run build. Do not run
+tests!"* — and six were wrong, in three prompts, and **each of the six forbade the
+gate its own task named**: `zig build test` in two, *"verify by running the command
+yourself"* in the third. A refusal is what turns such a misparse into a lost run:
+`1d31473d` read *"do not compile"* in a description, refused its own builds for 21
+minutes and 2,215,762 tokens, and was rolled back.
+
+**Two changes, the operator's choice of both (plan D2, option (c)).**
+
+1. **A negation reaches to the end of its sentence.** All six errors had one
+   mechanism: a negation joined to a word in the *next* sentence — *"Do not touch
+   build.zig. Verify by running"* became *do not run build commands*. The scanner
+   used to look at the 95 characters after a negation wherever they fell; it now
+   stops at a sentence's end (`.`, `!` or `?` before white space, a blank line, or
+   a new list item). A dot inside `build.zig` does not end a sentence, and neither
+   does a single line break in hard-wrapped prose. On M730's sample this alone keeps
+   the three right constraints and drops the six wrong ones.
+2. **An inferred constraint advises.** It is rendered in its own section of the
+   system prompt, *"Inferred from the request (ADVISORY — not enforced)"*, which
+   says where it came from and asks the model to report it if it acts against one.
+   A call that goes against it **runs**; the first such call per rule in a turn
+   gets a note in its result naming the rule. The adoption notice says
+   `ADVISORY for THIS SESSION (not enforced, not saved)`.
+
+**What the operator sees.** Every call that goes against an inferred rule is a
+`constraint_advisory` event in the run journal, and `jichi runs` shows `advised=N`.
+That count is the rate at which a guessed rule met the work — the number the
+decision was taken without, measured from now on by every `--auto` run with a
+journal.
+
+**What did not change.** An authored constraint refuses exactly as before, and it is
+checked first, so a guess sitting beside a policy can never turn the policy's
+refusal into advice. The M459 rule still holds, one step softer: on a path the
+operator's `--edit-scope` names, an inferred read-only is not even advised against,
+and that is announced. To make an inferred rule binding, add it with
+`/constraints add` or write it into the store.
 
 ## The store: `.jichi/constraints.md`
 

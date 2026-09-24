@@ -4935,7 +4935,16 @@ int jc_tui_run(struct jc_app *app)
                                                    : app->config.model.model,
                            app->config.model.model);
                 } else {
-                    put("could not switch model\n");
+                    /* M718: say why -- usually an entry naming no provider. */
+                    char why[512];
+                    const struct jc_model_cfg *tm =
+                        jc_config_model_at(&app->config, idx);
+                    if (tm != NULL &&
+                        jc_config_provider_problem(tm, why, sizeof(why))) {
+                        printf("could not switch model: %s\n", why);
+                    } else {
+                        put("could not switch model\n");
+                    }
                 }
             }
             free(line);

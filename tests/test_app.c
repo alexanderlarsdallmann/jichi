@@ -13,6 +13,7 @@
 #include "jc_snprintf.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -165,9 +166,12 @@ static void test_write_file_atomic(void)
 
     /* No temp sibling left behind. */
     {
-        char tmpname[128];
-        jc_snprintf(tmpname, sizeof(tmpname),
-                    "%s/jichi_atomic_test.txt.tmp%ld", jc_test_tmpdir(), (long)getpid());
+        char tmpname[600];
+        /* Checked to fit (M728): cut short, this named the TMPDIR itself,
+         * which exists, and the check went red on a clean run. */
+        JC_CHECK(jc_snprintf(tmpname, sizeof(tmpname),
+                             "%s/jichi_atomic_test.txt.tmp%ld", jc_test_tmpdir(),
+                             (long)getpid()) < (int)sizeof(tmpname));
         JC_CHECK(!jc_file_exists(tmpname));
     }
 
@@ -332,6 +336,76 @@ static void test_newest_beats(void)
                                  "clean.jsonl", 100.0) == 0);
 }
 
+/* M721: every part of a command's stderr reaches the output, on BOTH local
+ * paths, and a command too long for the shell buffer is refused -- never run
+ * cut short. The popen path used to build `<command> 2>&1`, and a trailing
+ * `2>&1` binds to the last simple command only: in `A; B` and `A | B`, A's
+ * stderr went to the parent's stderr and never into `out`. The markers are
+ * printed by arithmetic, so `LIST_42` exists only in the output. */
+static void test_run_command_every_stderr(void)
+{
+    struct jc_app app;
+    struct jc_arena *arena = jc_arena_new(0);
+    long timeouts[2];
+    int k;
+
+    memset(&app, 0, sizeof(app));  /* no delegate, no memory budget */
+    app.arena = arena;
+    timeouts[0] = 0;               /* the popen path */
+    timeouts[1] = 5;               /* the watched fork path */
+    for (k = 0; k < 2; k++) {
+        struct jc_sb out;
+        int code = -1, trunc = 0;
+        jc_sb_init(&out);
+        JC_CHECK(jc_app_run_command_ex(&app, "echo LIST_$((40+2)) >&2; echo TAIL",
+                                       4096, timeouts[k], &out, &code,
+                                       &trunc) == JC_OK);
+        JC_CHECK(out.data != NULL && strstr(out.data, "LIST_42") != NULL);
+        JC_CHECK(out.data != NULL && strstr(out.data, "TAIL") != NULL);
+        jc_sb_free(&out);
+        jc_sb_init(&out);
+        JC_CHECK(jc_app_run_command_ex(&app, "echo PIPE_$((40+2)) >&2 | cat",
+                                       4096, timeouts[k], &out, &code,
+                                       &trunc) == JC_OK);
+        JC_CHECK(out.data != NULL && strstr(out.data, "PIPE_42") != NULL);
+        jc_sb_free(&out);
+    }
+
+    /* Too long for the buffer: refused on both paths, and NOTHING ran. A
+     * truncated command runs its beginning -- here a `touch` -- which is how a
+     * cut heredoc writes a partial file and drops what follows it. */
+    {
+        char marker[1024];
+        char *big;
+        jc_size n = 9000;
+        jc_size len;
+        struct stat st;
+        jc_snprintf(marker, sizeof(marker), "%s", jc_test_tmp("jichi_m721_ran"));
+        big = (char *)malloc(n + 1200);
+        JC_CHECK(big != NULL);
+        if (big != NULL) {
+            len = (jc_size)jc_snprintf(big, 1200, "touch '%s'; : ", marker);
+            memset(big + len, 'x', n);
+            big[len + n] = '\0';
+            JC_CHECK(!jc_app_command_fits(big));
+            JC_CHECK(jc_app_command_fits("echo short"));
+            for (k = 0; k < 2; k++) {
+                struct jc_sb out;
+                int code = -1, trunc = 0;
+                remove(marker);
+                jc_sb_init(&out);
+                JC_CHECK(jc_app_run_command_ex(&app, big, 4096, timeouts[k], &out,
+                                               &code, &trunc) != JC_OK);
+                JC_CHECK(stat(marker, &st) != 0);
+                jc_sb_free(&out);
+            }
+            free(big);
+        }
+        remove(marker);
+    }
+    jc_arena_free(arena);
+}
+
 void test_app(void)
 {
     test_newest_beats();
@@ -340,5 +414,6 @@ void test_app(void)
     test_reference_roots_fence();
     test_write_file_atomic();
     test_run_command_timeout();
+    test_run_command_every_stderr();
     test_reread_check();
 }

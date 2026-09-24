@@ -161,12 +161,27 @@ static char *slurp(const char *path)
     static char buf[4096];
     size_t n;
     if (f == NULL) {
-        return NULL;
+        /* Not NULL (M729): every caller hands this to strcmp, which read a
+         * NULL when the fixture could not be written. A string no fixture
+         * holds makes that comparison fail instead -- "" would let a file
+         * expected empty pass by not existing. */
+        return (char *)"\001(slurp: cannot open)";
     }
     n = fread(buf, 1, sizeof(buf) - 1, f);
     buf[n] = '\0';
     fclose(f);
     return buf;
+}
+
+/* Write a fixture, or say it could not be written (M729): on a TMPDIR it
+ * cannot write, fopen returns NULL, and the fputs that followed segfaulted. */
+static void put_file(const char *path, const char *text)
+{
+    FILE *f = fopen(path, "wb");
+    if (JC_REQUIRE(f != NULL)) {
+        fputs(text, f);
+        fclose(f);
+    }
 }
 
 static void test_apply_tool(void)
@@ -186,14 +201,14 @@ static void test_apply_tool(void)
 
     /* Seed two files and satisfy the read-before-edit guard. */
     {
-        FILE *f = fopen(pa, "wb"); fputs("one two three\n", f); fclose(f);
-        f = fopen(pb, "wb"); fputs("alpha beta\n", f); fclose(f);
+        put_file(pa, "one two three\n");
+        put_file(pb, "alpha beta\n");
     }
     jc_app_mark_read(&app, pa);
     jc_app_mark_read(&app, pb);
 
     /* Atomic multi-file, multi-edit; edits to the same file compound. */
-    sprintf(args,
+    jc_snprintf(args, sizeof args,
         "{\"edits\":["
         "{\"path\":\"%s\",\"old_string\":\"one\",\"new_string\":\"1\"},"
         "{\"path\":\"%s\",\"old_string\":\"three\",\"new_string\":\"3\"},"
@@ -210,7 +225,7 @@ static void test_apply_tool(void)
 
     /* Atomicity: a failing edit (not found) writes nothing, even though an
      * earlier edit in the same call was valid. */
-    sprintf(args,
+    jc_snprintf(args, sizeof args,
         "{\"edits\":["
         "{\"path\":\"%s\",\"old_string\":\"1\",\"new_string\":\"ONE\"},"
         "{\"path\":\"%s\",\"old_string\":\"NOPE\",\"new_string\":\"x\"}]}",
@@ -223,8 +238,8 @@ static void test_apply_tool(void)
     /* The read-before-edit guard applies per file. */
     {
         const char *pc = jc_test_tmp("jichi_patch_c.txt");
-        FILE *f = fopen(pc, "wb"); fputs("zzz\n", f); fclose(f);
-        sprintf(args,
+        put_file(pc, "zzz\n");
+        jc_snprintf(args, sizeof args,
             "{\"edits\":[{\"path\":\"%s\",\"old_string\":\"zzz\","
             "\"new_string\":\"y\"}]}", pc);
         jc_tool_execute(&reg, "apply_patch", args, &res, &app);
@@ -235,15 +250,15 @@ static void test_apply_tool(void)
 
     /* Non-unique without replace_all fails; with replace_all it succeeds. */
     {
-        FILE *f = fopen(pa, "wb"); fputs("x x x\n", f); fclose(f);
+        put_file(pa, "x x x\n");
         jc_app_mark_read(&app, pa);
-        sprintf(args, "{\"edits\":[{\"path\":\"%s\",\"old_string\":\"x\","
+        jc_snprintf(args, sizeof args, "{\"edits\":[{\"path\":\"%s\",\"old_string\":\"x\","
                       "\"new_string\":\"y\"}]}", pa);
         jc_tool_execute(&reg, "apply_patch", args, &res, &app);
         JC_CHECK(res.is_error == 1);
         jc_tool_result_free(&res);
 
-        sprintf(args, "{\"edits\":[{\"path\":\"%s\",\"old_string\":\"x\","
+        jc_snprintf(args, sizeof args, "{\"edits\":[{\"path\":\"%s\",\"old_string\":\"x\","
                       "\"new_string\":\"y\",\"replace_all\":true}]}", pa);
         jc_tool_execute(&reg, "apply_patch", args, &res, &app);
         JC_CHECK(res.is_error == 0);
@@ -255,10 +270,10 @@ static void test_apply_tool(void)
      * line; the result flags the fuzzy match. (Default app here has fuzzy off,
      * matching exact-only behaviour above.) */
     {
-        FILE *f = fopen(pa, "wb"); fputs("\tint x = 1;\n", f); fclose(f);
+        put_file(pa, "\tint x = 1;\n");
         jc_app_mark_read(&app, pa);
         app.config.fuzzy_edit = 1;
-        sprintf(args, "{\"edits\":[{\"path\":\"%s\","
+        jc_snprintf(args, sizeof args, "{\"edits\":[{\"path\":\"%s\","
                       "\"old_string\":\"    int x = 1;\","
                       "\"new_string\":\"\\tint x = 2;\"}]}", pa);
         jc_tool_execute(&reg, "apply_patch", args, &res, &app);
@@ -291,16 +306,12 @@ static void test_repair_note(void)
     char args[512];
 
     setup_app(&app, a, &reg);
-    {
-        FILE *f = fopen(pr, "wb");
-        fputs("hello repair\n", f);
-        fclose(f);
-    }
+    put_file(pr, "hello repair\n");
     jc_app_mark_read(&app, pr);
 
     /* Trailing comma: parse fails, jc_jsonrepair fixes it, the edit runs --
      * and the result must say so, beside the tool's own output. */
-    sprintf(args,
+    jc_snprintf(args, sizeof args,
         "{\"path\":\"%s\",\"old_string\":\"hello\",\"new_string\":\"hi\",}",
         pr);
     jc_tool_execute(&reg, "edit_file", args, &res, &app);
@@ -313,7 +324,7 @@ static void test_repair_note(void)
     jc_tool_result_free(&res);
 
     /* The pair: strictly valid arguments carry no note. */
-    sprintf(args,
+    jc_snprintf(args, sizeof args,
         "{\"path\":\"%s\",\"old_string\":\"hi\",\"new_string\":\"hey\"}",
         pr);
     jc_tool_execute(&reg, "edit_file", args, &res, &app);
@@ -390,7 +401,6 @@ static void test_apply_tool_write_failure(void)
     char pb[JC_PATH_MAX];
     char *refptr;
     char args[2048];
-    FILE *f;
 
     /* Fence seam (deterministic, root-proof): A under the workspace root
      * (writable), B under a reference root (readable, write-DENIED; M54) --
@@ -413,8 +423,8 @@ static void test_apply_tool_write_failure(void)
 
     jc_snprintf(pa, sizeof(pa), "%s/a.txt", rootc);
     jc_snprintf(pb, sizeof(pb), "%s/b.txt", refc);
-    f = fopen(pa, "wb"); fputs("one two three\n", f); fclose(f);
-    f = fopen(pb, "wb"); fputs("alpha beta\n", f); fclose(f);
+    put_file(pa, "one two three\n");
+    put_file(pb, "alpha beta\n");
     jc_app_mark_read(&app, pa);
     jc_app_mark_read(&app, pb);
 
@@ -451,8 +461,8 @@ static void test_apply_tool_write_failure(void)
         const char *qa = jc_test_tmp("jichi_patch_wf_a.txt");
         const char *qb = jc_test_tmp("jichi_patch_wf_b.txt");
         app.config.path_fence = 0;
-        f = fopen(qa, "wb"); fputs("one two three\n", f); fclose(f);
-        f = fopen(qb, "wb"); fputs("alpha beta\n", f); fclose(f);
+        put_file(qa, "one two three\n");
+        put_file(qb, "alpha beta\n");
         jc_app_mark_read(&app, qa);
         jc_app_mark_read(&app, qb);
         chmod(qb, 0444);

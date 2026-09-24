@@ -42,6 +42,156 @@ const char *jc_config_default_base(const char *provider)
     return NULL;
 }
 
+/* NO HOUSE KEY (M718, plan D4). Until M718, `resolve_key` fell back to
+ * OPENAI_API_KEY for "openai" and to ANTHROPIC_API_KEY for EVERYTHING ELSE -- an
+ * unset provider and an unrecognised one included -- and sent it to whatever
+ * endpoint the entry named. The M713 review read that from the code and could not
+ * reproduce it (its loopback probe was refused); tests/smoke/no_house_key.sh did:
+ * an entry naming no provider sent `x-api-key: <ANTHROPIC_API_KEY>` to the mock.
+ * The operator's decision (2026-09-23) is the strict one: a vendor's variable
+ * goes to that vendor's own endpoint and nowhere else unless the config says so.
+ * A refused request costs one config line and can be undone; a key sent to the
+ * wrong host cannot. */
+const char *jc_config_vendor_key_env(const char *provider)
+{
+    if (provider == NULL) {
+        return NULL;
+    }
+    if (strcmp(provider, "openai") == 0) {
+        return "OPENAI_API_KEY";
+    }
+    if (strcmp(provider, "anthropic") == 0) {
+        return "ANTHROPIC_API_KEY";
+    }
+    return NULL;
+}
+
+const char *jc_config_vendor_host(const char *provider)
+{
+    if (provider == NULL) {
+        return NULL;
+    }
+    if (strcmp(provider, "openai") == 0) {
+        return "api.openai.com";
+    }
+    if (strcmp(provider, "anthropic") == 0) {
+        return "api.anthropic.com";
+    }
+    return NULL;
+}
+
+/* 1 when `url` is https://HOST[:443][/...] with HOST equal to `host` (ASCII
+ * case-insensitive) and no userinfo. Deliberately narrower than a URL parser:
+ * anything unusual -- another scheme, a userinfo part, another port, a trailing
+ * dot -- reads as "not the vendor's endpoint", because the cost of a false "no"
+ * is one config line and the cost of a false "yes" is a key sent somewhere. The
+ * authority ends at '/', '?' or '#', so `https://api.openai.com@evil.example/`
+ * is refused for its '@' and `https://api.openai.com.evil.example` for its host. */
+static int is_vendor_endpoint(const char *url, const char *host)
+{
+    const char *p;
+    const char *end;
+    const char *colon = NULL;
+    const char *q;
+    jc_size hlen;
+    jc_size i;
+
+    if (url == NULL || host == NULL) {
+        return 0;
+    }
+    for (i = 0; i < 8; i++) {                /* "https://" */
+        if (url[i] == '\0' ||
+            tolower((unsigned char)url[i]) != (unsigned char)"https://"[i]) {
+            return 0;
+        }
+    }
+    p = url + 8;
+    end = p;
+    while (*end != '\0' && *end != '/' && *end != '?' && *end != '#') {
+        end++;
+    }
+    for (q = p; q < end; q++) {
+        if (*q == '@') {
+            return 0;
+        }
+        if (*q == ':') {
+            colon = q;
+        }
+    }
+    if (colon != NULL) {
+        if ((jc_size)(end - colon) != 4 || strncmp(colon, ":443", 4) != 0) {
+            return 0;
+        }
+        end = colon;
+    }
+    hlen = strlen(host);
+    if ((jc_size)(end - p) != hlen) {
+        return 0;
+    }
+    for (i = 0; i < hlen; i++) {
+        if (tolower((unsigned char)p[i]) != tolower((unsigned char)host[i])) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+const char *jc_config_convention_key_env(const char *provider,
+                                         const char *api_base)
+{
+    const char *host = jc_config_vendor_host(provider);
+    if (host == NULL || !is_vendor_endpoint(api_base, host)) {
+        return NULL;
+    }
+    return jc_config_vendor_key_env(provider);
+}
+
+/* The sentence for a config that names no model at all -- doctor's FAIL, the
+ * refused turn and `config validate` print this one text (M709; shared at M718
+ * so the three cannot drift apart). */
+const char *jc_config_no_model_advice(void)
+{
+    return "jichi chooses no provider and no model for you. Run `jichi setup`, "
+           "or set \"provider\", \"model\" and \"apiBase\" on a model entry. Any "
+           "OpenAI-compatible endpoint works, a local server included -- "
+           "docs/CONFIG_TUTORIAL.md walks through it.";
+}
+
+/* NO HOUSE DIALECT (M718). `jc_provider_create` used to guess the wire dialect
+ * from the model id ("gpt" or "openai" in it => OpenAI) and default to
+ * Anthropic's -- so `"provider": "ollama"`, Continue's own word and the one
+ * jichi's audience brings, spoke the Anthropic dialect to an Ollama server. It
+ * now refuses, and this is the sentence it refuses with, written once so the run,
+ * doctor and `config validate` cannot drift apart (the M688 argument). */
+int jc_config_provider_problem(const struct jc_model_cfg *m, char *buf,
+                               jc_size cap)
+{
+    const char *name;
+    const char *fix = "\"provider\" is the wire dialect, and jichi does not "
+                      "guess it: \"openai\" for any OpenAI-compatible server "
+                      "(a local server, LM Studio, Ollama, vLLM, a gateway), "
+                      "\"anthropic\" for the Anthropic Messages API.";
+    if (m != NULL && m->provider != NULL &&
+        (strcmp(m->provider, "openai") == 0 ||
+         strcmp(m->provider, "anthropic") == 0)) {
+        return 0;
+    }
+    name = (m == NULL) ? "(none)"
+         : (m->name != NULL && m->name[0] != '\0') ? m->name
+         : (m->model != NULL && m->model[0] != '\0') ? m->model : "(unnamed)";
+    if (buf != NULL && cap > 0) {
+        if (m == NULL || m->provider == NULL || m->provider[0] == '\0') {
+            jc_snprintf(buf, cap, "model \"%s\" names no provider. %s", name,
+                        fix);
+        } else {
+            jc_snprintf(buf, cap, "model \"%s\" has provider \"%s\", which is "
+                        "not a wire dialect jichi speaks. %s", name,
+                        m->provider, fix);
+        }
+    }
+    return 1;
+}
+
 /* NO MODEL IS EVER SUBSTITUTED. A model id names what a run will spend money
  * on, and a hardcoded fallback is a stale claim by construction -- newer ids
  * exist already, and the one this function used to return was a priced frontier
@@ -49,8 +199,11 @@ const char *jc_config_default_base(const char *provider)
  * surface says so instead of inventing one (M709). */
 
 /* Resolve the API key: prefer a literal "apiKey", else getenv("apiKeyEnv"),
- * else a provider-conventional environment variable. */
+ * else the named vendor's conventional variable -- and that one ONLY when
+ * `api_base` is the vendor's own endpoint (M718; jc_config_convention_key_env).
+ * *from_convention is set to 1 when the last case supplied the key. */
 static char *resolve_key(const cJSON *model, const char *provider,
+                         const char *api_base, int *from_convention,
                          struct jc_arena *a)
 {
     const char *literal;
@@ -68,14 +221,18 @@ static char *resolve_key(const cJSON *model, const char *provider,
             return jc_arena_strdup(a, val);
         }
     }
-    /* Provider conventions. */
-    if (provider != NULL && strcmp(provider, "openai") == 0) {
-        val = getenv("OPENAI_API_KEY");
-    } else {
-        val = getenv("ANTHROPIC_API_KEY");
-    }
-    if (val != NULL && val[0] != '\0') {
-        return jc_arena_strdup(a, val);
+    /* Provider conventions -- only for the named vendor's own endpoint (M718).
+     * This used to be `openai ? OPENAI_API_KEY : ANTHROPIC_API_KEY`, sent
+     * wherever the entry pointed. */
+    env_name = jc_config_convention_key_env(provider, api_base);
+    if (env_name != NULL) {
+        val = getenv(env_name);
+        if (val != NULL && val[0] != '\0') {
+            if (from_convention != NULL) {
+                *from_convention = 1;
+            }
+            return jc_arena_strdup(a, val);
+        }
     }
     return NULL;
 }
@@ -345,7 +502,8 @@ static void parse_model(const cJSON *model, struct jc_model_cfg *out,
     s = jc_json_get_str(model, "description", NULL);
     out->description = (s != NULL) ? jc_arena_strdup(a, s) : NULL;
 
-    out->api_key = resolve_key(model, prov, a);
+    out->api_key = resolve_key(model, prov, out->api_base,
+                               &out->api_key_convention, a);
     {
         const char *lit = jc_json_get_str(model, "apiKey", NULL);
         const char *envn = jc_json_get_str(model, "apiKeyEnv", NULL);

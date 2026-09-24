@@ -61,8 +61,15 @@ void test_session(void)
                  strstr(raw, "\"jichi\":\"" JC_VERSION "\"") != NULL);
     }
 
-    /* Reload by id and verify the history round-trips. */
-    JC_CHECK(jc_session_load_by_id(id_copy, &loaded, a) == JC_OK);
+    /* Reload by id and verify the history round-trips. A guard, not a check
+     * (M729): when the save could not be written -- a TMPDIR it cannot write
+     * -- the load fails without touching `loaded`, and everything below read
+     * uninitialized stack. */
+    if (!JC_REQUIRE(jc_session_load_by_id(id_copy, &loaded, a) == JC_OK)) {
+        jc_session_free(&s);
+        jc_arena_free(a);
+        return;
+    }
     JC_CHECK_STR(loaded.id, idp);
     JC_CHECK_STR(loaded.workspace, jc_test_tmp("workdir"));
     JC_CHECK(loaded.mode == JC_MODE_PLAN); /* mode survives the round-trip */
@@ -361,7 +368,7 @@ void test_session_serialize(void)
 static jc_size list_cost(const char *tag, int n, jc_size payload,
                          jc_size *second, jc_size *load_cost)
 {
-    char home[128];
+    char home[512];
     struct jc_arena *build;
     struct jc_arena *m;
     struct jc_vec v1, v2;
@@ -370,7 +377,10 @@ static jc_size list_cost(const char *tag, int n, jc_size payload,
     jc_size u1;
     int i;
 
-    jc_snprintf(home, sizeof home, "%s/jichi_lf_%s", jc_test_tmpdir(), tag);
+    if (!JC_REQUIRE(jc_snprintf(home, sizeof home, "%s/jichi_lf_%s",
+                                jc_test_tmpdir(), tag) < (int)sizeof home)) {
+        return 0; /* a cut HOME is a different directory, maybe a parent (M728) */
+    }
     setenv("HOME", home, 1);
 
     big = (char *)malloc(payload + 1);
@@ -446,8 +456,7 @@ void test_session_dirty_skip(void)
     char *raw = NULL;
 
     setenv("HOME", jc_test_tmp("jichi_home_dirty_test"), 1);
-    { char cmd[128]; sprintf(cmd, "rm -rf %s", jc_test_tmp("jichi_home_dirty_test"));
-      if (system(cmd) != 0) { /* ignore */ } }
+    (void)jc_test_rm_rf(jc_test_tmp("jichi_home_dirty_test"));
 
     jc_session_new(&s, jc_test_tmp("workdir"), a);
     jc_history_add(&s.history, JC_ROLE_USER, "hello");
@@ -494,8 +503,7 @@ void test_session_dirty_skip(void)
     JC_CHECK(raw != NULL && strstr(raw, "\"history\"") != NULL);
 
     jc_session_free(&s);
-    { char cmd[128]; sprintf(cmd, "rm -rf %s", jc_test_tmp("jichi_home_dirty_test"));
-      if (system(cmd) != 0) { /* ignore */ } }
+    (void)jc_test_rm_rf(jc_test_tmp("jichi_home_dirty_test"));
     jc_arena_free(a);
 }
 
@@ -588,8 +596,7 @@ void test_session_foreign_file(void)
     int skipped = -1;
 
     setenv("HOME", jc_test_tmp("jichi_foreign_test"), 1);
-    { char cmd[300]; sprintf(cmd, "rm -rf %s", jc_test_tmp("jichi_foreign_test"));
-      if (system(cmd) != 0) { /* ignore */ } }
+    (void)jc_test_rm_rf(jc_test_tmp("jichi_foreign_test"));
     jc_snprintf(dir, sizeof dir,
                 jc_test_tmp("jichi_foreign_test/.jichi.d/sessions"));
     JC_CHECK(jc_mkdir_p(dir) == JC_OK);
@@ -621,9 +628,9 @@ void test_session_foreign_file(void)
      * NOT counted as unreadable (skipped stays 0 -- they were never sessions). */
     jc_vec_init(&metas, sizeof(struct jc_session_meta));
     JC_CHECK(jc_session_list_ex(&metas, a, &skipped) == JC_OK);
-    JC_CHECK(metas.len == 1);
     JC_CHECK(skipped == 0);
-    {
+    /* A guard (M729): with nothing listed, jc_vec_at returns NULL. */
+    if (JC_REQUIRE(metas.len == 1)) {
         struct jc_session_meta *m =
             (struct jc_session_meta *)jc_vec_at(&metas, 0);
         JC_CHECK_STR(m->id, real.id);       /* the real one, by its uuid stem */
@@ -649,8 +656,7 @@ void test_session_foreign_file(void)
 
     jc_vec_free(&metas);
     jc_session_free(&real);
-    { char cmd[300]; sprintf(cmd, "rm -rf %s", jc_test_tmp("jichi_foreign_test"));
-      if (system(cmd) != 0) { /* ignore */ } }
+    (void)jc_test_rm_rf(jc_test_tmp("jichi_foreign_test"));
     jc_arena_free(a);
 }
 
@@ -667,8 +673,7 @@ void test_session_store_version(void)
     struct jc_session s;
 
     setenv("HOME", jc_test_tmp("jichi_storev_test"), 1);
-    { char cmd[300]; sprintf(cmd, "rm -rf %s", jc_test_tmp("jichi_storev_test"));
-      if (system(cmd) != 0) { /* ignore */ } }
+    (void)jc_test_rm_rf(jc_test_tmp("jichi_storev_test"));
     jc_snprintf(dir, sizeof dir,
                 jc_test_tmp("jichi_storev_test/.jichi.d/sessions"));
     JC_CHECK(jc_mkdir_p(dir) == JC_OK);
@@ -730,8 +735,7 @@ void test_session_store_version(void)
         jc_session_free(&s);
     }
 
-    { char cmd[300]; sprintf(cmd, "rm -rf %s", jc_test_tmp("jichi_storev_test"));
-      if (system(cmd) != 0) { /* ignore */ } }
+    (void)jc_test_rm_rf(jc_test_tmp("jichi_storev_test"));
     setenv("HOME", jc_test_tmp("jichi_home_test"), 1);
     jc_arena_free(a);
 }

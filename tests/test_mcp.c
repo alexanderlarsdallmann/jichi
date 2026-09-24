@@ -30,10 +30,11 @@ static void test_build_request(void)
     JC_CHECK(strchr(line, '\n') == NULL);
 
     root = jc_json_parse(line);
-    JC_CHECK(root != NULL);
-    JC_CHECK_STR(jc_json_get_str(root, "jsonrpc", NULL), "2.0");
-    JC_CHECK(jc_json_get_num(root, "id", -1.0) == 7.0);
-    JC_CHECK_STR(jc_json_get_str(root, "method", NULL), "tools/call");
+    if (JC_REQUIRE(root != NULL)) { /* a guard (M729) */
+        JC_CHECK_STR(jc_json_get_str(root, "jsonrpc", NULL), "2.0");
+        JC_CHECK(jc_json_get_num(root, "id", -1.0) == 7.0);
+        JC_CHECK_STR(jc_json_get_str(root, "method", NULL), "tools/call");
+    }
     JC_CHECK_STR(jc_json_get_str(jc_json_get_obj(root, "params"), "name", NULL),
                  "read");
     cJSON_Delete(root);

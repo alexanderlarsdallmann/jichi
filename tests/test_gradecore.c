@@ -39,18 +39,25 @@ void test_gradecore(void)
 {
     struct jc_arena *a = jc_arena_new(0);
     struct jc_grade_out g;
-    char dir[256];
+    char dir[512];
     char spec[512];
     char cwd[512];
 
     jc_snprintf(dir, sizeof dir, "%s", jc_test_tmp("jichi_gradecore"));
-    { char cmd[300]; sprintf(cmd, "rm -rf %s", dir);
-      if (system(cmd) != 0) { /* ignore */ } }
+    (void)jc_test_rm_rf(dir);
     JC_CHECK(jc_mkdir_p(dir) == JC_OK);
     if (getcwd(cwd, sizeof cwd) == NULL) {
         cwd[0] = '\0';
     }
-    JC_CHECK(chdir(dir) == 0);
+    /* Guards, not checks (M729). When the fixture directory cannot be made --
+     * a TMPDIR the suite cannot write -- chdir fails, and every spec below was
+     * written into the directory the suite runs from: from the repo root, the
+     * tree itself (noverify.md, cannotrun.md, pass.md and four more). And with
+     * no way back, the rest of the suite would run inside the fixture. */
+    if (!JC_REQUIRE(cwd[0] != '\0') || !JC_REQUIRE(chdir(dir) == 0)) {
+        jc_arena_free(a);
+        return;
+    }
 
     /* UNREADABLE: no such file. */
     jc_grade_core("no_such_spec.md", a, &g);
@@ -131,7 +138,6 @@ void test_gradecore(void)
     if (cwd[0] != '\0') {
         JC_CHECK(chdir(cwd) == 0);
     }
-    { char cmd[300]; sprintf(cmd, "rm -rf %s", dir);
-      if (system(cmd) != 0) { /* ignore */ } }
+    (void)jc_test_rm_rf(dir);
     jc_arena_free(a);
 }

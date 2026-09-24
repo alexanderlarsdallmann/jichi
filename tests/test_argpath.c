@@ -42,8 +42,9 @@ static void test_edits_array(void)
     const char *p[8];
     cJSON *root = jc_json_parse("{\"edits\":[{\"path\":\"a.c\"},"
                                 "{\"path\":\"b.c\"}]}");
-    JC_CHECK(root != NULL);
-    JC_CHECK(jc_argpath_collect(root, p, 8) == 2);
+    if (JC_REQUIRE(root != NULL)) { /* a guard (M729) */
+        JC_CHECK(jc_argpath_collect(root, p, 8) == 2);
+    }
     JC_CHECK_STR(p[0], "a.c");      /* order preserved: edits apply in order */
     JC_CHECK_STR(p[1], "b.c");
     cJSON_Delete(root);

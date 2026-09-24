@@ -8,6 +8,8 @@
 
 #include "jc_test.h"
 #include "jc_json.h"
+#include "jc_str.h"
+#include "jc_snprintf.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -36,8 +38,9 @@ void test_json(void)
     JC_CHECK(jc_json_get_num(root, "missing", 99.0) == 99.0);
 
     nested = jc_json_get_obj(root, "nested");
-    JC_CHECK(nested != NULL);
-    JC_CHECK_STR(jc_json_get_str(nested, "k", "?"), "v");
+    if (JC_REQUIRE(nested != NULL)) { /* a guard (M729) */
+        JC_CHECK_STR(jc_json_get_str(nested, "k", "?"), "v");
+    }
 
     list = jc_json_get_obj(root, "list");
     JC_CHECK(cJSON_IsArray(list));
@@ -51,8 +54,9 @@ void test_json(void)
     printed = jc_json_print(root);
     JC_CHECK(printed != NULL);
     reparse = jc_json_parse(printed);
-    JC_CHECK(reparse != NULL);
-    JC_CHECK_STR(jc_json_get_str(reparse, "name", "?"), "jichi");
+    if (JC_REQUIRE(reparse != NULL)) { /* a guard (M729) */
+        JC_CHECK_STR(jc_json_get_str(reparse, "name", "?"), "jichi");
+    }
     free(printed);
     cJSON_Delete(reparse);
 
@@ -70,9 +74,10 @@ void test_json(void)
         cJSON_AddItemToArray(arr, cJSON_CreateString("x"));
         cJSON_AddItemToArray(arr, cJSON_CreateString("y"));
         s = cJSON_PrintUnformatted(o);
-        JC_CHECK(s != NULL);
-        JC_CHECK(strstr(s, "\"role\":\"user\"") != NULL);
-        JC_CHECK(strstr(s, "\"items\":[\"x\",\"y\"]") != NULL);
+        if (JC_REQUIRE(s != NULL)) { /* a guard (M729) */
+            JC_CHECK(strstr(s, "\"role\":\"user\"") != NULL);
+            JC_CHECK(strstr(s, "\"items\":[\"x\",\"y\"]") != NULL);
+        }
         free(s);
         cJSON_Delete(o);
     }
@@ -271,4 +276,49 @@ void test_json_bool_lenient(void)
 
         cJSON_Delete(root);
     }
+}
+
+/* M725: a string costs its own length, not the rest of the document.
+ * parse_string sized every buffer to the REST OF THE INPUT ("worst case") and
+ * kept it that size as the node's key or value, so a document's memory grew as
+ * strings x remaining bytes: an embeddings reply of ~1.5 MB with ~260 strings
+ * held ~190 MB, the peak massif found in `jichi index`. The document here has 400
+ * short strings ahead of a 64 KB tail, so the old sizing charges each string at
+ * least 64 KB -- over 25 MB in all -- where their own spans are a few KB. */
+void test_json_string_alloc(void)
+{
+    struct jc_sb doc;
+    char item[48];
+    size_t before, spent;
+    cJSON *root;
+    int i;
+
+    jc_sb_init(&doc);
+    jc_sb_append(&doc, "{\"items\":[");
+    for (i = 0; i < 200; i++) {
+        jc_snprintf(item, sizeof(item), "%s{\"k%03d\":\"v%03d\"}", i ? "," : "", i, i);
+        jc_sb_append(&doc, item);
+    }
+    jc_sb_append(&doc, "],\"tail\":\"");
+    for (i = 0; i < 64 * 1024; i++) {
+        jc_sb_append(&doc, "x");
+    }
+    jc_sb_append(&doc, "\"}");
+    JC_CHECK(doc.data != NULL);
+    if (doc.data == NULL) {
+        return;
+    }
+    before = cJSON_jc_string_bytes();
+    root = jc_json_parse(doc.data);
+    spent = cJSON_jc_string_bytes() - before;
+    JC_CHECK(root != NULL);
+    /* 402 strings of a few bytes, and a 64 KB one: well under twice the document. */
+    JC_CHECK(spent < 2 * doc.len);
+    JC_CHECK(spent > (size_t)(64 * 1024));  /* the counter is counting */
+    {
+        cJSON *tail = root != NULL ? cJSON_GetObjectItem(root, "tail") : NULL;
+        JC_CHECK(cJSON_IsString(tail) && strlen(tail->valuestring) == 64 * 1024);
+    }
+    cJSON_Delete(root);
+    jc_sb_free(&doc);
 }

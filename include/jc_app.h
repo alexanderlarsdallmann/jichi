@@ -534,6 +534,16 @@ jc_status jc_app_run_command(struct jc_app *app, const char *command,
  * a "[stopped: command timed out ...]" marker is appended, and `exit_code`
  * is 124 (the timeout(1) convention). jc_app_run_command is the timeout=0
  * wrapper. */
+/* M721: 1 when `command` fits the local shell paths whole -- the unset prefix,
+ * the stderr redirection and the command in one bounded buffer -- else 0. A
+ * command that does not fit is refused by jc_app_run_command_ex rather than run
+ * cut short; the tool calls this first so it can say why. */
+int jc_app_command_fits(const char *command);
+
+/* The longest command (bytes) the local shell paths run whole, today -- it
+ * depends on the secret-env prefix, so it is computed, not a constant. */
+jc_size jc_app_command_max(void);
+
 jc_status jc_app_run_command_ex(struct jc_app *app, const char *command,
                                 jc_size byte_limit, long timeout_sec,
                                 struct jc_sb *out, int *exit_code,

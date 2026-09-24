@@ -64,7 +64,9 @@ else
 fi
 
 # --- 4: armed before the first forking subcommand ---------------------------------
-arm=$(grep -n 'jc_proc_secret_env_add(km->api_key_env);' "$MAIN" | head -n 1 | cut -d: -f1)
+# The CALL, not the statement: since M724 its return is checked (a name the
+# registry cannot keep makes jichi refuse to start), so no `;` follows it.
+arm=$(grep -n 'jc_proc_secret_env_add(km->api_key_env)' "$MAIN" | head -n 1 | cut -d: -f1)
 disp=$(grep -n 'strcmp(args.pos\[0\], "brief-check") == 0' "$MAIN" | head -n 1 | cut -d: -f1)
 if [ -n "$arm" ] && [ -n "$disp" ] && [ "$arm" -lt "$disp" ]; then
     t_ok "the secret registry is armed (main.c:$arm) above the brief-check dispatch (main.c:$disp)"

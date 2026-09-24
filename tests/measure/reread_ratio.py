@@ -55,6 +55,9 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import corpus_filter  # noqa: E402 -- M720: which sessions are real
+
 # Below this, a percentage is arithmetic rather than evidence. The reference
 # measurement this is compared against is 2,056 calls.
 SMALL_N = 50
@@ -70,13 +73,16 @@ def load(paths):
     return files
 
 
-def scan(files):
+def scan(files, drop=frozenset()):
     reads, tools, compacts = [], collections.Counter(), collections.Counter()
     # M715: the telemetry route -- paths (every build) and executed ranges (M715+)
     treads, tranges = [], []
     for f in files:
         try:
-            fh = open(f)
+            # M720: errors="replace", as every other script here -- a real
+            # corpus holds output cut mid-character at the event-log cap, and
+            # this route died on the workstation's on the first such line.
+            fh = open(f, errors="replace")
         except OSError:
             continue
         with fh:
@@ -97,7 +103,8 @@ def scan(files):
                         if a.get("path"):
                             reads.append(a["path"])
                 # telemetry: a read, with the range it executed when recorded
-                if d.get("event") == "tool_call" and d.get("name") == "read_file":
+                if (d.get("event") == "tool_call" and d.get("name") == "read_file"
+                        and d.get("sid") not in drop):
                     if d.get("args"):
                         treads.append(d["args"])
                         if "offset" in d and "limit" in d:
@@ -128,13 +135,21 @@ def main():
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("paths", nargs="+", help="stream/telemetry .jsonl or dirs")
+    ap.add_argument("--include-synthetic", action="store_true",
+                    help="count mock/probe sessions in the telemetry route too "
+                         "(corpus_filter.py)")
     args = ap.parse_args()
 
     files = load(args.paths)
     if not files:
         print("no .jsonl found in: %s" % " ".join(args.paths))
         return 1
-    reads, tools, compacts, treads, tranges = scan(files)
+    # M720: the TELEMETRY route is classified by session; a --output jsonl stream
+    # is a file the caller chose and carries no model calls, so it is not.
+    pop = corpus_filter.Population().feed_files(files)
+    drop = frozenset() if args.include_synthetic else frozenset(pop.synthetic_sids())
+    print(pop.session_report(args.include_synthetic) + " (telemetry route only)")
+    reads, tools, compacts, treads, tranges = scan(files, drop)
 
     n = len(reads)
     uniq = len(set(reads))

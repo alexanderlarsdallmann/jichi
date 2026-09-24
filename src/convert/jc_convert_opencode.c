@@ -31,25 +31,6 @@ static void split_model(const char *slug, struct jc_arena *a,
     *model = jc_arena_strdup(a, slash + 1);
 }
 
-/* If `key` is an env reference ("{env:VAR}" or "$VAR"), return VAR; else NULL. */
-static const char *extract_env_ref(const char *key, struct jc_arena *a)
-{
-    if (key == NULL) {
-        return NULL;
-    }
-    if (strncmp(key, "{env:", 5) == 0) {
-        const char *start = key + 5;
-        const char *end = strchr(start, '}');
-        if (end != NULL && end > start) {
-            return jc_arena_strndup(a, start, (jc_size)(end - start));
-        }
-    }
-    if (key[0] == '$' && key[1] != '\0') {
-        return jc_arena_strdup(a, key + 1);
-    }
-    return NULL;
-}
-
 static cJSON *provider_options(const cJSON *root, const char *prov_id)
 {
     cJSON *provider = cJSON_GetObjectItem(root, "provider");
@@ -91,7 +72,7 @@ static struct jc_ir_model *add_model(struct jc_ir *ir, const cJSON *root,
         m->api_base = jc_arena_strdup(a, base);
     }
     key = jc_json_get_str(opts, "apiKey", NULL);
-    jc_convert_fill_provider(ir, m, prov, key, extract_env_ref(key, a));
+    jc_convert_fill_provider(ir, m, prov, key, jc_convert_key_env_ref(key, a));
     return m;
 }
 
@@ -116,10 +97,8 @@ static void map_models(struct jc_ir *ir, const cJSON *root, struct jc_arena *a)
     if (ir->model_count == 0) {
         jc_ir_warn(ir, "no top-level model/small_model; set one in the jichi "
                        "config.");
-    } else if (ir->models[ir->active_model]->api_key == NULL) {
-        jc_ir_warn(ir, "no literal API key for the active model; set %s in "
-                       "your environment.",
-                   ir->models[ir->active_model]->api_key_env);
+    } else {
+        jc_convert_note_active_key(ir);
     }
 }
 

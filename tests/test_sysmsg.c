@@ -425,8 +425,9 @@ static void check_parts_sum(struct jc_app *app, const char *what)
         sum += p.bytes[i];
     }
     /* total is the built length, and every byte is charged to exactly one part. */
-    JC_CHECK(msg != NULL);
-    JC_CHECK(p.total == (msg != NULL ? (jc_size)strlen(msg) : 0));
+    if (JC_REQUIRE(msg != NULL)) { /* a guard (M729) */
+        JC_CHECK(p.total == (msg != NULL ? (jc_size)strlen(msg) : 0));
+    }
     JC_CHECK(sum == p.total);
 }
 
@@ -846,13 +847,14 @@ void test_sysmsg_cost_model(void)
      * pays for one. */
     jc_sb_init(&sb);
     jc_sysmsg_append_cost_model(&sb, 1, 65536, 16384, 32768, 16384, 8192);
-    JC_CHECK(sb.data != NULL);
-    JC_CHECK(strstr(sb.data, "# Cost model") != NULL);
-    JC_CHECK(strstr(sb.data, "read_file 64 KB") != NULL);
-    JC_CHECK(strstr(sb.data, "run_terminal_command 16 KB") != NULL);
-    JC_CHECK(strstr(sb.data, "fetch_url 32 KB") != NULL);
-    JC_CHECK(strstr(sb.data, "search_code 16 KB") != NULL);
-    JC_CHECK(strstr(sb.data, "git tools 8 KB") != NULL);
+    if (JC_REQUIRE(sb.data != NULL)) { /* a guard (M729) */
+        JC_CHECK(strstr(sb.data, "# Cost model") != NULL);
+        JC_CHECK(strstr(sb.data, "read_file 64 KB") != NULL);
+        JC_CHECK(strstr(sb.data, "run_terminal_command 16 KB") != NULL);
+        JC_CHECK(strstr(sb.data, "fetch_url 32 KB") != NULL);
+        JC_CHECK(strstr(sb.data, "search_code 16 KB") != NULL);
+        JC_CHECK(strstr(sb.data, "git tools 8 KB") != NULL);
+    }
     /* the four measured behaviours (§6 items 5-8) */
     JC_CHECK(strstr(sb.data, "Search before you read") != NULL);
     JC_CHECK(strstr(sb.data, "`offset` and `limit`") != NULL);

@@ -43,6 +43,16 @@
 #   scripts/minimal-curl.sh --prefix /tmp/mc     # somewhere else
 #   scripts/minimal-curl.sh --tls none \
 #       --target s390x-linux-musl                # a cross rung with NO TLS at all
+#   scripts/minimal-curl.sh --tls none \
+#       --target m68k-atari-mint                 # FreeMiNT, with the MiNT toolchain
+#
+# THE MiNT RUNG (M737) is the one cross rung that is not zig's: zig ships no
+# MiNTLib, so an `*-atari-mint` target builds with `m68k-atari-mint-gcc` from
+# the vriviere PPA, the compiler the FreeMiNT rig already uses. It is TLS-free for
+# the same reason as the others -- the rig reaches the model in plaintext over its
+# own point-to-point link -- and it turns off what MiNTLib cannot carry: the
+# threaded resolver, IPv6, zlib. curl 8.18.0 builds for it, library and tool,
+# unchanged (measured 2026-09-24).
 #
 # THE CROSS RUNG (--target) exists for scripts/tier-v-arch.sh --drive. Those rows
 # reach the model over a LOOPBACK tunnel in plaintext, so a libcurl with no TLS
@@ -101,6 +111,15 @@ case "$TLS" in
     *) echo "minimal-curl: --tls must be openssl, mbedtls or none (got '$TLS')" >&2; exit 2 ;;
 esac
 
+MINT=0
+case "$TARGET" in
+    *-atari-mint)
+        MINT=1
+        [ "$TLS" = none ] || { echo "minimal-curl: --target $TARGET is built with --tls none only" >&2; exit 2; }
+        command -v "$TARGET-gcc" >/dev/null 2>&1 ||
+            { echo "minimal-curl: --target $TARGET needs $TARGET-gcc on PATH (ppa:vriviere/ppa, cross-mint-essential)" >&2; exit 2; } ;;
+esac
+
 FLAVOUR=$TLS
 [ "$MUSL" -eq 1 ] && FLAVOUR="$TLS-musl"
 [ -n "$TARGET" ] && FLAVOUR="$TLS-$TARGET"
@@ -140,7 +159,11 @@ if [ "$MUSL" -eq 1 ] && [ "$TLS" = mbedtls ]; then
     TLS_FLAG="--with-mbedtls=$PREFIX"
 fi
 
-if [ "$MUSL" -eq 1 ]; then
+if [ "$MINT" -eq 1 ]; then
+    MUSL_CC="$TARGET-gcc"
+    MUSL_AR="$TARGET-ar"
+    MUSL_RANLIB="$TARGET-ranlib"
+elif [ "$MUSL" -eq 1 ]; then
     command -v zig >/dev/null 2>&1 || {
         echo "minimal-curl: --musl needs zig on PATH (it supplies the musl libc)" >&2
         exit 2; }
@@ -168,7 +191,7 @@ if [ "$MUSL" -eq 1 ]; then
     MUSL_RANLIB="$TC/zranlib"
 fi
 
-say "minimal libcurl $VERSION, TLS backend: $TLS$([ "$MUSL" -eq 1 ] && echo ', static musl')"
+say "minimal libcurl $VERSION, TLS backend: $TLS$([ "$MINT" -eq 1 ] && echo ', static MiNTLib' || { [ "$MUSL" -eq 1 ] && echo ', static musl'; })"
 echo "   source : $SRC"
 echo "   prefix : $PREFIX"
 echo "   jobs   : $JOBS"
@@ -272,6 +295,7 @@ set -- \
 if [ "$MUSL" -eq 1 ]; then
     set -- "$@" --host="${TARGET:-x86_64-linux-musl}" --disable-shared --enable-static
     [ -z "$TARGET" ] || set -- "$@" --build=x86_64-pc-linux-gnu
+    [ "$MINT" -eq 1 ] && set -- "$@" --disable-threaded-resolver --disable-ipv6 --without-zlib
 fi
 
 say "configure"

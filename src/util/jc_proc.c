@@ -19,13 +19,18 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/select.h>
+#include <sys/time.h> /* struct timeval: MiNTLib's <sys/select.h> only forward-declares it (M723) */
 
 /* --- secret env scrubbing (M130) ------------------------------------------ */
 
-#define JC_SECRET_ENV_MAX 32
-#define JC_SECRET_ENV_LEN 128
-static char g_secret_env[JC_SECRET_ENV_MAX][JC_SECRET_ENV_LEN];
-static int  g_secret_env_n;
+/* M724: the registry GROWS. It was 32 names of under 128 bytes, and a name past
+ * either bound was ignored -- so a 33rd configured key variable reached every
+ * child jichi forks. Every valid name is kept now, and the only failure left is
+ * memory, which the caller turns into a refusal to start
+ * (tests/smoke/secret_env_many_names.sh checks 4-5). */
+static char **g_secret_env;
+static int    g_secret_env_n;
+static int    g_secret_env_cap;
 
 /* Well-known provider key vars are always dropped, even when unconfigured here,
  * so a stray export in the parent's shell can't leak either.
@@ -45,12 +50,12 @@ static const char *const g_secret_env_builtin[] = {
     "TAVILY_API_KEY", "COHERE_API_KEY", "XAI_API_KEY", NULL
 };
 
-void jc_proc_secret_env_add(const char *name)
+int jc_proc_secret_env_add(const char *name)
 {
     int i;
-    if (name == NULL || name[0] == '\0' ||
-        strlen(name) >= (size_t)JC_SECRET_ENV_LEN) {
-        return;
+    char *copy;
+    if (name == NULL || name[0] == '\0') {
+        return 0;
     }
     /* A POSIX env-var name is [A-Za-z_][A-Za-z0-9_]*. Reject anything else so a
      * config-supplied apiKeyEnv can never inject shell metacharacters into the
@@ -59,17 +64,28 @@ void jc_proc_secret_env_add(const char *name)
      * wizard's validation cannot drift apart -- they are three consequences of
      * one rule. */
     if (!jc_envvar_name_valid(name)) {
-        return;
+        return 0;
     }
     for (i = 0; i < g_secret_env_n; i++) {
         if (strcmp(g_secret_env[i], name) == 0) {
-            return; /* already registered */
+            return 0; /* already registered */
         }
     }
-    if (g_secret_env_n < JC_SECRET_ENV_MAX) {
-        jc_snprintf(g_secret_env[g_secret_env_n], JC_SECRET_ENV_LEN, "%s", name);
-        g_secret_env_n++;
+    if (g_secret_env_n == g_secret_env_cap) {
+        int ncap = (g_secret_env_cap == 0) ? 16 : g_secret_env_cap * 2;
+        char **grown = (char **)realloc(g_secret_env, (size_t)ncap * sizeof(char *));
+        if (grown == NULL) {
+            return -1;
+        }
+        g_secret_env = grown;
+        g_secret_env_cap = ncap;
     }
+    copy = jc_strdup(name);
+    if (copy == NULL) {
+        return -1;
+    }
+    g_secret_env[g_secret_env_n++] = copy;
+    return 0;
 }
 
 void jc_proc_scrub_secret_env(void)
@@ -83,13 +99,41 @@ void jc_proc_scrub_secret_env(void)
     }
 }
 
+int jc_proc_secret_env_count(void)
+{
+    return g_secret_env_n;
+}
+
+void jc_proc_secret_env_truncate(int n)
+{
+    if (n < 0) {
+        n = 0;
+    }
+    while (g_secret_env_n > n) {
+        free(g_secret_env[--g_secret_env_n]);
+    }
+}
+
+jc_size jc_proc_secret_env_prefix_size(void)
+{
+    jc_size n = strlen("unset");
+    int i;
+    for (i = 0; g_secret_env_builtin[i] != NULL; i++) {
+        n += 1 + strlen(g_secret_env_builtin[i]);
+    }
+    for (i = 0; i < g_secret_env_n; i++) {
+        n += 1 + strlen(g_secret_env[i]);
+    }
+    return n + strlen("; ") + 1; /* + NUL */
+}
+
 int jc_proc_secret_env_prefix(char *buf, jc_size cap)
 {
     struct jc_sb sb;
     int i, any = 0;
     char *s;
     if (buf == NULL || cap == 0) {
-        return 0;
+        return -1; /* nowhere to write it: the caller cannot scrub */
     }
     buf[0] = '\0';
     jc_sb_init(&sb);
@@ -107,13 +151,22 @@ int jc_proc_secret_env_prefix(char *buf, jc_size cap)
     jc_sb_append(&sb, "; ");
     s = sb.data; /* borrowed -- freed by jc_sb_free below (finish would
                   * detach and leak; the ci ASan pass caught this) */
-    if (any && s != NULL && strlen(s) < (size_t)cap) {
-        jc_snprintf(buf, cap, "%s", s);
-    } else {
-        any = 0; /* nothing registered, or would overflow: emit no prefix */
+    if (!any) {
+        jc_sb_free(&sb);
+        return 0; /* nothing to drop */
     }
+    /* M724: "does not fit" (or no memory) is -1, never 0. It used to share 0
+     * with "nothing registered", and the popen path, unable to tell them apart,
+     * ran the command with no prefix at all: twelve configured names of ~100
+     * bytes put every key -- the built-ins too -- in a model-issued command's
+     * environment. */
+    if (s == NULL || strlen(s) >= (size_t)cap) {
+        jc_sb_free(&sb);
+        return -1;
+    }
+    jc_snprintf(buf, cap, "%s", s);
     jc_sb_free(&sb);
-    return any;
+    return 1;
 }
 
 /* Apply `env` (jc_vec of "KEY=VALUE") in the current (child) process. */

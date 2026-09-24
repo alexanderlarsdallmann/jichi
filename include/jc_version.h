@@ -28,7 +28,9 @@
  * (never tagged at the time); 0.9.0 is the first version stamped when it
  * was current, 0.9.1 (M653, 2026-09-17) the second, 0.9.2 (M668,
  * 2026-09-19) the third, 0.10.0 (the M709 state, 2026-09-22) the fourth,
- * and 0.10.1 (the M716 state, 2026-09-23) the fifth. See CHANGELOG.md's
+ * 0.10.1 (the M716 state, 2026-09-23) the fifth, 0.11.0 (the M732
+ * state, 2026-09-24) the sixth -- cut, and never published on its own --
+ * and 0.12.0 (the M740 state, 2026-09-24) the seventh. See CHANGELOG.md's
  * honesty note.
  */
 #ifndef JC_VERSION_H
@@ -38,7 +40,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define JC_VERSION "0.10.1"
+#define JC_VERSION "0.12.0"
 
 #ifdef __cplusplus
 }

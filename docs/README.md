@@ -122,6 +122,7 @@ Every capability jichi exposes to the model, and how to add your own.
 - [`ROBOTICS_BRINGLIST.md`](ROBOTICS_BRINGLIST.md) — Robotics bring-list, and the order to do things in
 - [`SCAFFOLDING.md`](SCAFFOLDING.md) — Project scaffolding (`init`)
 - [`SOUND.md`](SOUND.md) — Sound I/O: play_audio and record_audio (M163b)
+- [`SQLITE.md`](SQLITE.md) — SQLite with jichi — three ways to give an agent a database, and what "read-only" really takes
 - [`TESTING.md`](TESTING.md) — Structured test integration
 - [`TRANSCRIBE.md`](TRANSCRIBE.md) — Audio transcription (`transcribe_audio`)
 - [`USER_TOOLS.md`](USER_TOOLS.md) — User-defined tools

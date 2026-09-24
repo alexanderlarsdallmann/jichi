@@ -88,6 +88,9 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import corpus_filter  # noqa: E402 -- M720: which sessions are real
+
 # Tools whose success changes state.  A repeat of one of these is not a question
 # asked twice, so it is outside this measurement's universe (see the header).
 MUTATING = {
@@ -130,9 +133,20 @@ def main():
     ap.add_argument("--include-read", action="store_true",
                     help="count read_file too (its args summary is the path only)")
     ap.add_argument("--min-turns", type=int, default=50)
+    ap.add_argument("--include-synthetic", action="store_true",
+                    help="count mock/probe sessions too (corpus_filter.py)")
+    ap.add_argument("--per-turn", metavar="FILE",
+                    help="also write one TSV row per turn -- run, sid, turn, depth, "
+                         "day, calls, raw_max, unchanged_max, unchanged_tool, "
+                         "fail_max -- the population a threshold is fitted on")
     a = ap.parse_args()
 
+    # M720: classify the population before counting anything in it.
+    pop = corpus_filter.Population().feed_files(list(iter_files(a.paths)))
+    drop = set() if a.include_synthetic else pop.synthetic_sids()
+
     turns = collections.defaultdict(list)
+    run_of = {}
     builds = collections.Counter()
     keyed = collections.Counter()
     nfiles = 0
@@ -145,6 +159,8 @@ def main():
                 except ValueError:
                     continue
                 if not isinstance(e, dict) or e.get("event") != "tool_call":
+                    continue
+                if e.get("sid") in drop:
                     continue
                 d = day_of(e.get("ts"))
                 if a.since and d < a.since:
@@ -173,10 +189,13 @@ def main():
                     bytes_key = e.get("output_bytes")
                     if e.get("name") in PAGED:
                         keyed["  of which read_file, path only (ambiguous)"] += 1
-                turns[(e.get("sid"), e.get("turn"), e.get("depth"))].append(
+                tkey = (e.get("sid"), e.get("turn"), e.get("depth"))
+                turns[tkey].append(
                     (seq if isinstance(seq, (int, float)) else 0,
                      e.get("name"), args_key, bytes_key,
                      e.get("ok"), d))
+                if e.get("run") and tkey not in run_of:
+                    run_of[tkey] = e.get("run")   # the journal join key (M420)
 
     excluded = set(MUTATING) | (set() if a.include_read else PAGED)
     counted_tools = collections.Counter()
@@ -188,20 +207,24 @@ def main():
     worst = []
     repeat_tools = collections.Counter()
     days = []
-    for calls in turns.values():
+    per_turn = []
+    for tkey, calls in turns.items():
         calls.sort(key=lambda c: c[0])
         ncalls += len(calls)
         days.append(calls[0][5])
         ok_keys = collections.Counter()      # raw: the whole turn
         unch_keys = collections.Counter()    # reset after each state change
         unch_top = 0
+        unch_tool = ""
         fail_keys = collections.Counter()
         for (_seq, name, args, nbytes, ok, _d) in calls:
             if name in excluded:
                 uncounted_tools[name] += 1
                 if name in MUTATING and ok is True:
-                    unch_top = max(unch_top, max(unch_keys.values())
-                                   if unch_keys else 0)
+                    if unch_keys:
+                        k, v = unch_keys.most_common(1)[0]
+                        if v > unch_top:
+                            unch_top, unch_tool = v, k[0]
                     unch_keys.clear()
                 continue
             counted_tools[name] += 1
@@ -212,8 +235,14 @@ def main():
                 unch_keys[(name, args, nbytes)] += 1
             elif ok is False:
                 fail_keys[(name, args)] += 1
-        unch_top = max(unch_top, max(unch_keys.values()) if unch_keys else 0)
+        if unch_keys:
+            k, v = unch_keys.most_common(1)[0]
+            if v > unch_top:
+                unch_top, unch_tool = v, k[0]
         top = max(ok_keys.values()) if ok_keys else 0
+        per_turn.append((run_of.get(tkey, ""), tkey[0] or "", tkey[1], tkey[2],
+                         calls[0][5], len(calls), top, unch_top, unch_tool,
+                         max(fail_keys.values()) if fail_keys else 0))
         for t in THRESHOLDS:
             if top >= t:
                 hits[t] += 1
@@ -228,6 +257,7 @@ def main():
 
     nturns = len(turns)
     span = "%s .. %s" % (min(days), max(days)) if days else "(empty)"
+    print(pop.session_report(a.include_synthetic))
     print("files scanned: %d   turns with tool calls: %d   tool calls: %d"
           % (nfiles, nturns, ncalls))
     print("window: %s   (--since %s, --until %s)"
@@ -265,6 +295,14 @@ def main():
               "tool, day):")
         for w in sorted(worst, reverse=True)[:10]:
             print("   %4d  %4d  %4d  %-22s %s" % w)
+    if a.per_turn:
+        with open(a.per_turn, "w") as out:
+            out.write("run\tsid\tturn\tdepth\tday\tcalls\traw_max\t"
+                      "unchanged_max\tunchanged_tool\tfail_max\n")
+            for r in sorted(per_turn, key=lambda r: (str(r[4]), str(r[0]),
+                                                      str(r[1]), str(r[2]))):
+                out.write("\t".join(str(x) for x in r) + "\n")
+        print("per-turn rows written: %d -> %s" % (len(per_turn), a.per_turn))
     return 0
 
 

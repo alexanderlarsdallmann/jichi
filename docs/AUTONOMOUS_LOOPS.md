@@ -425,16 +425,35 @@ code = jc_proc_capture(argv, &env, stdin_json, &sb, USER_TOOL_MAX_OUTPUT,
 ```
 
 Because a model-chosen value never becomes a shell word or an extra flag, it
-cannot inject a command. Combined with **parameter binding** in the script (bind
-`:status`/`$1`, never string-concatenate SQL), a hostile value is inert data:
+cannot inject a *shell* command. That is not the same as being inert data once the
+script hands it to a database program — and this page used to say it was.
+
+**Corrected at M740, by measuring it.** The example's sqlite backend put the status
+into the sqlite3 shell's `.param set`, which this page called parameter binding. It
+is not: `.param set` **evaluates its value as an SQL expression** when it can, and
+stores the text only if that fails. With sqlite3 3.46.1 a status of `(SELECT 6*7)`
+was stored as `42`, and `(SELECT writefile(char(112), char(104,105)))` created a
+file — through a field meant for a label, in a tool `--auto` runs without asking.
+The script now has two walls, each enough alone: the status must match a short
+whitelist, and sqlite3 runs with `-safe`, which refuses file and shell access from
+SQL. `tests/smoke/db_report_lint.sh` proves each wall separately.
 
 ```sh
-# from examples/autonomous-loop/db-report.sh (sqlite backend)
-sqlite3 -batch "$DB" \
+# from examples/autonomous-loop/db-report.sh (sqlite backend), after M740
+case "$STATUS" in
+  ''|*[!A-Za-z0-9\ ._:+-]*) echo "db-report: STATUS must be a short label ..." >&2; exit 2 ;;
+esac
+sqlite3 -safe -batch "$DB" \
   "CREATE TABLE IF NOT EXISTS report(ts TEXT, status TEXT, count INTEGER);" \
   ".param set :s '$STATUS'" ".param set :c $COUNT" \
   "INSERT INTO report VALUES(datetime('now'), :s, :c);"
 ```
+
+The general lesson is [`SQLITE.md`](SQLITE.md) §2: ask *who* is restricted — the
+file, the connection, or the program. The postgres branch of the same script passes
+its values after `--` as if psql bound them to `$1`/`$2`; psql does not do that, so
+that branch is believed broken — it could not be tested here (no psql), and is
+recorded in [`DEFERRED.md`](DEFERRED.md).
 
 ### HTTP — `fetch_url` for reads, a user tool for POST
 

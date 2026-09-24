@@ -17,11 +17,16 @@
 # of prose, and the header caps its blast radius for exactly that reason -- so
 # a guess outranking a typed flag inverts the module's own principle.
 #
-# This driver holds BOTH halves: the inferred read-only still binds everywhere
-# else (an out-of-scope path stays refused), and the operator's declared path
-# goes through. Check 2 is the one that keeps the rest honest: if the scanner
-# ever stops inferring here, the write would succeed for the wrong reason and
-# every other check would pass vacuously.
+# This driver holds BOTH halves: the out-of-scope path stays refused, and the
+# operator's declared path goes through. Check 2 is the one that keeps the rest
+# honest: if the scanner ever stops inferring here, the write would succeed for
+# the wrong reason and every other check would pass vacuously.
+#
+# SINCE M734 (plan D2 (c)) an inferred read-only never refuses anything: it
+# advises. What refuses docs/OTHER.md in checks 4 and 8 is the --edit-scope fence
+# itself, which is the operator's declaration. The M459 exemption still decides
+# something, and checks 5 and 9 still see it: on the declared path an inferred
+# read-only is not even advised against, and that is announced.
 . "$(dirname "$0")/_smoke.sh"
 
 t_plan 9

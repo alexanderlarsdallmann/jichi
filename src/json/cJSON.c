@@ -153,6 +153,14 @@ typedef size_t jc_psize;
 
 /* Parse a JSON string (c->p points at the opening quote). Returns a malloc'd
  * NUL-terminated decoded string, or NULL on error. */
+/* Bytes parse_string has allocated, for the test that holds its sizing (M725). */
+static size_t g_jc_string_bytes;
+
+size_t cJSON_jc_string_bytes(void)
+{
+    return g_jc_string_bytes;
+}
+
 static char *parse_string(struct parse_ctx *c)
 {
     const char *p;
@@ -167,13 +175,31 @@ static char *parse_string(struct parse_ctx *c)
     c->p++; /* opening quote */
     p = c->p;
 
-    /* Worst case the decoded string is no longer than the source span. */
-    cap = (jc_psize)(c->end - p) + 1;
+    /* Size the buffer to THIS string's span, found by a first pass to the
+     * closing quote: the decoded string is never longer than its source,
+     * because every escape decodes to no more bytes than it occupies (\uXXXX,
+     * six, to at most three; a surrogate pair, twelve, to four). Until M725 the
+     * bound was the REST OF THE INPUT, for every string, and the buffer was
+     * kept at that size as the node's key or value -- so a document's memory
+     * grew as strings x remaining bytes. An embeddings reply of ~1.5 MB with
+     * ~260 strings held ~190 MB of it: the peak massif found in `jichi index`,
+     * which M700's page credited to the float nodes. */
+    {
+        const char *q = p;
+        while (q < c->end && *q != '"') {
+            if (*q == '\\' && q + 1 < c->end) {
+                q++;
+            }
+            q++;
+        }
+        cap = (jc_psize)(q - p) + 1;
+    }
     out = (char *)malloc(cap + 4);
     if (out == NULL) {
         c->ok = 0;
         return NULL;
     }
+    g_jc_string_bytes += (size_t)cap + 4;
     len = 0;
 
     while (p < c->end && *p != '"') {

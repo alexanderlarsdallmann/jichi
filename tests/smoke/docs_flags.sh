@@ -267,6 +267,18 @@ cat > "$tmp/foreign" <<'EOF'
 --rev
 --dest
 --exclude
+# ...and a measurement script's: tests/measure/success_repeats.py --per-turn (M731)
+# writes the per-turn rows D1's threshold is fitted on; the 2026-09-24 coordination
+# handoff under docs/internal/ quotes it as the command the other machine runs for
+# D1's cross-check, so it cannot be reworded away.
+--per-turn
+# scripts/tier-v-arch.sh's `--arch TRIPLE` (one row of the architecture rig), which
+# PLATFORMS.md's Driven table cites with the exact command that drove each musl-static
+# row (M736), so a reader can re-run the row it records.
+--arch
+# ...and scripts/tier-v-freemint.sh's `--step N` (1 boot, 2 the unit suite, 4 the driven
+# task), cited on the FreeMiNT rows with the command that produced each (M737).
+--step
 EOF
 
 # jichi flags DESIGNED but not built (HARDENING/SELF_IMPROVEMENT/

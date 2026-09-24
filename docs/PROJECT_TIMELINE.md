@@ -32,7 +32,7 @@ solo developer, a balanced team, and a junior solo developer.
 | Commits | **1,303** |
 | Milestones | **M1 – M709** (701 `###` entries in `docs/ROADMAP.md`) |
 | First-party source (`src` + `include`) | **~110,600 lines** (326 tracked `.c`/`.h` files) |
-| Tests | **~100,000 lines** (130 unit files + 317 POSIX-sh smoke drivers + 9 e2e modules + **22** fuzz targets incl. the path-fence and jsonrepair property targets — see the note below), **13,470 unit checks**, smoke **1,854 checks** (one full green run on this machine; the tier reported 1,842–1,851 across tonight’s runs, because some drivers’ check counts depend on what the environment provides) |
+| Tests | **~100,000 lines** (130 unit files + 317 POSIX-sh smoke drivers + 9 e2e modules + **23** fuzz targets incl. the path-fence and jsonrepair property targets — see the note below), **13,470 unit checks**, smoke **1,854 checks** (one full green run on this machine; the tier reported 1,842–1,851 across tonight’s runs, because some drivers’ check counts depend on what the environment provides) |
 | Documentation | **~149,300 lines** across **513** English markdown pages (565 files incl. de/es/ja/ko/zh) — 45 design proposals, 89 dated analysis notes, 32 source-reading guides, **90 graded assignments** (75 trap cases). Translations are counted separately below, not folded in here; see the note. |
 | Subsystems | **20** (`src/*`) |
 | Third-party source | none — `src/json/cJSON.{c,h}` is original code (M171), ~1,100 lines |
@@ -106,15 +106,15 @@ written.*
 > therefore overstated by ~8,000 lines for 25 milestones, in the one table the
 > whole page rests on. Fixed by stating the two disjointly.
 >
-> **2. There are 22 fuzz targets.** `JC_FUZZ_TARGETS[]` in
-> `tests/fuzz/jc_fuzz_targets.c` has 22 entries, nameable one by one: json, sse,
+> **2. There are 23 fuzz targets.** `JC_FUZZ_TARGETS[]` in
+> `tests/fuzz/jc_fuzz_targets.c` has 23 entries, nameable one by one: json, sse,
 > testparse, html, rss, base64, constraint, lsp_framer, glob, output_fmt, yaml,
 > patch, utf8, mcp, prop_base64, prop_configedit, prop_setup, prop_constraint,
-> prop_pathfence, prop_jsonrepair, prov_openai, prov_anthropic. *(The page said
+> prop_pathfence, prop_jsonrepair, embed, prov_openai, prov_anthropic. *(The page said
 > **21** for 25 milestones while the table held **19**, and it had 19 at the M620
 > commit too — carried forward rather than counted, in the revision that said it
 > had counted everything. `docs_counts_lint` check 17 has held the figure to the
-> table since, and it is what caught this line when the count moved to 22.)*
+> table since, and it is what caught this line when the count moved to 22, and again at 23 (M725).)*
 >
 > **How both were caught: enumerating the set a second way.** Every universe in
 > this table was pinned by re-deriving M620's *own* published number from the
@@ -881,7 +881,7 @@ Layered strategy: **pure-core unit tests** (the bulk — parsers, planners,
 decision helpers, all offline/no-network), **integration tests** (isolated temp
 git repos, mock providers via synthetic SSE), **e2e/PTY smokes** (the TUI, ghost
 text, the autonomous loop, the kinetic gate, the control channel), and a
-**fuzzing suite** under ASan/UBSan (**22 targets** — 16 parsers and framers, and
+**fuzzing suite** under ASan/UBSan (**23 targets** — 17 parsers and framers, and
 six *property* targets including the path-fence and JSON-repair properties — and
 libFuzzer entry points). The whole thing stays valgrind-clean,
 and a growing family of **registry lints** — flags, config keys, events, tags,

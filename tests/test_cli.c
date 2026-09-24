@@ -220,6 +220,11 @@ static void test_overflow(void)
         "This model's maximum context length is 8192 tokens") == 1);
     JC_CHECK(jc_text_is_context_overflow(
         "{\"code\":\"context_length_exceeded\"}") == 1);
+    /* M732: LM Studio's wording, verbatim from the M731 drive (bonsai 18), where
+     * the overflow came back as the run's answer and no signature knew it. */
+    JC_CHECK(jc_text_is_context_overflow(
+        "request (74866 tokens) exceeds the available context size "
+        "(65536 tokens), try increasing it") == 1);
     /* Not a false positive on an ordinary answer. */
     JC_CHECK(jc_text_is_context_overflow(
         "The watchdog timeout default is 300 seconds.") == 0);

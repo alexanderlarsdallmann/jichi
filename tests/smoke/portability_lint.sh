@@ -20,7 +20,7 @@
 # Compiles nothing and runs no jichi (hence *_lint.sh).
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 25
+t_plan 36
 
 mk="$SMOKE_ROOT/Makefile"
 plat="$SMOKE_ROOT/src/platform/jc_platform_posix.c"
@@ -64,7 +64,7 @@ fi
 
 # --- 4: the documented floor exists -----------------------------------------
 min_curl=$(sed -n 's/.*\*\*\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)\*\* (Feb 2009).*/\1/p' "$inst" | head -1)
-min_glibc=$(sed -n 's/.*\*\*\([0-9][0-9]*\.[0-9][0-9]*\)\*\* (2010).*/\1/p' "$inst" | head -1)
+min_glibc=$(sed -n 's/.*\*\*\([0-9][0-9]*\.[0-9][0-9]*\)\*\* (2007).*/\1/p' "$inst" | head -1)  # the floor measured by the userland ladder, 2026-09-24
 if [ -n "$min_curl" ] && [ -n "$min_glibc" ]; then
     t_ok "INSTALL.md states minimum libcurl $min_curl and glibc $min_glibc"
 else
@@ -1098,6 +1098,385 @@ else
 never/partly/not-recognised, setup partly/never); page present: \
 $([ -f "$_vpage" ] && echo yes || echo NO). A person on an unmeasured platform is \
 told to report what they find; this is where they learn how."
+fi
+
+# --- 26: every MANDATORY warning flag is one the oldest measured gcc accepts --
+# THE DEFECT (M722). gcc rejects an unknown -W option as an ERROR, with or
+# without -Werror -- the same way it rejects a made-up flag. M472 put -Walloca on
+# the mandatory WARN list, measured against gcc 13 and clang 18, which both know
+# it; it arrived in GCC 7. From then on no gcc before 7 could compile one file of
+# this tree, and nothing in the gate could notice, because every compiler the gate
+# runs knows the flag. INSTALL.md promised CentOS 6 and Debian 7 throughout; two
+# recorded rows (CentOS 7's gcc 4.8.5, Debian 9's gcc 6) predate M472. Found by the
+# FreeMiNT step 0 cross-compile, gcc 4.6.4: 314 compiles, all dead in 1.1 s.
+#
+# The baseline is MEASURED, not recalled: exactly the mandatory flags gcc 4.6.4
+# compiled 299 files with in that step (docs/plans/2026-09-freemint-aranym.md §8).
+# NARROWED by the userland ladder (2026-09-24): Debian 4's gcc 4.1.2 rejected all
+# 171 compiles on -Wvla, which gcc gained in 4.3, so -Wvla left this list for
+# WARN_OPTIONAL and the baseline is now what gcc 4.1.2 accepts -- the oldest gcc
+# measured compiling this tree.
+# A flag outside it goes through cc_warn_ok into WARN_OPTIONAL, so a compiler that
+# lacks it builds without it -- or, if an old gcc is shown to accept it, it joins
+# this list with that evidence. The universe is the first `WARN =` block and its
+# continuation lines; `WARN += -Werror` (WERROR=1) is outside it on purpose, and
+# every gcc has -Werror. Floor: today's exact count, so an extraction that stops
+# reading fails instead of passing an empty set.
+_warn_base='-Wall -Wextra -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wpointer-arith -Wredundant-decls -Wundef'
+_warn_mand=$(awk '
+    /^WARN[ \t]*=/ { on = 1 }
+    on {
+        line = $0
+        gsub(/\$\([^)]*\)/, "", line)
+        n = split(line, w, /[ \t\\]+/)
+        for (i = 1; i <= n; i++) if (w[i] ~ /^-W/) print w[i]
+        if ($0 !~ /\\[ \t]*$/) exit
+    }' "$mk")
+_warn_n=$(printf '%s\n' "$_warn_mand" | grep -c -- '^-W')
+_warn_bad=''
+for _f in $_warn_mand; do
+    case " $_warn_base " in
+        *" $_f "*) ;;
+        *) _warn_bad="$_warn_bad $_f" ;;
+    esac
+done
+if [ "$_warn_n" -ge 8 ] && [ -z "$_warn_bad" ]; then
+    t_ok "all $_warn_n mandatory warning flags are ones gcc 4.1.2 compiled this tree with"
+else
+    t_fail "mandatory warning flag(s) outside the measured gcc 4.1.2 baseline:${_warn_bad:- none} \
+(extracted $_warn_n, floor 8: $(printf '%s ' $_warn_mand)) -- an old gcc rejects an \
+unknown -W option as an ERROR, so probe it into WARN_OPTIONAL with cc_warn_ok (M722)"
+fi
+
+# --- 27: ...and -Walloca and -Wvla are still PROBED, so the compilers that have
+# them keep them --
+# Check 26 alone passes if the flag is deleted outright. That would trade one
+# defect for another: M472 added -Walloca as a tripwire (alloca is not C89 at
+# all), and on gcc >= 7 and clang it should keep firing. So the fix is pinned in
+# the form it took -- a cc_warn_ok call inside WARN_OPTIONAL.
+_walloca=$(awk '
+    /^WARN_OPTIONAL[ \t]*:?=/ { on = 1 }
+    on {
+        if ($0 ~ /cc_warn_ok,-Walloca\)/) a = 1
+        if ($0 ~ /cc_warn_ok,-Wvla\)/) v = 1
+        if ($0 !~ /\\[ \t]*$/) exit
+    }
+    END { if (a && v) print "probed" }' "$mk")
+if [ "$_walloca" = "probed" ]; then
+    t_ok "-Walloca and -Wvla are probed into WARN_OPTIONAL, so the compilers that know them keep the tripwires"
+else
+    t_fail "-Walloca or -Wvla is not probed in WARN_OPTIONAL: either it went back on the \
+mandatory list (check 26) or it was dropped, and the compilers that know it lost a \
+tripwire (M722; -Wvla since the userland ladder)"
+fi
+
+# --- 28-31 (M723): what FreeMiNT's MiNTLib showed the tree assumed ------------
+# MiNTLib is an older glibc derivative, and the FreeMiNT step 0 cross-compile
+# (docs/plans/2026-09-freemint-aranym.md §8) found four places where the tree
+# leaned on glibc's headers rather than on POSIX's promises. Each check below
+# holds one of them for every file, not for the files that happened to fail.
+_c_universe=$(find "$SMOKE_ROOT/src" "$SMOKE_ROOT/include" "$SMOKE_ROOT/tests" \
+    -name '*.[ch]' -type f 2>/dev/null | sort)
+
+# 28: a file that declares a struct timeval includes <sys/time.h>. MiNTLib's
+# <sys/select.h> only forward-declares it, so select()'s own header is not
+# enough there; <sys/time.h> defines it on every libc. Ten files failed on MiNT;
+# the four that already included it compiled.
+_tv_n=0; _tv_bad=''
+for _f in $(grep -l 'struct timeval' $_c_universe 2>/dev/null); do
+    _tv_n=$((_tv_n + 1))
+    grep -q '^#include <sys/time\.h>' "$_f" || _tv_bad="$_tv_bad ${_f#"$SMOKE_ROOT"/}"
+done
+if [ "$_tv_n" -ge 14 ] && [ -z "$_tv_bad" ]; then
+    t_ok "all $_tv_n files that declare a struct timeval include <sys/time.h>"
+else
+    t_fail "struct timeval without <sys/time.h>:${_tv_bad:- none} ($_tv_n files, floor 14) -- \
+MiNTLib's <sys/select.h> only forward-declares it (M723)"
+fi
+
+# 29: a file that uses pid_t includes <sys/types.h>. POSIX says <unistd.h>
+# defines it too; MiNTLib's does so only under an X/Open feature level, and
+# tests/test_proc.c, which had <unistd.h> and <signal.h> and nothing else, was
+# the file that failed. <sys/types.h> is pid_t's home on every libc.
+_pid_n=0; _pid_bad=''
+for _f in $(grep -lw 'pid_t' $_c_universe 2>/dev/null); do
+    _pid_n=$((_pid_n + 1))
+    grep -q '^#include <sys/types\.h>' "$_f" || _pid_bad="$_pid_bad ${_f#"$SMOKE_ROOT"/}"
+done
+if [ "$_pid_n" -ge 16 ] && [ -z "$_pid_bad" ]; then
+    t_ok "all $_pid_n files that use pid_t include <sys/types.h>"
+else
+    t_fail "pid_t without <sys/types.h>:${_pid_bad:- none} ($_pid_n files, floor 16) -- \
+MiNTLib's <unistd.h> declares it only under an X/Open level (M723)"
+fi
+
+# 30: <sys/mman.h> is included only where JC_NO_MMAP can switch it off, and the
+# probe that sets JC_NO_MMAP exists. FreeMiNT has neither the header nor mmap;
+# jc_index already reads a copy when a mapping fails (M141), so the guard is the
+# whole of the port -- and without the probe the guard is never switched.
+_mm_n=0; _mm_bad=''
+for _f in $(grep -l '^#include <sys/mman\.h>' $_c_universe 2>/dev/null); do
+    _mm_n=$((_mm_n + 1))
+    awk '/^#include <sys\/mman\.h>/ { exit (prev ~ /^#ifndef JC_NO_MMAP/) ? 0 : 1 } { prev = $0 }' \
+        "$_f" || _mm_bad="$_mm_bad ${_f#"$SMOKE_ROOT"/}"
+done
+_mm_probe=$(grep -c 'STD += -DJC_NO_MMAP' "$mk")
+if [ "$_mm_n" -ge 1 ] && [ -z "$_mm_bad" ] && [ "$_mm_probe" -eq 1 ]; then
+    t_ok "every <sys/mman.h> include ($_mm_n) sits under #ifndef JC_NO_MMAP, and the Makefile's probe sets it"
+else
+    t_fail "mmap is not switchable: unguarded <sys/mman.h> in:${_mm_bad:- none} ($_mm_n \
+files); Makefile lines setting -DJC_NO_MMAP: $_mm_probe (want 1) (M723)"
+fi
+
+# 31: the X/Open probe asks whether lstat is DECLARED, not whether it links.
+# The symbols ARE in MiNT's libc and only the declarations are hidden, so a probe
+# without -Werror=implicit-function-declaration says yes there and the build
+# then fails -- measured with gcc 4.6.4, and M449's lesson (uClibc-ng's
+# malloc_trim) in a new place.
+_lst_lines=$(awk '/printf .\$\(LSTAT_PROBE\)/ { getline nxt; print nxt }' "$mk")
+_lst_n=$(printf '%s\n' "$_lst_lines" | grep -c -- '-xc -')
+_lst_nowerr=$(printf '%s\n' "$_lst_lines" | grep -- '-xc -' | grep -vc -- '-Werror=implicit-function-declaration')
+if [ "$_lst_n" -ge 2 ] && [ "$_lst_nowerr" -eq 0 ] && grep -q 'STD += -D_XOPEN_SOURCE=600' "$mk"; then
+    t_ok "both lstat probes ($_lst_n) carry -Werror=implicit-function-declaration, and a hidden lstat adds -D_XOPEN_SOURCE=600"
+else
+    t_fail "the lstat probe is missing, links without -Werror=implicit-function-declaration \
+($_lst_nowerr of $_lst_n), or has no consumer -- on MiNT it would answer yes and the build fail (M723, M449)"
+fi
+
+# --- 32: a MiNT build carries the stack the suite was measured to need (M726) ---
+# FreeMiNT gives a program a FIXED stack of `_stksize` bytes, 64 KB by MiNTLib's
+# default, and it never grows. The unit suite overran it in the guest and wrote
+# over the environment beside it (bus errors in getenv and setenv, reading
+# 0x78787878). The fix is one definition in the platform layer, and the way it
+# fails is silently: my first placement sat inside `#if defined(__APPLE__)`,
+# compiled to nothing on MiNT, and the build stayed green. So this holds the
+# block at CONDITIONAL DEPTH ZERO, and holds its size to the measured floor.
+_plat="$SMOKE_ROOT/src/platform/jc_platform_posix.c"
+_stk=$(awk '
+    /^[ \t]*#[ \t]*if/ { depth++; if ($0 ~ /^[ \t]*#[ \t]*ifdef[ \t]+__MINT__/) { at = depth; mint_open = (depth == 1) } }
+    /^[ \t]*#[ \t]*endif/ { depth-- }
+    /^long _stksize = / && at > 0 {
+        v = $0; sub(/^long _stksize = /, "", v); sub(/;.*$/, "", v); gsub(/L/, "", v)
+        n = split(v, f, /[ \t]*\*[ \t]*/); prod = 1; for (i = 1; i <= n; i++) prod *= f[i]
+        print (mint_open ? "top" : "nested"), prod; exit
+    }' "$_plat")
+_stk_where=${_stk%% *}
+_stk_bytes=${_stk##* }
+if [ "$_stk_where" = "top" ] && [ "${_stk_bytes:-0}" -ge 524288 ] 2>/dev/null; then
+    t_ok "MiNT builds define _stksize = $_stk_bytes bytes at the top level of the platform layer"
+else
+    t_fail "MiNT stack: ${_stk:-no _stksize definition under #ifdef __MINT__} -- it must sit at \
+conditional depth zero (not inside another #if) and be at least 512 KB, the stack \`make ci\` \
+runs the curl-free suite under (M726, M727)"
+fi
+
+# --- 33: the gate runs the suite under the stack a MiNT build gets (M727) -----
+# Check 32 holds the size; this holds the gate to it. A host with an 8 MB stack
+# cannot see a call chain that MiNT's fixed stack cannot hold: the path resolver
+# took ~700 KB for a symlink cycle, and only the guest crashed. So `make ci` runs
+# the curl-free suite -- the build FreeMiNT runs -- under `ulimit -s`. A limit
+# above _stksize would pass what MiNT cannot run, and no limit passes anything.
+# The ci recipe's continuation lines are joined, so the limit must be on the
+# same logical line as the HAVE_CURL= build it runs.
+_ul=$(awk '
+    /^ci:/ { in_ci = 1; next }
+    in_ci && /^[^\t#]/ { in_ci = 0 }
+    in_ci && /^\t/ {
+        line = line $0
+        if (line ~ /\\$/) { sub(/\\$/, "", line); next }
+        if (line ~ /HAVE_CURL= / && line ~ /ulimit -s [0-9]/) {
+            v = line; sub(/.*ulimit -s /, "", v); sub(/[^0-9].*$/, "", v); print v; n++
+        }
+        line = ""
+    }
+    END { if (n != 1) print "found=" n + 0 }' "$mk")
+case $_ul in
+    *found=*|"") _ul_ok=0 ;;
+    *) if [ "$((_ul * 1024))" -le "${_stk_bytes:-0}" ] 2>/dev/null; then _ul_ok=1; else _ul_ok=0; fi ;;
+esac
+if [ "$_ul_ok" -eq 1 ]; then
+    t_ok "make ci runs the curl-free suite under ulimit -s $_ul (KB), within MiNT's _stksize of $_stk_bytes bytes"
+else
+    t_fail "the ci recipe's curl-free suite must run under exactly one \`ulimit -s N\` with N KB \
+at most MiNT's _stksize (${_stk_bytes:-unknown} bytes); read: $(printf '%s' "$_ul" | tr '\n' ' ') (M727)"
+fi
+
+# --- 34: every libcurl identifier newer than the documented floor is guarded ---
+# THE DEFECT (the userland ladder, 2026-09-24). INSTALL.md promised libcurl
+# 7.19.4 and CentOS 6 / Debian 7 as the floor, and nothing had built there. The
+# first build on each failed in src/net/jc_http.c: CURL_SSLVERSION_TLSv1_2
+# (7.34.0), CURL_SOCKOPT_OK (7.21.5) and CURL_SEEKFUNC_CANTSEEK (7.19.5) were used
+# bare. Every libcurl the gate meets is 8.x, so nothing in it could see them.
+# THE UNIVERSE: every CURL* identifier in src/ and include/, comments removed. The
+# table below says when libcurl introduced each one, generated from libcurl 8.18.0's
+# docs/libcurl/symbols-in-versions for exactly the identifiers the tree uses
+# (CURLcode, a type the table does not list, is entered as 7.1); an identifier
+# missing from it fails, so a new one is a decision rather than an accident. THE RULE, for one newer than 7.19.4:
+# the file defines a fallback for it (#ifndef ID / #define ID), or every use sits
+# inside an #if that names LIBCURL_VERSION_NUM. Floor: today's 53 identifiers.
+cat > "$tmp/curlv" <<'CURLV'
+CURLE_ABORTED_BY_CALLBACK 7.1
+CURLE_OK 7.1
+CURLE_OPERATION_TIMEDOUT 7.10.2
+CURLE_WRITE_ERROR 7.1
+CURLINFO_CONNECT_TIME 7.4.1
+CURLINFO_REDIRECT_URL 7.18.2
+CURLINFO_RESPONSE_CODE 7.10.8
+CURLOPT_CONNECTTIMEOUT 7.7
+CURLOPT_EXPECT_100_TIMEOUT_MS 7.36.0
+CURLOPT_FOLLOWLOCATION 7.1
+CURLOPT_HEADERDATA 7.10
+CURLOPT_HEADERFUNCTION 7.7.2
+CURLOPT_HTTPHEADER 7.1
+CURLOPT_LOW_SPEED_LIMIT 7.1
+CURLOPT_LOW_SPEED_TIME 7.1
+CURLOPT_MAXREDIRS 7.5
+CURLOPT_NOPROGRESS 7.1
+CURLOPT_OPENSOCKETDATA 7.17.1
+CURLOPT_OPENSOCKETFUNCTION 7.17.1
+CURLOPT_POST 7.1
+CURLOPT_POSTFIELDS 7.1
+CURLOPT_POSTFIELDSIZE 7.2
+CURLOPT_PROGRESSDATA 7.1
+CURLOPT_PROGRESSFUNCTION 7.1
+CURLOPT_PROTOCOLS 7.19.4
+CURLOPT_PROTOCOLS_STR 7.85.0
+CURLOPT_READDATA 7.9.7
+CURLOPT_READFUNCTION 7.1
+CURLOPT_REDIR_PROTOCOLS 7.19.4
+CURLOPT_REDIR_PROTOCOLS_STR 7.85.0
+CURLOPT_SEEKDATA 7.18.0
+CURLOPT_SEEKFUNCTION 7.18.0
+CURLOPT_SOCKOPTDATA 7.16.0
+CURLOPT_SOCKOPTFUNCTION 7.16.0
+CURLOPT_SSLVERSION 7.1
+CURLOPT_SSL_VERIFYHOST 7.8.1
+CURLOPT_SSL_VERIFYPEER 7.4.2
+CURLOPT_TIMEOUT 7.1
+CURLOPT_URL 7.1
+CURLOPT_USERAGENT 7.1
+CURLOPT_WRITEDATA 7.9.7
+CURLOPT_WRITEFUNCTION 7.1
+CURLOPT_XFERINFODATA 7.32.0
+CURLOPT_XFERINFOFUNCTION 7.32.0
+CURLPROTO_HTTP 7.19.4
+CURLPROTO_HTTPS 7.19.4
+CURLSOCKTYPE_IPCXN 7.16.0
+CURL_GLOBAL_ALL 7.8
+CURL_SEEKFUNC_CANTSEEK 7.19.5
+CURL_SOCKET_BAD 7.14.0
+CURL_SOCKOPT_OK 7.21.5
+CURL_SSLVERSION_TLSv1 7.9.2
+CURL_SSLVERSION_TLSv1_2 7.34.0
+CURLcode 7.1
+CURLV
+_cv=$(cd "$ROOT" && find src include -name '*.[ch]' | sort | while read -r f; do
+    awk -v F="$f" -v T="$tmp/curlv" '
+        BEGIN {
+            while ((getline l < T) > 0) {
+                split(l, a, " "); split(a[2], v, ".")
+                ver[a[1]] = v[1] * 10000 + v[2] * 100 + v[3]
+            }
+        }
+        { src[NR] = $0 }
+        END {
+            inc = 0; depth = 0
+            for (i = 1; i <= NR; i++) {
+                line = src[i]; out = ""
+                # strip comments, which may span lines
+                while (length(line) > 0) {
+                    if (inc) {
+                        p = index(line, "*/")
+                        if (p == 0) { line = ""; break }
+                        line = substr(line, p + 2); inc = 0
+                    } else {
+                        p = index(line, "/*")
+                        if (p == 0) { out = out line; line = ""; break }
+                        out = out substr(line, 1, p - 1); line = substr(line, p + 2); inc = 1
+                    }
+                }
+                if (out ~ /^[ \t]*#[ \t]*if/) { depth++; cond[depth] = out }
+                else if (out ~ /^[ \t]*#[ \t]*elif/) { cond[depth] = out }
+                else if (out ~ /^[ \t]*#[ \t]*endif/) { if (depth > 0) depth-- }
+                if (out ~ /^[ \t]*#[ \t]*ifndef[ \t]+CURL/) {
+                    split(out, w, /[ \t]+/); fb[w[length(w)]] = 1
+                }
+                code[i] = out; d[i] = depth
+                for (k = 1; k <= depth; k++) g[i, k] = cond[k]
+            }
+            for (i = 1; i <= NR; i++) {
+                rest = code[i]
+                while (match(rest, /CURL[A-Za-z0-9_]+/)) {
+                    id = substr(rest, RSTART, RLENGTH)
+                    before = (RSTART > 1) ? substr(rest, RSTART - 1, 1) : ""
+                    rest = substr(rest, RSTART + RLENGTH)
+                    # a word of its own: LIBCURL_VERSION_NUM is not CURL_VERSION_NUM
+                    if (before ~ /[A-Za-z0-9_]/) continue
+                    if (!(id in ver)) { print "UNKNOWN " id " " F ":" i; continue }
+                    if (ver[id] <= 71904) continue
+                    ok = (id in fb)
+                    for (k = 1; k <= d[i] && !ok; k++) if (g[i, k] ~ /LIBCURL_VERSION_NUM/) ok = 1
+                    if (!ok) print "BARE " id " " F ":" i
+                    else print "GUARDED " id
+                }
+            }
+            for (id in ver) seen = seen
+        }' "$f"
+done)
+_cv_bad=$(printf '%s\n' "$_cv" | grep -e '^UNKNOWN' -e '^BARE' | sort -u)
+_cv_guarded=$(printf '%s\n' "$_cv" | grep -c '^GUARDED' || true)
+_cv_ids=$(cd "$ROOT" && find src include -name '*.[ch]' -exec cat {} + 2>/dev/null \
+    | grep -o -E '(^|[^A-Za-z0-9_])CURL[A-Za-z0-9_]*' | sed 's/^[^C]*//' | sort -u | grep -c .)
+if [ -z "$_cv_bad" ] && [ "$_cv_ids" -ge 53 ] && [ "$_cv_guarded" -ge 5 ]; then
+    t_ok "every libcurl identifier newer than 7.19.4 is guarded or has a fallback ($_cv_guarded uses; $_cv_ids identifiers in the table's universe)"
+else
+    t_fail "libcurl identifier(s) the documented floor lacks, used bare or missing from the table: \
+$(printf '%s ' $_cv_bad) (identifiers $_cv_ids, floor 53; guarded uses $_cv_guarded, floor 5) -- \
+guard with LIBCURL_VERSION_NUM or define a fallback, and add a new identifier to the table \
+with its version from curl's symbols-in-versions (the userland ladder, 2026-09-24)"
+fi
+
+# --- 35: no git subcommand newer than the oldest git the tests are run on ------
+# THE DEFECT (V2f, 2026-09-24). undo_across_branch.sh made its fixture with
+# `git switch`, which is git 2.23 (2019); on Debian 9's git 2.11 the branch was
+# never made, check 2 passed with nothing to test, and checks 3 and 5 failed for
+# the fixture's reason, not the product's. jichi itself calls neither. THE
+# UNIVERSE: the smoke drivers and scripts/, comments excluded; `git restore` is
+# the same release's other new verb. `git checkout` does both jobs everywhere.
+_gnew=$(cd "$ROOT" && grep -n -E '(^|[^#[:alnum:]_-])git +(switch|restore)( |$)' \
+    tests/smoke/*.sh scripts/*.sh 2>/dev/null | grep -v -E '^[^:]*:[0-9]+:[[:space:]]*#' | head -n 5)
+if [ -z "$_gnew" ]; then
+    t_ok "no smoke driver or script uses git switch/restore (git 2.23; Debian 9 has 2.11)"
+else
+    t_fail "git 2.23 verbs where git 2.11 must work -- use git checkout: $_gnew"
+fi
+
+# --- 36: /usr/bin/grep only with its fallback ----------------------------------
+# THE DEFECT (V2f, 2026-09-24). i18n_tracks_lint.sh called /usr/bin/grep by its
+# absolute path, and Debian 9 predates the merged /usr: grep is /bin/grep there,
+# and the lint died of "not found". 25 drivers already use the absolute path the
+# guarded way -- `G=/usr/bin/grep` then `[ -x "$G" ] || G=grep` -- because in an
+# agent session bare `grep` can be a shell function (CLAUDE.md). THE UNIVERSE:
+# every /usr/bin/grep in a smoke driver, comments excluded; the only line allowed
+# to name it is the assignment, and the next line must be the fallback. This file
+# is outside it: it names the path in its own patterns.
+_ubg=$(cd "$ROOT" && for f in tests/smoke/*.sh; do
+    [ "$f" = tests/smoke/portability_lint.sh ] && continue
+    awk -v F="$f" '
+        /^[[:space:]]*#/ { prev = $0; next }
+        index($0, "/usr/bin/grep") {
+            if ($0 ~ /^[[:space:]]*G=\/usr\/bin\/grep[[:space:]]*$/) { want = NR + 1; next }
+            print F ":" NR
+        }
+        NR == want && $0 !~ /\[ -x "\$G" \] [|][|] G=grep/ { print F ":" NR " (no fallback after G=)" }
+    ' "$f"
+done)
+_ubg_n=$(cd "$ROOT" && grep -l '^[[:space:]]*G=/usr/bin/grep' tests/smoke/*.sh | grep -c .)
+if [ -z "$_ubg" ] && [ "$_ubg_n" -ge 26 ]; then
+    t_ok "every /usr/bin/grep in the smoke tier is the guarded G= form ($_ubg_n drivers)"
+else
+    t_fail "/usr/bin/grep without its fallback (a system without the merged /usr has no such file): \
+$(printf '%s ' $_ubg) (guarded drivers $_ubg_n, floor 26)"
 fi
 
 t_done

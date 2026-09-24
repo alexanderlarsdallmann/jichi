@@ -27,6 +27,7 @@
 #include "jc_patch.h"
 #include "jc_utf8.h"
 #include "jc_jsonrepair.h"
+#include "jc_embed.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -496,6 +497,28 @@ static void t_jsonrepair(const unsigned char *data, size_t len)
 }
 
 
+static void t_embed(const unsigned char *data, size_t len)
+{
+    /* TIER 1 (M725): an embeddings reply is text a server wrote, parsed on every
+     * index build, and it had never been fuzzed. This target would have found
+     * the (int) cast of "index":1e300 that UBSan reports, and it runs the
+     * duplicate-index path under ASan. Tried at three batch sizes, because
+     * `expected` decides how much of a reply is read. */
+    char *s = jc_fuzz_dup0(data, len);
+    int expected;
+    if (s == NULL) return;
+    for (expected = 1; expected <= 3; expected++) {
+        float *v = NULL;
+        int dim = 0;
+        if (jc_embed_parse(s, expected, &v, &dim) == JC_OK && (v == NULL || dim <= 0)) {
+            fprintf(stderr, "embed: JC_OK without vectors (dim=%d)\n", dim);
+            abort();
+        }
+        free(v);
+    }
+    free(s);
+}
+
 const struct jc_fuzz_target JC_FUZZ_TARGETS[] = {
     { "json",       t_json,       "{\"a\":[1,2,{\"b\":true}],\"c\":null}" },
     { "sse",        t_sse,        "event: message\ndata: {\"t\":1}\n\n" },
@@ -521,6 +544,9 @@ const struct jc_fuzz_target JC_FUZZ_TARGETS[] = {
     { "prop_pathfence",  jc_fuzz_pathfence,      "esc/../sub/./f" },
     { "prop_jsonrepair", t_jsonrepair,
       "{'a': True, 'b': [1,2,],}" },
+    { "embed",           t_embed,
+      "{\"data\":[{\"object\":\"embedding\",\"index\":0,"
+      "\"embedding\":[0.5,-1e-3,2]}],\"model\":\"m\"}" },
     /* Tier 3: adversarial model output through each provider's event parser. */
     { "prov_openai",    t_provider_openai,
       "{\"choices\":[{\"delta\":{\"content\":\"hi\",\"tool_calls\":[{\"index\":0,"

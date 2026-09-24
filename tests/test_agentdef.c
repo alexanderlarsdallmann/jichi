@@ -73,11 +73,12 @@ void test_agentdef(void)
         struct jc_sb sb;
         jc_sb_init(&sb);
         jc_agentdef_render_list(&set, &sb);
-        JC_CHECK(sb.data != NULL);
-        JC_CHECK(strstr(sb.data, "reviewer") != NULL);
-        JC_CHECK(strstr(sb.data, "Reviews code") != NULL);
-        JC_CHECK(strstr(sb.data, "model: fast") != NULL);
-        JC_CHECK(strstr(sb.data, "readonly") != NULL);
+        if (JC_REQUIRE(sb.data != NULL)) { /* a guard: strstr(NULL) (M729) */
+            JC_CHECK(strstr(sb.data, "reviewer") != NULL);
+            JC_CHECK(strstr(sb.data, "Reviews code") != NULL);
+            JC_CHECK(strstr(sb.data, "model: fast") != NULL);
+            JC_CHECK(strstr(sb.data, "readonly") != NULL);
+        }
         jc_sb_free(&sb);
     }
 
@@ -96,8 +97,9 @@ void test_agentdef(void)
         /* Apply the readonly "reviewer" profile: it takes over the persona and
          * sets readonly. */
         applied = jc_app_command_agent_apply(&app, "reviewer", &sv);
-        JC_CHECK(applied != NULL);
-        JC_CHECK(sv.applied == 1);
+        if (JC_REQUIRE(applied != NULL)) { /* a guard (M729) */
+            JC_CHECK(sv.applied == 1);
+        }
         JC_CHECK(app.persona_override != NULL &&
                  strstr(app.persona_override, "code reviewer") != NULL);
         JC_CHECK(app.readonly == 1);

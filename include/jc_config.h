@@ -121,6 +121,11 @@ struct jc_model_cfg {
                             * Registered for child-env scrubbing (M130). */
     int      api_key_literal; /* 1 => the key came from a literal "apiKey" field
                             * in the config (a security smell; doctor warns, M55) */
+    int      api_key_convention; /* M718: 1 => the key came from a vendor's
+                            * conventional variable, read because the entry names
+                            * that vendor AND its endpoint is the vendor's own
+                            * (jc_config_convention_key_env). doctor names the
+                            * variable and the host so the provenance is visible. */
     int      model_defaulted; /* M505: 1 => the config named NO model id and one
                             * was substituted by default_model(provider).
                             *
@@ -774,8 +779,45 @@ void jc_config_resolve_timeouts(const struct jc_config *c,
                                 const struct jc_model_cfg *m,
                                 long *connect, long *stall, long *request);
 
-/* Resolve the default base URL for a provider name. Never NULL. */
+/* Resolve the default base URL for a provider name: the vendor's own endpoint
+ * for "openai" and "anthropic", NULL for anything else -- a provider nobody
+ * named gets no endpoint either (M709). */
 const char *jc_config_default_base(const char *provider);
+
+/* NO HOUSE KEY (M718, plan D4, decided "strict" by the operator 2026-09-23).
+ *
+ * The environment variable a model entry's key may be read from WITHOUT the
+ * config naming it, or NULL. A vendor's conventional variable is read only when
+ * the entry names that vendor's provider AND `api_base` is that vendor's own
+ * endpoint: `https://`, the vendor's host exactly (ASCII case-insensitive), no
+ * userinfo, no port but 443. So "openai" at a gateway, a local server or a host
+ * that merely resembles api.openai.com reads no implicit key; naming the
+ * variable in "apiKeyEnv" is how a config sends it there. Pure. */
+const char *jc_config_convention_key_env(const char *provider,
+                                         const char *api_base);
+
+/* The conventional key variable of the vendor `provider` names --
+ * "OPENAI_API_KEY" / "ANTHROPIC_API_KEY" -- regardless of the endpoint, or NULL
+ * for any other provider. For explaining a withheld key, never for reading
+ * one. Pure. */
+const char *jc_config_vendor_key_env(const char *provider);
+
+/* The vendor's own API host for `provider` ("api.openai.com" /
+ * "api.anthropic.com"), or NULL. Pure. */
+const char *jc_config_vendor_host(const char *provider);
+
+/* NO HOUSE DIALECT (M718). 0 when `m` names a wire dialect jichi speaks
+ * ("openai" or "anthropic"). Otherwise writes the one sentence every surface
+ * prints -- the run, `doctor`, `config validate`, a subagent's refusal -- into
+ * `buf` and returns 1: the entry names no provider, or names one that is not a
+ * dialect, and jichi does not guess which it meant. Pure. */
+int jc_config_provider_problem(const struct jc_model_cfg *m, char *buf,
+                               jc_size cap);
+
+/* The one sentence for a config whose active model names no model id: doctor's
+ * "no model is configured", a refused turn, and `config validate` (M709, M718,
+ * M719). Static; never NULL. */
+const char *jc_config_no_model_advice(void);
 
 #ifdef __cplusplus
 }

@@ -18,13 +18,15 @@ struct jc_provider *jc_provider_create(const struct jc_model_cfg *model)
     if (p != NULL && strcmp(p, "anthropic") == 0) {
         return jc_provider_anthropic_create(model);
     }
-    /* Heuristic fallback by model id, matching the original's detection. */
-    if (model != NULL && model->model != NULL &&
-        (strstr(model->model, "gpt") != NULL ||
-         strstr(model->model, "openai") != NULL)) {
-        return jc_provider_openai_create(model);
-    }
-    return jc_provider_anthropic_create(model);
+    /* NO HOUSE DIALECT (M718, plan D4). Until M718 an entry naming no provider,
+     * or one jichi does not speak, had its dialect GUESSED from the model id --
+     * "gpt" or "openai" in it meant OpenAI -- and otherwise got Anthropic's, so
+     * `"provider": "ollama"` sent the Anthropic Messages API to an Ollama server,
+     * with ANTHROPIC_API_KEY attached. A heuristic that picks a wire dialect is a
+     * house default under another name (M709's argument), so this refuses, and
+     * every caller already handles NULL. jc_config_provider_problem() is the
+     * sentence a caller prints. */
+    return NULL;
 }
 
 /* ----- shared scratch ------------------------------------------------- */

@@ -51,8 +51,9 @@ void test_rss(void)
     /* RSS 2.0: feed title + both items, entities decoded, CDATA+HTML stripped. */
     jc_sb_init(&out);
     jc_rss_to_text(RSS20, &out);
-    JC_CHECK(out.data != NULL);
-    JC_CHECK(strstr(out.data, "Example Blog") != NULL);
+    if (JC_REQUIRE(out.data != NULL)) { /* a guard (M729) */
+        JC_CHECK(strstr(out.data, "Example Blog") != NULL);
+    }
     JC_CHECK(strstr(out.data, "First & Foremost") != NULL);   /* &amp; decoded */
     JC_CHECK(strstr(out.data, "https://ex.com/1") != NULL);
     JC_CHECK(strstr(out.data, "Hello") != NULL &&

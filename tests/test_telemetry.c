@@ -488,10 +488,11 @@ void test_telemetry(void)
         JC_CHECK(ns.compact_dup == 0 && ns.compact_age == 0);
         jc_sb_init(&r);
         jc_telemetry_render(&ns, &r);
-        JC_CHECK(r.data != NULL);
-        JC_CHECK(strstr(r.data, "input/call") == NULL);
-        JC_CHECK(strstr(r.data, "est vs real") == NULL);
-        JC_CHECK(strstr(r.data, "Compaction reclaim") == NULL);
+        if (JC_REQUIRE(r.data != NULL)) { /* a guard (M729) */
+            JC_CHECK(strstr(r.data, "input/call") == NULL);
+            JC_CHECK(strstr(r.data, "est vs real") == NULL);
+            JC_CHECK(strstr(r.data, "Compaction reclaim") == NULL);
+        }
         jc_sb_free(&r);
         jc_telemetry_summary_free(&ns);
     }
@@ -528,8 +529,9 @@ void test_telemetry(void)
          * as though it covered everything. */
         jc_sb_init(&r);
         jc_telemetry_render(&ws, &r);
-        JC_CHECK(r.data != NULL);
-        JC_CHECK(strstr(r.data, "window:") != NULL);
+        if (JC_REQUIRE(r.data != NULL)) { /* a guard (M729) */
+            JC_CHECK(strstr(r.data, "window:") != NULL);
+        }
         jc_sb_free(&r);
         jc_telemetry_summary_free(&ws);
 
@@ -543,8 +545,9 @@ void test_telemetry(void)
         jc_telemetry_summarize(log, &ws);
         jc_sb_init(&r);
         jc_telemetry_render(&ws, &r);
-        JC_CHECK(r.data != NULL);
-        JC_CHECK(strstr(r.data, "window:") == NULL);
+        if (JC_REQUIRE(r.data != NULL)) { /* a guard (M729) */
+            JC_CHECK(strstr(r.data, "window:") == NULL);
+        }
         jc_sb_free(&r);
         jc_telemetry_summary_free(&ws);
     }
@@ -600,10 +603,11 @@ void test_telemetry(void)
         }
         jc_sb_init(&r);
         jc_telemetry_render(&vs, &r);
-        JC_CHECK(r.data != NULL);
-        JC_CHECK(strstr(r.data, "2 BUILDS") != NULL);
-        JC_CHECK(strstr(r.data, "0.8.4") != NULL);
-        JC_CHECK(strstr(r.data, "0.9.0") != NULL);
+        if (JC_REQUIRE(r.data != NULL)) { /* a guard (M729) */
+            JC_CHECK(strstr(r.data, "2 BUILDS") != NULL);
+            JC_CHECK(strstr(r.data, "0.8.4") != NULL);
+            JC_CHECK(strstr(r.data, "0.9.0") != NULL);
+        }
         JC_CHECK(strstr(r.data, "--since") != NULL); /* names the way out */
         jc_sb_free(&r);
         jc_telemetry_summary_free(&vs);

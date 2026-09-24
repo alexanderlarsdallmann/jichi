@@ -25,7 +25,331 @@ the `describe` interface contract.
 
 ## [Unreleased]
 
-*Nothing yet.*
+## [0.12.0] — 2026-09-24 — a repeating call is named, a guessed rule only advises, and the tests clean up after themselves
+
+> **Why a MINOR, and why the public tree skips 0.11.0.** This section's span is
+> M733–M740. One behaviour a user relies on changed (M734): a rule jichi *infers*
+> from an `--auto` prompt no longer refuses a call — it advises, and only a rule you
+> wrote refuses. That changes what `--auto` does, which this page's own policy makes a
+> MINOR. 0.11.0 was cut the same morning and not published on its own; the public
+> tree goes from 0.10.1 to 0.12.0 and carries 0.11.0's section below as part of it.
+>
+> Two fixes a public user can hit: `make smoke` — and so `make check-target` — left
+> every smoke driver's temp directories in `/tmp`, enough to exhaust a tmpfs's inodes
+> on a machine that tests often (M739); and the autonomous-loop example's database
+> tool let a model's status label evaluate SQL and write files (M740).
+
+> **What to check after upgrading.** If you relied on `--auto` refusing a command
+> because your prompt said "do not …", write the rule down — `/constraints add` in a
+> session, or `.jichi/constraints.md` — which still refuses. If you copied
+> `examples/autonomous-loop/db-report.sh`, take the new one.
+
+### Fixed
+
+- **`examples/autonomous-loop/db-report.sh` no longer lets a status label run SQL** (M740).
+  The sqlite3 shell's `.param set` evaluates its value as an SQL expression, so a model-chosen
+  status could call `writefile()` and create files. The label is now whitelisted and sqlite3
+  runs with `-safe`; a smoke check proves each separately.
+- **`make smoke` no longer leaves its temp directories behind** (M739). Every smoke driver's
+  temp dirs stayed in `/tmp` after it exited -- about 900 per `make ci`, the largest holding
+  thousands of files -- so a machine that gated often without rebooting could run its `/tmp`
+  out of inodes. They are removed at exit now, including fixtures left unreadable.
+- **`scripts/tier-v-tiny.sh --dry-run` no longer downloads a kernel** (M738). With
+  `--live-model` and no cached kernel the dry run fetched one, and it stopped at the first
+  missing prerequisite; it now prints what a real run would fetch and refuse, and touches
+  nothing. `scripts/tier-v-arch.sh --dry-run` likewise completes on a host without zig.
+- **jichi builds on the oldest distributions it promised, and on older ones**
+  (M736). `docs/INSTALL.md` named CentOS 6 and Debian 7 as the floor; measured for the
+  first time, neither compiled `src/net/jc_http.c`, because three libcurl names newer
+  than the promised 7.19.4 were used without a version check. They are guarded now,
+  and built in containers with each distribution's own compiler and libraries, jichi
+  passes its unit suite on Debian 5 to 9 and CentOS 6 and 7 -- glibc 2.7 upward. On an
+  old libcurl that cannot ask for TLS 1.2, jichi asks for TLS and never SSL.
+- **On an older glibc, numbers were formatted wrong** (M736). The build asked whether
+  `snprintf` exists with fewer feature macros than it compiles with, and on glibc 2.7
+  the answer was no, so it used its own minimal formatter, which has no width or
+  precision: token counts printed as `%..0f`. The build now asks the way it compiles.
+- **gcc older than 4.3 no longer rejects every file** (M736). `-Wvla` was passed to every
+  compile, and gcc 4.1 does not know it; it is probed now, like `-Walloca`.
+
+### Added
+
+- **`docs/SQLITE.md` and `examples/sqlite/`** (M740): three ways to give an agent a database: a
+  read-only MCP server in one file of standard-library Python, a user-defined tool around
+  `sqlite3 -safe -readonly`, and the shell with `undo` as the net. Also why `-readonly` alone is
+  not read-only, measured.
+- **`docs/PLATFORM_TESTING.md` §5**: what to send the developers after testing a platform, with an
+  email template to copy (M740).
+- **`scripts/tier-v-guix.sh`** (M738) drives the published Guix System VM image with no one
+  at the keyboard: it adds `console=ttyS0` in GRUB's editor over the serial line, builds jichi
+  in `guix shell` with the store's toolchain, runs the unit suite and, with `--live-port`, the
+  two-turn driven task against a model server on the host. The operator downloads the image.
+- **The FreeMiNT rig drives a model from inside the Atari guest** (M737).
+  `scripts/tier-v-freemint.sh --step 4` cross-builds jichi with a TLS-free libcurl for MiNT
+  and runs the two-turn driven task over ARAnyM's network link; it needs an ARAnyM built
+  with ethernet (Ubuntu's is not) and a tap device the operator creates once.
+  `scripts/minimal-curl.sh --tls none --target m68k-atari-mint` builds that libcurl.
+- **`scripts/tier-v-ladder.sh`** (M736) measures the userland floor: it builds jichi and
+  runs the unit suite in a series of older Linux distributions, one container each, and
+  writes the results outside the tree.
+
+- **`scripts/corpus-drive.sh` keeps each run's work on a branch, and drives one task
+  list in several modes** (M735). `--branch drive/...` commits a run's changes on a
+  branch of its own, with the run's final answer in the commit message, and `--push`
+  pushes it -- plainly, never forced, never deleted, and only under `drive/`. An https
+  push reads its token from `--token-file`, which must not be readable by group or
+  others. `--mode NAME` prepends a preamble to every prompt, so the same tasks can be
+  run single, with subagents or in parallel.
+
+- **A tool call that keeps returning the same result is told so, at the third time**
+  (M733). jichi already told a model when a *failing* call kept failing; a call that
+  *succeeds* with the same answer every time was invisible to it, and one run made 200
+  successful calls after it had the answer. Now the third identical call in a turn --
+  the same tool, the same arguments, the same result -- gets one sentence folded into
+  its result: repeating it will not change the answer. An edit starts the count again,
+  and so does a shell command, for every call but itself. The threshold was fitted on
+  a 48-run drive with free models, where the note would have fired in the four turns
+  that were looping and in no other. The run's journal records each note as
+  `no_progress`, and `jichi runs` shows `same=N`. It is a note, not a stop: the run
+  goes on as before.
+
+### Changed
+
+- **A constraint jichi infers from your prompt advises; only one you wrote refuses**
+  (M734). In `--auto`, jichi reads rules such as *"do not run the build"* out of the
+  request and used to enforce them. Measured over 289 real prompts, six of the nine
+  rules it inferred were wrong, and each forbade the check its own task asked for --
+  one such run refused its own builds for 21 minutes. An inferred rule is now shown
+  to the model as a guess, in its own section of the system prompt; a call that goes
+  against it **runs**, and the first such call per rule in a turn is told which rule
+  it broke. Rules from `.jichi/constraints.md` or `/constraints add` refuse exactly
+  as before, and are checked first. The run's journal records every call against an
+  inferred rule (`constraint_advisory`), and `jichi runs` shows `advised=N`. **If you
+  relied on an `--auto` prompt's wording to forbid something, write it into
+  `.jichi/constraints.md` instead.**
+- **A "do not" in your prompt stops at the end of its sentence** (M734). *"Do not
+  touch build.zig. Verify by running zig build test"* was read as *do not run build
+  commands*, because the scanner looked at the 95 characters after a negation
+  wherever they fell. It now stops at the sentence's end -- a full stop before white
+  space, a blank line, or a new list item -- so `build.zig` and hard-wrapped lines
+  still read as one sentence.
+
+## [0.11.0] — 2026-09-24 — no house key, no house dialect, and your keys stay out of a model's commands
+
+> **Why a MINOR.** This section's span is M717–M732. Two defaults were **removed**
+> (M718, M719), which the page's own rule makes a MINOR: a vendor's API-key variable is
+> no longer sent to a host that is not that vendor's, and a config entry that names no
+> provider is refused instead of guessed at. Two safety fixes a public user can hit
+> landed with them: a model-issued shell command could inherit your API keys when a
+> config named many key variables (M724), and `make test` could delete what was in a
+> long `TMPDIR` (M728). The rest is additive or corrective: the journal names the stop a
+> run really had (M732), the measurement scripts count real runs only (M720), and
+> jichi builds and runs on FreeMiNT under ARAnyM (M722–M729).
+
+> **What to check after upgrading.** If a config entry names **no** `"provider"`, add
+> one (`"openai"` for any OpenAI-compatible server): the run refuses such an entry now,
+> and `jichi config validate` fails the file and says so. If an entry reaches a host
+> that is **not** its vendor's endpoint -- a gateway, a proxy, a local server -- with a
+> conventional key variable such as `OPENAI_API_KEY`, name the variable in
+> `"apiKeyEnv"`: jichi no longer sends it there, the run says which line would, and
+> `jichi doctor` shows where each key comes from and which host receives it.
+
+> **Breaking, and why.** jichi no longer guesses a model entry's wire dialect, and
+> no longer reads a vendor's key variable for a host that is not that vendor's
+> (M718). `config validate` now fails what jichi refuses to run (M719). Both remove
+> behaviour a config may have relied on, so the release that carries them is a
+> MINOR one.
+
+> **If you upgrade and jichi stops working:**
+> - `error: model "…" names no provider` — add `"provider": "openai"` (any
+>   OpenAI-compatible server: LM Studio, Ollama, vLLM, a gateway) or
+>   `"anthropic"` to that entry. `"ollama"` and `"lmstudio"` are not dialects —
+>   write `"openai"`.
+> - `note: $OPENAI_API_KEY is set but not sent`, or a gateway answering 401 — a
+>   vendor's variable now goes only to that vendor's own endpoint. If this server
+>   should receive it, add `"apiKeyEnv": "OPENAI_API_KEY"` to the entry; better,
+>   give the server a variable of its own.
+> - `config validate` exits 1 — it now fails a config that names no model id or
+>   no provider, with the sentence `doctor` prints.
+
+> **If a key may already have gone where it should not.** Before this release an
+> entry naming no provider (or one jichi does not speak, such as `"ollama"`) sent
+> `ANTHROPIC_API_KEY` to that entry's host whenever the variable was set, and a
+> keyless model converted by `jichi-convert` sent `OPENAI_API_KEY` to its host. If
+> you ran such a config with a vendor key in your environment against a host you
+> do not control, rotate that key.
+
+### Changed
+
+- **No house key: a vendor's key goes to that vendor's own endpoint, and nowhere
+  else unless you name it** (M718). A model entry that named no `apiKey` or
+  `apiKeyEnv` used to take `OPENAI_API_KEY` when its provider was `openai` — and
+  `ANTHROPIC_API_KEY` for everything else, an entry with **no** provider included —
+  and send it to whatever `apiBase` the entry named. Measured on 0.10.1 with a fake
+  key and the smoke tier's mock server: an entry with no provider sent
+  `x-api-key: <your ANTHROPIC_API_KEY>` to that host. The variable is now read
+  without being named only for provider `openai` at `https://api.openai.com` and
+  provider `anthropic` at `https://api.anthropic.com`; any other host — a gateway,
+  LM Studio, a lookalike such as `api.openai.com.evil.example` — gets no implicit
+  key, and the run says which line would send one. Naming the variable in
+  `apiKeyEnv` is honoured anywhere.
+- **No house dialect: an entry that names no provider is refused, not guessed**
+  (M718). jichi guessed the wire dialect from the model id (`gpt` in it meant
+  OpenAI) and otherwise used Anthropic's, so `"provider": "ollama"` sent the
+  Anthropic Messages API to an Ollama server. A headless run, `serve` or `daemon`
+  now refuses such an entry before anything is sent (exit 2); the TUI starts —
+  its local commands need no model — and refuses the prompt; a subagent and
+  `/model` say which entry and what to write.
+- **`jichi doctor` says where the key comes from and which host receives it**
+  (M718) — never the key itself: `from $OPENAI_API_KEY (the openai convention),
+  sent only to https://api.openai.com`, or that a set variable was withheld and
+  which line would send it. It fails an active entry that names no provider, and
+  warns when `apiKeyEnv` sends `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` to a host
+  that is not that vendor's.
+- **`jichi-convert` writes no key line it was not given, and keeps the name a
+  template gives** (M718). A keyless model in a Continue config (an Ollama entry,
+  say) used to get `"apiKeyEnv": "OPENAI_API_KEY"`, which the runtime honours as a
+  choice — so your OpenAI key went to the Ollama host. `${{ secrets.X }}` became
+  the provider's conventional variable instead of `X`, so an OpenRouter secret
+  became `OPENAI_API_KEY`. Both now follow the source; a model whose source names no
+  provider gets none. **A config converted before this release may carry the old
+  line** — `jichi doctor` names it.
+- **`jichi config validate` fails what jichi refuses to run** (M719). It printed
+  `OK` and exited 0 for a config naming no model id while `doctor` failed the same
+  file. It now exits 1 for no model id and for a named model with no wire dialect,
+  printing `doctor`'s own sentence, and stays a parse check otherwise: `doctor`'s
+  warnings (no key, no pricing) do not fail it.
+
+### Added
+
+- **`tests/measure/success_repeats.py --per-turn FILE`** (M731) writes one row per
+  turn -- its `run` id (the journal's join key), the calls it made, and the largest
+  raw and unchanged repeat of one successful call, with the tool behind it. That row
+  set is the population a no-progress threshold is fitted on, so a fit can be read
+  turn by turn and re-derived from one command: M731 fitted D1's note at three that
+  way, over threadwork's 48-run drive (`docs/analysis/2026-09-24-the-corpus-drive.md`).
+- **The run journal names the model** (M720). The `start` event carries `model`, the
+  active model's id -- never its endpoint or key. A journal is read to price
+  decisions about how runs behave, and it recorded the cap, the verifier and the
+  scope but not what answered.
+- **The measurement scripts in `tests/measure/` count real runs only, and say what
+  they left out** (M720). An agent probe that runs jichi against the mock model with
+  the real home directory writes into the same store the scripts read -- on the
+  development workstation, 40 % of the recent tool calls and 28 of 32 journals with
+  a stop reason. A session whose model is named `mock`, or whose every answered call
+  took under 50 ms, is now dropped and counted; `--include-synthetic` restores it.
+  `reread_ratio.py` no longer dies on a telemetry line that is not valid UTF-8. No
+  user-visible behaviour moves; this is here because the tools ship in the tree.
+
+### Fixed
+
+- **The run journal names the stop a run really had** (M732). An interrupted run and a
+  run whose model call failed were both journalled `stop_reason: done` -- the end event
+  classified a hard-coded success instead of the loop's status -- while the same run's
+  `--output jsonl` stream said `interrupted` or `error`. Found by reading one run of the
+  2026-09-23 drive, which the drive's own time limit had interrupted. The measurement
+  scripts read the journal, so interrupted runs had been counted as finished ones.
+  `outcome` still reads `running` for those two endings; `stop_reason` carries the fact.
+- **The context-overflow hint recognises LM Studio** (M732). *"request (74866 tokens)
+  exceeds the available context size (65536 tokens)"* came back as a run's answer and
+  matched none of the hint's signatures.
+- **`search_code` passes on grep's warning about a pattern** (M732). A pattern grep
+  accepts with a warning -- Perl's `(?:…)` gives *"? at start of expression"* -- used to
+  come back as a bare `(no matches)`, and a model repeated one such search thirteen
+  times. The result now carries grep's own words and what `grep -E` does not do.
+
+- **`make test` on a machine whose `TMPDIR` cannot be written reports failures
+  instead of crashing, and no longer writes into the directory it runs from**
+  (M729). With no fixture written, the unit suite died of a segfault in
+  `test_config`, and one test whose `chdir` into its fixture had failed wrote seven
+  spec files into the current directory, which from the repository root is the
+  source tree. It is the environment of a phone or a guest system without a
+  writable `/tmp`. The suite now completes there and says how many checks failed.
+- **Following a symlink cycle no longer takes ~700 KB of stack** (M727). The path
+  resolver, which the workspace fence calls for every file a tool touches, recursed
+  once per link at ~16.5 KB a call, up to its 40-link bound, so a `loop -> loop`
+  needed about 700 KB of stack before it was refused. Linux's 8 MB stack never
+  noticed. FreeMiNT's fixed 512 KB did (a bus error in the unit suite), and so would a
+  `ulimit -s` below it. It is a loop now: one frame however many links it follows,
+  and the same answers. The M726 entry below says the unit suite completes under the
+  emulator; it did so only because this test was skipping itself silently, and on a
+  fresh disk it crashed here.
+- **A FreeMiNT build of jichi gets a stack it can run on** (M726). FreeMiNT gives a
+  program a fixed stack, 64 KB by MiNTLib's default, and jichi's unit suite ran past
+  it, overwriting the environment beside it (a bus error in `getenv`). MiNT builds now
+  carry 512 KB. Cross-compiled and run under the ARAnyM emulator, the unit suite
+  completes and `jichi --version` works; no model call has been made there yet.
+- **Parsing a large JSON document no longer reserves the rest of the document for
+  every string** (M725). The parser sized each string's buffer to all the input left
+  after it, and kept it, so memory grew with a document's strings times its size: an
+  embeddings reply of ~1.5 MB held ~190 MB, and `jichi index` on a 200-file corpus
+  peaked at 219 MB of heap, now 25.6 MB. On Linux little of it was ever resident, but
+  where requested memory is real (FreeMiNT, a strict overcommit setting, a
+  `ulimit -v`) an index build or a large response could fail. An embeddings reply
+  with a duplicate `index` is now refused; it returned one vector uninitialized.
+- **The source no longer assumes glibc's headers where POSIX promises less**
+  (M723). Cross-compiling for FreeMiNT against MiNTLib found four places: files
+  that used `struct timeval` without `<sys/time.h>`, and `pid_t` without
+  `<sys/types.h>`; `lstat`, `readlink` and `symlink`, which MiNTLib declares only
+  at an X/Open level; and `mmap`, which it lacks entirely. Two new probes switch on
+  `-D_XOPEN_SOURCE=600` and a copy instead of a mapping only where they are
+  needed, and `make info` reports both. `make ci` now compiles both fallback paths,
+  the clock's and the mapping's, under its own flags. The tree cross-compiles for
+  FreeMiNT, clean under `WERROR=1`; nothing has run there yet.
+- **jichi builds again with gcc older than 7** (M722). Since M472 the Makefile
+  passed `-Walloca` to every compile, and gcc before 7 rejects an unknown `-W`
+  option as an error, with or without `-Werror`, so not one file compiled on
+  CentOS 7 (gcc 4.8.5), on Debian 9 (gcc 6), or on the CentOS 6 / Debian 7 floor
+  [`docs/INSTALL.md`](docs/INSTALL.md) promises. The flag is now probed like the
+  other compiler-specific warnings: gcc 7 and later, and clang, keep it; older
+  compilers build without it. Found by cross-compiling for FreeMiNT with gcc 4.6.4.
+- **A shell command's stderr reaches the model from every part of the command**
+  (M721). `run_terminal_command` ran `<command> 2>&1`, and a trailing redirection
+  binds to the last command only: in `A; B` or `A | B`, A's errors went to jichi's
+  own stderr — the screen, in the TUI — and never to the model, so
+  `make test | tail -20` handed it the tail of stdout and none of the compiler's
+  errors. The whole shell's stderr is redirected now. A command template's `!`
+  interpolation had the same defect and the same fix. Commands with a timeout
+  were never affected.
+- **A command too long for the local shell is refused, not run cut short** (M721).
+  It was formatted into a fixed 8 KB buffer and silently truncated, and a
+  truncated command still runs its beginning: a long heredoc wrote a partial file
+  and reported success. The tool now says how long the command was and suggests
+  `write_file` for long content.
+- **A `/model` switch that fails leaves the previous model active** (M718). The
+  switch made the new entry active before building its provider and returned with
+  it active on failure, so the previous provider would have read the new entry's
+  endpoint and key. Unreachable while building a provider failed only on
+  out-of-memory; reachable once an entry naming no provider is refused.
+- **The README's configuration examples lead with the path that costs nothing**
+  (M718): a model server on your own machine. The one vendor example declares its
+  pricing, and the embedding/rerank example gives its host a key variable of its
+  own instead of `OPENAI_API_KEY`.
+
+### Security
+
+- **`make test` can no longer delete what is in your `TMPDIR`** (M728). The unit
+  suite removed its fixtures with `rm -rf` command lines built in fixed-size
+  buffers. Under a `TMPDIR` of 127 characters a path came out as the `TMPDIR`
+  itself, and the suite removed everything in it; a longer one could come out as a
+  parent directory. Fixtures are now removed without a shell and only strictly
+  below `TMPDIR`, and the suite refuses to start under a `TMPDIR` longer than 160
+  characters, the length its fixtures are measured clean under. With `TMPDIR`
+  unset or short, as on most systems, nothing was at risk.
+- **A model-issued shell command no longer inherits your API keys when a config
+  names many of them** (M724). The default path of `run_terminal_command` drops
+  every key variable by prefixing the command with `unset …;`, and that prefix was
+  built into a 1 KB buffer. When it did not fit — twelve configured `apiKeyEnv`
+  names of about 100 characters were enough — it was dropped **whole**, and the
+  command ran with every key in its environment, the built-in names such as
+  `JICHI_API_KEY` included. Separately, the list of names to drop stopped at 32 and
+  ignored names of 128 characters or more, so a 33rd configured key variable reached
+  every command and child process jichi starts. The list now grows, the prefix is
+  sized to fit, and a command whose prefix cannot be built is refused rather than
+  run. **If your config names more than 32 distinct key variables, or names
+  that together run past about 780 characters,** treat those keys as exposed to
+  the commands a model ran, and rotate them. A config naming a handful of keys
+  was never affected.
 
 ## [0.10.1] — 2026-09-23 — search_code speaks the regex models write, and a turn reports its own answer
 
