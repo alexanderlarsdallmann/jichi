@@ -62,6 +62,32 @@ int         jc_json_get_bool_lenient(const cJSON *o, const char *key, int dflt);
  * M286 (see docs/ANECDOTES.md #32). */
 double      jc_json_get_num_lenient(const cJSON *o, const char *key,
                                     double dflt);
+/* Untrusted-JSON double -> integer clamps (A-02, M1077).
+ *
+ * Feed these the value a JSON number read returned -- jc_json_get_num, or a
+ * cJSON node's ->valuedouble -- when the target is an integer type the sender
+ * might have exceeded. Casting such a double straight to int/long/unsigned is
+ * undefined behaviour outside the target's range (UBSan: "1e+10 is outside the
+ * range of representable values of type 'int'"), and the double comes from a
+ * model or a server -- untrusted. Each returns the double clamped to the
+ * target's range:
+ *
+ *   NaN            -> 0
+ *   +infinity      -> the type's maximum
+ *   -infinity      -> the type's minimum (0 for the unsigned pair)
+ *   in-range       -> passed EXACTLY (integral doubles at 2^53 and below are
+ *                     exact, so a number the sender could write is undistorted)
+ *
+ * The shape is cJSON's number_to_int (src/json/cJSON.c:282), extended to the
+ * other widths. There is deliberately NO node-taking key variant: a caller that
+ * has the key does jc_json_get_num(o, key, dflt) and clamps the double it gets
+ * back -- the sweep (M1077, part 2) does exactly that at every site.
+ */
+int          jc_json_clamp_int(double val);
+long         jc_json_clamp_long(double val);
+unsigned int jc_json_clamp_uint(double val);
+jc_size      jc_json_clamp_size(double val);
+
 cJSON      *jc_json_get_obj(const cJSON *o, const char *key);
 
 /* Like jc_json_get_str but the result is copied into `a` (so it survives the

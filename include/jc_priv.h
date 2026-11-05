@@ -22,6 +22,7 @@
 #ifndef JC_PRIV_H
 #define JC_PRIV_H
 
+#include "jc_platform.h"   /* jc_size (M821) */
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,6 +52,15 @@ const char *jc_priv_kind_name(enum jc_priv_kind k);
  * NUL-terminated prefix strings; n<=0 or NULL => not allowlisted. Pure. */
 int jc_priv_allowlisted(const char *command, const char *const *entries,
                         int n);
+
+/* M821 (N9): does a raw environment block -- the NUL-separated "NAME=VALUE"
+ * entries as read from /proc/<pid>/environ -- contain an entry whose NAME is
+ * exactly `name`? Used by `doctor` to warn when a PID-1 init process holds the
+ * configured API-key variable in a container (readable by the model's same-user
+ * shell, and NOT covered by jichi's own environ hardening). Compares the NAME
+ * only, never the value. Pure; `block` is `len` bytes; returns 0 for NULL/empty
+ * inputs. */
+int jc_env_block_has_name(const char *block, jc_size len, const char *name);
 
 #ifdef __cplusplus
 }

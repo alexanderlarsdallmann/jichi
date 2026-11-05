@@ -18,7 +18,7 @@
 # point of an advisory detector.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 7
+t_plan 8
 smoke_home
 tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
@@ -129,6 +129,41 @@ if "$BIN" runs "$tmp" --output json < /dev/null 2>/dev/null \
     t_ok "runs --output json reports tool_loops for the run"
 else
     t_fail "runs has no tool_loops: $("$BIN" runs "$tmp" --output json < /dev/null 2>&1 | head_bytes 200)"
+fi
+
+# --- 8: a LONG call is the same call too (M868, LOOP-1) --------------------------------
+# The same failing read_file with a 200-byte path. M432 kept the key cut at 159 bytes and
+# compared it with the whole incoming key, so arguments of 160 bytes or more never
+# matched -- 77% of the demos drive's failed calls -- and only the class note could fire,
+# a call later and worded otherwise. The note must be in the request after the third.
+long=$(printf 'm%0200d' 0 | cut -c1-200)
+cat > "$tmp/long.mm" <<EOF
+wire openai
+rule
+  count 1
+  tool read_file {"path":"sub/$long.txt"}
+rule
+  count 2
+  tool read_file {"path":"sub/$long.txt"}
+rule
+  count 3
+  tool read_file {"path":"sub/$long.txt"}
+rule
+  count 4
+  tool read_file {"path":"sub/$long.txt"}
+rule
+  text LOOP_DONE
+EOF
+mm_start "$tmp/long.mm" "$tmp/capl" 9
+write_config "$tmp/config.json" "$MM_PORT"
+(cd "$ws" && with_deadline 90 "$BIN" --config "$tmp/config.json" \
+    -q --no-session --auto --budget-tokens 200k \
+    -p "read the long file" < /dev/null) > /dev/null 2>&1
+mm_stop
+if [ -f "$tmp/capl/req.4" ] && grep -q "SAME arguments" "$tmp/capl/req.4"; then
+    t_ok "a 200-byte call repeated three times draws the exact note (M868)"
+else
+    t_fail "no exact note after three identical long calls (red before M868): $(ls "$tmp"/capl/req.* 2>/dev/null | wc -l) requests"
 fi
 
 t_done

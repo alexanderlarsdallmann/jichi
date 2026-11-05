@@ -12,6 +12,7 @@
 #include "jc_mem.h"
 #include "jc_vec.h"
 #include "jc_str.h"
+#include "jc_sysmsg.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -270,13 +271,21 @@ static void test_over_budget(void)
     /* No file: size 0. */
     JC_CHECK(jc_memory_file_size(&app) == 0);
 
-    /* Write ~12 KB of bullets (over the 8 KB budget), newest last. */
+    /* Write ~12 KB of bullets (over the 8 KB budget), newest last.
+     * The first note has a LONG heading (60+ chars) so the dropped summary
+     * exceeds 160 bytes, testing the new 200-byte field clamp. */
     f = fopen(path, "wb");
     /* Guarded, not merely checked: on a platform where system() cannot
      * create the directory above -- Android has no /bin/sh, which musl's
      * system() invokes -- this fopen returns NULL and the writes below
      * segfaulted the whole run (M457). */
     if (JC_REQUIRE(f != NULL)) {
+        /* A heading long enough to trigger the 160->199+ char summary.
+         * jc_memory_dropped_summary extracts headings; with 5+ chars per heading
+         * and multiple headings, the summary easily exceeds 160 bytes. */
+        fprintf(f, "- Build traps and architectural pitfalls: the subtle bugs that "
+                  "only appear under load and the hidden memory leaks that creep in "
+                  "over time\n");
         for (i = 0; i < 300; i++) {
             fprintf(f, "- old note number %d padding padding padding\n", i);
         }
@@ -289,10 +298,38 @@ static void test_over_budget(void)
     /* Load keeps the tail: the newest note survives, the oldest does not,
      * and the loaded block respects the budget. */
     loaded = jc_memory_load(&app);
+    /* Set app->memory so the sysmsg can use it (M199: malloc-owned, freed below) */
+    app.memory = loaded;
     if (JC_REQUIRE(loaded != NULL)) { /* a guard (M729) */
         JC_CHECK(strstr(loaded, "THE NEWEST NOTE") != NULL);
         JC_CHECK(strstr(loaded, "old note number 0 ") == NULL);
         JC_CHECK(strlen(loaded) <= (size_t)JC_MEMORY_MAX);
+        /* M933 (D5): the truncation is stated, so the model can see its
+         * memory is partial. A file that fits never sets it. */
+        JC_CHECK(app.memory_truncated == 1);
+        /* M965 (D5 delta): app->memory_dropped holds the dropped headings/words */
+        JC_CHECK(app.memory_dropped[0] != '\0');
+        /* D5 follow-up: the dropped text must be non-empty, and the sysmsg's
+         * parentheses must be balanced even with a long heading that exceeds 160 bytes.
+         * The long heading in the first note exercises the 200-byte field clamp. */
+        {
+            struct jc_sb sb;
+            char *msg;
+            int open_paren = 0, close_paren = 0;
+            jc_sb_init(&sb);
+            msg = jc_sysmsg_build_parts(&app, NULL);
+            /* Count parentheses: must be balanced (no dangling ')') */
+            for (i = 0; msg[i] != '\0'; i++) {
+                if (msg[i] == '(') open_paren++;
+                if (msg[i] == ')') close_paren++;
+            }
+            JC_CHECK(open_paren == close_paren);
+            /* The dropped summary should appear in the sysmsg */
+            JC_CHECK(strstr(msg, "(dropped: ") != NULL);
+            /* The dropped text must be non-empty (invariant: memory_truncated => dropped non-empty) */
+            JC_CHECK(app.memory_dropped[0] != '\0');
+            jc_sb_free(&sb);
+        }
     }
 
     /* The remember tool warns that old notes no longer reach the prompt. */
@@ -302,18 +339,55 @@ static void test_over_budget(void)
     JC_CHECK(res.content != NULL &&
              strstr(res.content, "exceeds the 8 KB injection budget") != NULL);
     jc_tool_result_free(&res);
-    free(loaded); /* M199 */
+    /* app.memory holds the same pointer as loaded (M199: malloc-owned) */
+    free(app.memory);
 
     (void)jc_test_rm_rf(dir);
     jc_vec_free(&app.read_files);
     jc_vec_free(&app.read_recs);
-    free(app.memory); /* M199: malloc-owned since the notes reload */
+    /* memory is already freed above */
+    app.memory = NULL;
     jc_tool_registry_free(&reg);
     jc_arena_free(a);
 }
 
+/* M825 (N1): the over-budget warning names WHAT dropped out of the load window. */
+static void test_dropped_summary(void)
+{
+    char out[200];
+    const char *h = "## Build traps\n- run the game\n## Old note\nbody\n";
+    const char *plain = "just some plain prose with no heading at all here";
+
+    jc_memory_dropped_summary(h, (jc_size)strlen(h), out, sizeof out);
+    JC_CHECK(strcmp(out, "Build traps; Old note") == 0);
+
+    /* Any heading level, and the leading #'s and spaces are stripped. */
+    {
+        const char *lv = "# Top\nx\n### Deep\n";
+        jc_memory_dropped_summary(lv, (jc_size)strlen(lv), out, sizeof out);
+        JC_CHECK(strcmp(out, "Top; Deep") == 0);
+    }
+    /* No heading: the first words of the dropped text, not empty. */
+    jc_memory_dropped_summary(plain, (jc_size)strlen(plain), out, sizeof out);
+    JC_CHECK(out[0] != '\0');
+    JC_CHECK(strstr(out, "just some plain prose") != NULL);
+
+    /* Degenerate inputs are safe and empty. */
+    jc_memory_dropped_summary(NULL, 10, out, sizeof out);
+    JC_CHECK(out[0] == '\0');
+    jc_memory_dropped_summary(h, 0, out, sizeof out);
+    JC_CHECK(out[0] == '\0');
+    /* A tiny cap stays NUL-terminated and in-bounds. */
+    {
+        char small[8];
+        jc_memory_dropped_summary(h, (jc_size)strlen(h), small, sizeof small);
+        JC_CHECK(small[7] == '\0' || strlen(small) < 8);
+    }
+}
+
 void test_memory(void)
 {
+    test_dropped_summary();
     test_clean_note();
     test_has_line();
     test_apply_correction();

@@ -4,6 +4,11 @@ Everything jichi keeps, where it keeps it, whether it matters if you lose it, an
 how to get rid of it. One page, because the answer was previously spread across
 five and the file holding a **secret** was on none of them.
 
+**Who this is for:** anyone who wants to back up their work, reclaim disk space, or
+know where the key sits — no prior jichi knowledge needed. Unfamiliar words are
+defined in [VOCABULARY.md](VOCABULARY.md). To *write* the config this page only
+locates, read [CONFIG_TUTORIAL.md](CONFIG_TUTORIAL.md) instead.
+
 > **The one-line version.** Your config is `~/.jichi`; your API key should be in
 > `~/.jichi.env`; everything jichi *generates* lives under `~/.jichi.d/`; anything
 > project-specific lives in that project's `.jichi/`. Only the first two are
@@ -24,8 +29,13 @@ Plus one more you will meet in any project you configure per-directory:
 | --- | --- |
 | `<project>/local/config.json` | A project-local config that **wins over** `~/.jichi` for scalars, and **unions** with it for lists. The precedence is spelled out in [CONFIG_TUTORIAL.md](CONFIG_TUTORIAL.md) §0 — read it once, because "first match wins" (what two older pages said) is not what happens. |
 
-If `HOME` is unset, all of the above resolve under `/tmp` instead — which is a
-different machine's worth of state, and why `doctor` says so rather than guessing.
+If `HOME` is unset, jichi asks the system for this account's home first and,
+only when there is no password entry, falls back to a private directory under
+`/tmp` — `/tmp/jichi-<uid>`, or (when that path is not a directory it owns with
+no group/other bits) a pid-scoped one that is checked the same way, or a fresh
+`0700` unique directory — rather than a world-writable `/tmp` itself. It names
+the result on startup, and `doctor` reports it as a posture check rather than
+guessing.
 
 ## Everything under `~/.jichi.d/`
 
@@ -40,7 +50,7 @@ Fifteen subtrees, plus one file. The column that matters is the last one.
 | `checkpoints/` | The shadow git repo behind snapshots and `/undo` (your own `.git` is untouched) | rebuilt; pending undos are gone |
 | `index/` | Semantic search index: `manifest.json` + `vectors.f32`, one dir per workspace (trim with `prune`, M612; the current workspace's is protected) | rebuilt on demand (costs embedding calls) |
 | `worktrees/` | Sandbox worktrees (parallel pool; `attempt`/`improve`/workflow) | rebuilt; stale `att-`/`imp-`/`wf-` trees trimmed by `prune` (M616) |
-| `leases/` | One JSON per workspace — the lock that stops two runs sharing a tree | rebuilt; delete only when no run is live |
+| `leases/` | One JSON per live holder (M1101) — the record behind the one-run-per-tree lease; stale records stay on disk as `jichi ps` evidence | rebuilt; delete only when no run is live |
 | `control/` | Per-run unix-domain socket, mode 0600, for the mid-run control channel | rebuilt per run |
 | `daemon/` | The daemon's socket and state | rebuilt |
 | `improve/` | The self-improvement band's drafts | you lose unapplied drafts |
@@ -122,7 +132,7 @@ one consequence that matters:
 > anywhere; the *course* lives in the tree.
 
 The scaffold packs (`jichi init <pack>`) are the exception: they are compiled into
-the binary, so `init` works without the checkout. The twelve domain benches under
+the binary, so `init` works without the checkout. The thirteen domain benches under
 `examples/` are deliberately copy-to-use rather than compiled in — they would have
 cost about 20% of the binary — so those, too, need the tree.
 

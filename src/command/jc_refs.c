@@ -17,6 +17,7 @@
 #include "jc_repomap.h"
 #include "jc_proc.h"
 #include "jc_http.h"
+#include "jc_net.h"
 #include "jc_rss.h"
 #include "jc_untrusted.h"
 #include "cJSON.h"
@@ -214,6 +215,10 @@ static int resolve_tool(struct jc_app *app, struct jc_sb *sb,
 /* Cap a fetched feed before reducing it to text. */
 #define REF_RSS_FETCH_MAX (2 * 1024 * 1024)
 
+/* M1093 (C-09): the RSS feed fetch's named TOTAL cap (a CAP, not a fence).
+ * The connect + dead-stream FENCES come from jc_net_side_fences. */
+#define REF_RSS_FETCH_TIMEOUT_SECS 30
+
 /* Fetch an RSS/Atom feed URL and append its reduced-to-text digest as a block.
  * Direct fetch (not the fetch_url tool, which returns raw HTML/XML) so the model
  * sees clean text. Appends a note on failure. Always appends a block. */
@@ -230,13 +235,18 @@ static void resolve_rss(struct jc_app *app, struct jc_sb *sb, const char *url)
     memset(&req, 0, sizeof(req));
     req.method = "GET";
     req.url = url;
-    req.timeout_secs = 30;
+    req.timeout_secs = REF_RSS_FETCH_TIMEOUT_SECS;
     req.abort_flag = &app->abort_flag;
+    /* M1093: `app` is in scope, so the real config's fences apply. */
+    jc_net_side_fences(&req, &app->config);
     /* A feed is a CONTENT fetch with no credential attached, and feed URLs
      * redirect as a matter of course. One of the three callers that should
      * follow (M472); without it the `status >= 400` check below would let an
      * unfollowed 302 through as an empty feed. */
     req.follow_redirects = 1;
+    /* C-08 (M1120): the feed URL is user-named (first hop allowed), a
+     * redirect target is not. */
+    req.block_redirect_private = 1;
     st = jc_http_perform(&req, &status, &body, &len);
     if (st != JC_OK || status >= 400 || body == NULL) {
         char note[256];

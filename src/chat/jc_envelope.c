@@ -12,9 +12,12 @@
 #include "jc_platform.h"
 #include "jc_log.h"
 #include "jc_proc.h"
+#include "jc_spawn.h"   /* M832 */
 #include "jc_snprintf.h"
 #include "jc_str.h"
+#include "jc_utf8.h"    /* M893: a failing line is cut at a character */
 #include "jc_version.h"
+#include "jc_path.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -24,7 +27,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/select.h>
+#include "jc_select.h"  /* M834: <sys/select.h> where it exists */
 #include <sys/time.h> /* struct timeval: MiNTLib's <sys/select.h> only forward-declares it (M723) */
 
 int jc_env_parse_size(const char *s, double *out)
@@ -218,6 +221,8 @@ int jc_env_path_in_scope(const struct jc_envelope *e, const char *root,
 {
     jc_size i;
     const char *p;
+    char norm[JC_PATH_MAX];
+    const char *relpath;
 
     if (e == NULL || e->edit_scope.len == 0) {
         return 1;
@@ -225,7 +230,25 @@ int jc_env_path_in_scope(const struct jc_envelope *e, const char *root,
     if (path == NULL) {
         return 0;
     }
-    p = jc_env_relpath(root, path);
+    /* M981 (face one - B-04): normalise the path BEFORE glob matching.
+     * jc_path_normalize rejects '..' (returns JC_ERR_INVALID) and resolves
+     * relative paths against the workspace root. An un-normalisable path
+     * (e.g. one with '..') must be OUT OF SCOPE - fail closed.
+     * We use the workspace root as the cwd for normalization. */
+    if (root == NULL || root[0] == '\0') {
+        /* No root: use the path as-is (existing contract for root-NULL tests).
+         * We need to strip the leading './' before glob matching. */
+        relpath = jc_env_relpath(root, path);
+        p = relpath;
+    } else {
+        /* Normalize the path against the workspace root.
+         * jc_path_normalize rejects '..' -> out of scope (fail closed). */
+        if (jc_path_normalize(root, path, norm, sizeof(norm)) != JC_OK) {
+            return 0;
+        }
+        relpath = jc_env_relpath(root, norm);
+        p = relpath;
+    }
     for (i = 0; i < e->edit_scope.len; i++) {
         const char *pat = *(char **)jc_vec_at((struct jc_vec *)&e->edit_scope,
                                               i);
@@ -579,23 +602,33 @@ const char *jc_env_disposition_name(enum jc_env_outcome o, int rolled_back)
     }
 }
 
-int jc_env_summarize_paths(const char *names, int max, struct jc_sb *out)
+int jc_env_summarize_paths(const char *names, jc_size names_len, int max,
+                           struct jc_sb *out)
 {
     int count;
     int shown;
     const char *p;
     const char *start;
+    const char *end;
 
-    if (names == NULL) {
+    /* M1095 (D-03): the list is the NUL-separated raw form -- one path per
+     * segment, a trailing NUL after the last (empty list = names_len 0).
+     * strlen stops at the FIRST NUL (one segment only), and a final segment
+     * without a trailing NUL is otherwise indistinguishable from an internal
+     * one, so the length is explicit -- as in jc_snapshot_undo_note. The
+     * walk is bounded by names_len, so it never reads past the buffer
+     * whether or not the last name is NUL-terminated. */
+    if (names == NULL || names_len <= 0) {
         return 0;
     }
     count = 0;
     shown = 0;
     start = names;
+    end = names + names_len;
     for (p = names;; p++) {
-        if (*p == '\n' || *p == '\0') {
-            jc_size len = (jc_size)(p - start);
-            if (len > 0) {
+        if (p == end || *p == '\0') {
+            if (p > start) {
+                jc_size len = (jc_size)(p - start);
                 count++;
                 if (out != NULL && shown < max) {
                     char buf[512];
@@ -609,7 +642,7 @@ int jc_env_summarize_paths(const char *names, int max, struct jc_sb *out)
                     shown++;
                 }
             }
-            if (*p == '\0') {
+            if (p == end) {
                 break;
             }
             start = p + 1;
@@ -693,6 +726,47 @@ int jc_env_fail_signature(const char *output, char *buf, jc_size cap)
     return n > 0 ? 1 : 0;
 }
 
+int jc_env_fail_line(const char *output, char *buf, jc_size cap)
+{
+    const char *p;
+    const char *start;
+    const char *end;
+    jc_size n;
+
+    if (buf == NULL || cap == 0) {
+        return 0;
+    }
+    buf[0] = '\0';
+    if (output == NULL) {
+        return 0;
+    }
+    p = strstr(output, "error:");
+    if (p == NULL) {
+        return 0;
+    }
+    start = p;
+    while (start > output && start[-1] != '\n') {
+        start--;
+    }
+    while (*start == ' ' || *start == '\t') {
+        start++;
+    }
+    end = strchr(p, '\n');
+    if (end == NULL) {
+        end = p + strlen(p);
+    }
+    while (end > start && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r')) {
+        end--;
+    }
+    n = (jc_size)(end - start);
+    if (n > cap - 1) {
+        n = jc_utf8_trunc_len(start, cap - 1);
+    }
+    memcpy(buf, start, n);
+    buf[n] = '\0';
+    return n > 0 ? 1 : 0;
+}
+
 int jc_env_note_failure(struct jc_envelope *e, const char *output)
 {
     char sig[JC_ENV_SIG_MAX];
@@ -744,13 +818,75 @@ int jc_env_note_blocked(struct jc_envelope *e, const char *tool,
     return e->repeat_blocks;
 }
 
+/* M818 (N2): a directory component that names a test tree. */
+static int jc_test_dir_comp(const char *s, jc_size n)
+{
+    if (n == 4 && strncmp(s, "test", 4) == 0) { return 1; }
+    if (n == 5 && strncmp(s, "tests", 5) == 0) { return 1; }
+    if (n == 4 && strncmp(s, "spec", 4) == 0) { return 1; }
+    if (n == 5 && strncmp(s, "specs", 5) == 0) { return 1; }
+    if (n == 9 && strncmp(s, "__tests__", 9) == 0) { return 1; }
+    return 0;
+}
+
+/* M818 (N2): a basename that names a test file -- an exact stem (test.zig), a
+ * prefix (test_x.py) or an affix before an extension (parser_test.zig, foo_spec.rb,
+ * FooTest.java). Deliberately NOT a bare substring: "inspector" ends in nothing
+ * test-shaped, "contest"/"latest"/"manifest" carry "test" only as letters. */
+static int jc_test_basename(const char *b)
+{
+    if ((strncmp(b, "test", 4) == 0 && (b[4] == '.' || b[4] == '\0')) ||
+        (strncmp(b, "tests", 5) == 0 && (b[5] == '.' || b[5] == '\0')) ||
+        (strncmp(b, "spec", 4) == 0 && (b[4] == '.' || b[4] == '\0')) ||
+        (strncmp(b, "specs", 5) == 0 && (b[5] == '.' || b[5] == '\0'))) {
+        return 1;
+    }
+    if (strncmp(b, "test_", 5) == 0 || strncmp(b, "spec_", 5) == 0) {
+        return 1;
+    }
+    if (strstr(b, "_test.") != NULL || strstr(b, "_spec.") != NULL ||
+        strstr(b, ".test.") != NULL || strstr(b, ".spec.") != NULL ||
+        strstr(b, "Test.")  != NULL || strstr(b, "Spec.")  != NULL ||
+        strstr(b, "Tests.") != NULL || strstr(b, "Specs.") != NULL) {
+        return 1;
+    }
+    return 0;
+}
+
+/* M818 (N2, threadwork's weekend drive): does `path` name a test file, by PATH
+ * COMPONENT rather than a bare substring? The old `strstr(path,"test")` matched an
+ * agent profile (`.jichi/agents/weekend-test-writer.md`), any `latest/`/`contest/`
+ * directory, and `inspector.*` (it contains "spec") -- firing the goalpost warning
+ * on things that are not tests. Match instead a test DIRECTORY component or a test
+ * BASENAME, and never jichi's own `.jichi/` config tree. */
 int jc_env_is_test_path(const char *path)
 {
+    const char *seg;
+    const char *p;
+    const char *base;
     if (path == NULL) {
         return 0;
     }
-    return strstr(path, "test") != NULL || strstr(path, "Test") != NULL ||
-           strstr(path, "spec") != NULL || strstr(path, "Spec") != NULL;
+    seg = path;
+    p = path;
+    for (;;) {
+        if (*p == '/' || *p == '\0') {
+            jc_size n = (jc_size)(p - seg);
+            if (n == 6 && strncmp(seg, ".jichi", 6) == 0) {
+                return 0;   /* profiles/skills live here; never a test to gate on */
+            }
+            if (*p == '\0') {
+                base = seg;   /* the last component is the basename */
+                break;
+            }
+            if (jc_test_dir_comp(seg, n)) {
+                return 1;
+            }
+            seg = p + 1;
+        }
+        p++;
+    }
+    return jc_test_basename(base);
 }
 
 enum jc_verify_sanity jc_env_verify_sanity(int count_now, int prev_max,
@@ -865,7 +1001,7 @@ jc_status jc_env_init(struct jc_envelope *e, struct jc_arena *a,
     e->run_id = (run_id != NULL) ? jc_arena_strdup(a, run_id) : NULL;
     e->journal = NULL;
     if (journal_path != NULL && journal_path[0] != '\0') {
-        e->journal = fopen(journal_path, "a");
+        e->journal = fopen(journal_path, "ab");
         if (e->journal != NULL) {
             jc_make_private(journal_path); /* owner-only (M132) */
             /* M472: a model-issued shell was measured holding this descriptor
@@ -1010,27 +1146,27 @@ int jc_env_run_verify(const char *cmd, const char *cwd, struct jc_sb *out,
     if (jc_pipe_cloexec(fds) != 0) {
         return -1;
     }
-    pid = fork();
-    if (pid < 0) {
-        close(fds[0]);
-        close(fds[1]);
-        return -1;
-    }
-    if (pid == 0) {
-        dup2(fds[1], STDOUT_FILENO);
-        dup2(fds[1], STDERR_FILENO);
-        close(fds[0]);
-        close(fds[1]);
-        if (cwd != NULL && cwd[0] != '\0') {
-            if (chdir(cwd) != 0) {
-                _exit(126);
-            }
+    /* M832: through jc_spawn -- keys scrubbed, cwd honoured (a cwd that will
+     * not enter is exit 126 on the fork backend, a start failure on the spawn
+     * backend; both read as "the verifier could not run there"). No process
+     * group: this runner kills the pid, as it always has. */
+    {
+        struct jc_spawn_req sr;
+        memset(&sr, 0, sizeof sr);
+        sr.shell_cmd = cmd;
+        /* M844 (ACP-1): never jichi's own stdin -- over ACP it is the client's
+         * JSON-RPC stream, and a command that reads stdin ate its next message
+         * (a session/cancel). tests/smoke/acp_child_stdin.sh holds this. */
+        sr.fd_stdin = JC_SPAWN_DEVNULL;
+        sr.fd_stdout = fds[1];
+        sr.fd_stderr = fds[1];
+        sr.scrub_env = 1;
+        sr.cwd = (cwd != NULL && cwd[0] != '\0') ? cwd : NULL;
+        if (jc_spawn(&sr, &pid) != JC_OK) {
+            close(fds[0]);
+            close(fds[1]);
+            return -1;
         }
-        jc_proc_scrub_secret_env(); /* the verifier command must not see keys */
-        jc_proc_child_close_fds(); /* M472: and not our fds */
-        jc_proc_child_sigreset(); /* M461 */
-        execl(jc_shell_path(), "sh", "-c", cmd, (char *)NULL);
-        _exit(127);
     }
     close(fds[1]);
 
@@ -1084,9 +1220,21 @@ int jc_env_run_verify(const char *cmd, const char *cwd, struct jc_sb *out,
         }
     }
     close(fds[0]);
-    waitpid(pid, &status, 0);
     if (killed) {
+        /* The kill is OUR act (deadline or abort), as it always has been:
+         * report the cause, not a status. The reap is a courtesy -- when
+         * SIGCHLD is inherited-ignored the kernel may have taken the child,
+         * in which case the waitpid fails and there is nothing to do. */
+        (void)jc_proc_waitpid(pid, NULL);
         return JC_VERIFY_TIMEOUT;
+    }
+    /* M987 (E-01): a checked reap. A failed waitpid (ECHILD when SIGCHLD was
+     * inherited ignored) is UNKNOWN -- it used to fall through on the zeroed
+     * `status`, which WIFEXITED decodes as "exited normally 0", reading a
+     * FAILED verifier as passing. -1 (could not run) is the documented
+     * unknown for this function. */
+    if (jc_proc_waitpid(pid, &status) != 0) {
+        return -1;
     }
     if (WIFEXITED(status)) {
         return WEXITSTATUS(status);

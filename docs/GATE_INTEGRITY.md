@@ -45,7 +45,7 @@ cannot infer it.
 | --- | --- | --- |
 | `--edit-scope` (M-envelope) | Refuses `write_file`/`edit_file`/`apply_patch` outside the globs | Fences the **file tools only**. It worked in #45 — `edit_file` was refused — and the run reached the same file through `run_terminal_command` |
 | `--strict-scope` | Forbids the shell outright | The hammer. It disables `zig ast-check`, `corpus_sweep.py`, every measurement instrument a real gate uses. Unusable on any project that needs a shell |
-| M83 out-of-scope diff | Diffs the tree against the run-start baseline, names every out-of-scope path | **Post-hoc.** Runs at `jc_agent.c:2783`, after the completion verify has already set `JC_ENV_OK` at `:1476` |
+| M83 out-of-scope diff | Diffs the tree against the run-start baseline, names every out-of-scope path | **Post-hoc.** Runs in `env_report_out_of_scope`, after the completion verify has already set `JC_ENV_OK` in `run_agent_loop` |
 | M142 `--revert-out-of-scope` | Restores flagged paths to the baseline | Also post-hoc, and it *repairs the file while leaving the verdict it corrupted intact*. In #45 the workspace ended clean and the run still exited 0 |
 | M86 hollow-gate check | Flags a green that ran zero or fewer tests | Reasons about test **counts**. A neutered verifier reports whatever counts it likes |
 | M331 verdict-vs-evidence | Flags a red with no failing test | Fired correctly in #45, and detects nothing about the *file* |
@@ -59,11 +59,11 @@ allowed to affect the verdict.
 
 ```
 run_agent_loop
-  └─ completion verify passes  ──►  env->outcome = JC_ENV_OK      (jc_agent.c:1476)
+  └─ completion verify passes  ──►  env->outcome = JC_ENV_OK      (jc_agent.c:run_agent_loop)
   └─ return JC_OK
 jc_agent_run_turn
-  └─ env_report_out_of_scope(...)  ──►  detects "hollow.sh"        (jc_agent.c:2783)
-  └─ journal "end"                 ──►  reports outcome: ok        (jc_agent.c:2797+)
+  └─ env_report_out_of_scope(...)  ──►  detects "hollow.sh"        (jc_agent.c:env_report_out_of_scope)
+  └─ journal "end"                 ──►  reports outcome: ok        (jc_agent.c:run_agent_loop)
 ```
 
 The information required to disqualify the green is computed **before the outcome is
@@ -109,7 +109,7 @@ positive is an incidental shell-written file — a lock file, a generated artifa
 rate should be measured on real runs before it changes anyone's exit code. Flipping the
 default is a separate, evidenced decision.
 
-**Cost:** a few lines at `jc_agent.c:2783`–`:2797`, one enum value, one journal field, one
+**Cost:** a few lines in `run_agent_loop` (the refuse-green branch), one enum value, one journal field, one
 config key, docs. No new detection.
 
 ### 5.2 DECLARE-THE-GATE — tell the run what the gate is

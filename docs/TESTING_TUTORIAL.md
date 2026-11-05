@@ -239,8 +239,8 @@ and
 ```sh
 jichi test 'make test'          # run a command NOW — no config needed
 jichi test                      # the same, using the configured testCommand/verify
-jichi --auto -p "add a failing test for the empty-input case, watch it fail, then fix it"
-jichi --auto --verify 'make test' -p "implement X"   # the gate drives the loop
+jichi --auto -p "add a failing test for the empty-input case, watch it fail, then fix it" < /dev/null
+jichi --auto --verify 'make test' -p "implement X" < /dev/null   # the gate drives the loop
 ```
 
 Three rules those four lines encode, each of which will otherwise cost you a

@@ -53,4 +53,5 @@ flowchart LR
   [REMOTE_SSH.md](REMOTE_SSH.md) and [TMUX.md](TMUX.md)).
 
 Installation and the full command set for each editor are in the per-editor
-guides linked above.
+guides linked above. To work with jichi and an editor in separate windows, with a browser, a
+PDF reader and a file manager beside them, see [WORKBENCH.md](WORKBENCH.md).

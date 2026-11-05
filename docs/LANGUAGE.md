@@ -30,7 +30,7 @@ session):
 ```
 
 ```sh
-jichi --language German -p "explain make -j"
+jichi --language German -p "explain make -j" < /dev/null
 ```
 
 ```

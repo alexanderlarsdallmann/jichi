@@ -337,24 +337,8 @@ That is the correct split — the rest is either enormous, secret, or a property
 of the bench — but it means four things have to be re-established, and one of
 them is easy to get silently wrong.
 
-```mermaid
-flowchart TB
-    subgraph G["travels in git"]
-        direction LR
-        C["src, tests, docs"]
-        R["scripts/tier-*.sh<br/><i>every row rebuilds itself</i>"]
-    end
-    subgraph N["does NOT travel"]
-        direction LR
-        B["<b>the bench reference</b><br/>re-measure it"]
-        V["VM images<br/><i>rigs re-download</i>"]
-        T["toolchains<br/>zig, NDK, adb, qemu"]
-        K["access tokens<br/><i>never in git</i>"]
-    end
-    G --> OK["clone, build, gate"]
-    N --> W["four steps, in this order"]
-    style B fill:#7f1d1d,color:#fff
-```
+- **Travels in git** (clone, build, gate): `src`, `tests`, `docs`, and `scripts/tier-*.sh` — every row rebuilds itself.
+- **Does NOT travel** — re-establish these, in this order: the **bench reference** (re-measure it), VM images (rigs re-download), toolchains (zig, NDK, adb, qemu), and access tokens (never in git).
 
 ### The one that bites: the bench reference
 

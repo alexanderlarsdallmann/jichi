@@ -18,8 +18,10 @@
 #                  ISO date, or "every milestone" SOMEWHERE in the row; no row
 #                  claims more smoke drivers than the tree has ever had;
 #                  PLATFORM_RETEST.md's own "drivers in the tree" figure is
-#                  neither an overclaim nor an era behind; and the page is
-#                  reachable from the docs index.
+#                  neither an overclaim nor an era behind; the table's Debt
+#                  column cross-foots the baseline it claims to be computed
+#                  from (every computable Debt == baseline - drivers it ran);
+#                  and the page is reachable from the docs index.
 #
 #   NOT checked, and stated because the first version of this header overclaimed
 #   it: check 2 does NOT verify that the stamp belongs to the MEASUREMENT. A row
@@ -48,7 +50,7 @@
 # rule: a lint whose extraction silently returns nothing is green and worthless.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 5
+t_plan 6
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 PL="$root/docs/PLATFORMS.md"
@@ -125,6 +127,52 @@ if grep -q 'PLATFORM_RETEST.md' "$root/docs/README.md"; then
     t_ok "PLATFORM_RETEST.md is listed in the docs index"
 else
     t_fail "PLATFORM_RETEST.md is not linked from docs/README.md"
+fi
+
+# 6: the Debt column cross-foots the baseline it is claimed to be computed from.
+# Check 4 bounds how STALE the baseline figure may be, but neither check 4 nor any
+# other check joins the baseline to the table: the page's worked sentence says
+# debt = (smoke drivers in the tree today) - (drivers the row ran), and the table
+# is the only place that arithmetic is actually written down, so it is the only
+# place it can silently diverge. That is exactly what happened at M1048: the
+# baseline moved 465 -> 491 (M1049 restated the sentence) and every Debt in the
+# table was left computed from 465 -- each 26 low, none flagged, because the
+# baseline check reads the SENTENCE and the table is a different set of bytes.
+# This check closes the gap: for every row whose Debt cell is a plain integer it
+# asserts Debt == baseline - (drivers it ran). A row whose Debt is not a plain
+# integer (n/a, "past 100") is debt-uncomputable by the page's own rule and is
+# skipped -- the table only cross-foots the rows it can.
+JC_PLAT_MIN_DEBT_ROWS=5
+pr_rows="$tmp/pr_rows"
+awk '/^\| Row \| Drivers it ran \| Debt \| What that means \|/{v=1;next}
+     v&&/^$/{exit} v' "$PR" \
+    | grep '^| ' | grep -v '^|---' \
+    | awk -F'|' '{
+        name=$2; ran=$3; deb=$4;
+        gsub(/^[[:space:]]+/,"",name); gsub(/[[:space:]]+$/,"",name); gsub(/\*\*/,"",name);
+        gsub(/[[:space:]*]/,"",ran); gsub(/[[:space:]*]/,"",deb);
+        if (ran ~ /^[0-9]+$/ && deb ~ /^[0-9]+$/) print name "\t" ran "\t" deb
+      }' > "$pr_rows"
+nd=$(wc -l < "$pr_rows" | tr -d '[:space:]')
+if [ "$nd" -lt "$JC_PLAT_MIN_DEBT_ROWS" ] || [ -z "$pr_drv" ]; then
+    t_fail "the debt table yielded $nd computable rows (floor $JC_PLAT_MIN_DEBT_ROWS, \
+baseline '$pr_drv') -- the table shape changed and this check is reading almost \
+nothing. Fix the extraction, not the floor."
+else
+    debtbad=""
+    while IFS="$(printf '\t')" read -r pname pran pdeb; do
+        expect=$((pr_drv - pran))
+        if [ "$pdeb" -ne "$expect" ]; then
+            debtbad="$debtbad $pname(ran $pran, debt $pdeb, want $expect)"
+        fi
+    done < "$pr_rows"
+    if [ -z "$debtbad" ]; then
+        t_ok "every computable Debt cross-foots the baseline ($nd rows, baseline $pr_drv)"
+    else
+        t_fail "Debt column does not cross-foot against the $pr_drv-driver baseline:$debtbad \
+-- debt = baseline - drivers it ran, so the column was computed from an older \
+baseline. Re-run the count and restate the table, not the sentence."
+    fi
 fi
 
 t_done

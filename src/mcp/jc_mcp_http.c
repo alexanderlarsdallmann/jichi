@@ -26,6 +26,7 @@
 
 #include "jc_http.h"
 #include "jc_sse.h"
+#include "jc_net.h"
 
 #define MCP_PROTOCOL_VERSION "2025-06-18"
 #define MCP_HTTP_TIMEOUT_SECS 120
@@ -159,6 +160,9 @@ static jc_status http_post(struct jc_mcp_conn *c, const char *line,
     req.timeout_secs = MCP_HTTP_TIMEOUT_SECS;
     req.abort_flag = c->abort;
     req.resp_headers = &resp_headers;
+    /* M1093: only a jc_mcp_server_cfg* is in scope, not a jc_config*: the
+     * built-in connect (30) + dead-stream (900) fences apply. */
+    jc_net_side_fences(&req, NULL);
 
     st = jc_http_perform(&req, &status, &body, NULL);
 

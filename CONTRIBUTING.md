@@ -22,6 +22,98 @@ your time:
 | **Patches and pull requests** | **Read, and applied by hand when they are right — but not merged as commits.** A patch here cannot become a commit in the private history, so a merge button would be a promise this repository cannot keep. Send the diff or the branch; if it lands, the change is attributed to you in `CHANGELOG.md` and in the milestone that carries it. |
 | **A pull request left open for weeks** | Should not happen. An unanswered contribution is worse than a stated "not yet", which is why this section exists at all. |
 
+## A junior developer's route
+
+**For** a developer who can read C and wants to make a first change to jichi, and has
+not read the code yet. **You need** a built tree (`make`, see
+[`docs/PREPARE_AND_BUILD.md`](docs/PREPARE_AND_BUILD.md)) and an hour per step. If you
+only want to *use* jichi, start at [`docs/README.md`](docs/README.md#start-here) instead.
+
+Six steps, in order. Each says what it lets you do.
+
+1. **[Annai](docs/reading/ANNAI.md)** (the guided tour, ten short chapters): what a turn
+   is, how a model calls a tool, and where in `src/` each happens. *You can then follow
+   one turn through the code.*
+2. **[Fukabori](docs/reading/FUKABORI.md)** (the deep dives): why C89, the provider
+   abstraction, the three arenas, the agent loop as a state machine. *You can then
+   tell which arena a new piece of data belongs in, and why the loop never branches on
+   the provider.*
+3. **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**: every layer of `src/` and what it
+   holds. *You can then find the file a change belongs in.* Read it as a reference, not
+   front to back.
+4. **[`docs/TESTING_RUNBOOK.md`](docs/TESTING_RUNBOOK.md)**: the ten steps for adding a
+   test, each with the incident that produced it. *You can then write a test that is
+   shown to fail without its fix.*
+5. **[`docs/TEST_TIERS.md`](docs/TEST_TIERS.md)**: the unit suite, the smoke tier,
+   e2e, and what `make ci` runs. *You can then choose the tier a check belongs in.*
+6. **A first change**, below: a one-line fix, red first, through the fast gate.
+
+### A worked first change
+
+An exercise, in your own clone: teach `jichi board move <id> finished` to mean *done*.
+It is small enough to finish in ten minutes and shows the whole ritual. The project
+does not need this change; do it on a scratch branch.
+
+1. **Write the check first.** In `tests/test_board.c`, under the line
+   `JC_CHECK(jc_board_state_from_str("done") == 2);`, add:
+
+   ```c
+       JC_CHECK(jc_board_state_from_str("finished") == 2);
+   ```
+
+2. **Watch it fail.** Build and run the unit suite:
+
+   ```sh
+   make WERROR=1 jichi run_tests && ./run_tests
+   ```
+
+   You should see, among the test names, this line, and a last line with one failure
+   (the check total moves as the suite grows):
+
+   ```text
+     FAIL tests/test_board.c:23: jc_board_state_from_str("finished") == 2
+   15018 checks, 1 failures
+   ```
+
+   If you see `0 failures`, the check is not running: it is in the wrong function, or
+   the build did not pick it up. A check never seen failing has never been seen working.
+
+3. **Make the one-line fix.** In `src/chat/jc_board.c`, `jc_board_state_from_str`,
+   change the `done` line to:
+
+   ```c
+       if (strcmp(s, "done") == 0 || strcmp(s, "finished") == 0) {
+   ```
+
+4. **Run the fast gate.** The suite again, and the C89 check every file must pass:
+
+   ```sh
+   make WERROR=1 jichi run_tests && ./run_tests
+   clang -std=c89 -pedantic -Wall -Wextra -Werror -fsyntax-only -Iinclude -Isrc/json -D_POSIX_C_SOURCE=200112L src/chat/jc_board.c
+   ```
+
+   You should see `0 failures` on the last line, and nothing from `clang`. If `clang` is
+   not installed, `make WERROR=1` with gcc already compiled the file at the same
+   standard.
+
+5. **Try it as a user**, from the top of your clone. `jichi board` writes
+   `.jichi/board.json` where you run it, so step into a scratch directory first:
+
+   ```sh
+   J=$PWD/jichi; mkdir -p /tmp/board-try && cd /tmp/board-try
+   "$J" board add "try it" < /dev/null
+   "$J" board move 1 finished < /dev/null
+   ```
+
+   You should see `added card [1]` and `card [1] -> done`. If the first line says
+   `added card [2]` or higher, the directory already had a board: remove
+   `/tmp/board-try` and start again.
+
+That is the shape of every change here: a check that fails, the smallest fix that
+passes it, the gate, and the program used as its user would. A real milestone adds the
+records -- a ROADMAP entry, a DECISIONS row when an alternative was rejected, the
+CHANGELOG when users see it -- and `make ci` before it merges ([below](#the-quality-gate-make-ci)).
+
 ## A good bug report
 
 The house style, and it is not ceremony — this project's own register is
@@ -72,6 +164,18 @@ project has broken and written up:
 
 [`docs/SESSION_RUNBOOK.md`](docs/SESSION_RUNBOOK.md) is the order the maintainer
 works in, and every rule in it was written after breaking it.
+
+## Commits: author and trailers
+
+In this repository the author and the committer of every commit are the
+maintainer; if you contribute from outside, author your commits as yourself.
+When an agent wrote a change, end the message with its trailer block, one blank
+line after the body:
+[`docs/analysis/COMMIT-ATTRIBUTION.md`](docs/analysis/COMMIT-ATTRIBUTION.md)
+gives the three lines and how to fill them. jichi has no address of its own, so
+its `Co-Authored-By` line carries the maintainer's. Never a placeholder identity
+(an address at localhost) or `noreply@jichi`: agents copy the commits nearest
+to them, and a wrong example keeps teaching.
 
 ## C89 coding rules
 
@@ -251,7 +355,7 @@ Since the M209–M217 port, the smoke tier carries the bulk of what was the
 Python e2e suite: the headless round trip, `--output json/jsonl`, stall/signal
 exit codes, sessions, the media/embeddings/routing/posture surfaces, the
 AF_UNIX daemon + control channel, the MCP + ACP stdio protocols, the PTY line
-editor, and the `spawn_parallel` fork pool — 329 drivers, all Python-free. What
+editor, and the `spawn_parallel` fork pool — 542 drivers, all Python-free. What
 remains under `make e2e` is a small permanently-Python residual (see the table
 above), so **`make check-target` (= `test` + `smoke`) is now a full build gate
 on any POSIX box**, and `make e2e` is optional (it skips loudly without

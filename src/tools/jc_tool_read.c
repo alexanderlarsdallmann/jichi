@@ -13,6 +13,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 
 static cJSON *read_schema(void)
@@ -47,6 +48,11 @@ static jc_status read_run(const cJSON *args, struct jc_tool_result *out,
      * for content this tool had just told it did not exist. */
     int total_true = 0;
     int have_true = 0;
+    /* M978/D-01: the file holds NUL bytes; the display shows only up to the
+     * first. Flagged here, appended to `num` AFTER it is initialised and
+     * filled (appending to `num` before jc_sb_init would write into an
+     * uninitialised struct_sb -- the M978 red commit's segfault). */
+    int nul_at = 0;
     int shown;
 
     if (path == NULL) {
@@ -116,6 +122,10 @@ static jc_status read_run(const cJSON *args, struct jc_tool_result *out,
             }
             return JC_OK;
         }
+        /* D-01/M978: detect NUL bytes in the file. If dlen != strlen(data),
+         * the file contains NUL bytes and the displayed content is truncated
+         * at the first. Marked here, appended to the output below. */
+        nul_at = (dlen != (jc_size)strlen(data)) ? 1 : 0;
         if (dlen > cap) {
             jc_sb_append_n(&raw, data, cap);
             truncated = 1;
@@ -155,6 +165,13 @@ static jc_status read_run(const cJSON *args, struct jc_tool_result *out,
                         total == 1 ? "" : "s");
         }
         jc_sb_append(&num, msg);
+    }
+    if (nul_at) {
+        char nulmsg[256];
+        jc_snprintf(nulmsg, sizeof(nulmsg),
+            "\n(file contains NUL bytes; content truncated at byte %lu in the display)\n",
+            (unsigned long)strlen(data));
+        jc_sb_append(&num, nulmsg);
     }
     if (truncated) {
         /* M594: how much is missing, so a second read can be aimed. The marker

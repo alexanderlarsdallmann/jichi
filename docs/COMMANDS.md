@@ -31,9 +31,13 @@ Frontmatter keys:
   `.jichi/agents/`). The profile's system prompt is injected for the turn and its
   `readonly` flag is applied, so e.g. a command pointing at a read-only reviewer
   can't modify files. If the named profile doesn't exist, the command just runs
-  as a normal turn (no error). The *profile's* own `model`/`tools` fence are not
-  applied here (those are a subagent concern) — but the command's own `model:`
-  key below is. On a `subtask: true` command the profile body is the subtask's
+  as a normal turn (no error). The profile's `tools:` list fences the command
+  only when it runs on its own (`subtask: true`, below); in the main turn it does
+  not apply, so the tool definitions stay byte-stable for the prompt cache. The
+  profile's `model:` never applies to a command — the command's own `model:` key
+  below does (the rule decided on 2026-09-30, built at M848; `attempt --agent`
+  and subagents take the profile's `model:`). On a `subtask: true` command the
+  profile body is the subtask's
   **identity paragraph** — it replaces the generic "focused sub-agent" framing,
   and the environment, the untrusted-content rule, the constraints and the edit
   scope are appended after it (M596; until then the subtask path dropped the
@@ -41,10 +45,14 @@ Frontmatter keys:
 - `model` — **honored**: switch the active model to the named one (a model
   name/id substring or 1-based index, resolved like `/model`) for just this
   turn, then switch back. Unknown/empty names are a graceful no-op.
-- `subtask` — **honored**: when `true`, the command runs in an isolated
-  sub-agent on a throwaway history, so its intermediate tool calls and reasoning
-  stay out of the main conversation; only the prompt and the subtask's final
-  answer are recorded. Composes with `model:` / `agent:`. A subtask receives the
+- `subtask` — **honored**: when `true`, the command runs as a sub-agent on a
+  throwaway history, so its intermediate tool calls and reasoning stay out of the
+  main conversation; only the prompt and the subtask's final answer are
+  recorded. The *history* is isolated, not the effects: a subtask runs under
+  **your** posture — in chat a change asks first, headless without `--auto` it is
+  refused, under `--auto` it runs (M848; before it, a subtask ran with every tool
+  and asked nothing). Its `agent:` profile's `tools:` fences it, and a refused tool
+  names the list. Composes with `model:` / `agent:`. A subtask receives the
   session's answer-language directive (M597) — its answer goes to you, not to a
   parent agent that could translate it.
 - `language` — **honored** (M597): the answer language for this command's run,

@@ -76,7 +76,13 @@ find "$root/docs" -type f -name '*.md' \
      ! -name ROADMAP.md ! -name ANECDOTES.md ! -name DECISIONS.md \
      ! -name DEFERRED.md \
      ! -path "*/analysis/*" ! -path "*/proposals/*" \
+     ! -path "*/internal/*" \
      -exec cat {} + > "$tmp/reader_docs" 2>/dev/null
+# M879 class: the rig ships `git archive HEAD`, which drops `docs/internal/`
+# (it is `export-ignore`d in .gitattributes). A key documented ONLY there passed
+# the checkout lint but was undocumented in every shipped tree -- `relayNotesBytes`
+# on the 2026-10-14/15 board runs. The corpus must match what ships, so internal
+# is excluded (the same rule as analysis/proposals above).
 cat "$root/README.md" >> "$tmp/reader_docs" 2>/dev/null
 
 while read -r k; do

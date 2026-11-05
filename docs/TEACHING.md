@@ -176,23 +176,14 @@ project's own ([TEST_INTEGRITY.md](TEST_INTEGRITY.md)).
 This is the phase the page exists for. Build a student's bench and work the task
 in it, from the pristine state, using only what a student has.
 
-```mermaid
-%%{init: {'theme':'base','themeVariables':{'lineColor':'#111111','fontSize':'14px'}}}%%
-flowchart LR
-    C["copy the brief + fixture<br/>into a FRESH directory"] --> S["setup --preset learner"]
-    S --> N["confirm: no .solution.md,<br/>no notes, no shell history"]
-    N --> R["jichi assign spec.md<br/>read your own brief cold"]
-    R --> W["do the work yourself"]
-    W --> H["stuck? pull YOUR hint ladder<br/>jichi hint spec.md 1 · 2 · 3"]
-    H --> G["jichi grade spec.md --record"]
-    G --> Q{"did it work,<br/>and did it teach?"}
-    Q -->|no| F["fix the brief, the ladder,<br/>or the gate — then sit it again"]
-    Q -->|yes| D["ready to distribute"]
-    classDef step fill:#1b5e20,stroke:#0a2e10,color:#ffffff,stroke-width:2px;
-    classDef gate fill:#e65100,stroke:#5f2600,color:#ffffff,stroke-width:2px;
-    class C,S,N,R,W,H,G,F,D step;
-    class Q gate;
-```
+1. Copy the brief + fixture into a **fresh** directory.
+2. `setup --preset learner`.
+3. Confirm: no `.solution.md`, no notes, no shell history.
+4. `jichi assign spec.md` — read your own brief cold.
+5. Do the work yourself.
+6. Stuck? Pull *your* hint ladder: `jichi hint spec.md 1 · 2 · 3`.
+7. `jichi grade spec.md --record`.
+8. Did it work, **and did it teach**? If no, fix the brief, the ladder, or the gate, and sit it again; if yes, it is ready to distribute.
 
 ```sh
 mkdir -p ~/benches/tally && cd ~/benches/tally
@@ -235,17 +226,12 @@ git checkout -- .        # the fixtures are version-controlled: git is the reset
 
 ## Phase 4 — hand out tested copies
 
-```mermaid
-%%{init: {'theme':'base','themeVariables':{'pie1':'#0d47a1','pie2':'#b71c1c','pieStrokeColor':'#ffffff','pieStrokeWidth':'2px','pieSectionTextColor':'#ffffff','pieTitleTextColor':'#111111','pieLegendTextColor':'#111111'}}}%%
-flowchart TD
-    A["your authoring tree"] --> B{"what travels?"}
-    B --> Y["✓ the brief: docs/assignments/slug.md<br/>✓ the fixture dir: docs/assignments/slug/<br/>✓ the same relative layout<br/>✓ a git commit of the pristine state"]
-    B --> N["✗ slug.solution.md<br/>✗ your progress.jsonl<br/>✗ your notes and session files"]
-    classDef ok fill:#1b5e20,stroke:#0a2e10,color:#ffffff,stroke-width:2px;
-    classDef no fill:#b71c1c,stroke:#5f0000,color:#ffffff,stroke-width:2px;
-    class Y ok;
-    class N no;
-```
+| Travels (ship these) | Does NOT travel |
+|---|---|
+| the brief: `docs/assignments/slug.md` | `slug.solution.md` |
+| the fixture dir: `docs/assignments/slug/` | your `progress.jsonl` |
+| the same relative layout | your notes and session files |
+| a git commit of the pristine state | — |
 
 Check before you ship: `jichi assignments` flags every spec that still has a
 reference beside it.

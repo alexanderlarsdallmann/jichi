@@ -46,6 +46,7 @@ agree and that a field array holds identifiers only.
 | Batch migration over a work-list | `-p … --auto --edit-scope` per item, `--journal` | Bounded per item; the journal is the audit trail |
 | Long unattended loop | a supervisor + `--control` | Steer without killing: `status`/`inject`/`pause`/`abort` |
 | Warm interactive front-end | **daemon** (`--connect`) | Skips per-turn startup; the M165 bridge does this |
+| Website or app chatbot answering from documents | `-p … --readonly --output json` per message ([`CHATBOT.md`](CHATBOT.md)) | Read-only, fenced to one folder, a fixed persona |
 | Teaching / grading harness | `jichi assign` + `grade` + `--output json` | Structural grading with no toolchain but jichi |
 | Edge / embedded deliberative layer | `-p` on-device, model over the network | jichi is the seconds-scale layer; reflexes live below it ([ROBOTICS](ROBOTICS.md)) |
 
@@ -71,9 +72,9 @@ execution on your side.
 
 Not optional, in rough order of how often each is skipped:
 
-1. **Exit codes**, all five: `0` ok, `1` runtime error, `2` usage/config,
-   `130` SIGINT, `143` graceful SIGTERM. Treating a non-zero as a crash will
-   misread both `130` and `143`.
+1. **Exit codes**, all six: `0` ok, `1` runtime error, `2` usage/config,
+   `129` SIGHUP (graceful, M988), `130` SIGINT, `143` graceful SIGTERM. Treating a
+   non-zero as a crash will misread all of them.
 2. **`stop_reason` on the terminal event** — `done`, `interrupted`, `timeout`,
    `budget`, `verify_failed`, `error`. A budget stop is *not* a failure: M80 keeps
    the work, and a supervisor that discards it is throwing away good output.
@@ -93,7 +94,12 @@ Not optional, in rough order of how often each is skipped:
 3. **Unknown event types.** The jsonl stream gains events (`heartbeat` arrived at
    M165). Ignore what you do not recognise; do not treat it as a protocol error.
 4. **Liveness.** A long model call produces no output. Use `--heartbeat <secs>` to
-   tell "wedged" from "thinking", or you will kill healthy runs.
+   tell "wedged" from "thinking", or you will kill healthy runs. A `spawn_parallel` batch is a
+   second, longer silence: while the lead waits on its children, its own console shows nothing,
+   by design -- the run is neither wedged nor thinking-on-the-console, it is running with its
+   output on the workers' side. The per-task progress lives in each task's log (and the kept-ref
+   after the batch); a supervisor that wants one line to watch should read the batch result when
+   it lands, not infer liveness from the lead's quiet (D4, the zigodot drive 2026-10-11).
 5. **Bounded runs.** Under `--auto`, always set at least one of
    `--budget-tokens` / `--deadline` / `--max-tool-calls`, and an `--edit-scope`.
    An unbounded autonomous agent with a shell is not a component, it is a hazard.
@@ -130,7 +136,10 @@ of `describe --output json` tell you where you stand.
   `--output`, `--auto`, `-q`, `--config`, `--session`/`-c`, `--no-session`,
   `--connect`, `--heartbeat`.
 - **`describe --output json` itself**, including its own `v`. It is the
-  introspection point; if it moved, nothing else could be discovered.
+  introspection point; if it moved, nothing else could be discovered. On a
+  build without sockets (DJGPP on FreeDOS, M835), its `daemon` and `control`
+  objects also carry `"available": false` and an `unavailable` reason (M836).
+  A build with sockets emits neither, so read a missing `available` as true.
 - **The JSON projections** of `ls`, `export`, `status`, `doctor`.
 - **ACP** — as far as the protocol is specified externally; jichi follows it, and
   does not define it. jichi's side is described in [`ACP.md`](ACP.md); the

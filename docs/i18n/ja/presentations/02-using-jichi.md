@@ -51,8 +51,8 @@ jichi --config local/config.json doctor   # validate everything
 - **`/auto`**——自律；サンドボックス化されたツールを尋ねずに実行。
 
 ```sh
-jichi --plan -p "how would you add feature X?"    # a plan
-jichi --auto -p "add feature X and make tests pass"  # do it
+jichi --plan -p "how would you add feature X?" < /dev/null    # a plan
+jichi --auto -p "add feature X and make tests pass" < /dev/null  # do it
 ```
 
 <!-- plan モードは、見慣れない/共有リポジトリを探索するときの安全な既定である。 -->
@@ -107,7 +107,7 @@ jichi --auto \
   --budget-tokens 500k --deadline 30m \
   --edit-scope "src/**" \
   --journal run.jsonl --control \
-  -p "fix the failing ring-buffer tests"
+  -p "fix the failing ring-buffer tests" < /dev/null
 ```
 
 合格 → 前進；失敗 → N 回まで前進修正、それでもだめなら最後の緑へロールバック。

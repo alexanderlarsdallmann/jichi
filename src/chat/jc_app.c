@@ -8,6 +8,8 @@
 #include "jc_toolout.h"
 #include "jc_provider.h"
 #include "jc_perm.h"
+#include "jc_control.h"  /* M801: jc_control_poll_during_call in the wait loops */
+#include "jc_cli.h"      /* jc_tool_arg_summary, for /why (M762) */
 #include "jc_envelope.h"
 #include "jc_net.h"
 #include "jc_mem.h"
@@ -17,9 +19,11 @@
 #include "jc_path.h"
 #include "jc_image.h"
 #include "jc_base64.h"
+#include "jc_session.h"
 #include "jc_message.h"
 #include "jc_confbench.h"
 #include "jc_proc.h"
+#include "jc_spawn.h"   /* M832 */
 #include "jc_agent.h"
 #include "jc_log.h"
 #include "jc_telemetry.h"
@@ -32,7 +36,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <signal.h>
-#include <sys/select.h>
+#include "jc_select.h"  /* M834: <sys/select.h> where it exists */
 #include <sys/time.h> /* struct timeval: MiNTLib's <sys/select.h> only forward-declares it (M723) */
 #include <errno.h>
 
@@ -44,6 +48,44 @@
 
 #define JC_REACH_MAX 64 /* model-count cap for the reachability cache */
 
+/* Copy the first line of `s` into buf (NUL-terminated, cut at cap). */
+static void why_first_line(const char *s, char *buf, jc_size cap)
+{
+    jc_size n = 0;
+    if (cap == 0) {
+        return;
+    }
+    if (s != NULL) {
+        while (s[n] != '\0' && s[n] != '\n' && n + 1 < cap) {
+            buf[n] = s[n];
+            n++;
+        }
+    }
+    buf[n] = '\0';
+}
+
+void jc_app_why_note(struct jc_app *app, const char *tool,
+                     const char *args_json, int refused, const char *rule,
+                     const char *told)
+{
+    unsigned long next;
+    struct jc_why *w;
+
+    if (app == NULL) {
+        return;
+    }
+    w = &app->why;
+    next = w->seq + 1;
+    memset(w, 0, sizeof(*w));
+    w->seq = next;
+    w->depth = app->agent_depth;
+    w->refused = refused ? 1 : 0;
+    jc_snprintf(w->tool, sizeof(w->tool), "%s", tool != NULL ? tool : "");
+    jc_tool_arg_summary(tool, args_json, w->args, sizeof(w->args));
+    jc_snprintf(w->rule, sizeof(w->rule), "%s", rule != NULL ? rule : "");
+    why_first_line(told, w->told, sizeof(w->told));
+}
+
 void jc_app_set_mode(struct jc_app *app, int mode)
 {
     app->mode = mode;
@@ -53,15 +95,47 @@ void jc_app_set_mode(struct jc_app *app, int mode)
         app->auto_approve = 0;
         break;
     case JC_MODE_AUTO:
-        app->readonly = 0;
+        app->readonly = app->readonly_pinned;
         app->auto_approve = 1;
         break;
     case JC_MODE_CHAT:
     default:
-        app->readonly = 0;
+        app->readonly = app->readonly_pinned;
         app->auto_approve = 0;
         break;
     }
+}
+
+int jc_app_apply_saved_mode(struct jc_app *app, int saved, char *note,
+                            jc_size note_cap)
+{
+    enum jc_saved_mode_outcome o;
+    enum jc_agent_mode cur = (enum jc_agent_mode)app->mode;
+    enum jc_agent_mode to = jc_perm_saved_mode(cur, app->mode_pinned,
+                                               (enum jc_agent_mode)saved, &o);
+    const char *was = jc_agent_mode_name((enum jc_agent_mode)saved);
+
+    if (note != NULL && note_cap > 0) {
+        note[0] = '\0';
+    }
+    if (o == JC_SAVED_MODE_NARROWED) {
+        jc_app_set_mode(app, (int)to);
+        if (note != NULL) {
+            jc_snprintf(note, note_cap, "mode: %s, as the session was saved "
+                        "-- stricter than %s", jc_agent_mode_name(to),
+                        jc_agent_mode_name(cur));
+        }
+    } else if (o == JC_SAVED_MODE_KEPT_WIDER && note != NULL) {
+        jc_snprintf(note, note_cap, "mode: kept %s -- the session was saved "
+                    "in %s, and a saved mode never widens the mode a run "
+                    "started with%s", jc_agent_mode_name(cur), was,
+                    saved == JC_MODE_AUTO
+                        ? "; start with --auto to run it in auto" : "");
+    } else if (o == JC_SAVED_MODE_KEPT_PINNED && note != NULL) {
+        jc_snprintf(note, note_cap, "mode: kept %s, as asked -- the session "
+                    "was saved in %s", jc_agent_mode_name(cur), was);
+    }
+    return (int)o;
 }
 
 const struct jc_agentdef *jc_app_command_agent_apply(
@@ -72,6 +146,7 @@ const struct jc_agentdef *jc_app_command_agent_apply(
     save->prev_persona = app->persona_override;
     save->prev_style = app->style_override;
     save->prev_readonly = app->readonly;
+    save->prev_tools = app->command_tools;   /* M848 */
     save->applied = 0;
     if (name == NULL || name[0] == '\0') {
         return NULL;
@@ -82,9 +157,15 @@ const struct jc_agentdef *jc_app_command_agent_apply(
     }
     /* Make the profile authoritative for this turn: its body replaces the base
      * persona (see jc_sysmsg_build), and a readonly profile tightens the turn.
-     * The profile's model/tools fence are a subagent-only concern; a command
-     * runs in the current turn with the current model and permission posture
-     * (plus this readonly tightening). */
+     * M848 (def-287), the profile rule as decided on 2026-09-30: in the MAIN
+     * turn a profile sets the persona and style and can make the turn
+     * read-only, nothing more -- the advertised tools stay as they were, so the
+     * prompt cache's byte-stable prefix is untouched. In a run of its OWN (a
+     * subtask command, `attempt --agent`) its `tools:` is also a fence that can
+     * only narrow: command_tools carries the list to those callers, and the
+     * main-turn path never reads it. A profile's `model:` is taken by
+     * `attempt` and by subagents; a command keeps choosing its model with its
+     * own `model:` key. */
     if (def->system_prompt != NULL && def->system_prompt[0] != '\0') {
         app->persona_override = def->system_prompt;
     }
@@ -97,6 +178,7 @@ const struct jc_agentdef *jc_app_command_agent_apply(
     if (def->has_readonly && def->readonly) {
         app->readonly = 1;
     }
+    app->command_tools = (def->tools.len > 0) ? &def->tools : NULL; /* M848 */
     save->applied = 1;
     return def;
 }
@@ -110,6 +192,7 @@ void jc_app_command_agent_restore(struct jc_app *app,
     app->persona_override = save->prev_persona;
     app->style_override = save->prev_style;   /* M302 */
     app->readonly = save->prev_readonly;
+    app->command_tools = save->prev_tools;    /* M848 */
 }
 
 void jc_app_command_model_apply(struct jc_app *app, const char *selector,
@@ -229,8 +312,24 @@ int jc_app_path_fence_on(const struct jc_app *app)
         return 0;
     }
     /* auto (-1): fence the autonomous postures, where there is no human in the
-     * loop to catch a stray path. */
-    return app->mode == JC_MODE_AUTO || app->auto_approve;
+     * loop to catch a stray path. M848 (S2, 1e): that includes a delegate
+     * running with the AUTO posture inside a chat session -- spawn_subagent, a
+     * parallel child, ask_for_help's helper, a workflow stage. Its ASK
+     * verdicts run without a prompt, so before M848 it could write outside the
+     * workspace while the session it ran in was the one posture that asks. An
+     * explicit pathFence false (0, above) still turns it off, as in AUTO. */
+    return app->mode == JC_MODE_AUTO || app->auto_approve ||
+           app->delegate_auto > 0;
+}
+
+/* M887: is `resolved` (canonical) under `dir`, once `dir` is canonicalised? A dir
+ * that does not resolve grants nothing. */
+static int under_dir(const char *dir, const char *resolved)
+{
+    char canon[JC_PATH_MAX];
+    return dir != NULL && dir[0] != '\0' &&
+           jc_path_resolve(dir, canon, sizeof(canon)) == JC_OK &&
+           jc_path_under_root(canon, resolved);
 }
 
 int jc_app_path_denied_ex(const struct jc_app *app, const char *path,
@@ -276,6 +375,29 @@ int jc_app_path_denied_ex(const struct jc_app *app, const char *path,
                 jc_path_resolve(rr, canon, sizeof(canon)) == JC_OK &&
                 jc_path_under_root(canon, resolved)) {
                 return 0;
+            }
+        }
+    }
+    /* M887 (the demos drive's N49 (a); the operator's decision of 2026-10-03, "Yes,
+     * in write children"): a parallel write child's file tools reach what its
+     * shell fence grants, for reads and writes -- its own temp dir, and, with the
+     * shell fence on, the directories the operator listed in shellFenceAllow. The
+     * drive's probes were told to write /tmp/<name>.tsv, which its shellFenceAllow
+     * grants: write_file was refused 2 and 7 times (runs 0100, 0101), and then the
+     * shell wrote it -- or a relative path put it in the worktree, and the merge
+     * carried it into the tree. Nothing here reaches past what the child's shell
+     * may already write; the top level is unchanged. */
+    if (app->parallel_write) {
+        if (under_dir(app->child_tmpdir, resolved)) {
+            return 0;
+        }
+        if (app->config.shell_fence) {
+            const struct jc_vec *fa = &app->config.shell_fence_allow;
+            for (i = 0; i < fa->len; i++) {
+                if (under_dir(*(char **)jc_vec_at((struct jc_vec *)fa, i),
+                              resolved)) {
+                    return 0;
+                }
             }
         }
     }
@@ -373,36 +495,44 @@ int jc_app_load_telemetry(struct jc_app *app, struct jc_telemetry_summary *out,
                           char *label, jc_size label_cap)
 {
     char path[1300];
-    char *text = NULL;
     struct jc_arena *la;
+    FILE *f;
 
     if (app == NULL || out == NULL) {
         return 0;
     }
     jc_telemetry_summary_init(out);
-    /* A LOCAL arena, freed before returning: the log can be megabytes and the
-     * TUI can ask for this once per `/context tools`, so app->arena (freed only
-     * at process exit) would accumulate a copy per invocation -- the M197/M198/
-     * M199 lifetime bug class, and tests/smoke/arena_lint.sh says so. The
-     * summary's fields are fixed-size buffers that jc_telemetry_feed copies
-     * into, so nothing points into `text` after this call. Same reason, and same
-     * shape, as the Tab completer's per-keypress arena. */
+    /* A LOCAL arena for the path resolution only, freed before returning.
+     * (F-04 rewrote the LOG READ to be streaming -- one line at a time via
+     * jc_telemetry_feed_file -- so the megabytes of log no longer live in an
+     * arena at all, and there is nothing in it to leak per `/context tools`
+     * invocation. The M197-class lifetime rule still applies to the path
+     * buffers `jc_app_pick_telemetry_log` builds.) */
     la = jc_arena_new(0);
     if (la == NULL) {
         return 0;
     }
     /* M599: this workspace's own log first, then the newest (write where the
-     * reader reads -- the M533 rule). */
+     * reader reads -- the M533 rule). F-04: the log can be tens of megabytes
+     * past JC_READ_FILE_MAX, which `jc_read_file` would refuse -- and the
+     * callers here render 0 as "no telemetry log for this workspace", exactly
+     * the lie that motivated this change. fopen the log directly (binary read,
+     * no slurp cap) and let the streaming feed accumulate. */
     if (jc_app_pick_telemetry_log(app->root[0] != '\0' ? app->root : app->cwd,
-                                  la, path, sizeof(path)) != 0 ||
-        jc_read_file(path, &text, NULL, la) != JC_OK) {
+                                  la, path, sizeof(path)) != 0) {
+        jc_arena_free(la);
+        return 0;
+    }
+    f = fopen(path, "rb");
+    if (f == NULL) {
         jc_arena_free(la);
         return 0;
     }
     /* Filtered to this workspace: "never called HERE" is the per-project claim
      * (M56 stamps every event with the canonical root). */
     jc_snprintf(out->ws_filter, sizeof(out->ws_filter), "%s", app->root);
-    jc_telemetry_feed(out, text);
+    jc_telemetry_feed_file(out, f);
+    fclose(f);
     /* An empty result after filtering is NOT evidence of disuse -- this
      * workspace simply does not appear in the log. Same answer as no log. */
     jc_arena_free(la);
@@ -448,6 +578,29 @@ struct cJSON *jc_app_telem_begin(struct jc_app *app, const char *event)
 void jc_app_telem_end(struct jc_app *app, struct cJSON *o)
 {
     jc_eventlog_end((app != NULL) ? app->telemetry : NULL, o);
+}
+
+void jc_app_note_failed_session_save(struct jc_app *app,
+                                     const struct jc_session *s, jc_status st)
+{
+    char path[1100];
+
+    if (app == NULL || s == NULL || s->id == NULL || st == JC_OK) {
+        return;
+    }
+    if (app->no_session) {
+        return;
+    }
+    if (app->session_save_noted) {
+        return; /* already said so this process */
+    }
+    app->session_save_noted = 1;
+    jc_snprintf(path, sizeof(path), "%s/.jichi.d/sessions/%s.json",
+                jc_home_dir(), s->id);
+    if (!app->quiet) {
+        fprintf(stderr, "[jichi] could not save the session: %s (%s)\n",
+                path, jc_status_str(st));
+    }
 }
 
 jc_status jc_app_read_file(struct jc_app *app, const char *path, char **out,
@@ -600,22 +753,28 @@ static jc_status run_command_watched(struct jc_app *app, const char *command,
     need = jc_snprintf(shell, sizeof(shell), "%s 2>&1", command);
     if (need < 0 || (jc_size)need >= sizeof(shell)) return JC_ERR_INVALID;
     if (jc_pipe_cloexec(outp) != 0) return JC_ERR_IO;
-    pid = fork();
-    if (pid < 0) { close(outp[0]); close(outp[1]); return JC_ERR_IO; }
-    if (pid == 0) {
-        setpgid(0, 0);
-        dup2(outp[1], 1);
-        dup2(outp[1], 2);
-        close(outp[0]);
-        close(outp[1]);
-        jc_proc_scrub_secret_env(); /* model-issued shell must not see API keys */
-        jc_proc_child_close_fds(); /* M472: and not our fds */
-        jc_proc_child_sigreset(); /* M461 */
-        execl(jc_shell_path(), "sh", "-c", shell, (char *)NULL);
-        _exit(127);
+    /* M832: through jc_spawn -- the pgroup lead (so the watchdog's kill(-pid)
+     * takes the whole pipeline), the key scrub and the SIGPIPE reset are the
+     * ritual it owns, on either backend. */
+    {
+        struct jc_spawn_req sr;
+        memset(&sr, 0, sizeof sr);
+        sr.shell_cmd = shell;
+        /* M844 (ACP-1): never jichi's own stdin -- over ACP it is the client's
+         * JSON-RPC stream, and a command that reads stdin ate its next message
+         * (a session/cancel). tests/smoke/acp_child_stdin.sh holds this. */
+        sr.fd_stdin = JC_SPAWN_DEVNULL;
+        sr.fd_stdout = outp[1];
+        sr.fd_stderr = outp[1];
+        sr.new_pgroup = 1;
+        sr.scrub_env = 1;
+        if (jc_spawn(&sr, &pid) != JC_OK) {
+            close(outp[0]);
+            close(outp[1]);
+            return JC_ERR_IO;
+        }
     }
     close(outp[1]);
-    setpgid(pid, pid); /* race-free group set (parent side) */
     next_check = jc_now_millis() + 500.0;
     if (timeout_sec > 0) {
         deadline = jc_now_millis() + (double)timeout_sec * 1000.0;
@@ -630,10 +789,16 @@ static jc_status run_command_watched(struct jc_app *app, const char *command,
         tv.tv_sec = 0;
         tv.tv_usec = 300000;
         rc = select(outp[0] + 1, &rfds, NULL, NULL, &tv);
+        jc_control_poll_during_call(app, 0); /* M801: answer `status` mid-call */
         if (rc == 0) {
             jc_app_tick(app);   /* M258: idle tick, as in the popen path */
         }
-        if (app->abort_flag) { kill(-pid, SIGTERM); killed = 1; break; }
+        if (app->abort_flag) {
+            kill(-pid, SIGTERM);
+            killed = 1;
+            app->cmd_stopped = 1;   /* M885: the run's stop, not a limit */
+            break;
+        }
         if (timeout_sec > 0 && jc_now_millis() >= deadline) {
             kill(-pid, SIGTERM);
             killed = 1;
@@ -682,45 +847,85 @@ static jc_status run_command_watched(struct jc_app *app, const char *command,
         }
     }
     close(outp[0]);
-    if (killed) {
-        kill(-pid, SIGKILL); /* escalate; the run is over either way */
-    }
-    waitpid(pid, &status, 0);
-    if (timed_out) {
-        char m[96];
-        jc_snprintf(m, sizeof m,
-            "\n[stopped: command timed out after %lds and was terminated]\n",
-            timeout_sec);
-        jc_sb_append(out, m);
-        if (app->cb != NULL && app->cb->on_status != NULL) {
-            app->cb->on_status(app->cb->user, m + 1); /* skip the leading \n */
-        }
-        if (exit_code != NULL) *exit_code = 124; /* timeout(1) convention */
-    } else if (killed) {
-        /* Three kills share this path and must not share a diagnosis: told
-         * "memory budget" for a byte-cap kill, a driven model re-ran the same
-         * over-cap command 32 times in one turn, escalating its output instead
-         * of narrowing it (M342). The remedies differ, so the note names the
-         * limit that fired; the caller's own truncation/spill note carries the
-         * advice. */
-        if (cap_killed) {
-            char m[112];
-            jc_snprintf(m, sizeof m,
-                        "\n[stopped: output exceeded the %lu-byte capture "
-                        "limit and the command was killed]\n",
-                        (unsigned long)byte_limit);
-            jc_sb_append(out, m);
-        } else if (mem_killed) {
-            jc_sb_append(out, "\n[stopped: exceeded the memory budget]\n");
+    /* Reap the child. If already killed (in-loop SIGTERM sent), the child is
+     * being stopped, so a checked blocking reap is acceptable. Otherwise, use
+     * the bounded, interrupt-aware helper to avoid unbounded waits on EOF+alive. */
+    {
+        int reaped = 1;  /* tracks successful reap */
+        if (killed) {
+            kill(-pid, SIGKILL); /* escalate; the run is over either way */
+            /* A checked BLOCKING reap is fine here: the child is being killed,
+             * so waitpid returns once it is reaped (no unbounded-wait hazard).
+             * A failure (including ECHILD from SIGCHLD=SIG_IGN) is unknown. */
+            if (jc_proc_waitpid(pid, &status) != 0) {
+                reaped = 0;
+            }
         } else {
-            /* abort_flag: the operator interrupted the turn mid-command */
-            jc_sb_append(out, "\n[stopped: the run was interrupted]\n");
+            /* The child closed its output but is still running (backgrounded,
+             * daemonising, etc.). Bounded reap that honours the deadline. */
+            int rc = jc_proc_reap_bounded(pid, deadline, &app->abort_flag, &status);
+            if (rc == -2) {
+                /* Deadline exceeded: note and exit 124. */
+                timed_out = 1;
+            } else if (rc == -3) {
+                /* Abort flag set: note and exit 137. */
+                killed = 1;
+                app->cmd_stopped = 1;
+            } else if (rc == -1) {
+                /* ECHILD: unknown, not decodable. */
+                reaped = 0;
+                status = 0;  /* not used, but silence warnings */
+            } else {
+                /* rc == 0: child was reaped, status is valid. */
+            }
         }
-        if (exit_code != NULL) *exit_code = 137; /* 128 + SIGKILL */
-    } else if (exit_code != NULL) {
-        if (WIFEXITED(status)) *exit_code = WEXITSTATUS(status);
-        else if (WIFSIGNALED(status)) *exit_code = 128 + WTERMSIG(status);
-        else *exit_code = -1;
+        if (timed_out) {
+            char m[96];
+            jc_snprintf(m, sizeof m,
+                "\n[stopped: command timed out after %lds and was terminated]\n",
+                timeout_sec);
+            jc_sb_append(out, m);
+            if (app->cb != NULL && app->cb->on_status != NULL) {
+                app->cb->on_status(app->cb->user, m + 1); /* skip the leading \n */
+            }
+            if (exit_code != NULL) *exit_code = 124; /* timeout(1) convention */
+        } else if (killed) {
+            /* Three kills share this path and must not share a diagnosis: told
+             * "memory budget" for a byte-cap kill, a driven model re-ran the same
+             * over-cap command 32 times in one turn, escalating its output instead
+             * of narrowing it (M342). The remedies differ, so the note names the
+             * limit that fired; the caller's own truncation/spill note carries the
+             * advice. */
+            if (cap_killed) {
+                char m[112];
+                jc_snprintf(m, sizeof m,
+                            "\n[stopped: output exceeded the %lu-byte capture "
+                            "limit and the command was killed]\n",
+                            (unsigned long)byte_limit);
+                jc_sb_append(out, m);
+            } else if (mem_killed) {
+                jc_sb_append(out, "\n[stopped: exceeded the memory budget]\n");
+            } else if (app->term_flag) {
+                /* M885: abort_flag set by a SIGTERM -- from a supervisor, or the
+                 * system -- which is not the operator's interrupt. */
+                jc_sb_append(out, "\n[stopped: the run received SIGTERM]\n");
+            } else {
+                /* abort_flag: the operator interrupted the turn mid-command */
+                jc_sb_append(out, "\n[stopped: the run was interrupted]\n");
+            }
+            if (exit_code != NULL) *exit_code = 137; /* 128 + SIGKILL */
+        } else if (exit_code != NULL) {
+            /* A failed reap is UNKNOWN, never a status to decode. */
+            if (!reaped) {
+                *exit_code = -1;
+            } else if (WIFEXITED(status)) {
+                *exit_code = WEXITSTATUS(status);
+            } else if (WIFSIGNALED(status)) {
+                *exit_code = 128 + WTERMSIG(status);
+            } else {
+                *exit_code = -1;
+            }
+        }
     }
     return JC_OK;
 }
@@ -787,6 +992,7 @@ jc_status jc_app_run_command_ex(struct jc_app *app, const char *command,
     if (command == NULL || command[0] == '\0') {
         return JC_ERR_INVALID;
     }
+    app->cmd_stopped = 0;   /* M885: set below only by this command's stop */
 
     /* Prefer the client terminal delegate (the editor runs the command in its
      * own terminal); fall back to a local subprocess on any delegate failure. */
@@ -863,6 +1069,10 @@ jc_status jc_app_run_command_ex(struct jc_app *app, const char *command,
     {
         int fd = fileno(pipe);
         int ticking = (app->cb != NULL && app->cb->on_progress != NULL);
+        /* M801: a supervisor's control socket also needs a finite timeout, or a
+         * silent long command (e.g. `sleep 20`) leaves select blocked with no
+         * chance to answer `status` until the command ends. */
+        int ctl = (app->control != NULL && app->agent_depth == 0);
         for (;;) {
             ssize_t r;
             fd_set rfds;
@@ -871,12 +1081,13 @@ jc_status jc_app_run_command_ex(struct jc_app *app, const char *command,
             int sel;
             FD_ZERO(&rfds);
             FD_SET(fd, &rfds);
-            if (ticking) {
+            if (ticking || ctl) {
                 tv.tv_sec = 0;
                 tv.tv_usec = 200000;
                 tvp = &tv;
             }
             sel = select(fd + 1, &rfds, NULL, NULL, tvp);
+            jc_control_poll_during_call(app, 0); /* M801: answer `status` mid-call */
             if (sel < 0) {
                 if (errno == EINTR) {
                     continue;   /* a signal (SIGWINCH, SIGINT) is not an error */
@@ -911,11 +1122,18 @@ jc_status jc_app_run_command_ex(struct jc_app *app, const char *command,
             }
         }
     }
-    status = pclose(pipe);
+    status = jc_proc_pclose(pipe);
     if (WIFEXITED(status)) {
         code = WEXITSTATUS(status);
     } else if (WIFSIGNALED(status)) {
         code = 128 + WTERMSIG(status);
+        /* M885: this path shares jichi's process group, so a signal sent to the
+         * whole group ends the command and stops the run at once -- the stop's
+         * kill, not a limit's. (This path itself never stops a command on
+         * abort; DEFERRED records that a SIGTERM to jichi alone waits for it.) */
+        if (app->abort_flag) {
+            app->cmd_stopped = 1;
+        }
     } else {
         code = -1;
     }
@@ -1165,6 +1383,8 @@ int jc_app_constraint_add(struct jc_app *app, const struct jc_constraint *c)
                 if (jc_constraint_has(&app->constraints[i], 1, c) &&
                     app->constraints[i].origin == JC_CONSTRAINT_INFERRED) {
                     app->constraints[i].origin = JC_CONSTRAINT_AUTHORED;
+                    /* M872: the operator's rule now, not a reading of words */
+                    app->constraints[i].source = NULL;
                     jc_app_constraints_save(app);
                     break;
                 }
@@ -1177,6 +1397,10 @@ int jc_app_constraint_add(struct jc_app *app, const struct jc_constraint *c)
                 ? jc_arena_strdup(app->arena, c->subject) : NULL;
     dup.text = (c->text != NULL) ? jc_arena_strdup(app->arena, c->text) : NULL;
     dup.origin = c->origin;   /* M169: carry provenance, it decides persistence */
+    /* M872: and the sentence a guess was read from -- the scan's copy lives on
+     * the per-turn scratch arena, so it is copied like subject and text. */
+    dup.source = (c->source != NULL)
+               ? jc_arena_strdup(app->arena, c->source) : NULL;
     app->constraints[app->n_constraints++] = dup;
     /* Saving is still unconditional: jc_constraint_serialize filters the inferred
      * ones out, so this rewrites the store with the authored set only. */
@@ -1369,4 +1593,37 @@ void jc_app_load_design(struct jc_app *app, const char *const *paths,
     app->design = jc_strdup(sb.data);
     jc_sb_free(&sb);
     jc_arena_free(scratch);
+}
+
+/* M165: batch progress heartbeat. M1047: called from the parallel tool's wait
+ * loop on EVERY idle select wake (not only when a task finishes), so the lead's
+ * jsonl is kept alive while children are streaming -- the `stale` watchdog could
+ * not tell a working child from a wedged one (run 0075). Emits a `heartbeat`
+ * event with "batch"/"total" (tasks done / total) and "live" (children still
+ * running) at most once per interval. Guard with app->agent_depth == 0 so nested
+ * batches (child inside child) don't double-report to the supervisor. Lives in
+ * jc_app.c so it's in the test harness's library objects. */
+void jc_app_batch_progress(struct jc_app *app, int done, int total, int live)
+{
+    double now;
+    long interval_ms;
+    if (app == NULL || app->on_batch_progress == NULL) {
+        return;
+    }
+    interval_ms = (app->heartbeat_secs > 0) ? app->heartbeat_secs * 1000L : 0;
+    if (interval_ms <= 0) {
+        return;
+    }
+    /* Only the top-level lead emits; nested batches are invisible to the
+     * supervisor's jsonl by design (they run in their own process). */
+    if (app->agent_depth != 0) {
+        return;
+    }
+    now = jc_now_millis();
+    if (app->batch_hb_last_ms != 0 &&
+        (now - (double)app->batch_hb_last_ms) < (double)interval_ms) {
+        return;
+    }
+    app->batch_hb_last_ms = (long)now;
+    app->on_batch_progress(app->on_batch_progress_user, done, total, live);
 }

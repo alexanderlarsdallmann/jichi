@@ -34,12 +34,12 @@
 # so the scope costs nothing today and prevents a permanent red later.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 2
+t_plan 3
 
 root=$SMOKE_ROOT
 RM="$root/docs/ROADMAP.md"
 
-[ -f "$RM" ] || { t_fail "docs/ROADMAP.md is missing"; t_fail "cannot check currency"; t_done; }
+[ -f "$RM" ] || { t_fail "docs/ROADMAP.md is missing"; t_fail "cannot check currency"; t_fail "banner unchecked"; t_done; }
 
 # --- 1: the ROADMAP's newest ENTRY (a heading, not the banner) --------------
 # The file is chronological, so the last milestone heading is the newest entry.
@@ -52,6 +52,7 @@ case "$rm_n" in
     ''|*[!0-9]*)
         t_fail "cannot read the ROADMAP's newest milestone heading (got '$rm_ms') -- the heading shape changed; fix this extraction, not the floor"
         t_fail "currency unchecked"
+        t_fail "banner unchecked"
         t_done ;;
 esac
 
@@ -75,7 +76,7 @@ esac
 cited=$(ls "$root"/docs/*.md 2>/dev/null | grep -v '/ROADMAP\.md$' \
         | xargs cat 2>/dev/null \
         | tr -c '0-9A-Za-z_' '\n' \
-        | grep -E '^M[0-9][0-9][0-9]$' \
+        | grep -E '^M[0-9][0-9]+$' \
         | sed 's/^M//' | sort -n | tail -1)
 nfiles=$(ls "$root"/docs/*.md 2>/dev/null | grep -cv '/ROADMAP\.md$')
 
@@ -93,5 +94,33 @@ if [ "$rm_n" -ge "$cited" ]; then
 else
     t_fail "the ROADMAP's newest entry is $rm_ms but docs/ cite M$cited -- $(( cited - rm_n )) milestone(s) have shipped with no ROADMAP entry, and every other currency check trusts this file so none of them can see it"
 fi
+
+# --- 3 (N13, M826): the banner's PROSE must keep pace with its NUMBER --------
+# The "Where we stand" banner bumps its milestone number every milestone, but its
+# descriptive text is easy to leave behind -- it drifted 10 milestones (the number
+# said M825 while the prose described M815, threadwork's demos-drive finding N13). A
+# number that moves while the prose stands still is a currency claim that lies. So
+# the highest milestone the banner's OWN blockquote prose cites must be within
+# BANNER_WINDOW of the number it states; prepend a fresh top entry (or refresh the
+# headline) when it falls behind. The blockquote is the contiguous run of `>` lines
+# from "Where we stand"; tokenise for the word boundary, as check 2 does.
+BANNER_WINDOW=4
+banner_n=$(grep -m1 'latest milestone \*\*M[0-9]' "$RM" \
+           | sed 's/.*latest milestone \*\*M\([0-9][0-9]*\).*/\1/')
+# Skip the "Where we stand" line itself -- it carries the number, so including it
+# would make the prose trivially match. Collect the blockquote lines that follow.
+body_max=$(awk '/Where we stand/{q=1; next} q&&/^>/{print} q&&!/^>/{exit}' "$RM" \
+           | tr -c '0-9A-Za-z_' '\n' | grep -E '^M[0-9][0-9]+$' \
+           | sed 's/^M//' | sort -n | tail -1)
+case "$banner_n$body_max" in
+    ''|*[!0-9]*)
+        t_fail "cannot read the banner number ('$banner_n') or a milestone in its prose ('$body_max') -- the banner shape changed; fix this extraction" ;;
+    *)
+        if [ "$(( banner_n - body_max ))" -le "$BANNER_WINDOW" ]; then
+            t_ok "the banner's prose (cites M$body_max) keeps pace with its number (M$banner_n)"
+        else
+            t_fail "the banner says 'latest milestone M$banner_n' but its prose describes only up to M$body_max -- $(( banner_n - body_max )) behind (window $BANNER_WINDOW). Update the 'Where we stand' text, do not just bump the number (N13)"
+        fi ;;
+esac
 
 t_done

@@ -59,9 +59,27 @@
 #   --remote DIR     work dir on the device (default ~/jichi-tier-b)
 #   --rev REV        git revision to ship (default HEAD)
 #   --live URL       also run steps 5 and 5b against this OpenAI-compatible base
+#   --live-port N    also run steps 5 and 5b against this host's 127.0.0.1:N,
+#                    over the board's own tunnel if it already reaches it, else
+#                    over an `ssh -R` this script holds for the turn (M677)
 #   --live-model ID  the model id that endpoint serves (default "local"); an
 #                    OpenAI-compatible server rejects an id it does not have
-#   --keep           leave the remote work dir in place
+#   --live-key-env ENV  the live endpoint authenticates: the host's $ENV must be
+#                    set, and the rig writes it to the board's isolated .home as
+#                    a .jichi.env (mode 600, value piped over stdin -- never on a
+#                    command line, so it is in no ps and no log) that every live
+#                    shell sources before the config's apiKeyEnv resolves.
+#                    Removed at teardown; --keep leaves it, so a kept dir with a
+#                    live key env must not be shared. Needed only for keyed
+#                    endpoints (the HRZ gateway); keyless servers (LM Studio over
+#                    --live-port) never use it. M956b: the boards re-drive
+#                    against a free jlu/* gateway model while the bench's GPU is
+#                    down.
+#   --keep           leave the remote work dir in place for inspection and
+#                    quick follow-up tests (the board re-run recipe uses it:
+#                    the built binary, the git repo, and -- with a live key
+#                    env -- the sourced .jichi.env all stay, and the printed
+#                    follow-up command is copy-paste ready)
 #   --dry-run        print what would run, touch nothing
 #
 # Env: JC_REF_SECS (same as --ref-secs), JC_TB_SSH (ssh command, default "ssh").
@@ -83,6 +101,7 @@ LIVE_PORT=""
 # The model id the endpoint serves. An OpenAI-compatible server rejects an id it
 # does not have, and the id is not derivable from the URL, so it is an option.
 LIVE_MODEL="local"
+LIVE_KEY_ENV=""
 KEEP=0
 DRY=0
 TARGET=""
@@ -99,6 +118,7 @@ while [ $# -gt 0 ]; do
         --live)     LIVE="$2";     shift ;;
         --live-port) LIVE_PORT="$2"; shift ;;
         --live-model) LIVE_MODEL="$2"; shift ;;
+        --live-key-env) LIVE_KEY_ENV="$2"; shift ;;
         --keep)     KEEP=1 ;;
         --dry-run)  DRY=1 ;;
         -h|--help)  awk 'NR>1 && !/^#/{exit} NR>1' "$0"; exit 0 ;;
@@ -126,7 +146,30 @@ note() { echo "$*" >> "$OUT/results.txt"; }
 
 # Run a command on the device, from inside the shipped tree, with an isolated
 # HOME so the operator's own config cannot move a number (the M430 rule).
-dev() { $SSH "$TARGET" "cd \$HOME/$REMOTE_DIR && HOME=\$HOME/$REMOTE_DIR/.home ${MAKEV}sh -lc '$1'"; }
+# With --live-key-env, every remote shell first sources the rig's .jichi.env
+# (written at step 5) so the live config's apiKeyEnv resolves on the board.
+# The [ -r ] guard makes steps 0-4 (before the key file exists) source-nothing
+# and run normally; the -r test's exit is absorbed by the || true, so the guard
+# never changes the command's exit code.
+#
+# NO BACKSLASHES in $HOME, and that is load-bearing (first VF2 jlu re-run,
+# 2026-10-16): _KEYSRC is expanded by the DRIVER's shell inside dev()'s
+# double quotes, where variable-expansion results are NOT reprocessed -- so
+# whatever this value holds is what the board receives, verbatim. It must be
+# the final-layer text: $HOME expands at the board's sh -lc, where the HOME=
+# .home prefix is in effect, to the nested .home. With backslashes (\$HOME)
+# the board's final parse sees an ESCAPED dollar and tests the literal path
+# ./$HOME/.jichi.env relative to the run dir -- which never exists, so the
+# guard silently skipped the source and every live turn 401'd with "key not
+# set" while the key-write self-test (built one layer shallower, so its
+# \$HOME resolved correctly) passed. A guard that fails by silence is the
+# failure class this rig exists to catch. How it was found: a stub SSH that
+# prints the driver-constructed board-side string -- the faithful test, since
+# the bug only exists in that construction, not in the board-side script read
+# in isolation. (First keyed run, VF2 jlu re-run, 2026-10-16.)
+_KEYSRC=""
+[ -n "$LIVE_KEY_ENV" ] && _KEYSRC='[ -r $HOME/.jichi.env ] && . $HOME/.jichi.env || true; '
+dev() { $SSH "$TARGET" "cd \$HOME/$REMOTE_DIR && HOME=\$HOME/$REMOTE_DIR/.home ${MAKEV}sh -lc '$_KEYSRC$1'"; }
 
 # devl -- dev() carrying a REVERSE forward, so the board reaches a model server
 # bound to the HOST's loopback for exactly the lifetime of this one command.
@@ -166,7 +209,7 @@ dev() { $SSH "$TARGET" "cd \$HOME/$REMOTE_DIR && HOME=\$HOME/$REMOTE_DIR/.home $
 # the thing whose absence made the log unreadable.
 devl() {
     $SSH -o ExitOnForwardFailure=yes -R "$LIVE_PORT:127.0.0.1:$LIVE_PORT" "$TARGET" \
-        "cd \$HOME/$REMOTE_DIR && HOME=\$HOME/$REMOTE_DIR/.home ${MAKEV}sh -lc '$1'"
+        "cd \$HOME/$REMOTE_DIR && HOME=\$HOME/$REMOTE_DIR/.home ${MAKEV}sh -lc '$_KEYSRC$1'"
 }
 
 # Can the board already reach the endpoint on its own? Answered by asking IT,
@@ -210,7 +253,7 @@ mkdir -p "$OUT"
 # indistinguishable from this answer" trap this rig exists to avoid; it caught
 # me reading a previous row's gate.txt during M459. Removed BY NAME rather than
 # wiping $OUT, since --out may point somewhere with other content in it.
-for _f in build footprint gate identity info live map size; do
+for _f in build doctor footprint gate identity info live map size; do
     rm -f "$OUT/$_f.txt"
 done
 : > "$OUT/results.txt"
@@ -461,7 +504,18 @@ note ""
 # ---------------------------------------------------- step 4 offline surfaces
 say "step 4 -- offline surfaces (no network, no key)"
 note "## step 4 -- offline surfaces"
-for sub in doctor context describe; do
+# doctor exits 1 whenever it finds a problem, and since M709 (jichi chooses no
+# model) a config-less HOME -- this step's -- always has two: no model is
+# configured, so no server can be reached. Its exit code therefore says nothing
+# about the platform. It RAN if it printed its summary line, which goes on the row
+# (M881: every board failed here after M709; found by the Pi 400's dress rehearsal).
+if dev './jichi doctor 2>&1; echo "doctor exit $?"' > "$OUT/doctor.txt" 2>&1 \
+   && grep -E -q '^[0-9]+ ok, [0-9]+ warnings?, [0-9]+ problems?$' "$OUT/doctor.txt"; then
+    ok "offline: doctor ran ($(grep -E '^[0-9]+ ok, ' "$OUT/doctor.txt" | tail -n 1))"
+else
+    bad "offline: doctor did not run to its summary line"
+fi
+for sub in context describe; do
     if dev "./jichi $sub >/dev/null 2>&1"; then ok "offline: $sub ran"
     else bad "offline: $sub failed"; fi
 done
@@ -492,6 +546,30 @@ if [ -z "$LIVE" ] && [ -z "$LIVE_PORT" ]; then
     skip "live turn not attempted (no --live/--live-port); steps 0-4 need no model"
     note "    not attempted -- no endpoint given"
 else
+    # A keyed endpoint: the host's $LIVE_KEY_ENV value is written to the
+    # board's isolated .home over STDIN (the rig's .jichi.env; the Athlon
+    # row's method). The remote shell builds the export line from stdin
+    # contents, so the secret is on no command line, in no ps, and in no
+    # log. Steps 0-4 need no key, which is why it lands at step 5, not at
+    # ship time.
+    if [ -n "$LIVE_KEY_ENV" ]; then
+        if [ -z "$(eval "printf '%s' \"\${$LIVE_KEY_ENV:-}\"")" ]; then
+            bad "--live-key-env $LIVE_KEY_ENV is not set on this host -- the live turns cannot authenticate"
+        else
+            # mkdir -p .home: dev() assumes it (HOME=$HOME/.../.home); the rig
+            # never created it before keyed endpoints existed.
+            eval "printf '%s' \"\${$LIVE_KEY_ENV}\"" | $SSH "$TARGET" \
+                "umask 077; v=\$(cat); mkdir -p \$HOME/$REMOTE_DIR/.home; \
+                 printf 'export $LIVE_KEY_ENV=\\\"%s\\\"\\n' \"\$v\" > \$HOME/$REMOTE_DIR/.home/.jichi.env; \
+                 chmod 600 \$HOME/$REMOTE_DIR/.home/.jichi.env; \
+                 HOME=\$HOME/$REMOTE_DIR/.home sh -lc '. \$HOME/.jichi.env && [ -n \"\${'$LIVE_KEY_ENV':-}\" ]' \
+                 && echo KEYENV_OK" \
+                | grep -q '^KEYENV_OK$' \
+                && ok "key env $LIVE_KEY_ENV on the board's isolated .home (mode 600, stdin-piped, sourced back OK)" \
+                || bad "could not write (or source back) the key env to the board"
+        fi
+    fi
+
     # --live-port tunnels to the HOST's loopback (preferred; needs no model
     # server reconfiguration). --live takes a URL the board reaches itself.
     if [ -n "$LIVE_PORT" ]; then
@@ -513,7 +591,14 @@ else
     # A RELATIVE path: `dev` already cds into the run directory, and $HOME
     # inside it is the nested .home, so `$HOME/live.json` resolved to a path
     # that did not exist and jichi reported `config file not found`.
-    jc_rig_live_config "$LIVE_MODEL" "$_lurl" | $_run "cat > live.json" 2>/dev/null || true
+    # A keyed endpoint uses apiKeyEnv (M698): the NAME of the variable, so the
+    # secret stays out of the config file and out of ps; dev/devl source the
+    # rig's .jichi.env for exactly this.
+    if [ -n "$LIVE_KEY_ENV" ]; then
+        jc_rig_live_config "$LIVE_MODEL" "$_lurl" "$LIVE_KEY_ENV" | $_run "cat > live.json" 2>/dev/null || true
+    else
+        jc_rig_live_config "$LIVE_MODEL" "$_lurl" | $_run "cat > live.json" 2>/dev/null || true
+    fi
 
     _p_live=$(jc_rig_live_prompt_wire)
     if $_run "./jichi --config live.json --prompt-b64 $_p_live --output json" \
@@ -552,6 +637,17 @@ note ""
 # ------------------------------------------------------------------- teardown
 if [ "$KEEP" -eq 1 ]; then
     say "keeping ~/$REMOTE_DIR on the device (--keep)"
+    if [ -n "$LIVE_KEY_ENV" ]; then
+        note "    KEPT: the board's isolated .home still holds the live key env -- do not share that dir"
+        # Single-quoted outer so the USER'S local shell passes the arg verbatim
+        # (no local ~ or $ expansion); the board's login shell expands ~ and the
+        # relative . ./.jichi.env needs no $HOME at all. Verified 2026-10-16 on
+        # the VF2 with a fake key: PROBE_KEY=[sk-fake]. The 2>/dev/null makes an
+        # already-cleaned key a no-op, not an error.
+        say "follow-up tests on the kept board (replace <your command>; the key env sources itself):"
+        say "  $SSH $TARGET 'cd ~/$REMOTE_DIR/.home && . ./.jichi.env 2>/dev/null; <your command>'"
+        say "when done:  $SSH $TARGET 'rm -f ~/$REMOTE_DIR/.home/.jichi.env'"
+    fi
 else
     $SSH "$TARGET" "rm -rf \$HOME/$REMOTE_DIR" 2>/dev/null || true
 fi

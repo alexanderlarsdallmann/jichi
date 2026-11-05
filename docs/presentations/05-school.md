@@ -131,7 +131,7 @@ yourself, though:** models author good prose and unreliable gates
 jichi setup --preset instructor   # author + grade
 jichi setup --preset learner      # study, with tutor + hints
 # add  "assignments": true  to config, then:
-jichi -p "/assign implementation 'sum a list'"
+jichi -p "/assign implementation 'sum a list'" < /dev/null
 ```
 
 Full walkthrough: `docs/TEACHING_ASSIGNMENTS.md` (classroom, tutoring,

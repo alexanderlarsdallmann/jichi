@@ -7,6 +7,12 @@ with your row; every link is a full guide.
 New to jichi entirely? Do [TUTORIAL_BEGINNER.md](TUTORIAL_BEGINNER.md) first (empty
 directory → a working session in minutes), then come back here.
 
+Two pointers before the table. A **preset** is the recipe `jichi setup` applies
+([SETUP_WIZARD.md](SETUP_WIZARD.md)), and unfamiliar words — *preset*, *journey*,
+*headless*, *fork pool*, *SDLC* — are in [VOCABULARY.md](VOCABULARY.md). **If two rows
+fit you:** choose **learner** when you are coding to *learn* the language or tool, and
+**solo developer** when you already code and want jichi to help you *ship*.
+
 | You are… | Start with | Then read |
 |----------|-----------|-----------|
 | A **learner / self-teacher** | `setup --preset learner`, then Module 0 of the curriculum | [CURRICULUM.md](CURRICULUM.md) · [Self-teaching](#self-teaching) · [LEARNING.md](LEARNING.md) |
@@ -37,6 +43,8 @@ Use jichi as a patient tutor that knows your codebase.
    `.jichi/memory.md` ([MEMORY.md](MEMORY.md)); a **glossary** captures domain terms.
 4. Keep it read-only while you learn: it can read + explain without changing files
    (plan mode / a `read-only` constraint — [CONSTRAINTS.md](CONSTRAINTS.md)).
+5. Arrange your desk around it: an editor beside the terminal, the documentation on another
+   desktop, and the answers checked against their sources ([WORKBENCH.md](WORKBENCH.md)).
 
 ## Classroom teaching
 

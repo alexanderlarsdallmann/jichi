@@ -17,9 +17,12 @@
 #include "jc_message.h"
 #include "jc_mem.h"
 #include "jc_vec.h"
+#include "jc_str.h"
+#include "jc_snprintf.h"
 
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 /* Build a config with two models for selector tests. Strings are literals
  * (only read, never freed). */
@@ -75,6 +78,45 @@ static void test_resolve_model(void)
     JC_CHECK(jc_subagent_resolve_model(&cfg, "no-such-model", &found) == NULL);
     JC_CHECK(found == 0);
 
+    /* M745: the words the tool's own description uses. On the 2026-09-24
+     * drive a parent passed "model": "default" and was refused. */
+    found = 0;
+    JC_CHECK(jc_subagent_resolve_model(&cfg, "default", &found)
+             == jc_config_model_at(&cfg, 0));
+    JC_CHECK(found == 1);
+    found = 0;
+    JC_CHECK(jc_subagent_resolve_model(&cfg, "Current", &found)
+             == jc_config_model_at(&cfg, 0));
+    JC_CHECK(found == 1);
+    /* ...and a real role nobody declares runs on the current model, flagged
+     * (the schema's own example, "summarize", failed where no model had it). */
+    found = 0;
+    JC_CHECK(jc_subagent_resolve_model(&cfg, "embed", &found)
+             == jc_config_model_at(&cfg, 0));
+    JC_CHECK(found == 2);
+
+    jc_vec_free(&cfg.models);
+}
+
+/* M745: a refusal names the choices. */
+static void test_model_menu(void)
+{
+    struct jc_config cfg;
+    struct jc_sb sb;
+    make_models(&cfg);
+    jc_sb_init(&sb);
+    jc_subagent_model_menu(&cfg, &sb);
+    JC_CHECK(sb.data != NULL &&
+             strcmp(sb.data, "1 'Main' (big-model), 2 'Fast' (small-model)") == 0);
+    jc_sb_free(&sb);
+    jc_vec_free(&cfg.models);
+
+    memset(&cfg, 0, sizeof(cfg));
+    jc_vec_init(&cfg.models, sizeof(struct jc_model_cfg));
+    jc_sb_init(&sb);
+    jc_subagent_model_menu(&cfg, &sb);
+    JC_CHECK(sb.data != NULL && strcmp(sb.data, "(none configured)") == 0);
+    jc_sb_free(&sb);
     jc_vec_free(&cfg.models);
 }
 
@@ -331,13 +373,156 @@ static void test_main_agent_only_advertising(void)
     jc_tool_registry_free(&reg);
 }
 
+
+/* def-318: a subagent's final answer is the parent's tool result -- capped
+ * with a claim ticket at the boundary (M911). The measured wound (2026-10-05
+ * audit): 14 of 17 sibling-log hand-backs over 10 KB, max 31 KB, 301 KB
+ * total, landing in the parent's context verbatim. */
+static void test_subagent_answer_capped(void)
+{
+    struct jc_app app;
+    struct jc_arena *a = jc_arena_new(0);
+    struct jc_tool_registry reg;
+    struct jc_history h;
+    const char *ans = NULL;
+    char saved_home[300];
+    char home[300];
+    char text[13000];
+    int i;
+
+    setup_app(&app, a, &reg);
+    jc_snprintf(saved_home, sizeof(saved_home), "%s",
+                getenv("HOME") != NULL ? getenv("HOME") : "");
+    jc_snprintf(home, sizeof(home), "%s/subag_%ld",
+                jc_test_tmpdir(), (long)getpid());
+    jc_mkdir_p(home);
+    setenv("HOME", home, 1);
+
+    jc_history_init(&h);
+    jc_history_add(&h, JC_ROLE_USER, "do the thing");
+
+    for (i = 0; i < 12000; i++) {
+        text[i] = 'A';
+    }
+    text[12000] = '\0';
+    jc_history_add(&h, JC_ROLE_ASSISTANT, text);
+
+    JC_CHECK(jc_subagent_answer_into(&app, &h, &ans) == JC_OK);
+
+    JC_REQUIRE(ans != NULL);
+    /* The parent's context gets the head, not the whole answer. */
+    JC_CHECK(strlen(ans) < 12000);
+    /* The full answer is on disk, named by the note the parent reads. */
+    JC_CHECK(strstr(ans, "complete answer is at") != NULL);
+    /* The byte order is "opening of total" -- head (3796) of len (12000).
+     * Reversed it would read "12000 of 3796", claiming the note carries more
+     * bytes than the whole answer. (F-J4, peer finding.) */
+    JC_CHECK(strstr(ans, "3796 of 12000 bytes") != NULL);
+    /* The capped answer is ARENA-owned (scratch), as before M911 -- do NOT
+     * free it. The per-turn arena is freed by jc_arena_free below. */
+    jc_history_free(&h);
+    ans = NULL;
+
+    /* A short answer passes through untouched, no note. */
+    jc_history_init(&h);
+    jc_history_add(&h, JC_ROLE_USER, "do the thing");
+    jc_history_add(&h, JC_ROLE_ASSISTANT, "done, and here is why");
+    JC_CHECK(jc_subagent_answer_into(&app, &h, &ans) == JC_OK);
+    JC_CHECK_STR(ans, "done, and here is why");
+    jc_history_free(&h);
+
+    setenv("HOME", saved_home, 1);
+    jc_vec_free(&app.config.models);
+    jc_vec_free(&app.read_files);
+    jc_vec_free(&app.read_recs);
+    jc_tool_registry_free(&reg);
+    jc_arena_free(a);
+}
+
+
+/* M965 (O1): test register() warn-on-duplicate vs replace(). */
+static void test_registry_register_vs_replace(void)
+{
+    struct jc_tool_registry reg;
+    const struct jc_tool *t;
+    const struct jc_tool *first_found;
+    int count_dup;
+    jc_size i;
+
+    /* Fake tool structs (only name/description are meaningful). Ten positional
+     * C89 initializers: name, description, schema, readonly, run, ctx,
+     * schema_ctx, run_ctx, main_agent_only, plan_allowed. */
+    static const struct jc_tool tool1 = {
+        "dup_probe", "first description", 0, 0, 0, 0, 0, 0, 0, 0
+    };
+    static const struct jc_tool tool2 = {
+        "dup_probe", "second description", 0, 0, 0, 0, 0, 0, 0, 0
+    };
+    static const struct jc_tool tool3 = {
+        "dup_probe", "third description", 0, 0, 0, 0, 0, 0, 0, 0
+    };
+
+    jc_tool_registry_init(&reg);
+
+    /* Test 1: register() twice with same name should keep FIRST (warns+ignores). */
+    jc_tool_registry_register(&reg, &tool1);
+    jc_tool_registry_register(&reg, &tool2);
+
+    /* Count how many 'dup_probe' entries exist. */
+    count_dup = 0;
+    first_found = NULL;
+    for (i = 0; i < reg.tools.len; i++) {
+        const struct jc_tool *tt =
+            *(const struct jc_tool **)jc_vec_at((struct jc_vec *)&reg.tools, i);
+        if (strcmp(tt->name, "dup_probe") == 0) {
+            count_dup++;
+            if (first_found == NULL) {
+                first_found = tt;
+            }
+        }
+    }
+    JC_CHECK(count_dup == 1);
+    JC_CHECK(first_found == &tool1);  /* should be the FIRST one */
+    JC_CHECK(strcmp(first_found->description, "first description") == 0);
+
+    /* Test 2: replace() with a third tool should replace in place. */
+    jc_tool_registry_replace(&reg, &tool3);
+
+    /* Now there should still be exactly one 'dup_probe', but it should be tool3. */
+    count_dup = 0;
+    first_found = NULL;
+    for (i = 0; i < reg.tools.len; i++) {
+        const struct jc_tool *tt =
+            *(const struct jc_tool **)jc_vec_at((struct jc_vec *)&reg.tools, i);
+        if (strcmp(tt->name, "dup_probe") == 0) {
+            count_dup++;
+            if (first_found == NULL) {
+                first_found = tt;
+            }
+        }
+    }
+    JC_CHECK(count_dup == 1);
+    JC_CHECK(first_found == &tool3);  /* should now be the REPLACEMENT */
+    JC_CHECK(strcmp(first_found->description, "third description") == 0);
+
+    /* Verify find() returns the replacement. */
+    t = jc_tool_registry_find(&reg, "dup_probe");
+    JC_CHECK(t == &tool3);
+    JC_CHECK(strcmp(t->description, "third description") == 0);
+
+    jc_tool_registry_free(&reg);
+}
+
 void test_subagent(void)
 {
     test_resolve_model();
+    test_model_menu();
     test_build_neutral_excludes_spawn();
     test_can_spawn();
     test_iters_taper();
     test_depth_guard_and_args();
     test_last_assistant_text();
+    test_subagent_answer_capped();
     test_main_agent_only_advertising();
+    test_registry_register_vs_replace();
 }

@@ -492,6 +492,48 @@ static void test_convert_assets_roundtrip(void)
     jc_arena_free(a);
 }
 
+/* M843: an opencode agent's tools map is a foreign program's JSON, read
+ * leniently. `"read": 1` and `"grep": "true"` keep the agent's tools, as
+ * `true` does; the converter used to skip them, leaving an allow-list agent
+ * with no tools at all. */
+static const char *OPENCODE_TOOLS_LENIENT =
+    "{\n"
+    "  \"model\": \"anthropic/claude\",\n"
+    "  \"agent\": {\n"
+    "    \"reviewer\": {\n"
+    "      \"description\": \"Reviews code\",\n"
+    "      \"prompt\": \"You are a careful reviewer.\",\n"
+    "      \"tools\": { \"*\": false, \"read\": 1, \"grep\": \"true\" }\n"
+    "    }\n"
+    "  }\n"
+    "}\n";
+
+static void test_convert_opencode_tools_lenient(void)
+{
+    struct jc_arena *a = jc_arena_new(0);
+    struct jc_convert_result res;
+    const char *agent_md;
+    struct jc_md_doc doc;
+
+    JC_CHECK(jc_convert_run(OPENCODE_TOOLS_LENIENT, JC_SRC_OPENCODE, &res, a)
+             == JC_OK);
+    agent_md = find_asset(res.ir, "agents/reviewer");
+    if (JC_REQUIRE(agent_md != NULL)) {
+        jc_md_parse(agent_md, a, &doc);
+        if (JC_REQUIRE(doc.front != NULL)) {
+            struct jc_yaml *tools = jc_yaml_get(doc.front, "tools");
+            JC_CHECK(tools != NULL && jc_yaml_seq_len(tools) == 2);
+            if (tools != NULL && jc_yaml_seq_len(tools) == 2) {
+                JC_CHECK_STR(jc_yaml_seq_at(tools, 0)->scalar, "read_file");
+                JC_CHECK_STR(jc_yaml_seq_at(tools, 1)->scalar, "search_code");
+            }
+        }
+        jc_md_free(&doc);
+    }
+    free(res.json);
+    jc_arena_free(a);
+}
+
 /* #1: Claude Code config tree -> jichi config + assets. Uses a temp dir. */
 static void test_convert_claude(void)
 {
@@ -602,6 +644,79 @@ static void test_convert_no_house_key(void)
     jc_arena_free(a);
 }
 
+/* M1015 A-04: depth bound test for YAML parser */
+static void test_yaml_depth_bound(void)
+{
+    char *deep;
+    char *at_limit;
+    struct jc_arena *a;
+    struct jc_yaml *root;
+    int i;
+
+    /* 1. A pathological 401-deep document is refused rather than crashing.
+     * Each line is (i spaces) + "a:\n" where the value is on the next deeper
+     * line (empty scalar), creating depth 401. Total bytes ≈ 401*5 + 400*401/2.
+     * Actually: line i has i spaces, "a:", newline = i + 3 chars. */
+    deep = (char *)malloc(83000);
+    if (JC_REQUIRE(deep != NULL)) {
+        char *w = deep;
+        for (i = 0; i <= 400; i++) {
+            int j;
+            for (j = 0; j < i; j++) *w++ = ' ';
+            memcpy(w, "a:\n", 3);
+            w += 3;
+        }
+        *w = '\0';
+        a = jc_arena_new(0);
+        root = jc_yaml_parse(deep, a);
+        JC_CHECK(root == NULL);             /* refused, and we are still alive */
+        jc_arena_free(a);
+        free(deep);
+    }
+
+    /* 2. ...and the limit is not so tight that real documents are refused.
+     * 100 nested mappings should parse fine. */
+    at_limit = (char *)malloc(15000);
+    if (JC_REQUIRE(at_limit != NULL)) {
+        char *w = at_limit;
+        for (i = 0; i <= 99; i++) {
+            int j;
+            for (j = 0; j < i; j++) *w++ = ' ';
+            memcpy(w, "a:\n", 3);
+            w += 3;
+        }
+        *w = '\0';
+        a = jc_arena_new(0);
+        root = jc_yaml_parse(at_limit, a);
+        JC_CHECK(root != NULL);              /* 100-deep: accepted */
+        jc_yaml_free(root);
+        jc_arena_free(a);
+        free(at_limit);
+    }
+
+    /* 3. Inline seq branch: a 141-deep nested inline sequence document
+     * (line i is (2*i spaces) + "- -" for i = 0..140) must be refused.
+     * Each line creates depth via the parse_seq INLINE branch (the '- -' reparse).
+     * WITHOUT FIX: ACCEPTED (root != NULL, silently partial) - this is the red test.
+     * WITH FIX: refused like the map shape. */
+    deep = (char *)malloc(21000);
+    if (JC_REQUIRE(deep != NULL)) {
+        char *w = deep;
+        for (i = 0; i <= 140; i++) {
+            int j;
+            for (j = 0; j < 2 * i; j++) *w++ = ' ';
+            memcpy(w, "- -\n", 4);
+            w += 4;
+        }
+        *w = '\0';
+        a = jc_arena_new(0);
+        root = jc_yaml_parse(deep, a);
+        JC_CHECK(root == NULL);             /* refused, inline seq branch */
+        jc_arena_free(a);
+        free(deep);
+    }
+}
+
 void test_convert(void)
 {
     test_yaml_parser_basics();
@@ -614,5 +729,7 @@ void test_convert(void)
     test_convert_opencode();
     test_convert_continue_mcp();
     test_convert_assets_roundtrip();
+    test_convert_opencode_tools_lenient(); /* M843 */
     test_convert_claude();
+    test_yaml_depth_bound();               /* M1015 A-04 */
 }

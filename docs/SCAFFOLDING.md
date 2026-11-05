@@ -63,7 +63,7 @@ the bench (`init c-cli`), then work the course
 ([`assignments/INDEX.md`](assignments/INDEX.md) → Systems track). A language
 pack now has somewhere to point a learner once the bench is built.
 
-**Domain benches beyond code (in `examples/`).** Twelve **domain scaffold
+**Domain benches beyond code (in `examples/`).** Thirteen **domain scaffold
 benches** — turning an empty `.jichi/` into a guided workspace for a whole domain
 a school/university learner or self-learner meets — are built and validated in
 [`../examples/`](../examples/README.md): `data-analysis`, `game-design`,
@@ -94,6 +94,13 @@ Packs are **additive** and non-destructive: running `init default` then
 C-specific `AGENTS.md` only lands if you didn't already have one, or you pass
 `--force`).
 
+**If your project keeps its rules in a `CLAUDE.md`,** today's `init` writes an `AGENTS.md`,
+and jichi then stops reading your `CLAUDE.md`: the loader reads it only where there is no
+`AGENTS.md` (measured). Until that is fixed ([DEFERRED def-288](DEFERRED.md#def-288)), add
+`"instructions": ["CLAUDE.md"]` to `.jichi/config.json` after `init`, and run `jichi trust`:
+since M851 a project config's `instructions` apply only once it is trusted (measured
+2026-10-03). The stub's sentence that jichi reads it "(and CLAUDE.md)" is wrong today.
+
 ### Composing packs (M182)
 
 `init` takes **several pack names in one call** — order is precedence:
@@ -107,11 +114,15 @@ The first pack to claim a shared path (`AGENTS.md`, `config.example.json`)
 wins; later packs skip it — exactly the semantics of running `init` twice,
 minus the typing. Generic assets (planner, reviewer, mentor, the
 commit-message skill …) are byte-identical across packs, so their skips are
-cosmetic. Every name is validated **before** anything is written: a typo in
+cosmetic -- except two, today: `/write-docs` and `/proofread` come in the docs pack's
+version, which hands the work to its audience profiles, and a generic one, so whichever
+pack comes first decides which you get ([DEFERRED def-290](DEFERRED.md#def-290)). Put
+`docs` first. Every name is validated **before** anything is written: a typo in
 the third pack cannot leave a half-composed project. Per-role recipes worth
 knowing: `c-cli assignments` (teaching a C course on a real codebase),
-`<language> docs` (a project whose documentation is a first-class
-deliverable), `default onboarding` (analyze-then-scaffold an unfamiliar
+`docs <language>` (a project whose documentation is a first-class
+deliverable; `docs` first, or its audience routing is lost),
+`default onboarding` (analyze-then-scaffold an unfamiliar
 repo).
 
 ### Audience-aware documentation agents (in the `docs` pack)

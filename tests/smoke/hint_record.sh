@@ -30,6 +30,8 @@
 # and it is why app->assignment_dir exists rather than a call to getcwd().
 . "$(dirname "$0")/_smoke.sh"
 
+command -v git >/dev/null 2>&1 || t_skip "needs git -- jichi snapshots shell out to it"
+
 t_plan 9
 smoke_home
 tmp=$(smoke_tmp)

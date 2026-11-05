@@ -163,20 +163,19 @@ failures and 400s carry their error text and become root-causable.
   the project. (A first attempt added a duplicate top-level `logging` key that
   the existing one overrode — caught by JSON validation and fixed.)
 - **#3 (cache):** confirmed moot — no action.
-- **Context windows (admin-confirmed, by message on 2026-06-30):** the LiteLLM admin
-  reports real windows of
+- **Context windows (recorded on 2026-06-30):** real windows of
   ~150k (`qwen3-coder-next`) and ~256k (`gemma-4-31b-it`) — both far above the
   ~103k observed usage, so F5 holds and the 400s are definitively not overflow.
-  Declared per-model `contextLength` (150000/256000) as accurate metadata; kept
+  Declared per-model `contextLength` (150000/256000) as metadata; kept
   the conservative top-level `contextLimit: 128000` (which overrides per-model in
   jichi and already keeps real usage safely under qwen3's 150k). No behavioral
   change — room to raise the cap later if more history headroom is wanted.
   **Provenance added 2026-08-09:** the date matters because the proxy does not publish
   these numbers — a locally-registered model can carry no declared context window at all
   (docs/analysis/2026-08-09-hrz-gateway-findings.md §1). So the only record of
-  the real window is a message, which means it can go stale without anything noticing.
-  That is the argument for asking the gateway to publish it rather than for us to keep
-  copying it: a number that exists only in a conversation has no way to be wrong out
+  the real window is a locally kept one, which means it can go stale without anything
+  noticing. That is the argument for the gateway to publish it rather than for us to keep
+  copying it: a number that exists only in a local record has no way to be wrong out
   loud.
 - **#4 (learning loop):** added `mentor`/`learn` scaffold to `zigodot/.jichi/` and
   ran `/learn`. It exposed two real issues and one win:

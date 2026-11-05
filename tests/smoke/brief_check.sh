@@ -19,9 +19,15 @@
 # canonical constraint text is not the operator's sentence, so a list alone leaves
 # them hunting), and it makes NO NETWORK CALL (checked by pointing the config at a
 # closed port and requiring success anyway).
+#
+# M743: the scanner no longer reads "never-compiled" as a negation (a cue glued to a
+# hyphen is a compound adjective), so the goal line that motivated all this infers
+# nothing now -- check 8 keeps it that way. The brief's line 7 carries a build ban it
+# MEANS instead, so checks 2-3 still prove a rule and its line are reported. Check 9:
+# since M734 an inferred rule advises, and brief-check said "ENFORCED" until M743.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 7
+t_plan 9
 smoke_home
 tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
@@ -34,8 +40,10 @@ cat > "$tmp/dead.json" <<'EOF'
 "snapshots":false,"repoMap":false,"references":false,"lowResource":false}
 EOF
 
-# Line 7 is the measured killer: a description of the GOAL that infers a ban on the
-# very thing the task requires.
+# Line 7 was the measured killer -- "Goal: force never-compiled core code to
+# compile" -- a description of the GOAL that inferred a ban on the very thing the
+# task requires. Since M743 it is check 8's input; here line 7 bans the build on
+# purpose, below background lines that say "never compiled" and must not be named.
 cat > "$tmp/brief.md" <<'EOF'
 # Task: repair the animation evaluator
 
@@ -43,9 +51,11 @@ Background: 47 of 88 files were never compiled in this project.
 The AnimationEvaluator's body has never been compiled, so its
 HashMap field predates the 4-arg API.
 
-Goal: force never-compiled core code to compile, then add tests.
+Goal: fix it by reading alone, and never compile the core code.
 Do not push anything.
 EOF
+printf 'Goal: force never-compiled core code to compile, then add tests.\n' \
+    > "$tmp/m433.md"
 
 out=$(cd "$ws" && with_deadline 30 "$BIN" --config "$tmp/dead.json" \
         brief-check "$tmp/brief.md" < /dev/null 2>/dev/null); rc=$?
@@ -69,7 +79,7 @@ fi
 # without the line leaves the author hunting for words that do not look like a
 # constraint -- line 7 here, the goal statement itself.
 if printf '%s' "$out" | grep -q "from line 7"; then
-    t_ok "it names line 7 -- the goal statement that bans the build"
+    t_ok "it names line 7 -- the goal statement that bans the build, not lines 3-4"
 else
     t_fail "no line attribution: $(printf '%s' "$out" | grep -A1 'do not run build' | head -2)"
 fi
@@ -110,6 +120,23 @@ if [ "$rc7" -eq 0 ] && printf '%s' "$out7" | grep -q "correct for a \`goal\`"; t
     t_ok "a red goal gate is accepted as the normal start (exit 0)"
 else
     t_fail "rc7=$rc7, verdict: $(printf '%s' "$out7" | grep -i verdict | head -1)"
+fi
+
+# --- 8: M433's own goal line infers nothing (M743) ----------------------------
+out8=$(cd "$ws" && with_deadline 30 "$BIN" --config "$tmp/dead.json" \
+        brief-check "$tmp/m433.md" < /dev/null 2>/dev/null); rc8=$?
+if [ "$rc8" -eq 0 ] && printf '%s' "$out8" | grep -q "constraints inferred: none"; then
+    t_ok "\"force never-compiled core code to compile\" is a description, not a ban"
+else
+    t_fail "rc8=$rc8: $(printf '%s' "$out8" | grep -A2 'constraints inferred' | head -3)"
+fi
+
+# --- 9: an inferred rule is reported as ADVISORY, as it behaves (M734/M743) -----
+if printf '%s' "$out" | grep -q "ADVISORY in an --auto run" &&
+   ! printf '%s' "$out" | grep -q "ENFORCED"; then
+    t_ok "inferred rules are called advisory, not enforced"
+else
+    t_fail "wording: $(printf '%s' "$out" | grep 'constraints inferred' | head -1)"
 fi
 
 t_done

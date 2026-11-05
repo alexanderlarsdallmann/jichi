@@ -208,7 +208,7 @@ once. Cheapest first:
 | Stating what is unverified | free, and the hardest | [`PLATFORMS.md`](PLATFORMS.md) as the worked example |
 
 If you would rather learn by doing, the graded course starts at
-[`CURRICULUM.md`](CURRICULUM.md) (`jichi init learner`), and the two source-reading
+[`CURRICULUM.md`](CURRICULUM.md) (`jichi setup --preset learner`), and the two source-reading
 guides — [案内（あんない） *Annai*](reading/ANNAI.md) for the guided tour,
 [深掘り（ふかぼり） *Fukabori*](reading/FUKABORI.md) for the deep dive — show these
 practices inside a working 90k-line C program, including where they failed.

@@ -53,6 +53,7 @@ expect "WERROR=1" 25
 delay 600
 send "/exit\r"
 waitexit 15
+assertexit 0
 EOF
 if (cd "$a" && "$SMOKE_TOOLS/ptydrive" --deadline 90 --log "$a/pty.log" \
         "$a/apply.pd" -- "$BIN" --config "$a/config.json" --no-lite) \
@@ -124,6 +125,7 @@ expect "curate a mentor draft" 25
 delay 600
 send "/exit\r"
 waitexit 15
+assertexit 0
 EOF
 
 if (cd "$tmp" && "$SMOKE_TOOLS/ptydrive" --deadline 90 --log "$tmp/pty.log" \
@@ -223,6 +225,7 @@ expect "] " 25
 delay 600
 send "/exit\r"
 waitexit 15
+assertexit 0
 EOF
 if (cd "$c" && "$SMOKE_TOOLS/ptydrive" --deadline 90 --log "$c/pty.log" \
         "$c/corr.pd" -- "$BIN" --config "$c/config.json" --no-lite) \
@@ -252,6 +255,7 @@ expect "no options" 25
 delay 600
 send "/exit\r"
 waitexit 15
+assertexit 0
 EOF
 if (cd "$c" && "$SMOKE_TOOLS/ptydrive" --deadline 90 --log "$c/pty3.log" \
         "$c/badopt.pd" -- "$BIN" --config "$c/config.json" --no-lite) \
@@ -273,6 +277,7 @@ expect "lessons.draft.md" 25
 delay 600
 send "/exit\r"
 waitexit 15
+assertexit 0
 EOF
 if (cd "$nows" && "$SMOKE_TOOLS/ptydrive" --deadline 90 \
         --log "$tmp/pty2.log" "$tmp/nodraft.pd" -- \

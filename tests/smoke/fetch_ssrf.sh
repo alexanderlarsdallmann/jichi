@@ -28,7 +28,7 @@
 # matching the refusal and not a generic failure that would swallow anything.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 5
+t_plan 10
 smoke_home
 tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
@@ -142,6 +142,98 @@ else
     t_fail "the fetch path no longer calls jc_url_host + jc_net_host_is_blocked: \
 $("$G" -nE 'jc_net_host_is_blocked|jc_url_host' \
   "$SMOKE_ROOT/src/tools/jc_tool_fetch.c" | head -3 | tr '\n' ' ')"
+fi
+
+
+# ---- 6: the doctor prints proxy environment variables with userinfo stripped (M1027/C-02) ---
+# RED FIRST: this checks that when http_proxy has credentials (us3r:p4ssw0rd@...),
+# the doctor output contains the proxy line with the credentials stripped.
+# On 481fe620^ (no proxy check) there is no proxy line at all, so this fails.
+# On head it prints `! proxy environment variable set` with host:port and 0 occurrences of the user and password.
+# The strip is scheme-agnostic and covers socks5:// and scheme-less values; the var list is the set libcurl reads.
+# This is the one offline-achievable behavioural tooth: jichi doctor must print the proxy env vars
+# without their credentials.
+#
+# Check 10 pins the M1032 var list: with ONLY HTTPS_PROXY set, the doctor must still name the host without the credential.
+cat > "$tmp/config.json" <<EOF
+{"models":[{"name":"m","provider":"openai","model":"mock","apiBase":"http://127.0.0.1:9999/v1","apiKey":"fake","roles":["chat"]}],"snapshots":false,"repoMap":false,"references":false,"maxRetries":0,"lowResource":false}
+EOF
+unset http_proxy https_proxy ALL_PROXY NO_PROXY
+export http_proxy="http://us3r:p4ssw0rd@127.0.0.1:9"
+("$BIN" --config "$tmp/config.json" -q doctor < /dev/null) > "$tmp/doctor.txt" 2>&1
+# Check 6: output contains proxy line, does NOT contain username, does NOT contain password
+proxy_line=$("$G" -c 'proxy environment variable set' "$tmp/doctor.txt" 2>/dev/null | tr -d '\n' || echo 0)
+has_user=$("$G" -c 'us3r' "$tmp/doctor.txt" 2>/dev/null | tr -d '\n' || echo 0)
+has_pass=$("$G" -c 'p4ssw0rd' "$tmp/doctor.txt" 2>/dev/null | tr -d '\n' || echo 0)
+if [ "$proxy_line" -gt 0 ] && [ "$has_user" -eq 0 ] && [ "$has_pass" -eq 0 ]; then
+    t_ok "doctor prints proxy env var with userinfo stripped (has line, no user, no pass)"
+else
+    t_fail "doctor proxy userinfo strip test failed: has_line=$proxy_line, has_user=$has_user, has_pass=$has_pass -- \
+$("$G" 'proxy environment variable set' "$tmp/doctor.txt" | head -1 | tr '\n' ' ')"
+fi
+
+# ---- 7: vacuity check - the output names the host (127.0.0.1), not silence ---
+# This guards against check 6 passing because the doctor printed nothing at all.
+# The doctor prints "proxy environment variable set" on one line, then the URL with host:port on the next.
+# We verify that both appear in sequence (the host is stripped of userinfo, not absent).
+if "$G" -q 'proxy environment variable set' "$tmp/doctor.txt" && 
+   "$G" -A1 'proxy environment variable set' "$tmp/doctor.txt" | "$G" -q '127.0.0.1'; then
+    t_ok "doctor output contains the proxy host '127.0.0.1' with userinfo stripped"
+else
+    t_fail "doctor output does not contain '127.0.0.1' after 'proxy environment variable set'"
+fi
+
+# ---- 8: scheme-less proxy value (PUSER:PPASS@127.0.0.1:3128) ---
+# RED FIRST on e8c00495: the current strip prints credentials as-is for no-scheme values.
+# After the fix, the doctor must strip userinfo and show only 127.0.0.1:3128.
+unset http_proxy https_proxy ALL_PROXY NO_PROXY
+export http_proxy="PUSER:PPASS@127.0.0.1:3128"
+("$BIN" --config "$tmp/config.json" -q doctor < /dev/null) > "$tmp/doctor2.txt" 2>&1
+proxy_line8=$("$G" -c 'proxy environment variable set' "$tmp/doctor2.txt" 2>/dev/null | tr -d '\n' || echo 0)
+has_user8=$("$G" -c 'PUSER' "$tmp/doctor2.txt" 2>/dev/null | tr -d '\n' || echo 0)
+has_pass8=$("$G" -c 'PPASS' "$tmp/doctor2.txt" 2>/dev/null | tr -d '\n' || echo 0)
+host8=$("$G" -c '127.0.0.1:3128' "$tmp/doctor2.txt" 2>/dev/null | tr -d '\n' || echo 0)
+if [ "$proxy_line8" -gt 0 ] && [ "$has_user8" -eq 0 ] && [ "$has_pass8" -eq 0 ] && [ "$host8" -gt 0 ]; then
+    t_ok "doctor strips scheme-less proxy userinfo (has line, no user, no pass, has host)"
+else
+    t_fail "doctor scheme-less proxy strip test failed: has_line=$proxy_line8, has_user=$has_user8, has_pass=$has_pass8, has_host=$host8 -- \
+$("$G" 'proxy environment variable set' "$tmp/doctor2.txt" | head -1 | tr '\n' ' ')"
+fi
+
+# ---- 9: socks5:// proxy value (socks5://SSUSER:SSPASS@127.0.0.1:1080) ---
+# RED FIRST on e8c00495: the current strip prints credentials as-is for socks5:// values.
+# After the fix, the doctor must strip userinfo and show socks5://127.0.0.1:1080.
+unset http_proxy https_proxy ALL_PROXY NO_PROXY
+export http_proxy="socks5://SSUSER:SSPASS@127.0.0.1:1080"
+("$BIN" --config "$tmp/config.json" -q doctor < /dev/null) > "$tmp/doctor3.txt" 2>&1
+proxy_line9=$("$G" -c 'proxy environment variable set' "$tmp/doctor3.txt" 2>/dev/null | tr -d '\n' || echo 0)
+has_user9=$("$G" -c 'SSUSER' "$tmp/doctor3.txt" 2>/dev/null | tr -d '\n' || echo 0)
+has_pass9=$("$G" -c 'SSPASS' "$tmp/doctor3.txt" 2>/dev/null | tr -d '\n' || echo 0)
+host9=$("$G" -c '127.0.0.1:1080' "$tmp/doctor3.txt" 2>/dev/null | tr -d '\n' || echo 0)
+if [ "$proxy_line9" -gt 0 ] && [ "$has_user9" -eq 0 ] && [ "$has_pass9" -eq 0 ] && [ "$host9" -gt 0 ]; then
+    t_ok "doctor strips socks5:// proxy userinfo (has line, no user, no pass, has host)"
+else
+    t_fail "doctor socks5:// proxy strip test failed: has_line=$proxy_line9, has_user=$has_user9, has_pass=$has_pass9, has_host=$host9 -- \
+$("$G" 'proxy environment variable set' "$tmp/doctor3.txt" | head -1 | tr '\n' ' ')"
+fi
+
+# ---- 10: with ONLY HTTPS_PROXY set (uppercase), the doctor must still name the host without the credential ---
+# RED FIRST: on the unfixed tree (missing HTTPS_PROXY from the var list), this will show has_line=0 because
+# the doctor only checks http_proxy, https_proxy, ALL_PROXY, NO_PROXY and not HTTPS_PROXY.
+# The unfixed list in main.c was {"http_proxy", "https_proxy", "ALL_PROXY", "NO_PROXY", NULL} (missing HTTPS_PROXY, all_proxy, no_proxy).
+# After the fix (M1032), the complete list includes HTTPS_PROXY and all_proxy, so setting ONLY HTTPS_PROXY triggers the warning.
+unset http_proxy https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY
+export HTTPS_PROXY="http://HUPUSER:HUPPASS@127.0.0.1:4433"
+("$BIN" --config "$tmp/config.json" -q doctor < /dev/null) > "$tmp/doctor4.txt" 2>&1
+proxy_line10=$("$G" -c 'proxy environment variable set' "$tmp/doctor4.txt" 2>/dev/null | tr -d '\n' || echo 0)
+has_user10=$("$G" -c 'HUPUSER' "$tmp/doctor4.txt" 2>/dev/null | tr -d '\n' || echo 0)
+has_pass10=$("$G" -c 'HUPPASS' "$tmp/doctor4.txt" 2>/dev/null | tr -d '\n' || echo 0)
+host10=$("$G" -c '127.0.0.1:4433' "$tmp/doctor4.txt" 2>/dev/null | tr -d '\n' || echo 0)
+if [ "$proxy_line10" -ge 1 ] && [ "$has_user10" -eq 0 ] && [ "$has_pass10" -eq 0 ] && [ "$host10" -gt 0 ]; then
+    t_ok "doctor with ONLY HTTPS_PROXY set: has line, no user, no pass, has host (pins M1032 var list)"
+else
+    t_fail "doctor HTTPS_PROXY-only test failed: has_line=$proxy_line10, has_user=$has_user10, has_pass=$has_pass10, has_host=$host10 -- \
+$("$G" 'proxy environment variable set' "$tmp/doctor4.txt" | head -1 | tr '\n' ' ')"
 fi
 
 t_done

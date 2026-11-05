@@ -17,6 +17,7 @@
 #include "jc_envelope.h"
 #include "jc_eventlog.h"
 #include "jc_log.h"
+#include "jc_scopededit.h"  /* D6 (M975): the scoped edit check */
 
 #include <stdlib.h>
 #include <string.h>
@@ -74,6 +75,15 @@ static jc_status edit_run(const cJSON *args, struct jc_tool_result *out,
         tu_err(out, msg);
         return JC_OK;
     }
+    /* D-01/M978: refuse files whose buffer contains NUL bytes.
+     * The text/len pair from jc_app_read_file lets us detect NUL bytes. */
+    if (len != strlen(text)) {
+        jc_snprintf(msg, sizeof(msg),
+            "error: '%s' contains NUL bytes (file is %lu bytes, readable as %lu); edit it with a script",
+            path, (unsigned long)len, (unsigned long)strlen(text));
+        tu_err(out, msg);
+        return JC_OK;
+    }
 
     /* Resolve + apply via the shared core: exact first, then (unless disabled)
      * the whitespace/anchor fuzzy fallback. The TUI preview uses the same call,
@@ -107,6 +117,16 @@ static jc_status edit_run(const cJSON *args, struct jc_tool_result *out,
         return JC_OK;
     }
 
+    /* D6 (M975): pre_write check for the trip. */
+    {
+        const char *pre = jc_scopededit_pre_write(app, path);
+        if (pre != NULL) {
+            tu_err(out, pre);
+            jc_sb_free(&sb);
+            return JC_OK;
+        }
+    }
+
     {
         jc_status wst = jc_app_write_file(app, path,
                                          sb.data != NULL ? sb.data : "",
@@ -124,13 +144,33 @@ static jc_status edit_run(const cJSON *args, struct jc_tool_result *out,
                     "'%s'", path);
                 tu_err_policy(out, msg);
             } else {
-                jc_snprintf(msg, sizeof(msg), "error: could not write '%s'",
+                /* D-04/M979: on non-DENIED write failure, attempt restore
+                 * if the file pre-existed (text/len from pre-read). */
+                if (text != NULL && len != 0) {
+                    if (jc_app_write_file(app, path, text, len) == JC_OK) {
+                        jc_snprintf(msg, sizeof(msg),
+                            "error: could not write '%s' (original restored)",
                             path);
-                tu_err(out, msg);
+                        tu_err(out, msg);
+                    } else {
+                        /* Restore also failed - file may be corrupt. */
+                        jc_snprintf(msg, sizeof(msg),
+                            "error: could not write '%s' (restore also failed; the file may be corrupt)",
+                            path);
+                        tu_err(out, msg);
+                    }
+                } else {
+                    jc_snprintf(msg, sizeof(msg),
+                        "error: could not write '%s'", path);
+                    tu_err(out, msg);
+                }
             }
             return JC_OK;
         }
     }
+
+    /* D6 (M975): post_write to re-baseline the snapshot after a successful write. */
+    jc_scopededit_post_write(app, path);
 
     gpnote[0] = '\0';
     /* M88 + M435: one reporter, six destinations (journal, telemetry, WARN,

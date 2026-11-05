@@ -149,6 +149,32 @@ gemma and served by qwen3** — routing overrode the explicit `--model`, silentl
 which is the defect jichi fixed as M411. Every row above is attributed from the
 run's own journal, not from the flag that was passed.)*
 
+### The gateway's models on 2026-09-29: an update
+
+The campaign above names `jlu/gemma-4-31b-it`. On 2026-09-29 that id was no longer in the
+gateway's free listing (`GET /v1/models`, filtered to `jlu/`). The table records the August runs;
+it is not a model you can choose today. The listing then offered three chat models:
+
+- **`jlu/qwen3-coder-next`**, the campaign's coder. The operator's experience across projects
+  matches the table above: it needs **small tasks, strict guidance and supervision**. Fenced and
+  gated, it does clean work. Given room, it takes the cheapest path to green.
+- **`jlu/qwen3.8-27b`**, a reasoning model; it returns `reasoning_content` as well as the answer.
+  It is **slow**, and in the operator's experience it **tends not to delegate** to faster models
+  of its own accord. In the weekend drive it led well, and delegated 89 times (51 `spawn_parallel`
+  and 38 `spawn_subagent` calls, all in the drive's second phase), but only once the prompt and
+  the task cards made delegation the process
+  ([the complete-drive analysis](analysis/2026-09-28-the-weekend-drive-complete.md) §2.4;
+  [DRIVING_A_TEAM.md](DRIVING_A_TEAM.md) §1).
+- **`jlu/gemma-4-26b-it`**. It is listed, and `doctor --live` confirmed native tool calling on
+  2026-09-29, and again on 2026-09-30. Nothing else was measured. It is not the model the campaign measured, and its
+  strengths are unknown.
+
+[WORKBENCH.md](WORKBENCH.md) §11 puts eight small questions to the first two, side by side. The
+practical rule for a learner follows from all of this. Start on the fast coder for small, exact
+tasks, under supervision, and let routing move a turn to the reasoning model when it fails or
+stalls (`--route-fast`, `--route-strong`, [ROUTING.md](ROUTING.md)). Do not start on the strong
+model and hope that it hands work down.
+
 ## 4. Ask the model what it knows — the version probe
 
 This section exists because of a measured failure, in the zigodot project
@@ -193,7 +219,7 @@ Self-report (one prompt, headless):
 jichi --no-session -p "Answer from your training data only, without guessing:
 what is the newest released version of Zig you have reliable knowledge of?
 Name two standard-library APIs that changed in releases after that version,
-if you know of any."
+if you know of any." < /dev/null
 ```
 
 Behaviour probe (what it writes is the real evidence):
@@ -202,7 +228,7 @@ Behaviour probe (what it writes is the real evidence):
 # sed strips any markdown code fence: a leftover ``` line makes the compiler
 # fail on line 1, and that error is NOT a dialect finding -- read probe.zig first.
 jichi --no-session -p "Write a minimal Zig program that appends three
-integers to a std.ArrayList and prints them. Output only code." \
+integers to a std.ArrayList and prints them. Output only code." < /dev/null \
   | sed '/^```/d' > probe.zig
 zig build-exe probe.zig   # the compiler is the arbiter
 ```
@@ -214,7 +240,7 @@ a self-contained config so none of your project's rules reach the model:
 mkdir /tmp/probe && cd /tmp/probe
 jichi --config-json '{"models":[{"name":"probe","provider":"openai",
   "model":"<the model id>","apiBase":"<the endpoint>","apiKeyEnv":"JICHI_API_KEY"}]}' \
-  --no-session -p "…the question above…"
+  --no-session -p "…the question above…" < /dev/null
 ```
 
 Date the APIs in whatever comes back (the clustering diagnostic —

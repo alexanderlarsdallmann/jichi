@@ -51,12 +51,12 @@ static void test_classify(void)
     JC_CHECK(strcmp(jc_toolprobe_suggested_setting(JC_TOOLPROBE_UNKNOWN),
                     "native") == 0);
 
-    /* There is no "text" setting today (the protocol is unbuilt), so a TEXT
-     * observation maps to the "none" handling the M147 nudge already covers. */
+    /* M949: a TEXT observation maps to the "text" setting (the recovery pass),
+     * not "none" (which strips the tools and the recovery with them). */
     JC_CHECK(strcmp(jc_toolprobe_suggested_setting(JC_TOOLPROBE_NATIVE),
                     "native") == 0);
     JC_CHECK(strcmp(jc_toolprobe_suggested_setting(JC_TOOLPROBE_TEXT),
-                    "none") == 0);
+                    "text") == 0);
     JC_CHECK(strcmp(jc_toolprobe_suggested_setting(JC_TOOLPROBE_NONE),
                     "none") == 0);
 }

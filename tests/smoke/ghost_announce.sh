@@ -71,6 +71,7 @@ send "\r"
 delay 3000
 send "/exit\r"
 waitexit 20
+assertexit 0
 EOF
 
 run_arm() {
@@ -104,6 +105,7 @@ send "\x15"
 delay 500
 send "/exit\r"
 waitexit 20
+assertexit 0
 EOF
 mm_start "$tmp/m.mm" "$tmp/cap.noacc"
 write_config "$tmp/config.json" "$MM_PORT"

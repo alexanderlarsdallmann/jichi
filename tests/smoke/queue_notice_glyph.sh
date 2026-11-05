@@ -62,6 +62,7 @@ expect "DONE_HERE" 30
 delay 500
 send "/exit\r"
 waitexit 10
+assertexit 0
 EOF
 
 # --- arm A: accessible ----------------------------------------------------

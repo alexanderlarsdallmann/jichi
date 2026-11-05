@@ -131,6 +131,17 @@ void test_str(void)
         jc_group_num(-2000.0, '.', b, sizeof b);    JC_CHECK_STR(b, "2.000");
         /* tiny buffer never overflows (truncates, NUL-terminates) */
         jc_group_num(1234567.0, '.', b, 4);         JC_CHECK(b[3] == '\0');
+        /* A-11 (M1111): a caller buffer larger than the 40-byte staging buffer
+         * must not make the copy loop read past it. 1e40 renders as 41 digits,
+         * so the would-be length (41) exceeds the staged digits (40) and the
+         * unclamped loop copies OOB stack bytes. A 40-byte caller with a
+         * <40-digit value is a no-op (the clamp never fires), so every
+         * current caller is unchanged. */
+        {
+            char big[64];
+            jc_group_num(1e40, '.', big, sizeof big);
+            JC_CHECK_STR(big, "100.000.000.000.000.003.037.860.284.270.036.668.907");
+        }
     }
 
     /* jc_group_sep_audience (M555): who gets a separator, and who must not.

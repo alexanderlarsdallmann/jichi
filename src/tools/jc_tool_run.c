@@ -29,9 +29,11 @@ static cJSON *run_schema(void)
                    0);
     tu_schema_int(s, "timeout",
                   "Optional wall-clock limit in seconds for a command you "
-                  "expect could hang or run long (a build, a test suite). If "
-                  "it is exceeded the command is terminated and you get a "
-                  "timeout result. Omit for quick commands.",
+                  "expect might hang. If it is exceeded the command is "
+                  "terminated and you get a timeout result. Omit for quick "
+                  "commands. Do not set this for runs that measure or reproduce "
+                  "something - a cap that fires does not merely hide the answer, "
+                  "it manufactures a plausible different one.",
                   0);
     return s;
 }
@@ -68,9 +70,15 @@ static jc_status run_run(const cJSON *args, struct jc_tool_result *out,
         }
         {
             int id = jc_bg_start(app->bg, command);
-            char msg[160];
+            char msg[512];
             if (id < 0) {
-                tu_err(out, "error: failed to start the background command");
+                const char *err = jc_bg_spool_error();
+                if (err && err[0] != '\0') {
+                    jc_snprintf(msg, sizeof(msg), "error: %s", err);
+                    tu_err(out, msg);
+                } else {
+                    tu_err(out, "error: failed to start the background command");
+                }
                 return JC_OK;
             }
             if (id == 0) {
@@ -135,7 +143,8 @@ static jc_status run_run(const cJSON *args, struct jc_tool_result *out,
         jc_sb_append(&full, "\n... [output truncated at the capture limit]");
     }
     if (sb.len == 0 && !truncated) {
-        jc_sb_append(&full, "(no output)");
+        /* M895 (N54 (a)): a silent success says what it is. */
+        jc_sb_append(&full, status == 0 ? JC_RUN_SILENT_OK : "(no output)");
     }
     jc_sb_append_fmt(&full, "\n[exit status: %d]", status);
     jc_sb_free(&sb);

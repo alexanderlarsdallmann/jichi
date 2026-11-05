@@ -82,7 +82,7 @@ same file, same model, with the language option *removed* answered normally; and
 asking for the language **in the prompt itself** worked:
 
 ```sh
-jichi -p "Read 설명.txt and answer in Korean, in one sentence, what it is."
+jichi -p "Read 설명.txt and answer in Korean, in one sentence, what it is." < /dev/null
 # -> 설명.txt 는 시험 파일을 위한 문서입니다.
 ```
 

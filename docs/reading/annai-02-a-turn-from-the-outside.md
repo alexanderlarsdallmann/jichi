@@ -84,7 +84,7 @@ Run one real turn with the narration on, in an empty scratch directory:
 # anywhere -- this block makes and enters its own directory
 mkdir /tmp/annai2 && cd /tmp/annai2 && echo "three mice" > note.txt
 jichi --auto --no-session -p "read note.txt and count the words" \
-      --output jsonl
+      --output jsonl < /dev/null
 ```
 
 Read the stream top to bottom and annotate it against the sequence

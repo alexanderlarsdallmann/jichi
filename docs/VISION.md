@@ -24,7 +24,7 @@ than sending an invalid request. `/status` shows `vision: yes/no`.
 
 - **CLI / headless:** `--image <path>` (repeatable):
   ```sh
-  jichi --image diagram.png -p "what does this diagram show?"
+  jichi --image diagram.png -p "what does this diagram show?" < /dev/null
   ```
 - **In any message (TUI or `-p`):** an `@`-reference whose path has an image
   extension attaches as an image (not inlined as text), or use the explicit

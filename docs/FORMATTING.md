@@ -25,31 +25,36 @@ The file path is supplied by jichi. Two forms:
 | Command contains | jichi runs |
 |---|---|
 | no `{}` | the command with the path appended: `clang-format -i 'src/a.c'` |
-| `{}` | every `{}` replaced by the path: `Rscript -e 'styler::style_file("{}")'` |
+| `{}` | every `{}` replaced by the quoted path: `prettier --write {} --loglevel warn` |
 
-Use `{}` when the path is not a trailing argument — inside an expression, or
-followed by other flags.
+Use `{}` when the path is not a trailing argument — followed by other flags,
+or mid-command. Put `{}` **outside any quotes** (see the rule below).
 
 ### The quoting rule (read this if your command has quotes)
 
-**`{}` expands to a *single-quoted* path.** So wrap any expression that contains
-`{}` in **single** quotes, and the shell concatenates it correctly:
+**`{}` is replaced by the path *already single-quoted*, so it must sit OUTSIDE
+your own quotes.** jichi substitutes `'src/a.R'` (a complete shell word), which
+is a single argument wherever it lands in unquoted command text:
 
 ```jsonc
-"formatCommand": "Rscript -e 'styler::style_file(\"{}\")'"
+"formatCommand": "prettier --write {} --loglevel warn"
 ```
 
-becomes `Rscript -e 'styler::style_file("'src/a.R'")'`, which the shell parses as
-one argument: `styler::style_file("src/a.R")`. ✅
-
-Wrapping in **double** quotes does not work — single quotes are literal inside
-them, so the formatter receives a filename that includes the quote characters:
+**Do not put `{}` inside quotes you opened.** This used to be taught as correct
+and it is not: the substituted path's own opening quote closes yours, and the
+path's contents fall into the shell unquoted — a filename with a space splits
+into two arguments, and a crafted name runs commands. jichi now **refuses** a
+`formatCommand` whose `{}` is inside a single- or double-quoted span (M847, the
+scaffolding review's S1), with an error naming the fix:
 
 ```jsonc
-"formatCommand": "Rscript -e \"styler::style_file('{}')\""   // ✗ literal quotes
+"formatCommand": "Rscript -e 'styler::style_file(\"{}\")'"   // ✗ refused: {} inside quotes
 ```
 
-Both shapes are pinned in `tests/test_fmtcmd.c` so the behaviour cannot drift.
+When the formatter takes the path *inside* an expression, do not use `{}` at
+all: append it as a trailing argument and have the tool read it. The R and
+Emacs Lisp packs do this (below). Both the safe and the refused shapes are
+pinned in `tests/test_fmtcmd.c`.
 
 ## Which backend runs
 
@@ -67,10 +72,11 @@ previously it appeared only with `lspServers`.
 
 The path comes from the model, and a shell command is a string the shell parses,
 so the path is **always single-quoted**, with embedded single quotes escaped as
-`'\''`. A file literally named `x; id > pwned; echo .txt` is formatted, not
-executed — asserted by `tests/smoke/format_command.sh`, which fails loudly if
-the sentinel file ever appears (verified by removing the quoting: the injection
-runs).
+`'\''`, and `{}` is accepted only outside your own quotes (M847). A file
+literally named `x; id > pwned; echo .txt` is formatted, not executed —
+asserted by `tests/smoke/format_command.sh`, which also checks that a filename
+with a space is formatted as one argument and that a `{}`-inside-quotes
+`formatCommand` is refused rather than run with a path broken out of its quotes.
 
 Beyond that, `format_file` is unchanged: **mutating**, so it is permission-gated
 like any write, and the path goes through the workspace fence before anything
@@ -102,8 +108,8 @@ The language scaffold packs ship a working `formatCommand` in their
 | haskell | `fourmolu -i` |
 | elixir | `mix format` |
 | erlang | `erlfmt -w` |
-| r | `Rscript -e 'styler::style_file("{}")'` |
-| elisp | `emacs -Q -batch --eval '(progn (find-file "{}") (indent-region (point-min) (point-max)) (save-buffer))'` |
+| r | `Rscript -e 'styler::style_file(commandArgs(trailingOnly=TRUE))'` |
+| elisp | `emacs -Q -batch --eval '(progn (find-file (car (last command-line-args-left))) (indent-region (point-min) (point-max)) (save-buffer))'` |
 
 `jichi doctor` reports whether the configured formatter is on your PATH, and
 warns (rather than fails) when it is not — the tool is on-demand.

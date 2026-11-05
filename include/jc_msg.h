@@ -163,6 +163,14 @@ enum jc_msg_id {
      * dim cannot. Kept SHORT because it precedes the suggestion on one line. */
     JC_MSG_SUGGESTION,
     JC_MSG_TOOL_REFUSED,   /* "That key does nothing here. Try again:"    */
+    /* M753: Esc stops a running turn, as Ctrl-C does, and says so when it
+     * happens -- the plan's "with a line that says so". */
+    JC_MSG_ESC_STOP,
+    /* M753: without type-ahead the turn still holds the terminal, to hear Esc;
+     * what is typed meanwhile is not kept, and this says so once per turn.
+     * Before M753 it was echoed into the output and discarded at the next
+     * prompt, with a notice only then. */
+    JC_MSG_TYPEAHEAD_OFF,
     JC_MSG__COUNT
 };
 

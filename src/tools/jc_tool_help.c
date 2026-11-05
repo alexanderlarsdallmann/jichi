@@ -72,7 +72,8 @@ static char *build_helper_prompt(struct jc_app *app, const char *question)
 }
 
 /* Run the read-only `assignment-helper` tutor sub-agent on `question` and
- * return its answer (malloc'd) via *answer_out. Factored out of the tool so the
+ * return its answer (arena-allocated on the per-turn scratch, M911) -- the
+ * caller must NOT free it. Factored out of the tool so the
  * TUI's /tutor can reach the SAME tutor without going through the interactive
  * ask-the-human routing (which would ask the learner to help themselves --
  * exactly backwards for a self-learner). Returns JC_ERR_NOTFOUND when no

@@ -51,6 +51,7 @@ expect "TURN3" 12
 delay 300
 send "/exit\n"
 waitexit 10
+assertexit 0
 EOF
 
 (cd "$ws" && "$SMOKE_TOOLS/ptydrive" --deadline 60 --cols 80 \

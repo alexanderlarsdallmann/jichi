@@ -49,10 +49,12 @@ void test_fmtcmd(void)
     JC_CHECK(strcmp(b, "clang-format -i 'src/a.c'") == 0);
 
     /* A {} placeholder is substituted rather than appended -- the form
-     * formatters that take the path mid-expression need. */
-    JC_CHECK(jc_fmtcmd_build("Rscript -e 'styler::style_file(\"{}\")'",
+     * formatters that take the path mid-expression need. Safe only OUTSIDE the
+     * author's quotes (M847); the once-shipped inside-quotes R form is refused
+     * below. */
+    JC_CHECK(jc_fmtcmd_build("prettier --write {} --loglevel warn",
                              "R/x.R", b, sizeof b) == 0);
-    JC_CHECK(strcmp(b, "Rscript -e 'styler::style_file(\"'R/x.R'\")'") == 0);
+    JC_CHECK(strcmp(b, "prettier --write 'R/x.R' --loglevel warn") == 0);
 
     /* Every occurrence, not just the first. */
     JC_CHECK(jc_fmtcmd_build("cp {} {}.bak", "a.c", b, sizeof b) == 0);
@@ -62,15 +64,33 @@ void test_fmtcmd(void)
     JC_CHECK(jc_fmtcmd_build("fmt {}", "a.c; id", b, sizeof b) == 0);
     JC_CHECK(strcmp(b, "fmt 'a.c; id'") == 0);
 
-    /* The quoting pitfall worth pinning: {} expands to a SINGLE-quoted path, so
-     * an expression wrapped in single quotes concatenates correctly (the R and
-     * elisp pack examples), while one wrapped in DOUBLE quotes would embed the
-     * quotes literally and hand the formatter a filename that does not exist.
-     * Documented in docs/FORMATTING.md; asserted here so the shape is fixed. */
-    JC_CHECK(jc_fmtcmd_build("r -e 'f(\"{}\")'", "a.R", b, sizeof b) == 0);
-    JC_CHECK(strcmp(b, "r -e 'f(\"'a.R'\")'") == 0);   /* concatenates -> f("a.R") */
-    JC_CHECK(jc_fmtcmd_build("r -e \"f('{}')\"", "a.R", b, sizeof b) == 0);
-    JC_CHECK(strcmp(b, "r -e \"f(''a.R'')\"") == 0);   /* literal quotes: the trap */
+    /* M847 (S1): a `{}` inside the author's own quotes is REFUSED (-2). The
+     * substituted path is single-quoted, so inside a quoted span its opening
+     * quote closes the author's and the path spills into the shell -- a space
+     * splits it, a `;` runs. This was the R and elisp pack shape, and
+     * FORMATTING.md taught it. Both quote kinds are refused; `{}` outside
+     * quotes is still fine. */
+    JC_CHECK(jc_fmtcmd_build("r -e 'f(\"{}\")'", "a.R", b, sizeof b) == -2);
+    JC_CHECK(jc_fmtcmd_build("r -e \"f('{}')\"", "a.R", b, sizeof b) == -2);
+    /* The ordinary break the refusal prevents: a path with a SPACE in the old
+     * pack shape would have fallen out of the author's quotes. Refused. */
+    JC_CHECK(jc_fmtcmd_build("r -e 'f(\"{}\")'", "my file.R", b, sizeof b) == -2);
+    /* `{}` OUTSIDE quotes stays supported and safe: the quoted path is a single
+     * shell word even with a space or a metacharacter. */
+    JC_CHECK(jc_fmtcmd_build("fmt {} --write", "my file.c", b, sizeof b) == 0);
+    JC_CHECK(strcmp(b, "fmt 'my file.c' --write") == 0);
+    JC_CHECK(jc_fmtcmd_build("fmt {}", "a; id", b, sizeof b) == 0);
+    JC_CHECK(strcmp(b, "fmt 'a; id'") == 0);
+    /* A quote the author opened and CLOSED before `{}` leaves `{}` outside. */
+    JC_CHECK(jc_fmtcmd_build("echo 'hi' && fmt {}", "a.c", b, sizeof b) == 0);
+    JC_CHECK(strcmp(b, "echo 'hi' && fmt 'a.c'") == 0);
+    /* The trailing form (no `{}`) is unaffected and the recommended shape. */
+    JC_CHECK(jc_fmtcmd_build(
+        "Rscript -e 'styler::style_file(commandArgs(trailingOnly=TRUE))'",
+        "my file.R", b, sizeof b) == 0);
+    JC_CHECK(strcmp(b,
+        "Rscript -e 'styler::style_file(commandArgs(trailingOnly=TRUE))' "
+        "'my file.R'") == 0);
 
     /* Rejections: nothing to run, nothing to format, no room. */
     JC_CHECK(jc_fmtcmd_build(NULL, "a.c", b, sizeof b) == -1);

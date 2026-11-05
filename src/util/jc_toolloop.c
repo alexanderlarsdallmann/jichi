@@ -24,6 +24,7 @@ const char *jc_fail_class_name(enum jc_fail_class c)
     case JC_FAIL_BAD_ARGS:     return "bad_args";
     case JC_FAIL_KILLED:       return "killed";
     case JC_FAIL_NONZERO_EXIT: return "nonzero_exit";
+    case JC_FAIL_AT_BOUND:     return "at_bound";
     case JC_FAIL_OTHER:        break;
     }
     return "other";
@@ -59,20 +60,95 @@ static int has(const char *hay, const char *needle)
     return 0;
 }
 
-enum jc_fail_class jc_fail_classify(const char *result, int exit_status)
+/* Check if `hay` starts with `needle` (case-insensitive), skipping leading whitespace.
+ * Returns 1 if `hay` begins with `needle`, 0 otherwise. */
+static int starts_with(const char *hay, const char *needle)
 {
+    const char *p;
+    int i, j;
+
+    if (hay == NULL || needle == NULL || needle[0] == '\0') {
+        return 0;
+    }
+    /* Skip leading whitespace in haystack */
+    p = hay;
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') {
+        p++;
+    }
+    /* Case-insensitive comparison */
+    for (i = 0; p[i] != '\0'; i++) {
+        for (j = 0; needle[j] != '\0'; j++) {
+            char a = p[i + j];
+            char b = needle[j];
+            if (a == '\0') {
+                return 0;   /* haystack ended before needle */
+            }
+            if (a >= 'A' && a <= 'Z') { a = (char)(a - 'A' + 'a'); }
+            if (b >= 'A' && b <= 'Z') { b = (char)(b - 'A' + 'a'); }
+            if (a != b) {
+                break;
+            }
+        }
+        if (needle[j] == '\0') {
+            return 1;   /* needle matched */
+        }
+        /* Only match at the start, not later in the string */
+        break;
+    }
+    return 0;
+}
+
+enum jc_fail_class jc_fail_classify(const char *result, int exit_status,
+                                     const char *tool, int policy_refusal)
+{
+    int is_shell_tool;
+
+    /* If the executor has set policy_refusal, the refusal is by fence/policy,
+     * not by capability or accident. Return DENIED immediately, bypassing the
+     * wording-based classification. This fixes M1041-b: the read-only refusal
+     * was classified DENIED before M1041 and `other` after. */
+    if (policy_refusal) {
+        return JC_FAIL_DENIED;
+    }
+
     if (result == NULL || result[0] == '\0') {
         return (exit_status > 0) ? JC_FAIL_NONZERO_EXIT : JC_FAIL_OTHER;
     }
-    /* DENIED first: a refusal usually names the path it refused, so testing
-     * not-found before it would misfile every fence denial as a missing file --
-     * and "the file does not exist" is the wrong advice for "you may not write
-     * there". This is the wrong-cause hazard M342 paid for. */
-    if (has(result, "denied") || has(result, "outside this run's") ||
-        has(result, "outside the workspace") || has(result, "not permitted") ||
-        has(result, "refused") || has(result, "requires approval") ||
-        has(result, "read-only") || has(result, "forbidden")) {
-        return JC_FAIL_DENIED;
+
+    /* For shell tools (run_terminal_command, run_tests), use stricter rules:
+     * DENIED only when the result BEGINS with jichi's refusal phrases.
+     * For other tools, use substring matching (their results are jichi's messages). */
+    is_shell_tool = (tool != NULL && (strcmp(tool, "run_terminal_command") == 0 ||
+                                       strcmp(tool, "run_tests") == 0));
+
+    if (is_shell_tool) {
+        /* Strict check: must BEGIN with jichi's refusal phrases.
+         * Note: jichi's denial messages often start with "error:" prefix, so
+         * we check for "error: refused by safety fence" and "error: ...".
+         * The read-only message starts with "error: tool disabled in read-only mode"
+         * which contains "read-only" but doesn't start with it, so we check for
+         * the full phrase. */
+        if (starts_with(result, "error: refused by safety fence") ||
+            starts_with(result, "refused by safety fence") ||
+            starts_with(result, "outside this run's") ||
+            starts_with(result, "outside the workspace") ||
+            starts_with(result, "not permitted") ||
+            starts_with(result, "refused:") ||
+            starts_with(result, "requires approval") ||
+            starts_with(result, "read-only") ||
+            starts_with(result, "forbidden") ||
+            starts_with(result, "error: tool disabled in read-only mode") ||
+            (starts_with(result, "Path") && has(result, "outside this run's"))) {
+            return JC_FAIL_DENIED;
+        }
+    } else {
+        /* Substring match: for non-shell tools, the entire result is jichi's message */
+        if (has(result, "denied") || has(result, "outside this run's") ||
+            has(result, "outside the workspace") || has(result, "not permitted") ||
+            has(result, "refused") || has(result, "requires approval") ||
+            has(result, "read-only") || has(result, "forbidden")) {
+            return JC_FAIL_DENIED;
+        }
     }
     /* KILLED next, for the same reason: a timeout message often quotes a command
      * that also mentions a path. jichi's own wording is "[stopped: ...]". */
@@ -105,15 +181,226 @@ enum jc_fail_class jc_fail_classify(const char *result, int exit_status)
     return JC_FAIL_OTHER;
 }
 
+/* ---- R6: shell-command key normalisation (see jc_toolloop.h) --------------- */
+
+static const char *skip_ws(const char *p)
+{
+    while (*p == ' ' || *p == '\t') {
+        p++;
+    }
+    return p;
+}
+
+static int id_start(char c)
+{
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
+}
+
+static int id_char(char c)
+{
+    return id_start(c) || (c >= '0' && c <= '9');
+}
+
+/* Advance past one whitespace-delimited token, honouring simple quoting so a
+ * quoted space does not end the token. */
+static const char *skip_token(const char *p)
+{
+    while (*p != '\0' && *p != ' ' && *p != '\t') {
+        if (*p == '"' || *p == '\'') {
+            char q = *p++;
+            while (*p != '\0' && *p != q) {
+                p++;
+            }
+            if (*p != '\0') {
+                p++;
+            }
+        } else {
+            p++;
+        }
+    }
+    return p;
+}
+
+/* Skip a leading `cd DIR &&`, `NAME=val` env assignments and a `timeout [-k V]
+ * SECS`, returning the pointer to the core command. When a `timeout` was stripped
+ * its seconds are written to *tsecs (0 otherwise). */
+static const char *lead_core(const char *cmd, long *tsecs)
+{
+    const char *p;
+
+    if (tsecs != NULL) {
+        *tsecs = 0;
+    }
+    if (cmd == NULL) {
+        return NULL;
+    }
+    p = skip_ws(cmd);
+    for (;;) {
+        /* NAME=value ... */
+        if (id_start(*p)) {
+            const char *q = p;
+            while (id_char(*q)) {
+                q++;
+            }
+            if (*q == '=') {
+                p = skip_ws(skip_token(q + 1));
+                continue;
+            }
+        }
+        /* cd DIR && ... */
+        if (strncmp(p, "cd ", 3) == 0 || strncmp(p, "cd\t", 3) == 0) {
+            const char *amp = strstr(p, "&&");
+            if (amp != NULL) {
+                p = skip_ws(amp + 2);
+                continue;
+            }
+        }
+        /* timeout [options] SECS ... */
+        if (strncmp(p, "timeout ", 8) == 0 || strncmp(p, "timeout\t", 8) == 0) {
+            const char *q = skip_ws(p + 7);
+            while (*q == '-') {
+                int is_k = (strncmp(q, "-k", 2) == 0 &&
+                            (q[2] == ' ' || q[2] == '\t' || q[2] == '\0')) ||
+                           (strncmp(q, "--kill-after", 12) == 0 &&
+                            (q[12] == ' ' || q[12] == '\t' || q[12] == '\0'));
+                q = skip_ws(skip_token(q));
+                if (is_k) {
+                    q = skip_ws(skip_token(q));
+                }
+            }
+            if (*q >= '0' && *q <= '9') {
+                long v = 0;
+                while (*q >= '0' && *q <= '9') {
+                    v = v * 10 + (*q - '0');
+                    q++;
+                }
+                if (*q == 's') { q++; }
+                else if (*q == 'm') { v *= 60; q++; }
+                else if (*q == 'h') { v *= 3600; q++; }
+                else if (*q == 'd') { v *= 86400; q++; }
+                if (tsecs != NULL) {
+                    *tsecs = v;
+                }
+                p = skip_ws(q);
+                continue;
+            }
+            /* `timeout` with no numeric duration is not this shape: leave it. */
+        }
+        break;
+    }
+    return p;
+}
+
+/* Does the trimmed pipeline segment `s` begin with a pure output filter whose
+ * removal does not change what the command DOES to the tree? */
+static int is_filter_seg(const char *s)
+{
+    static const char *const F[] = {
+        "head", "tail", "grep", "wc", "cat", "sort", "uniq", "less", "more",
+        "sed", "awk", "tr", "cut", "tee", "nl", "tac", "rev", "column", NULL
+    };
+    int i;
+
+    s = skip_ws(s);
+    for (i = 0; F[i] != NULL; i++) {
+        jc_size n = (jc_size)strlen(F[i]);
+        if (strncmp(s, F[i], n) == 0 &&
+            (s[n] == '\0' || s[n] == ' ' || s[n] == '\t' || s[n] == '-')) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+long jc_toolloop_shell_timeout_secs(const char *cmd)
+{
+    long secs = 0;
+    (void)lead_core(cmd, &secs);
+    return secs;
+}
+
+jc_size jc_toolloop_shell_norm(const char *cmd, char *out, jc_size cap)
+{
+    const char *core;
+    jc_size len;
+
+    if (out == NULL || cap == 0) {
+        return 0;
+    }
+    out[0] = '\0';
+    core = lead_core(cmd, NULL);
+    if (core == NULL) {
+        return 0;
+    }
+    jc_snprintf(out, cap, "%s", core);
+
+    /* Strip trailing wrapping in place: whitespace, a redirection, or a pipe into
+     * a pure filter -- repeatedly, so `cmd | grep x | head` collapses fully. */
+    len = (jc_size)strlen(out);
+    for (;;) {
+        char *bar;
+        while (len > 0 && (out[len - 1] == ' ' || out[len - 1] == '\t')) {
+            out[--len] = '\0';
+        }
+        if (len >= 4 && strcmp(out + len - 4, "2>&1") == 0) {
+            len -= 4;
+            out[len] = '\0';
+            continue;
+        }
+        /* a trailing redirection to /dev/null: `[N|&]>[>] /dev/null` */
+        {
+            char *dn = strstr(out, "/dev/null");
+            if (dn != NULL && out + strlen(out) - 9 == dn) {
+                char *r = dn;
+                while (r > out && (r[-1] == ' ' || r[-1] == '\t')) { r--; }
+                while (r > out && r[-1] == '>') { r--; }
+                if (r > out && (r[-1] == '2' || r[-1] == '1' || r[-1] == '&')) {
+                    r--;
+                }
+                if (r > out && (r[-1] == ' ' || r[-1] == '\t')) {
+                    *r = '\0';
+                    len = (jc_size)strlen(out);
+                    continue;
+                }
+            }
+        }
+        bar = strrchr(out, '|');
+        if (bar != NULL && is_filter_seg(bar + 1)) {
+            *bar = '\0';
+            len = (jc_size)strlen(out);
+            continue;
+        }
+        break;
+    }
+    while (len > 0 && (out[len - 1] == ' ' || out[len - 1] == '\t')) {
+        out[--len] = '\0';
+    }
+    return len;
+}
+
+int jc_toolloop_at_bound(const char *cmd, double dur_ms)
+{
+    long secs = jc_toolloop_shell_timeout_secs(cmd);
+    if (secs <= 0) {
+        return 0;
+    }
+    /* Cut off at its own bound: the wall-time reached (>= 90% of) the limit. */
+    return dur_ms >= 0.9 * (double)secs * 1000.0;
+}
+
 /* Find or append a (tool, key, exact) row. Returns its index, or -1 when the table
  * is full and the pair is new. */
 static int slot(struct jc_toolloop *w, const char *tool, const char *key, int exact)
 {
     int i;
+    /* M868 (LOOP-1): compared by hash and length, as the success-side watch
+     * (jc_noprogress) compares its triples -- the whole key, however long. */
+    unsigned long kl = (unsigned long)strlen(key);
+    unsigned long kh = jc_reread_hash(key, kl);
 
     for (i = 0; i < w->n; i++) {
-        if (w->exact[i] == exact &&
-            strcmp(w->tool[i], tool) == 0 && strcmp(w->key[i], key) == 0) {
+        if (w->exact[i] == exact && w->keylen[i] == kl && w->keyhash[i] == kh &&
+            strcmp(w->tool[i], tool) == 0) {
             return i;
         }
     }
@@ -122,7 +409,8 @@ static int slot(struct jc_toolloop *w, const char *tool, const char *key, int ex
     }
     i = w->n++;
     jc_snprintf(w->tool[i], JC_TOOLLOOP_TOOL_MAX, "%s", tool);
-    jc_snprintf(w->key[i], JC_TOOLLOOP_KEY_MAX, "%s", key);
+    w->keyhash[i] = kh;
+    w->keylen[i] = kl;
     w->exact[i] = exact;
     w->count[i] = 0;
     w->told[i] = 0;
@@ -144,9 +432,16 @@ enum jc_toolloop_verdict jc_toolloop_note(struct jc_toolloop *w, const char *too
     }
 
     /* Both keys are bumped on every failure, always -- a loop that starts identical
-     * and then varies its argument must not reset the class count on the way. */
+     * and then varies its argument must not reset the class count on the way.
+     *
+     * R6 EXCEPTION: JC_FAIL_AT_BOUND uses the EXACT key ONLY (no class slot). "Ran
+     * to its own time limit" is a shape, not a cause; lumping every distinct
+     * bound-ended command into one class slot would fire on a working agent that
+     * legitimately runs several different capped commands. The loop is the SAME
+     * (normalised) command cut off again and again, which the exact key catches. */
     ie = slot(w, tool, (args != NULL) ? args : "", 1);
-    ic = slot(w, tool, jc_fail_class_name(cls), 0);
+    ic = (cls == JC_FAIL_AT_BOUND)
+             ? -1 : slot(w, tool, jc_fail_class_name(cls), 0);
     if (ie >= 0) {
         w->count[ie]++;
     }
@@ -157,16 +452,14 @@ enum jc_toolloop_verdict jc_toolloop_note(struct jc_toolloop *w, const char *too
     /* EXACT outranks CLASS: it is the more specific finding, and byte-identical
      * repetition earns the stronger advice.
      *
-     * ONE NOTE PER LOOP, not one per key. When the exact key fires, the class slot
-     * is marked told as well -- otherwise the very next identical failure crosses
-     * the class threshold and the model is told twice about one problem, same tool,
-     * same cause, same arguments. That is the nag M323 measured (1,038 warnings from
-     * one unthrottled condition) arriving by a side door. Found by this module's own
-     * unit test, on the first run.
-     *
-     * A LATER failure of the same tool in a DIFFERENT class still has its own slot
-     * and can still fire, which is the distinction worth keeping. */
-    if (ie >= 0 && !w->told[ie] && w->count[ie] >= JC_TOOLLOOP_EXACT_AT) {
+     * EXACT RE-FIRES at each multiple of the threshold (R6). The old code told
+     * once and fell silent -- which is exactly how the 2026-09-26 drive's loop ran
+     * for three hours after a single ignored note. One note per THRESHOLD-worth of
+     * repeats (every 3rd, 6th, 9th...) escalates without becoming the per-call nag
+     * M323 measured. The paired class slot is still marked told the first time, so
+     * one problem is never told through two keys in the same turn. */
+    if (ie >= 0 && w->count[ie] >= JC_TOOLLOOP_EXACT_AT &&
+        (w->count[ie] % JC_TOOLLOOP_EXACT_AT) == 0) {
         w->told[ie] = 1;
         if (ic >= 0) {
             w->told[ic] = 1;
@@ -197,6 +490,20 @@ void jc_toolloop_render(enum jc_toolloop_verdict v, const char *tool,
     }
     out[0] = '\0';
     if (v == JC_TOOLLOOP_NONE) {
+        return;
+    }
+
+    /* R6: a command cut off at its own time limit, again and again. Its own note,
+     * because the cause is neither the arguments nor a missing target -- the
+     * command does not finish in the time it is given, and re-running it will time
+     * out again. Named separately from the failure classes below. */
+    if (cls == JC_FAIL_AT_BOUND) {
+        jc_snprintf(out, cap,
+            "\n\n[jichi] NOTE: `%s` has now run to its own time limit and been cut "
+            "off %d times this turn (the same command, however it is wrapped). It is "
+            "not completing and will keep timing out -- change what you run or how "
+            "you wait for it, rather than running it again.",
+            (tool != NULL) ? tool : "this command", count);
         return;
     }
 
@@ -300,6 +607,10 @@ void jc_noprogress_reset(struct jc_noprogress *w)
     for (i = 0; i < w->n; i++) {
         w->count[i] = 0;
     }
+    /* M870: an edit is something new; the window starts again. */
+    w->ring_n = 0;
+    w->ring_at = 0;
+    w->stale = 0;
 }
 
 int jc_noprogress_note(struct jc_noprogress *w, const char *tool,
@@ -356,6 +667,26 @@ int jc_noprogress_note(struct jc_noprogress *w, const char *tool,
     w->count[hit]++;
     w->last[hit] = w->clock;
 
+    /* M870 (N21): the novelty window -- independent of the counts above and of
+     * the shell rule below, which is why it sees a rotation they cannot. */
+    {
+        unsigned long ch = th * 1000003UL ^ ah * 31UL ^ an ^ (rh * 7UL) ^ (rn << 1);
+        int seen = 0;
+        int k;
+        for (k = 0; k < w->ring_n; k++) {
+            if (w->ring[k] == ch) {
+                seen = 1;
+                break;
+            }
+        }
+        w->stale = seen ? w->stale + 1 : 0;
+        w->ring[w->ring_at] = ch;
+        w->ring_at = (w->ring_at + 1) % JC_NOVELTY_WINDOW;
+        if (w->ring_n < JC_NOVELTY_WINDOW) {
+            w->ring_n++;
+        }
+    }
+
     /* A shell command may have changed what every OTHER call observes, and
      * nothing here can see whether it did, so their repeats start again. Its own
      * count is kept: the same command answering the same way is the loop. */
@@ -366,7 +697,17 @@ int jc_noprogress_note(struct jc_noprogress *w, const char *tool,
             }
         }
     }
-    if (!w->told[hit] && w->count[hit] >= JC_NOPROGRESS_NOTE_AT) {
+    /* M819 (N4a, threadwork's weekend drive): RE-WARN at each multiple of the
+     * threshold, as M806 does for the failure detector's exact key -- not once and
+     * then silent. On the drive a worker made the same passing call 1,126 times in
+     * one turn and the note fired once; the loop ran until a chance compaction
+     * elided the repeats. A child's whole task is one turn, so "once per turn" is
+     * "once, ever". Firing at 3, 6, 9 ... keeps the loss in view. A genuine edit
+     * still resets every count (the RESET role), so this only re-fires inside an
+     * unbroken same-call loop. `told` is kept only to mark the first note for a
+     * reader; the firing no longer depends on it. */
+    if (w->count[hit] >= JC_NOPROGRESS_NOTE_AT &&
+        (w->count[hit] % JC_NOPROGRESS_NOTE_AT) == 0) {
         w->told[hit] = 1;
         return w->count[hit];
     }

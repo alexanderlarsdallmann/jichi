@@ -29,8 +29,9 @@ extern "C" {
  * session saved before M606). A file whose v is NEWER than this build's is
  * still loaded -- refusing would lose the user's conversation, which is not
  * regenerable the way a calibration file is -- with one warning that the
- * fields the newer build added are not restored. v2 added "todos". */
-#define JC_SESSION_STORE_V 2
+ * fields the newer build added are not restored. v2 added "todos". v3 (M954)
+ * adds the relay's four chain fields: relay_id, leg, prev_session, notes_path. */
+#define JC_SESSION_STORE_V 3
 
 struct jc_session {
     char             *id;        /* uuid */
@@ -38,6 +39,20 @@ struct jc_session {
     char             *alias;     /* optional short quick-find name (M108), or NULL */
     char             *workspace; /* cwd at creation */
     int               mode;      /* enum jc_agent_mode active when last saved */
+    /* M954 (store v3): the relay's chain fields, written by a headless relay
+     * leg at its handover. relay_id is the relay this leg belongs to -- in
+     * topology A (a fresh session per leg) that is this session's own id, so
+     * the relay dir the baton lands under; in topology B (one session across
+     * legs) it is the single session's id throughout. leg is 1-based
+     * (0 = not a relay leg, the field omitted on save). prev_session is the
+     * session this leg started FROM (a --handoff-in leg names its predecessor;
+     * a first leg or a topology-B leg names none). notes_path is the baton
+     * this leg WROTE -- where the next leg starts from. All arena-owned, NULL
+     * for a session that never handed over. */
+    char             *relay_id;
+    long              leg;
+    char             *prev_session;
+    char             *notes_path;
     struct jc_history history;
     /* M606: the task list (todowrite/todoread) BELONGS TO THE SESSION. It
      * lived on jc_app alone until then -- no codec saved it, no resume
@@ -63,6 +78,14 @@ struct jc_session_meta {
     char  *workspace; /* workspaceDirectory at last save (for scoping/display) */
     int    nmsgs;     /* stored (non-system) message count                    */
     double mtime;
+    /* M954 (store v3): the relay's chain fields, or NULL / 0 when the session
+     * never handed over. `leg` is the leg number within the relay (0 = not a
+     * relay leg); `relay_id`, `prev_session`, `notes_path` are the same three
+     * strings the session file carries. */
+    long   relay_leg;
+    char  *relay_id;
+    char  *prev_session;
+    char  *notes_path;
 };
 
 /* Outcome of jc_session_open. */

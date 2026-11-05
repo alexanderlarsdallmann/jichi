@@ -108,7 +108,7 @@ Kein neues Werkzeug nötig — es ist dasselbe `jichi`-Binary.
 ```sh
 jichi init assignments        # das Pack anlegen
 # "assignments": true zur Config hinzufügen, dann:
-jichi -p "/assign implementation 'sum a list'"
+jichi -p "/assign implementation 'sum a list'" < /dev/null
 ```
 
 Vollständige Anleitung: `docs/TEACHING_ASSIGNMENTS.md` (Klassenzimmer, Nachhilfe,

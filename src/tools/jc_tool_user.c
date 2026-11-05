@@ -29,7 +29,7 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/select.h>
+#include "jc_select.h"  /* M834: <sys/select.h> where it exists */
 
 #define USER_TOOL_MAX_OUTPUT (32 * 1024)
 

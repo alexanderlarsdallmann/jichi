@@ -18,6 +18,7 @@
 #include "jc_log.h"
 #include "jc_platform.h"
 #include "jc_proc.h"
+#include "jc_spawn.h"   /* M832 */
 #include "jc_workerpool.h"
 #include "jc_peercap.h"
 
@@ -28,7 +29,7 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/select.h>
+#include "jc_select.h"  /* M834: <sys/select.h> where it exists */
 #include <sys/time.h>
 
 #define MCP_IO_TIMEOUT_SECS 120.0
@@ -40,24 +41,8 @@ struct stdio_state {
     struct jc_sb rbuf;    /* unconsumed bytes from out_fd (line framing) */
 };
 
-/* Split "KEY=VALUE" and apply with setenv; runs in the forked child only. */
-static void apply_env(struct jc_vec *env)
-{
-    jc_size i;
-    for (i = 0; i < env->len; i++) {
-        const char *kv = *(char **)jc_vec_at(env, i);
-        const char *eq = strchr(kv, '=');
-        if (eq != NULL) {
-            char key[256];
-            jc_size kn = (jc_size)(eq - kv);
-            if (kn < sizeof(key)) {
-                memcpy(key, kv, kn);
-                key[kn] = '\0';
-                setenv(key, eq + 1, 1);
-            }
-        }
-    }
-}
+/* The "KEY=VALUE" env application moved into jc_spawn (M832), which owns the
+ * whole child ritual for every program jichi starts. */
 
 /* Build a NULL-terminated argv from command + args (malloc'd; caller frees). */
 static char **build_argv(const struct jc_mcp_server_cfg *cfg)
@@ -105,28 +90,23 @@ static jc_status spawn(const struct jc_mcp_server_cfg *cfg, pid_t *pid,
         return JC_ERR_OOM;
     }
 
-    child = fork();
-    if (child < 0) {
-        free(argv);
-        close(inp[0]); close(inp[1]); close(outp[0]); close(outp[1]);
-        return JC_ERR_IO;
+    /* M832: through jc_spawn -- stdin/stdout to the pipes, stderr kept, our
+     * keys scrubbed before the server's configured env, on either backend. */
+    {
+        struct jc_spawn_req sr;
+        memset(&sr, 0, sizeof sr);
+        sr.argv = argv;
+        sr.fd_stdin = inp[0];
+        sr.fd_stdout = outp[1];
+        sr.fd_stderr = JC_SPAWN_INHERIT;
+        sr.scrub_env = 1;
+        sr.env = &((struct jc_mcp_server_cfg *)cfg)->env;
+        if (jc_spawn(&sr, &child) != JC_OK) {
+            free(argv);
+            close(inp[0]); close(inp[1]); close(outp[0]); close(outp[1]);
+            return JC_ERR_IO;
+        }
     }
-    if (child == 0) {
-        /* Child: wire stdin/stdout to the pipes, keep stderr. */
-        dup2(inp[0], STDIN_FILENO);
-        dup2(outp[1], STDOUT_FILENO);
-        close(inp[0]); close(inp[1]);
-        close(outp[0]); close(outp[1]);
-        jc_proc_scrub_secret_env(); /* drop our keys before... */
-        apply_env(&((struct jc_mcp_server_cfg *)cfg)->env); /* ...server env */
-        jc_proc_child_close_fds(); /* M472: and not our fds */
-        jc_proc_child_sigreset(); /* M461 */
-        execvp(argv[0], argv);
-        /* exec failed. */
-        _exit(127);
-    }
-
-    /* Parent. */
     free(argv);
     close(inp[0]);
     close(outp[1]);

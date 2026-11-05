@@ -11,6 +11,11 @@ This driver wires both into `make e2e`.
 Deliberately NOT the smoke tier: that tier is python-free by charter (M209),
 and the probes are python -- so their self-tests belong to the tier that
 already requires python3, beside the bench they serve.
+
+M744: scripts/corpus-drive.sh (M735) is in the same position. Its --self-test
+needs python3 and nothing ran it, which is how the drive's per-run patch could
+be empty for a run that staged its edit or created its test file: no case
+looked at the patch. It runs here now, and it must say how many cases passed.
 """
 import os
 import subprocess
@@ -34,6 +39,18 @@ for probe in ("version_probe.py", "cache_probe.py"):
     else:
         print("ok - %s self-test green" % probe)
 
+ROOT = os.path.join(HERE, "..", "..")
+p = subprocess.run(["sh", os.path.join(ROOT, "scripts", "corpus-drive.sh"), "--self-test"],
+                   capture_output=True, text=True, timeout=300)
+sys.stdout.write(p.stdout)
+# The count is part of the verdict: a case deleted from the script would still
+# leave "self-test: ok", and 16 is what M744 left.
+if p.returncode != 0 or "self-test: ok (16 cases)" not in p.stdout:
+    print("FAIL - corpus-drive.sh self-test (rc=%d): %s" % (p.returncode, p.stderr[-300:]))
+    fails += 1
+else:
+    print("ok - corpus-drive.sh self-test green (16 cases)")
+
 if fails:
     sys.exit(1)
-print("# probes: both self-tests green")
+print("# probes: all three self-tests green")

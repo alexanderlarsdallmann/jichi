@@ -88,9 +88,9 @@ connection handler, so no name matched.
 
 An audit is a snapshot of one person's hypothesis. A lint is an invariant that
 holds for code not yet written. Prefer the lint. Two now run, one per tier:
-`tests/e2e/rig_lint.py` enforces five properties across the residual Python
+`tests/e2e/rig_lint.py` enforces six properties across the residual Python
 drivers (no private request readers, no truncating body loops, `SO_REUSEADDR` on
-every listener, every driver can fail, no orphans), and
+every listener, every driver can fail, no orphans, and no literal binary name), and
 `tests/smoke/smoke_lint.sh` enforces ten-plus properties across the smoke
 tier's **317 drivers** (`ls tests/smoke/*.sh | wc -l` minus `run.sh` and
 `_smoke.sh`; 236 when this was written on 2026-08-22, and this line said
@@ -498,6 +498,26 @@ the real runner.
 For jichi the equivalent question is: does the e2e driver drive the *same* binary,
 config precedence and arena lifetimes as a real run? Where it cannot (a mock
 server), the divergence should be named in the driver.
+
+### Run the real thing
+
+A mock answers the question it was scripted to answer. A probe that checks what jichi *does* --
+a mode, a fence, a stream, a command as published -- runs against the real thing: the built
+binary, a free local model (LM Studio, or the `jlu/*` models on the HRZ gateway, under
+`CLAUDE.md`'s models rule), the real service. A mock is for what the real thing cannot produce
+on demand -- an HTTP 500, a stall, a malformed stream -- and a result obtained from one says so.
+The smoke and e2e tiers are mocked by design, because an offline gate must give the same answer
+on every machine; that is a property of those tiers, not a licence for a probe.
+
+The operator had to say this twice on 2026-09-30. Review agents had marked checks "needs a live
+turn" because their brief said "mock only"; then a probe for D5 -- does a loaded ACP session's
+saved `auto` mode override `--plan`? -- was built on the mock again. Run against
+`qwen/qwen3.5-9b` in LM Studio instead, it took 20 seconds and showed what a mock could not: a
+`--plan` process without the load never offered the model `write_file` (the model said so, and
+the code advertises no mutating tool in plan mode), while after the load it did, and the model
+used it without being asked. A scripted mock sends its tool call whether or not jichi offered
+the tool, so it reaches the refusal but never the menu the model actually saw (`DEFERRED.md`
+def-285).
 
 ### The tiers you run by habit are not the gate
 

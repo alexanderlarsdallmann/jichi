@@ -16,10 +16,14 @@
  *      checked before anything is written; a missing one comes back as a tool
  *      result with is_error set and the section named -- the same shape every
  *      other tool refusal has (errors are values, never control flow), so the
- *      model reads what is missing and writes it. */
+ *      model reads what is missing and writes it.
+ *
+ * D-15: PLAN.md must be written atomically (temp+rename), and the .jichi directory
+ * must be checked for symlinks/non-regular files before writing. */
 #include "jc_tool.h"
 #include "tool_util.h"
 #include "jc_app.h"
+#include "jc_path.h"
 #include "jc_plan.h"
 #include "jc_envelope.h"
 #include "jc_platform.h"
@@ -66,6 +70,7 @@ static jc_status plan_run(const cJSON *args, struct jc_tool_result *out,
     char path[1200];
     char dir[1150];
     char msg[400];
+    jc_status st;
 
     md = jc_plan_render(claim, rejected, falsifier, notgoals, touches);
     if (md == NULL) {
@@ -83,12 +88,37 @@ static jc_status plan_run(const cJSON *args, struct jc_tool_result *out,
     }
     /* Beside the other .jichi records, at the workspace root -- the same root
      * the envelope makes its `wrote` paths relative to, so Touches and wrote
-     * compare in one coordinate system. */
+     * compare in one coordinate system.
+     * D-15: check that the .jichi directory is safe before writing. */
     jc_snprintf(dir, sizeof dir, "%s/.jichi", plan_root(app));
-    jc_mkdir_p(dir);
+    st = jc_state_file_check(plan_root(app), dir);
+    if (st != JC_OK) {
+        if (st == JC_ERR_DENIED) {
+            tu_err(out, "error: .jichi directory is a symlink");
+        } else {
+            tu_err(out, "error: .jichi directory is a symlink or non-regular file");
+        }
+        jc_plan_free(&p);
+        free(md);
+        return JC_OK;
+    }
+    /* D-15: also check that PLAN.md itself is not a symlink/FIFO. */
     jc_snprintf(path, sizeof path, "%s/%s", plan_root(app), JC_PLAN_PATH);
-    if (jc_write_file(path, md, (jc_size)strlen(md)) != JC_OK) {
-        tu_err(out, "error: could not write .jichi/PLAN.md");
+    st = jc_state_file_check(plan_root(app), path);
+    if (st != JC_OK) {
+        if (st == JC_ERR_DENIED) {
+            tu_err(out, "error: .jichi/PLAN.md directory is a symlink");
+        } else {
+            tu_err(out, "error: .jichi/PLAN.md is a symlink or non-regular file");
+        }
+        jc_plan_free(&p);
+        free(md);
+        return JC_OK;
+    }
+    jc_mkdir_p(dir);
+    /* D-15: write atomically to avoid torn writes. */
+    if (jc_write_file_atomic(path, md, (jc_size)strlen(md)) != JC_OK) {
+        tu_err(out, "error: could not write .jichi/PLAN.md atomically");
         jc_plan_free(&p);
         free(md);
         return JC_OK;

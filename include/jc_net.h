@@ -76,6 +76,21 @@ jc_status jc_net_model_limits(const char *api_base, const char *api_key,
 int jc_net_reachable(const char *api_base, const char *api_key,
                      long timeout_secs, volatile int *abort);
 
+/* M1093 (C-09): set the connect + dead-stream FENCES on a SIDE (non-model)
+ * HTTP request. Sets `req->connect_timeout_secs` (CLI > global > built-in 30,
+ * no per-model tier) and `req->dead_stream_secs` (cfg->dead_stream_secs, 0 kept
+ * as an explicit-off, else the built-in 900). It NEVER sets `timeout_secs` (the
+ * per-class total cap, set at the call site) and leaves stall at 0. `cfg` may
+ * be NULL for call sites that hold only a jc_model_cfg* (net_util, audio,
+ * image, transcribe) -- then only the built-ins apply. Implemented in
+ * src/net/net_util.c (compiled with libcurl); callers guard use with
+ * JC_HAVE_CURL, the same as jc_net_reachable. The structs are forward-declared
+ * so this header need not pull in jc_http.h / jc_config.h. */
+struct jc_http_request;
+struct jc_config;
+void jc_net_side_fences(struct jc_http_request *req,
+                        const struct jc_config *cfg);
+
 #ifdef __cplusplus
 }
 #endif

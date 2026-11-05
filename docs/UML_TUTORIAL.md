@@ -141,19 +141,22 @@ From the `uml-mermaid` skill, and they matter more than the syntax:
 ## 7. Doing it with jichi
 
 ```sh
-jichi init sdlc     # ships the uml-mermaid + design-doc skills and /design command
+jichi init sdlc     # ships the uml-mermaid + design-doc skills and /design-doc command
 jichi -p "Draw a stateDiagram-v2 for the order lifecycle: Draft, Submitted, Paid,
-Shipped. One question only — the legal transitions. Then list every box in prose."
+Shipped. One question only — the legal transitions. Then list every box in prose." < /dev/null
 ```
 
-The `/design` command (from the `sdlc` pack) runs as the **read-only** `architect`
+The `/design-doc` command (from the `sdlc` pack) runs as the **read-only** `architect`
 persona and *asks* the model to work in the shape the `design-doc` skill describes.
 Two honest qualifications, because the difference matters when it does not behave
 as you expect: skills are **model-invoked** — nothing pre-loads them, so name the
 skill in your prompt if you want it certainly used — and because the profile is
-read-only, `/design` **prints** the design rather than writing `docs/DESIGN.md`.
+read-only, `/design-doc` **prints** the design rather than writing `docs/DESIGN.md`.
 It also reads `docs/REQUIREMENTS.md` and `docs/USE_CASES.md`, so run
-`/requirements` and `/usecases` first, and save the output yourself.
+`/requirements` and `/usecases` first, and save the output yourself. (Until M751 the
+command was called `/design`, and in the TUI the built-in `/design`, which loads a
+design document, answered instead: *no design doc loaded*. A project scaffolded
+before then still has `.jichi/commands/design.md`, and `jichi doctor` says so.)
 
 ## 8. Extra curriculum — the reading track
 

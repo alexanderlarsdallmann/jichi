@@ -12,6 +12,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>   /* LONG_MAX: M860's band clamp */
 
 const char *jc_eventlog_path(const struct jc_eventlog *log)
 {
@@ -53,6 +54,8 @@ void jc_eventlog_disable(struct jc_eventlog *log)
     log->sid[0] = '\0';
     log->workspace[0] = '\0';
     log->seq = 0;
+    log->task = 0;           /* M800 */
+    log->task_run[0] = '\0'; /* M800 */
     log->level = JC_EVENTLOG_OFF;
     log->owns_f = 0;
     log->path[0] = '\0'; /* M292 */
@@ -102,7 +105,7 @@ jc_status jc_eventlog_open(struct jc_eventlog *log, const char *path,
         return JC_ERR_INVALID; /* stays disabled */
     }
     make_parent_dir(path);
-    log->f = fopen(path, "a");
+    log->f = fopen(path, "ab");
     if (log->f == NULL) {
         return JC_ERR_IO; /* stays disabled (f == NULL) */
     }
@@ -157,8 +160,66 @@ cJSON *jc_eventlog_begin(struct jc_eventlog *log, const char *event)
         cJSON_AddStringToObject(o, "ws", log->workspace);
     }
     cJSON_AddNumberToObject(o, "seq", (double)log->seq++);
+    /* M800: attribute a spawn_parallel child's events, so a reader can tell two
+     * concurrent children apart. Absent in the lead (task == 0). */
+    if (log->task > 0) {
+        cJSON_AddNumberToObject(o, "task", (double)log->task);
+        if (log->task_run[0] != '\0') {
+            cJSON_AddStringToObject(o, "task_run", log->task_run);
+        }
+    }
     cJSON_AddStringToObject(o, "event", event != NULL ? event : "");
     return o;
+}
+
+void jc_eventlog_set_task(struct jc_eventlog *log, long task)
+{
+    if (log == NULL) {
+        return;
+    }
+    log->task = task;
+    if (task > 0) {
+        if (log->sid[0] != '\0') {
+            jc_snprintf(log->task_run, sizeof(log->task_run), "%s-t%ld",
+                        log->sid, task);
+        } else {
+            jc_snprintf(log->task_run, sizeof(log->task_run), "t%ld", task);
+        }
+        /* Band this child's seq away from the lead's and its siblings'. */
+        log->seq = task * JC_EVENTLOG_CHILD_SEQ_STRIDE;
+    } else {
+        log->task_run[0] = '\0';
+    }
+}
+
+void jc_eventlog_set_task_run(struct jc_eventlog *log, const char *run,
+                              long task, long band)
+{
+    long maxband = LONG_MAX / JC_EVENTLOG_CHILD_SEQ_STRIDE - 1;
+
+    if (log == NULL) {
+        return;
+    }
+    log->task = task;
+    if (task <= 0) {
+        log->task_run[0] = '\0';
+        return;
+    }
+    if (run != NULL && run[0] != '\0') {
+        jc_snprintf(log->task_run, sizeof(log->task_run), "%s-t%ld", run, task);
+    } else if (log->sid[0] != '\0') {
+        jc_snprintf(log->task_run, sizeof(log->task_run), "%s-t%ld",
+                    log->sid, task);
+    } else {
+        jc_snprintf(log->task_run, sizeof(log->task_run), "t%ld", task);
+    }
+    if (band < 1) {
+        band = task;
+    }
+    if (band > maxband) {
+        band = maxband;
+    }
+    log->seq = band * JC_EVENTLOG_CHILD_SEQ_STRIDE;
 }
 
 void jc_eventlog_end(struct jc_eventlog *log, cJSON *o)
@@ -169,6 +230,18 @@ void jc_eventlog_end(struct jc_eventlog *log, cJSON *o)
     if (log != NULL && log->f != NULL) {
         char *line = cJSON_PrintUnformatted(o);
         if (line != NULL) {
+            /* M889 (the demos drive's N51): the sink repairs what a producer cut
+             * mid-character -- a byte-counted `%.70s` in a tool's result reached
+             * this line unchanged, and a strict reader rejected it. Catch it here
+             * because a promise about every producer covers only the code already
+             * written (ANECDOTES #22, and `dup_content` for messages). A JSON line
+             * holds non-ASCII bytes only inside strings, so a U+FFFD in place of
+             * a stray byte keeps it valid JSON. */
+            char *fixed = NULL;
+            if (jc_utf8_sanitize(line, (jc_size)strlen(line), &fixed, NULL)) {
+                free(line);
+                line = fixed;
+            }
             fputs(line, log->f);
             fputc('\n', log->f);
             fflush(log->f);
@@ -193,13 +266,16 @@ void jc_eventlog_add_text(cJSON *o, const char *key, const char *s, jc_size max)
     }
     /* Scrub any registered secret before it lands on disk (M132). The full tier
      * records raw prompts + tool I/O, which may echo a key; "***" is never
-     * longer than the secret, so strlen(s)+1 always fits the redacted copy. */
+     * longer than the secret, so strlen(s)+1 always fits the redacted copy.
+     * M1137 (C-19): via the shared helper, failing CLOSED -- if the scrub
+     * cannot allocate, the key is DROPPED (the same degrade as the truncation
+     * leg's own malloc failure below, by class), never written unredacted. */
     if (jc_redact_active()) {
-        red = (char *)malloc((size_t)strlen(s) + 1);
-        if (red != NULL) {
-            jc_redact_secrets(s, red, (jc_size)strlen(s) + 1);
-            s = red;
+        red = jc_redact_scrub(s, (jc_size)strlen(s));
+        if (red == NULL) {
+            return;
         }
+        s = red;
     }
     len = (jc_size)strlen(s);
     if (max == 0 || len <= max) {

@@ -66,7 +66,8 @@ static int apply_file_edits(struct jc_app *app, const char *path, cJSON *edits,
         return -1;
     }
     jc_sb_init(&nb);
-    applied = jc_lsp_apply_text_edits(content, edits_str, &nb);
+    applied = jc_lsp_apply_text_edits(content, edits_str, &nb,
+                                      jc_lsp_server_encoding(app->lsp, path));
     free(edits_str);
     if (applied <= 0) {
         jc_sb_free(&nb);
@@ -232,9 +233,21 @@ static int format_via_command(struct jc_app *app, const char *path,
     /* The path came from the model; quoting it is what makes this safe to hand
      * to a shell (jc_fmtcmd.h). A build failure here means it did not fit, and
      * an unquoted retry is exactly the wrong fallback -- refuse instead. */
-    if (jc_fmtcmd_build(fmt, path, cmd, sizeof(cmd)) != 0) {
-        tu_err(out, "error: formatCommand + path is too long to run safely");
-        return 1;
+    {
+        int fb = jc_fmtcmd_build(fmt, path, cmd, sizeof(cmd));
+        if (fb == -2) {
+            /* M847 (S1): a `{}` inside the author's quotes cannot be quoted
+             * safely -- the path would break out. Name the fix. */
+            tu_err(out, "error: formatCommand has {} inside quotes, where the "
+                        "file path cannot be quoted safely. Move {} outside the "
+                        "quotes, or drop it so the path is appended as a trailing "
+                        "argument (see docs/FORMATTING.md).");
+            return 1;
+        }
+        if (fb != 0) {
+            tu_err(out, "error: formatCommand + path is too long to run safely");
+            return 1;
+        }
     }
     jc_sb_init(&sb);
     if (jc_app_run_command_ex(app, cmd, 65536, app->config.run_timeout, &sb,
@@ -308,7 +321,8 @@ static jc_status format_run(const cJSON *args, struct jc_tool_result *out,
         return JC_OK;
     }
     jc_sb_init(&nb);
-    applied = jc_lsp_apply_text_edits(content, te, &nb);
+    applied = jc_lsp_apply_text_edits(content, te, &nb,
+                                      jc_lsp_server_encoding(app->lsp, path));
     free(te);
     if (applied < 0) {
         jc_sb_free(&nb);

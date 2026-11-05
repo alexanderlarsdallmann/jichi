@@ -26,6 +26,12 @@ Headless mode: print the reply and exit
 .B \-\-config <path>
 Use the given JSON config file
 .TP
+.B \-C <dir>, \-\-cwd <dir>
+Run as if started in <dir>; the working directory applies to every
+subcommand and run mode, the way git, make and tar's
+.B \-C
+do. A missing directory is refused at startup
+.TP
 .B \-\-config\-json <s>
 Use inline JSON as the whole config (self\-contained runs;
 visible in `ps` \-\- use apiKeyEnv, not a literal key)
@@ -117,6 +123,11 @@ Do not read piped stdin as/with the prompt
 .TP
 .B \-\-no\-session
 Do not save this run as a session
+.TP
+.B \-\-handoff\-in <file>
+Relay: start a FRESH session seeded with the previous leg's baton
+(the relay notes a handover writes; refused alongside \-\-session/\-c,
+and does not turn the relay's config key on)
 .TP
 .B \-\-lite
 Low\-resource profile (lean defaults for RAM/CPU/disk;
@@ -605,11 +616,25 @@ filters to one project's events;
 .B \-\-cache\-audit
 diagnoses prompt\-cache reuse vs re\-billing)
 .TP
+.B trust [path]
+Trust this directory's project config (local/config.json, else the file
+\&.jichi/config.json) so all of it applies, until the file changes: an untrusted
+project config applies only its safe settings, and lists the rest
+(jichi doctor shows what each would do).
+.TP
+.B untrust [path]
+Stop trusting it: only its safe settings apply again.
+.TP
 .B audit [path]
 Summarize the privileged\-command audit log (\-\-since 7d limits the window;
 .TP
 .B \-\-output
 json for a machine\-readable summary)
+.TP
+.B ps
+The jichi runs alive on this machine, joined by pid from their leases, control
+sockets and journals: pid, age, mode, lease, socket, workspace (\-\-output json
+for a supervisor). Counts what runs that are gone left behind, and removes nothing
 .TP
 .B runs [dir]
 One triage row per bounded run's journal (newest first; \-\-all shows every run;
@@ -737,8 +762,59 @@ Path to the config file (overridden by \fB\-\-config\fR).
 .B NO_COLOR
 Disable ANSI color (overridden by \fB\-\-color\fR).
 .TP
+.B JICHI_KEEP_DUMPABLE
+Set to \fB1\fR to keep jichi dumpable, for a core dump or a debugger. By default
+jichi makes itself non\-dumpable at startup (Linux), so the commands it runs cannot
+read its API keys through \fI/proc\fR; \fBjichi doctor\fR reports which is in force.
+.TP
 .BR ANTHROPIC_API_KEY ", " OPENAI_API_KEY
 Fallback API keys when not set in the config.
+.TP
+.B JICHI_LANG
+Interface language: \fIen\fR, \fIde\fR, \fIes\fR, \fIja\fR or \fIzh\fR
+(also their long names and locale prefixes such as \fIde_DE.UTF-8\fR).
+Takes precedence over the config's \fBlanguage\fR key, which takes
+precedence over \fILANG\fR; the default is English.
+.TP
+.B JC_PROVIDER
+Provider id for the active model when the config does not name one
+(overridden by \fB\-\-provider\fR).
+.TP
+.B JICHI_DUMP_REQUESTS
+Path to append each model request and response to, for debugging
+(overridden by \fB\-\-dump-requests\fR). An empty value disables the dump.
+.TP
+.B JICHI_SHELL
+Shell the \fBrun_terminal_command\fR tool invokes, when executable.
+Otherwise the default is \fI/bin/sh\fR.
+.TP
+.B JICHI_SPAWN_BACKEND
+How child processes are started: \fBposix_spawn\fR, \fBspawn\fR, or
+\fBposix\fR for fork+exec. Only consulted when \fBposix_spawn\fR is
+available; the default is \fBposix_spawn\fR.
+.TP
+.B JICHI_DAEMON_SOCK
+Socket path for the background daemon (overridden by \fB\-\-socket\fR).
+The default is \fB~/.jichi.d/daemon.sock\fR.
+.TP
+.B JC_CONTROL_CLIENT_SECS
+Timeout in seconds for the headless control connection, default 300.
+.TP
+.B JICHI_FAULT_RESOLVE_STALL_MS
+FAULT build only: the resolver-start stall (milliseconds) the dead-stream driver arms, so a
+connect reads rc=28 with connect time 0, no bytes sent and no socket opened (M1062-e).
+.TP
+.B JICHI_FAULT_NO_TLS
+FAULT=1 build only: when set, makes the linked-library probe report no TLS backend, so
+\fBjichi doctor\fR's https-meets-no-TLS failure can be exercised on a TLS host (M1133).
+Inert in a normal build: the variable is never read there.
+.TP
+.B JICHI_FAULT_HOME_NOPASSWD
+FAULT=1 build only: when set, makes
+\fBjc_home_dir\fR answer "no password entry", so the HOME-unset
+/tmp-fallback (the uid-scoped, pid-scoped and mkdtemp legs) can be exercised on
+a bench whose own uid has a passwd entry (C-16/M1134).
+Inert in a normal build: the variable is never read there.
 .SH EXIT STATUS
 The exit codes are a
 .B stable
@@ -759,6 +835,10 @@ Usage or configuration error.
 .TP
 .B 130
 Interrupted (SIGINT).
+.TP
+.B 129
+Hung up (SIGHUP), handled like SIGTERM (M988): the run aborts gracefully,
+teardown runs, the session is saved.
 .TP
 .B 143
 Terminated (SIGTERM), shut down gracefully -- the session is saved and teardown

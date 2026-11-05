@@ -44,6 +44,7 @@ expect "TICK_OK" 30
 delay 400
 send "/exit\r"
 waitexit 10
+assertexit 0
 EOF
 mm_start "$tmp/replies.mm" "$tmp"
 write_config "$tmp/config.json" "$MM_PORT"
@@ -89,6 +90,7 @@ expect "STEER_MISSED" 30
 delay 400
 send "/exit\r"
 waitexit 10
+assertexit 0
 EOF
 mm_start "$tmp2/replies.mm" "$tmp2"
 write_config "$tmp2/config.json" "$MM_PORT"
@@ -122,6 +124,7 @@ expect "TICK_OK" 30
 delay 400
 send "/exit\r"
 waitexit 10
+assertexit 0
 EOF
 mm_start "$tmp3/replies.mm" "$tmp3"
 write_config "$tmp3/config.json" "$MM_PORT"

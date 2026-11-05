@@ -141,7 +141,9 @@ each choice, alternatives considered and rejected, complexity, a test plan, and 
 
 Each profile declares a `tools:` allow-list that is **enforced** when it runs as
 a subagent (see [`SUBAGENTS.md`](SUBAGENTS.md)), so `solution-checker` genuinely
-cannot modify files. Customise any of them — they are plain markdown under
+cannot modify files; it is also `readonly`, which every surface applies. Under a command's
+`agent:` or `attempt --agent`, only a profile's persona and `readonly` flag apply today (see
+*Tiered learners* below). Customise any of them — they are plain markdown under
 `.jichi/agents/`.
 
 ## Learning by solving — the unified artifact, hints, help, and tiers
@@ -269,8 +271,14 @@ unattended agent — the help just routes to whoever can answer.
 
 ### Tiered learners + `attempt`
 
-The pack ships four learner profiles that differ by tool allow-list + persona
-(add a `model:` selector to make a tier use a weaker/stronger model):
+The pack ships four learner profiles that are meant to differ by tool allow-list + persona
+(add a `model:` selector to make a tier use a weaker/stronger model). **Under `attempt
+--agent` the whole profile applies (M848):** its `tools:` fences the attempt, so
+`learner-senior` is not offered `hint` or `ask_for_help`, and its `model:` picks the model
+unless `--model` names one. Before M848 only the persona applied, and every tier was offered
+the same tools ([DEFERRED def-287](DEFERRED.md#def-287), closed). With `assignments` off,
+`hint` and `ask_for_help` do not exist at all; the tiers whose persona leans on them are told
+so, and work without them:
 
 | Profile | Help posture |
 | --- | --- |

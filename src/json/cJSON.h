@@ -38,6 +38,7 @@ typedef struct cJSON {
     struct cJSON *next;
     struct cJSON *prev;
     struct cJSON *child;   /* for Array/Object: first element */
+    struct cJSON *tail;    /* for Array/Object: last element (M1085/F-05), or NULL when empty */
 
     int type;
 
@@ -103,6 +104,31 @@ cJSON *cJSON_AddArrayToObject(cJSON *object, const char *name);
  * bytes the parser has allocated for strings -- keys and values -- since the
  * process started. tests/test_json.c holds each string to its own length. */
 size_t cJSON_jc_string_bytes(void);
+
+/* jichi extension (M1085/F-05), not part of the cJSON API, exposed for tests:
+ * the number of `next` steps cJSON_AddItemToArray's tail search has walked
+ * since process start. tests/test_cjson_append_linear.c holds appending an
+ * n-element array to O(n): after the tail cache, n appends walk 0 of these,
+ * where the old O(n^2) tail search walked ~n(n-1)/2. */
+size_t cJSON_jc_append_steps(void);
+
+/* jichi extensions (M1089), not part of the cJSON API, exposed for tests: the
+ * per-parse NODE-COUNT cap. A-06: the parser allocates one node per value, so
+ * a large-but-valid reply expands ~40x its bytes into tree memory; the cap
+ * (JC_JSON_MAX_NODES, default 1,000,000) bounds the allocations one parse
+ * makes and, when reached, makes cJSON_Parse refuse the whole document
+ * (NULL). A test lowers the cap for the duration of one parse and restores
+ * it -- no jichi code path calls cJSON_jc_set_max_nodes. */
+void   cJSON_jc_set_max_nodes(size_t n);
+size_t cJSON_jc_get_max_nodes(void);
+
+/* jichi extension (M1094/G3), not part of the cJSON API, exposed for the
+ * provider dialects: 1 when the MOST RECENT cJSON_Parse call was refused by
+ * the per-parse node cap above (its data would exceed JC_JSON_MAX_NODES),
+ * else 0. It does not clear itself -- a parse is atomic, so the flag
+ * describes the last cJSON_Parse. A parse that failed for any other reason
+ * (malformed JSON) reads 0. The public constructors never set it. */
+int    cJSON_jc_parse_refused_by_cap(void);
 
 /* Iterate the elements of an Array or Object. */
 #define cJSON_ArrayForEach(element, array) \

@@ -6,7 +6,7 @@
 # (Port of tests/e2e/hooks.py, M211.)
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 9
+t_plan 15
 smoke_home
 tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
@@ -159,5 +159,114 @@ case "$rep" in
    Reader output was:
 $(printf '%s' "$rep" | head_bytes 400)" ;;
 esac
+
+# --- M1113-b: duplicate keys in a model's tool args must not bypass a hook ---
+# THE DEFECT (SV:2259). jichi's json parser keeps BOTH members of a duplicate
+# key; a PreToolUse hook gets its event via jc_hooks.c build_stdin, which
+# re-prints the PARSED tool args under "tool_input" -- a re-serialization that
+# keeps every duplicate member. So the hook and jichi's own write each resolve
+# the SAME key from the SAME re-printed object, but pre-M1113 they resolved it
+# DIFFERENTLY: the hook (any real parser: python/Go/jq) takes LAST-WINS, while
+# jichi's cJSON_GetObjectItemCaseSensitive returned the FIRST member. A
+# duplicate-keyed write_file args {"path":"BLOCKME.txt",...,"path":"ok.txt"}
+# let the hook judge ok.txt (allowed) while jichi wrote BLOCKME.txt (the first)
+# -- a fence bypass: the guard looked at one path and jichi wrote another.
+# M1113's last-wins accessor makes hook stdin and jichi's own tool reads
+# resolve the SAME (last) member, so the guard and the write agree.
+#
+# The hook below is the WITNESS: a POSIX-sh guard that reads the event JSON on
+# stdin, extracts the LAST "path" member it sees (last-wins, like any real
+# parser -- the smoke tier is python3-free, so sed takes the last match), logs
+# the path it judged, and exits 2 (block) only if THAT path contains BLOCKME.
+# Each leg asserts what the hook SAW (its log line), not just the write -- the
+# leg is only meaningful if the hook's verdict and the written file agree.
+mmk_leg() {  # mmk_leg <label> <tool-json> -> sets MMK_WS, MMK_LOG
+    # One fresh workspace + mock turn. The hook is a POSIX-sh guard that logs
+    # the LAST "path" it sees (last-wins, like a real parser) to MMK_LOG and
+    # exits 2 iff THAT path holds BLOCKME. The log path is baked into the
+    # shell command so it reaches the hook without exporting.
+    mlh=$(smoke_tmp)
+    MMK_LOG="$mlh/saw.log"
+    rm -f "$MMK_LOG"
+    mlhook="$mlh/guard.sh"
+    cat > "$mlhook" <<HOOK
+#!/bin/sh
+p=\$(sed -n 's/.*"path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\\1/p' | sed -n '\$p')
+printf '%s\\n' "\$p" >> "$MMK_LOG"
+case "\$p" in
+    *BLOCKME*) exit 2 ;;
+    *) exit 0 ;;
+esac
+HOOK
+    MMK_WS=$(smoke_tmp); mkdir -p "$MMK_WS"
+    mla=$(smoke_tmp); mkdir -p "$mla/cap"
+    cat > "$mla/r.mm" <<MMEOF
+wire openai
+rule
+  count 1
+  tool write_file $2
+rule
+  count 2
+  text MMK$1DONE
+MMEOF
+    mm_start_unbounded "$mla/r.mm" "$mla/cap"
+    cat > "$mla/cfg.json" <<CFGEOF
+{"toolProfile":"full","lowResource":false,"models":[{"name":"m","provider":"openai","model":"mock",
+ "apiBase":"http://127.0.0.1:$MM_PORT/v1","apiKey":"x","roles":["chat"]}],
+ "snapshots":false,"repoMap":false,"maxRetries":0,"hooksEnabled":true,
+ "hooks":{"PreToolUse":[{"matcher":"write_file","commands":[{"shell":"sh '$mlhook'","timeout":10}]}]}}
+CFGEOF
+    ( cd "$MMK_WS" && with_deadline 60 "$BIN" --config "$mla/cfg.json" -q \
+        --no-session --auto -p "write it" < /dev/null ) > "$mla/out" 2>&1
+    mm_stop
+    MMK_OUT="$mla/out"
+    MMK_CAP="$mla/cap"
+}
+
+# Leg A (the bypass): {"path":"BLOCKME.txt",...,"path":"ok.txt"} -- the hook sees
+# ok.txt (LAST) and must ALLOW. POST-M1113 the write resolves ok.txt (last), so
+# ok.txt is written and BLOCKME.txt is NOT: the guard's verdict and the file
+# agree. Pre-M1113 the write took BLOCKME.txt (first) -- the bypass.
+mmk_leg A '{"path":"BLOCKME.txt","content":"SVX","path":"ok.txt"}'
+mmk_a_saw=$(cat "$MMK_LOG" 2>/dev/null)
+if [ "$mmk_a_saw" = "ok.txt" ]; then
+    t_ok "10 leg A: the hook saw ok.txt (the LAST path) and allowed"
+else
+    t_fail "10 leg A: hook saw '${mmk_a_saw:-<none>}' not ok.txt (the last-wins member)"
+fi
+{ [ -f "$MMK_WS/ok.txt" ] && [ ! -e "$MMK_WS/BLOCKME.txt" ]; } \
+    && t_ok "11 leg A: write agreed with the hook (ok.txt written, BLOCKME.txt absent) -- no bypass" \
+    || t_fail "11 leg A: write disagrees with the hook (ok=$([ -f "$MMK_WS/ok.txt" ] && echo y || echo n) blockme=$([ -e "$MMK_WS/BLOCKME.txt" ] && echo y || echo n)) -- a duplicate-keyed arg bypassed the fence"
+
+# Leg B (reverse order): {"path":"ok.txt",...,"path":"BLOCKME.txt"} -- the hook
+# sees BLOCKME.txt (LAST) and blocks (exit 2). Nothing may be written, and the
+# block must reach the model as the tool message.
+mmk_leg B '{"path":"ok.txt","content":"SVX","path":"BLOCKME.txt"}'
+# The block reached the model as the tool message: it is the content of the
+# round-2 request the mockmodel captures (cap/req.*), not jichi's stdout.
+mmk_b_saw=$(cat "$MMK_LOG" 2>/dev/null)
+mmk_b_blocked=$(grep -h "PreToolUse hook" "$MMK_CAP"/req.* 2>/dev/null | grep -c . || true)
+if [ "$mmk_b_saw" = "BLOCKME.txt" ]; then
+    t_ok "12 leg B: the hook saw BLOCKME.txt (the LAST path) and blocked"
+else
+    t_fail "12 leg B: hook saw '${mmk_b_saw:-<none>}' not BLOCKME.txt (the last-wins member)"
+fi
+{ [ ! -e "$MMK_WS/ok.txt" ] && [ ! -e "$MMK_WS/BLOCKME.txt" ] \
+    && [ "${mmk_b_blocked:-0}" -ge 1 ]; } \
+    && t_ok "13 leg B: nothing written and the block reached the model" \
+    || t_fail "13 leg B: files ok=$([ -e "$MMK_WS/ok.txt" ] && echo y || echo n) blockme=$([ -e "$MMK_WS/BLOCKME.txt" ] && echo y || echo n) blocked_msg=$mmk_b_blocked"
+
+# Leg C (control): a single {"path":"BLOCKME.txt"} -- blocked, nothing written.
+mmk_leg C '{"path":"BLOCKME.txt","content":"SVX"}'
+mmk_c_saw=$(cat "$MMK_LOG" 2>/dev/null)
+mmk_c_blocked=$(grep -h "PreToolUse hook" "$MMK_CAP"/req.* 2>/dev/null | grep -c . || true)
+if [ "$mmk_c_saw" = "BLOCKME.txt" ]; then
+    t_ok "14 leg C: control -- the hook saw BLOCKME.txt and blocked"
+else
+    t_fail "14 leg C: control -- hook saw '${mmk_c_saw:-<none>}' not BLOCKME.txt"
+fi
+{ [ ! -e "$MMK_WS/BLOCKME.txt" ] && [ "${mmk_c_blocked:-0}" -ge 1 ]; } \
+    && t_ok "15 leg C: control -- nothing written, block reached the model" \
+    || t_fail "15 leg C: control -- blockme=$([ -e "$MMK_WS/BLOCKME.txt" ] && echo y || echo n) blocked_msg=$mmk_c_blocked"
 
 t_done

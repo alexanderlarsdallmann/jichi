@@ -16,9 +16,9 @@ all. Those three gaps, and fifty more like them, are what follows.
 
 **Who it is for.** The same reader as the rest: a self-learner with a laptop,
 alone ([CURRICULUM.md](CURRICULUM.md)). So **free and freely-readable works are
-marked and come first within each group**: of the **159 entries** below (34 craft,
+marked and come first within each group**: of the **194 entries** below (50 craft,
 18 C, 12 C++, 8 Zig, 9 Rust, 8 Python, 8 Racket, 7 Guile, 9 Elixir, 9 Haskell,
-9 Clojure, 18 interfaces, 10 Ada/SPARK), **110 carry a link to a text you can read for
+9 Clojure, 18 interfaces, 10 Ada/SPARK, 19 HCI), **127 carry a link to a text you can read for
 nothing** — including a complete C book, a complete Zig book, SICP, *The Scheme
 Programming Language*, *Clojure for the Brave and True*, and every language
 standard that matters here in its last free working draft. A bibliography a
@@ -46,10 +46,11 @@ the previous claim instead of recounting (M259).
 - **Not a syllabus.** Nothing here is graded, sequenced or gated. The graded
   path is [`assignments/INDEX.md`](assignments/INDEX.md), and it needs none of
   these.
-- **Not complete.** Eight areas: the craft, C, C++, Zig, Rust, Python, Racket and
-  interfaces. The four other languages with tracks in this tree — Guile, Elixir,
-  Haskell and Clojure — have none of their literature here yet, and saying so is
-  cheaper than a thin section per language (DEFERRED).
+- **Not complete.** Fourteen sections: the craft, eleven languages, interfaces, and
+  human–computer interaction (added at M754). This bullet said until then that Guile,
+  Elixir, Haskell and Clojure had no literature here, which had stopped being true when
+  their sections landed. A book missing from a section is not a book judged, and the
+  gaps worth naming are under *What is deliberately absent*.
 
 ## How every entry was checked, and on what date
 
@@ -214,6 +215,90 @@ table covers; neither is quoted here beyond its bibliographic record.
   Read it for: goal levels and extension numbering, which [USE_CASE_TUTORIAL.md](USE_CASE_TUTORIAL.md) uses and credits without previously telling you where to find them.
 - **Fundamentals of Software Architecture: An Engineering Approach** — Mark Richards & Neal Ford, 2020. O'Reilly Media, 432 pp. ISBN 978-1-4920-4345-4 [ISBN verified 2026-09-17]
   Read it for: architecture as the decisions that have no right answer, only trade-offs — the framing [ARCHITECTURE_TUTORIAL.md](ARCHITECTURE_TUTORIAL.md) adopts.
+
+### The workbench: the shell, the editors and the desktop around jichi (added 2026-09-29)
+
+The sources behind [WORKBENCH.md](WORKBENCH.md): the tools a Linux desktop ships, learned from
+their own manuals first. Every tool here also documents itself on your machine (`man`, `info`,
+`vimtutor`, Emacs's `C-h t`, nano's `^G`), and that copy describes the version you have.
+
+#### Freely readable
+
+- **The Linux Command Line** — William Shotts, seventh internet edition. CC BY-NC-ND, a free
+  PDF of 597 pages. <https://linuxcommand.org/tlcl.php> [read 2026-09-29]
+  Read it for: the shell from the first prompt to scripts, written for the new command-line
+  user. It is the book-length version of the ground [WORKBENCH.md](WORKBENCH.md) §2 and §9
+  only point at: pipes, redirection, permissions, `find`, `less`, the editors.
+- **The Missing Semester of Your CS Education** — MIT, taught every January; the 2026 edition.
+  <https://missing.csail.mit.edu/> [read 2026-09-29]
+  Read it for: "proficiency with their tools", its own phrase — the shell, the command-line
+  environment, an editor, git, debugging. The 2026 syllabus adds a lecture on agentic coding and
+  folds AI tools into every lecture, "with awareness of their shortcomings". That is the same
+  stance as [WORKBENCH.md](WORKBENCH.md) §11.
+- **GNU Bash Reference Manual** — the GNU Project. <https://www.gnu.org/software/bash/manual/>
+  [probed 2026-09-29: HTTP 200]
+  Read it for: what the shell actually does with a pipe, a redirection or a quote. `man bash` is
+  the same text, for your installed version.
+- **GNU Coreutils manual** — the GNU Project. <https://www.gnu.org/software/coreutils/manual/>
+  [probed 2026-09-29: HTTP 200]
+  Read it for: `ls`, `sort`, `head`, `tail`, `wc`, `cut` and the rest, each with every option.
+  `info coreutils` is the local copy.
+- **Vim user manual** — Bram Moolenaar and the Vim project, served by vimhelp.org.
+  <https://vimhelp.org/usr_toc.txt.html> [probed 2026-09-29: HTTP 200]
+  Read it for: Vim from `vimtutor` onwards, in the order a learner needs it. `:help usr_toc` is
+  the same manual, inside Vim. `:help timestamp` is where `:checktime` and `autoread`
+  are explained.
+- **GNU Emacs Manual** — the GNU Project.
+  <https://www.gnu.org/software/emacs/manual/html_node/emacs/> [probed 2026-09-29: HTTP 200]
+  Read it for: buffers, windows and reverting a buffer when its file changed on disk. `C-h t`
+  starts the built-in tutorial, and `C-h r` opens this manual inside Emacs.
+- **GNU nano documentation** — the nano project: the manual, the FAQ and `nanorc(5)`.
+  <https://www.nano-editor.org/docs.php> [read 2026-09-29]
+  Read it for: the editor a fresh system has, and its `~/.nanorc`, which is where
+  `editors/nano/README.md`'s key binding for jichi goes.
+- **ranger official user guide** — the ranger project.
+  <https://github.com/ranger/ranger/wiki/Official-user-guide> [read 2026-09-29]
+  Read it for: the three-column (Miller-column) view, the Vim-like movement keys, previews, and
+  `rifle.conf`, which decides which program opens a file.
+- **Pro Git** — Scott Chacon & Ben Straub, 2nd edition, 2014. Apress; the whole book free
+  online under CC BY-NC-SA 3.0. <https://git-scm.com/book/en/v2> [read 2026-09-29]
+  Read it for: git from the first commit to branches and rewriting history. jichi's checkpoints
+  and `/undo` are built on git ([SNAPSHOTS.md](SNAPSHOTS.md)), and reviewing a change with
+  `git diff` is the habit this page asks for most.
+- **XDG Base Directory Specification** — freedesktop.org, version 0.8, 2021.
+  <https://specifications.freedesktop.org/basedir-spec/latest/> [read 2026-09-29]
+  Read it for: why configuration lives in `~/.config` and data in `~/.local/share`
+  (`$XDG_CONFIG_HOME`, `$XDG_DATA_HOME` and their defaults). Where a program keeps its files
+  stops being a mystery once you have read these two pages.
+- **The Art of Unix Programming** — Eric S. Raymond, 2003. Free HTML.
+  <http://www.catb.org/esr/writings/taoup/html/> [probed 2026-09-29: HTTP 200]
+  Read it for: the reasons behind small programs that each do one thing and talk through text.
+  That is why `git diff | jichi -p …` works at all.
+- **GNOME Help: Useful keyboard shortcuts** — the GNOME Project.
+  <https://help.gnome.org/users/gnome-help/stable/shell-keyboard-shortcuts.html>
+  [probed 2026-09-29: HTTP 200]
+  Read it for: workspaces, window tiling and moving windows between monitors, on GNOME. The
+  defaults [WORKBENCH.md](WORKBENCH.md) §3 quotes were read from GNOME 50.1's own settings.
+- **Xfce documentation: xfwm4** — the Xfce Project. <https://docs.xfce.org/xfce/xfwm4/start>
+  [probed 2026-09-29: HTTP 200]
+  Read it for: Xfce's window manager — workspaces, tiling and its keyboard settings.
+
+#### In print
+
+- **UNIX Power Tools** — Jerry Peek, Shelley Powers, Tim O'Reilly & Mike Loukides, 3rd edition.
+  O'Reilly. ISBN 978-0-596-00330-2 [ISBN verified 2026-09-29] — Open Library returned
+  *UNIX Power Tools*, "3rd Edition, Updated & Expanded", O'Reilly, 2003, 1,116 pages.
+  Read it for: a thousand short recipes, each a way of combining the tools. Read a chapter at a
+  time, next to a terminal.
+- **Practical Vim** — Drew Neil, 2nd edition. Pragmatic Bookshelf. ISBN 978-1-68050-127-8
+  [ISBN verified 2026-09-29] — Open Library returned *Practical Vim*, second edition, Pragmatic
+  Bookshelf, 2015, 320 pages.
+  Read it for: Vim as a language of small commands, once `vimtutor` is behind you.
+- **The UNIX Programming Environment** — Brian W. Kernighan & Rob Pike, 1984. Prentice-Hall.
+  ISBN 978-0-13-937681-8 [ISBN verified 2026-09-29] — Open Library returned *The UNIX
+  programming environment*, Prentice-Hall, 1984, 357 pages.
+  Read it for: the shell and the filter idea, from two of the people who shaped them. Old, and
+  still the clearest account of why a pipe is the right way to connect two programs.
 
 ## 2. C — the C89 this project is written in, and the C the rest of the world writes
 
@@ -986,6 +1071,104 @@ which any prover knows.
   Read it for: tasking as a *language* feature rather than a library. Worth reading against [`proposals/2026-09-sustained-task.md`](proposals/2026-09-sustained-task.md), because the concurrency rung of that design is the one place this tree is arguing about exactly what Ada decided in 1983.
 
 ---
+
+## 14. Human–computer interaction — user experience as a field, read for a terminal
+
+**Why this section exists, and how it differs from section 12.** Section 12 lists the standards
+and guides for building an interface: POSIX's utility conventions, the terminal's control
+sequences, the platform guidelines, WCAG. This section is about the **field** those rest on:
+human–computer interaction, the discipline that studies how people perceive, learn, err at and
+feel about an interface. The operator asked for it on 2026-09-25, and put the distinction in the
+instruction itself. That means user interface *and* user experience, read as one discipline. It
+does not mean "UI design" (the visual and interaction surface alone), and it does not mean
+"UI/UX" collapsed into a single label.
+
+**Read for a terminal, not a GUI.** Most of the field's literature illustrates itself with
+windows and pointers. jichi is a TUI, a line editor and a screen reader's input. So each entry
+below says what transfers to a keyboard-and-text interface and what does not. The entries were
+chosen because they bear on decisions jichi's own UX documents have already made
+([`INTERFACE_TUTORIAL.md`](INTERFACE_TUTORIAL.md),
+[`proposals/2026-08-tui-chrome-channel.md`](proposals/2026-08-tui-chrome-channel.md),
+[`proposals/2026-08-accessibility-by-default.md`](proposals/2026-08-accessibility-by-default.md)).
+This section places those decisions in the literature; it does not invent a theory. Norman's
+*The Design of Everyday Things* and Krug's *Don't Make Me Think* are already in section 12
+(*The craft, for interfaces*), and are not repeated here.
+
+**How these were checked, on 2026-09-25.** Books by ISBN against Open Library's per-edition
+record (`https://openlibrary.org/isbn/<isbn>.json`), whose answer each entry states. Papers by
+DOI: the ACM and Taylor & Francis resolvers answer an automated request with `403`, the case this
+page's marker table covers, and Springer's page is behind a paywall. Pages read were fetched and
+read that day. `[probed]` means the URL answered with the status shown, and nothing more.
+
+### The field's founding texts
+
+- **The Psychology of Human-Computer Interaction** — Stuart K. Card, Thomas P. Moran & Allen Newell, 1983. Lawrence Erlbaum Associates. ISBN 978-0-89859-243-6 [ISBN verified 2026-09-25] — Open Library's edition record returned *The psychology of human-computer interaction*, L. Erlbaum Associates, 1983.
+  Read it for: the keystroke-level model, which estimates what an expert's task will cost before anyone is tested, from counted keystrokes and mental preparations. A keyboard-only interface is where the model is closest to exact, and it turns a claim like "this chord saves a command typed forty times a session" into arithmetic instead of taste.
+- **User Centered System Design: New Perspectives on Human-Computer Interaction** — Donald A. Norman & Stephen W. Draper (eds.), 1986. Lawrence Erlbaum Associates. ISBN 978-0-89859-781-3 [ISBN verified 2026-09-25] — Open Library returned *User centered system design: new perspectives on human-computer interaction*, L. Erlbaum Associates, 1986.
+  Read it for: where "user-centred design" got its name, and Norman's chapter on cognitive engineering, which frames an interface as two gulfs. Execution is the distance from what a person wants to what the system lets them do; evaluation is the distance from what the system did to what the person can tell it did. [`INTERFACE_TUTORIAL.md`](INTERFACE_TUTORIAL.md)'s thesis, *"You are here. This is what you can do here."*, is a bridge across both.
+- **Direct Manipulation Interfaces** — Edwin L. Hutchins, James D. Hollan & Donald A. Norman, 1985. *Human–Computer Interaction* 1(4), 311–338. [DOI 10.1207/s15327051hci0104_2]
+  Read it for: the same two gulfs, applied to the graphical interface's central claim, with its costs stated as carefully as its gains. What direct manipulation gives up is what a command line keeps: abstraction, repetition and a script. That is the trade a TUI makes, written down by the people who argued for the other side.
+
+### Principles, heuristics and the standard
+
+- **ISO 9241-110:2020, Ergonomics of human-system interaction — Part 110: Interaction principles** — ISO, catalogue page `https://www.iso.org/standard/75258.html` [probed 2026-09-25: HTTP 403]
+  Read it for: the international standard's list of interaction principles: suitability for the user's tasks, self-descriptiveness, conformity with user expectations, learnability, controllability, use error robustness, and user engagement. ISO refuses an automated request and sells the text, so the catalogue page is cited and nothing was read from it. The list is how the field states "good" without naming a platform, which is why it sits first here.
+- **Usability Engineering** — Jakob Nielsen, 1993. Morgan Kaufmann (Interactive Technologies). ISBN 978-0-12-518406-9 [ISBN verified 2026-09-25] — Open Library's edition record returned *Usability Engineering (Interactive Technologies)*, Morgan Kaufmann, 1993.
+  Read it for: usability as an engineering property with a lifecycle, with goals set before the design and measured after it, and for "discount usability": cheap methods used often beat expensive ones used once. That is the only kind of evaluation a small project can afford to repeat.
+- **10 Usability Heuristics for User Interface Design** — Jakob Nielsen, Nielsen Norman Group — <https://www.nngroup.com/articles/ten-usability-heuristics/> [read 2026-09-25]
+  Read it for: the ten heuristics as a checklist one reviewer can apply in an afternoon. The first is *visibility of system status*, the heuristic this project's silent caps broke. The ninth, *help users recognize, diagnose, and recover from errors*, is a one-line statement of this project's rule that a refusal names a way forward.
+- **Designing the User Interface: Strategies for Effective Human-Computer Interaction**, 6th edition — Ben Shneiderman, Catherine Plaisant, Maxine Cohen, Steven Jacobs, Niklas Elmqvist & Nicholas Diakopoulos, 2016. Pearson. ISBN 978-0-13-438038-4 [ISBN verified 2026-09-25] — Open Library's edition record returned *Designing the User Interface: Strategies for Effective Human-Computer Interaction*, Pearson, 2016.
+  Read it for: the field's standard textbook, and its eight golden rules. They are consistency, universal usability, informative feedback, dialogs that yield closure, error prevention, easy reversal of actions, keeping users in control, and a reduced short-term memory load. Read them against jichi's undo, its reach footer and its approval prompt: each rule has a defect in this tree's history that it would have named first.
+
+- **About Face: The Essentials of Interaction Design**, 4th edition — Alan Cooper, Robert Reimann, David Cronin & Christopher Noessel, 2014. Wiley. ISBN 978-1-118-76657-6 [ISBN verified 2026-09-25] — Open Library's edition record returned *About Face: The Essentials of Interaction Design*, Wiley, 2014.
+  Read it for: goal-directed design, and two ideas that fit a TUI better than a web page. *Posture* says a program used for hours at a time is designed differently from one visited for a minute; Cooper calls the first kind *sovereign*. The *perpetual intermediate* is the user who is neither a beginner nor an expert, which is most of the people using any program for long. jichi is used for hours. Its help, its beginner profile and its key list are all choices about that intermediate.
+
+### Error, modes, and the argument for text
+
+- **Human Error** — James Reason, 1990. Cambridge University Press. ISBN 978-0-521-31419-0 [ISBN verified 2026-09-25] — Open Library's edition record returned *Human error*, Cambridge University Press, 1990.
+  Read it for: the difference between a slip, the right intention carried out wrongly, and a mistake, the wrong intention carried out correctly. The two need different defences. jichi's approval prompt ignores any key but its answers, so a stray key cannot approve anything, and that is a defence against slips. What a defence against mistakes would look like there is the harder question, and this book is where to think about it.
+- **The Humane Interface: New Directions for Designing Interactive Systems** — Jef Raskin, 2000. Addison-Wesley. ISBN 978-0-201-37937-2 [ISBN verified 2026-09-25] — Open Library's edition record for this ISBN reads *The Human Interface: New Directions for Designing Interactive Systems*, Addison Wesley, 2000, and its work record *The Humane Interface*. The missing *e* is the catalogue's, not the book's.
+  Read it for: the case against modes. In a mode the same gesture does different things, and habit guarantees that people will sometimes act in the wrong one. Of the books on this list it is the one most directly about interfaces without windows, and it argues hardest against something jichi has: chat, plan and auto are modes. jichi shows the mode in every prompt. Whether that is enough is the question this book will not let you skip.
+- **The Art of Unix Usability** — Eric S. Raymond & Rob W. Landley, 2004. An unfinished book, free to read — <http://www.catb.org/esr/writings/taouu/html/> [read 2026-09-25]. It is served over plain HTTP; the host did not answer `https` that day.
+  Read it for: usability argued from inside the Unix tradition rather than against it. Its rules include *Rule of Silence: When a program has nothing surprising to say, it should say nothing.*, *Rule of Modelessness* and *Rule of Confirmation: Every confirmation prompt should be a surprise.* Put beside an agent's approval prompt, the last is the sharpest test on this page, and the book compares its rules with the Nielsen–Molich method below.
+
+### Evaluation, measured
+
+- **Heuristic evaluation of user interfaces** — Jakob Nielsen & Rolf Molich, 1990. *Proceedings of the SIGCHI Conference on Human Factors in Computing Systems (CHI '90)*, 249–256. [DOI 10.1145/97243.97281]
+  Read it for: the method's first paper, and its finding that one evaluator finds a minority of the problems while a few independent evaluators, pooled, find most of them. So a review by one reader, whether a person, a test suite or a model, is a sample.
+- **A mathematical model of the finding of usability problems** — Jakob Nielsen & Thomas K. Landauer, 1993. *Proceedings of INTERCHI '93*, 206–213. [DOI 10.1145/169059.169166]
+  Read it for: the source of the "five users" figure that section 12's method entry cites. It is a model of diminishing returns per added participant, and its assumptions are stated. Read the assumptions, not only the curve.
+- **Beyond the five-user assumption: Benefits of increased sample sizes in usability testing** — Laura Faulkner, 2003. *Behavior Research Methods, Instruments, & Computers* 35(3), 379–383. [DOI 10.3758/BF03195514]
+  Read it for: the measured counterweight. It draws many five-person samples from one larger group and asks how much each one finds, and how much that varies. It sets the limit on what a study of three to five learners can claim: a direction, never a rate.
+- **The Evaluator Effect: A Chilling Fact About Usability Evaluation Methods** — Morten Hertzum & Niels Ebbe Jacobsen, 2001. *International Journal of Human–Computer Interaction* 13(4), 421–443. [DOI 10.1207/S15327590IJHC1304_05]
+  Read it for: the finding that evaluators applying the same method to the same interface report substantially different problems. It is the field's version of the operator's instruction for the file-cooperation experiment (twelve questions, item 10): treat a result as evidence to reason from, and seek more than one reading of it.
+- **Protocol Analysis: Verbal Reports as Data**, revised edition — K. Anders Ericsson & Herbert A. Simon, 1993. MIT Press. ISBN 978-0-262-55023-9 [ISBN verified 2026-09-25] — Open Library's edition record returned *Protocol analysis: verbal reports as data*, MIT Press, 1992, "Rev. ed.".
+  Read it for: when thinking aloud is data and when it changes the thought it reports. Verbalising what you attend to is not the same act as explaining why, and only the first leaves the task undisturbed. That is why a think-aloud study's facilitator says "keep talking" and never asks "why".
+
+### Accessibility as user experience, for a terminal
+
+- **Guidance on Applying WCAG 2 to Non-Web Information and Communications Technologies (WCAG2ICT)** — W3C Working Group Note — <https://www.w3.org/TR/wcag2ict-22/> [read 2026-09-25]
+  Read it for: how WCAG's success criteria read when the thing being judged is software rather than a web page. It has an appendix on text, command-line and terminal applications, and it names what command-line interfaces already do well for assistive technology: context-sensitive help, and machine-readable output such as JSON alongside redirection and pipes. Read it after section 12's WCAG 2.2 entry. It is the nearest thing to an accessibility standard for a program like jichi.
+- **Auditory User Interfaces: Toward the Speaking Computer** — T. V. Raman, 1997. Kluwer Academic Publishers. ISBN 978-0-7923-9984-1 [ISBN verified 2026-09-25] — Open Library's edition record returned *Auditory user interfaces: toward the speaking computer*, Kluwer Academic Publishers, 1997.
+  Read it for: an interface designed to be heard, as distinct from a screen read aloud, by the author of Emacspeak. jichi's accessible mode and its prose chrome are the second approach done carefully. This book is the argument for the first, and it shows what the second cannot reach.
+- **GNU Readline Library** (the user's manual) — Chet Ramey — <https://tiswww.cwru.edu/php/chet/readline/rluserman.html> [read 2026-09-25]
+  Read it for: the line-editing conventions a terminal user's hands already know: Emacs-style chords, the kill ring, incremental history search, and a vi mode. jichi's line editor reproduces them rather than inventing its own, and `keys_lint.sh` holds its documented chords to the code. Consistency with a tradition the user already has is the cheapest usability a TUI can offer.
+
+### Where jichi's own decisions sit in this literature
+
+This paragraph restates; it does not decide anything new.
+
+- The thesis *"You are here. This is what you can do here."* ([`INTERFACE_TUTORIAL.md`](INTERFACE_TUTORIAL.md)) is the two gulfs (Norman & Draper; Hutchins, Hollan & Norman), put as one sentence a contributor can check a screen against.
+- The rule *content is never altered; chrome is jichi's own lines*
+  ([`proposals/2026-08-tui-chrome-channel.md`](proposals/2026-08-tui-chrome-channel.md)). This is visibility of system status (Nielsen) without the Rule of Silence's cost (Raymond & Landley). The model's words stay the model's, and jichi's status is marked as jichi's.
+- The synthesis *prose where a human must understand, compression where a human must scan*
+  ([`proposals/2026-08-accessibility-by-default.md`](proposals/2026-08-accessibility-by-default.md)). WCAG2ICT's text-application appendix and Raman's auditory design are the two directions this sentence chooses between, case by case.
+- The accessibility arc's own analysis says *of the defects that mattered, the test suite
+  found none* ([`analysis/2026-08-24-twenty-milestones-by-ear.md`](analysis/2026-08-24-twenty-milestones-by-ear.md)).
+  The operator's listening found them. That is the evaluator effect (Hertzum & Jacobsen), with a
+  test suite as one of the evaluators: a tier that passes has been read by one reader, and
+  different readers find different defects.
+- The learner study of three to five people (twelve questions, item 8) is a discount-usability method (Nielsen). Nielsen & Landauer give its best case and Faulkner its variance, so what it can report is which problems exist, not how often they occur.
 
 ## How to read these with jichi at your side
 

@@ -77,7 +77,10 @@ static const char *const msg_en[JC_MSG__COUNT] = {
     "Denied repeatedly, so this run is stopping. Nothing was changed.",
     "This run stops after %d refusals in a row. Control C stops it now.",
     "Suggestion, press Tab to accept:",
-    "The tool %s was refused. "
+    "The tool %s was refused. ",
+    /* M753 */
+    "Esc pressed: stopping this turn",
+    "not kept (type-ahead is off; /typeahead on keeps it)"
 };
 
 /* THE FOUR TABLES BELOW STOP AFTER THE ELEVENTH ENTRY, ON PURPOSE.
@@ -182,7 +185,10 @@ static const char *const msg_de[JC_MSG__COUNT] = {
      * one. */
     ("Vorschlag, mit Tab \xc3\xbc" "bernehmen:"),
     /* Das Werkzeug %s wurde abgelehnt. (trailing space: output follows) */
-    "Das Werkzeug %s wurde abgelehnt. "
+    "Das Werkzeug %s wurde abgelehnt. ",
+    /* M753: written alongside the English, for the operator's ear. */
+    "Esc gedr\xc3\xbc" "ckt: diese Antwort wird abgebrochen",
+    "nicht behalten (Vorab-Eingabe ist aus; /typeahead on beh\xc3\xa4lt sie)"
 };
 
 static const char *const msg_es[JC_MSG__COUNT] = {

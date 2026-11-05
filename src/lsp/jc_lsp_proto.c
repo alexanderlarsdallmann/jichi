@@ -278,10 +278,10 @@ int jc_lsp_format_diagnostics(const char *params_json, const char *want_uri,
             cJSON *start = (range != NULL) ? jc_json_get_obj(range, "start")
                                            : NULL;
             long line = (start != NULL)
-                        ? (long)jc_json_get_num(start, "line", 0.0) : 0;
+                        ? jc_json_clamp_long(jc_json_get_num(start, "line", 0.0)) : 0;
             long col = (start != NULL)
-                       ? (long)jc_json_get_num(start, "character", 0.0) : 0;
-            int sev = (int)jc_json_get_num(d, "severity", 1.0);
+                       ? jc_json_clamp_long(jc_json_get_num(start, "character", 0.0)) : 0;
+            int sev = jc_json_clamp_int(jc_json_get_num(d, "severity", 1.0));
             const char *msg = jc_json_get_str(d, "message", "");
             jc_sb_append_fmt(out, "%s:%ld:%ld: %s: %s\n",
                              display_path != NULL ? display_path : "",
@@ -326,9 +326,9 @@ char *jc_lsp_diagnostics_for_line(const char *params_json, const char *want_uri,
                                            : NULL;
             cJSON *end = (range != NULL) ? jc_json_get_obj(range, "end") : NULL;
             long sl = (start != NULL)
-                      ? (long)jc_json_get_num(start, "line", 0.0) : 0;
+                      ? jc_json_clamp_long(jc_json_get_num(start, "line", 0.0)) : 0;
             /* A diagnostic with no explicit end spans just its start line. */
-            long el = (end != NULL) ? (long)jc_json_get_num(end, "line", 0.0)
+            long el = (end != NULL) ? jc_json_clamp_long(jc_json_get_num(end, "line", 0.0))
                                     : sl;
             if (line0 >= sl && line0 <= el) {
                 char *one = jc_json_print(d);
@@ -423,8 +423,8 @@ static int append_location(cJSON *o, struct jc_sb *out)
         return 0;
     }
     start = jc_json_get_obj(range, "start");
-    line = (start != NULL) ? (long)jc_json_get_num(start, "line", 0.0) : 0;
-    col = (start != NULL) ? (long)jc_json_get_num(start, "character", 0.0) : 0;
+    line = (start != NULL) ? jc_json_clamp_long(jc_json_get_num(start, "line", 0.0)) : 0;
+    col = (start != NULL) ? jc_json_clamp_long(jc_json_get_num(start, "character", 0.0)) : 0;
     jc_sb_append_fmt(out, "%s:%ld:%ld\n", uri_to_path(uri), line + 1, col + 1);
     return 1;
 }
@@ -488,10 +488,10 @@ static const char *symbol_kind(int k)
 static void append_doc_symbol(cJSON *s, struct jc_sb *out, int depth, int *n)
 {
     const char *name = jc_json_get_str(s, "name", "?");
-    int kind = (int)jc_json_get_num(s, "kind", 0.0);
+    int kind = jc_json_clamp_int(jc_json_get_num(s, "kind", 0.0));
     cJSON *range = jc_json_get_obj(s, "range");
     cJSON *start = (range != NULL) ? jc_json_get_obj(range, "start") : NULL;
-    long line = (start != NULL) ? (long)jc_json_get_num(start, "line", 0.0) : 0;
+    long line = (start != NULL) ? jc_json_clamp_long(jc_json_get_num(start, "line", 0.0)) : 0;
     cJSON *children;
     int i;
 
@@ -536,13 +536,13 @@ int jc_lsp_format_symbols(const char *result_json, struct jc_sb *out,
             if (loc != NULL) {
                 /* SymbolInformation / WorkspaceSymbol (flat, with a location). */
                 const char *name = jc_json_get_str(e, "name", "?");
-                int kind = (int)jc_json_get_num(e, "kind", 0.0);
+                int kind = jc_json_clamp_int(jc_json_get_num(e, "kind", 0.0));
                 const char *uri = jc_json_get_str(loc, "uri", NULL);
                 cJSON *range = jc_json_get_obj(loc, "range");
                 cJSON *start = (range != NULL) ? jc_json_get_obj(range, "start")
                                                : NULL;
                 long line = (start != NULL)
-                            ? (long)jc_json_get_num(start, "line", 0.0) : 0;
+                            ? jc_json_clamp_long(jc_json_get_num(start, "line", 0.0)) : 0;
                 jc_sb_append_fmt(out, "%s %s  %s:%ld\n", symbol_kind(kind),
                                  name, uri_to_path(uri), line + 1);
                 n++;
@@ -680,11 +680,11 @@ int jc_lsp_first_symbol_location(const char *result_json, const char *want_name,
             jc_snprintf(uri_buf, uri_cap, "%s", uri);
             if (line != NULL) {
                 *line = (start != NULL)
-                        ? (long)jc_json_get_num(start, "line", 0.0) : 0;
+                        ? jc_json_clamp_long(jc_json_get_num(start, "line", 0.0)) : 0;
             }
             if (character != NULL) {
                 *character = (start != NULL)
-                        ? (long)jc_json_get_num(start, "character", 0.0) : 0;
+                        ? jc_json_clamp_long(jc_json_get_num(start, "character", 0.0)) : 0;
             }
             found = 1;
         }
@@ -700,8 +700,153 @@ static int is_ident_char(int c)
            (c >= '0' && c <= '9') || c == '_';
 }
 
+/* ----- position encodings (M939, R09-F2) ---------------------------------
+ * LSP Position.character counts units in the encoding the server chose at
+ * initialize (`capabilities.positionEncoding`; spec default UTF-16). jichi's
+ * buffers are bytes, so a position is converted per line in both directions.
+ * A UTF-8 lead byte 0b10xxxxxx is a continuation (0 units); 110xxxxx and
+ * 1110xxxxx are 1-unit characters; 11110xxx is a 4-byte character = a
+ * surrogate pair = 2 UTF-16 units. */
+
+int jc_lsp_encoding_from_initialize(const char *result_json)
+{
+    cJSON *root;
+    cJSON *caps;
+    const char *v;
+    char val[16]; /* "utf-8" plus margin; the only accepted value */
+    jc_size i;
+
+    /* Zero the WHOLE array: the case-fold loop below walks every byte, and
+     * valgrind reads an uninitialised stack byte as an error (M939 gate). */
+    memset(val, 0, sizeof(val));
+    if (result_json == NULL) {
+        return JC_LSP_ENC_UTF16;
+    }
+    root = jc_json_parse(result_json);
+    if (root == NULL) {
+        return JC_LSP_ENC_UTF16;
+    }
+    caps = jc_json_get_obj(root, "capabilities");
+    v = (caps != NULL) ? jc_json_get_str(caps, "positionEncoding", NULL)
+                       : NULL;
+    if (v != NULL) {
+        /* Copy out BEFORE the tree is deleted: the string lives in it. */
+        jc_snprintf(val, sizeof(val), "%s", v);
+    }
+    cJSON_Delete(root);
+    for (i = 0; i < sizeof(val) - 1; i++) {
+        char c = val[i];
+        if (c >= 'A' && c <= 'Z') {
+            c = (char)(c - 'A' + 'a');
+        }
+        val[i] = c;
+    }
+    /* Exact case-insensitive match on "utf-8"; a longer value was truncated
+     * and cannot match, an empty one (absent / null / malformed) fell through. */
+    return (strcmp(val, "utf-8") == 0) ? JC_LSP_ENC_UTF8 : JC_LSP_ENC_UTF16;
+}
+
+/* UTF-16 units consumed by one UTF-8 lead byte (continuations count 0; callers
+ * skip them). 4-byte leads are surrogate pairs: 2 units. */
+static long utf16_units_of(int lead)
+{
+    if (lead < 0x80) {
+        return 1;
+    }
+    if ((lead & 0xE0) == 0xC0) {
+        return 1;
+    }
+    if ((lead & 0xF0) == 0xE0) {
+        return 1;
+    }
+    return 2;
+}
+
+/* Walk at most `bytes` of UTF-8 starting at `s`; return how many of them were
+ * consumed (bytes that belonged to complete, valid multi-byte characters) and
+ * the UTF-16 unit count of those bytes. A broken/incomplete sequence stops the
+ * walk (never past `bytes`) and its partial bytes count as zero — the
+ * conservative choice for a position near undecodable bytes. */
+static long utf16_units_in(const char *s, jc_size bytes, long *consumed)
+{
+    jc_size i = 0;
+    long units = 0;
+    while (i < bytes) {
+        int lead = (unsigned char)s[i];
+        jc_size need;
+        if (lead < 0x80) {
+            need = 1;
+        } else if ((lead & 0xE0) == 0xC0) {
+            need = 2;
+        } else if ((lead & 0xF0) == 0xE0) {
+            need = 3;
+        } else if ((lead & 0xF0) == 0xF0) {
+            need = 4;
+        } else {
+            break; /* stray continuation byte */
+        }
+        if (i + need > bytes) {
+            break; /* incomplete at the line end */
+        }
+        i += need;
+        units += utf16_units_of(lead);
+    }
+    if (consumed != NULL) {
+        *consumed = (long)i;
+    }
+    return units;
+}
+
+/* Byte offset `off` (from `line_start`) in wire units of `enc`. For UTF-16 the
+ * walk stops at the last complete character boundary at or before `off` — a
+ * column inside a multi-byte character clamps to the boundary, which is what
+ * no server could have meant anyway. */
+static long byte_to_units(const char *line_start, long off, int enc)
+{
+    long consumed;
+    if (enc != JC_LSP_ENC_UTF8) {
+        (void)utf16_units_in(line_start, (jc_size)off, &consumed);
+        return utf16_units_in(line_start, (jc_size)consumed, NULL);
+    }
+    return off;
+}
+
+/* Wire units `u` of `enc` as a byte offset within the line at `line_start`
+ * (`line_bytes` long, excluding its newline). Identity for UTF-8; for UTF-16
+ * walk the units, never past the line. */
+static long units_to_bytes(const char *line_start, jc_size line_bytes, long u,
+                           int enc)
+{
+    jc_size i = 0;
+    long units = 0;
+    if (enc != JC_LSP_ENC_UTF16 || u <= 0) {
+        return (enc != JC_LSP_ENC_UTF16) ? u : 0;
+    }
+    while (i < line_bytes && units < u) {
+        int lead = (unsigned char)line_start[i];
+        jc_size need;
+        if (lead < 0x80) {
+            need = 1;
+        } else if ((lead & 0xE0) == 0xC0) {
+            need = 2;
+        } else if ((lead & 0xF0) == 0xE0) {
+            need = 3;
+        } else if ((lead & 0xF0) == 0xF0) {
+            need = 4;
+        } else {
+            break;
+        }
+        if (i + need > line_bytes) {
+            break;
+        }
+        i += need;
+        units += utf16_units_of(lead);
+    }
+    return (long)i;
+}
+
 int jc_lsp_locate_symbol(const char *text, const char *symbol, long *line,
-                         long *character)
+                         long *character, int enc)
 {
     long ln = 0;
     long col = 0;
@@ -723,11 +868,12 @@ int jc_lsp_locate_symbol(const char *text, const char *symbol, long *line,
                             !is_ident_char((unsigned char)p[-1]);
             int after_ok = !is_ident_char((unsigned char)p[slen]);
             if (before_ok && after_ok) {
+                const char *line_start = p - col;
                 if (line != NULL) {
                     *line = ln;
                 }
                 if (character != NULL) {
-                    *character = col;
+                    *character = byte_to_units(line_start, col, enc);
                 }
                 return 1;
             }
@@ -746,10 +892,12 @@ struct te_edit {
 };
 
 /* Byte offset of (line,col) in `text`. `ls` holds the byte offset of each
- * line's start (nlines entries). col is clamped to the line so a position can't
- * bleed past its own line; the whole thing is clamped to `len`. */
-static jc_size te_offset(jc_size len, const jc_size *ls, jc_size nlines,
-                         long line, long col)
+ * line's start (nlines entries). col is a count of units in `enc` (M939:
+ * UTF-16 wire columns converted per line to byte offsets), clamped to the line
+ * so a position can't bleed past its own line; the whole thing is clamped to
+ * `len`. */
+static jc_size te_offset(const char *text, jc_size len, const jc_size *ls,
+                         jc_size nlines, long line, long col, int enc)
 {
     jc_size base, line_end, off;
     if (line < 0) {
@@ -760,7 +908,8 @@ static jc_size te_offset(jc_size len, const jc_size *ls, jc_size nlines,
     }
     base = ls[line];
     line_end = ((jc_size)line + 1 < nlines) ? ls[line + 1] : len;
-    off = base + (jc_size)(col < 0 ? 0 : col);
+    off = base + (jc_size)units_to_bytes(text + base, line_end - base,
+                                         col < 0 ? 0 : col, enc);
     if (off > line_end) {
         off = line_end;
     }
@@ -771,7 +920,7 @@ static jc_size te_offset(jc_size len, const jc_size *ls, jc_size nlines,
 }
 
 int jc_lsp_apply_text_edits(const char *text, const char *edits_json,
-                            struct jc_sb *out)
+                            struct jc_sb *out, int enc)
 {
     cJSON *root;
     jc_size len, nlines, i, k, ne, pos;
@@ -839,12 +988,14 @@ int jc_lsp_apply_text_edits(const char *text, const char *edits_json,
             if (st == NULL || en == NULL) {
                 continue;
             }
-            s = te_offset(len, ls, nlines,
-                          (long)jc_json_get_num(st, "line", 0.0),
-                          (long)jc_json_get_num(st, "character", 0.0));
-            ee = te_offset(len, ls, nlines,
-                           (long)jc_json_get_num(en, "line", 0.0),
-                           (long)jc_json_get_num(en, "character", 0.0));
+            s = te_offset(text, len, ls, nlines,
+                          jc_json_clamp_long(jc_json_get_num(st, "line", 0.0)),
+                          jc_json_clamp_long(jc_json_get_num(st, "character", 0.0)),
+                          enc);
+            ee = te_offset(text, len, ls, nlines,
+                           jc_json_clamp_long(jc_json_get_num(en, "line", 0.0)),
+                           jc_json_clamp_long(jc_json_get_num(en, "character", 0.0)),
+                           enc);
             if (ee < s) {
                 continue;
             }

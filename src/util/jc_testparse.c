@@ -12,6 +12,7 @@
 
 #include "jc_testparse.h"
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -19,6 +20,26 @@ struct lr { const char *s; const char *e; };
 
 static int dig(int c) { return c >= '0' && c <= '9'; }
 static int spc(int c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
+
+/* Read a decimal integer from **pp, capping at INT_MAX instead of overflowing
+ * (A-12). Pointer invariant: *pp is always advanced PAST the whole digit run,
+ * exactly where the unguarded loop left it, so callers that continue scanning
+ * from *pp are unaffected -- an over-INT_MAX number consumes all its digits and
+ * reports INT_MAX. The value stays clamped at INT_MAX once any digit would push
+ * it past, and remaining digits are still consumed. */
+static void read_num_capped(const char **pp, int *out)
+{
+    const char *d = *pp;
+    int n = 0;
+    while (dig((unsigned char)*d)) {
+        int dg = *d - '0';
+        if (n > (INT_MAX - dg) / 10) n = INT_MAX;
+        else n = n * 10 + dg;
+        d++;
+    }
+    *pp = d;
+    *out = n;
+}
 
 /* Copy [s,e) into dst, trimming surrounding whitespace, capped at cap-1. */
 static void copy_range(char *dst, jc_size cap, const char *s, const char *e)
@@ -73,7 +94,7 @@ static int find_loc(const char *s, char *file, jc_size cap, long *line_out)
             const char *fs = p;
             const char *d;
             const char *t;
-            long n;
+            int n;
             int pathlike = 0;
 
             while (fs > s && !spc((unsigned char)fs[-1]) &&
@@ -85,8 +106,7 @@ static int find_loc(const char *s, char *file, jc_size cap, long *line_out)
             }
             if (pathlike && fe > fs) {
                 d = p + 1;
-                n = 0;
-                while (dig((unsigned char)*d)) { n = n * 10 + (*d - '0'); d++; }
+                read_num_capped(&d, &n);
                 copy_range(file, cap, fs, fe);
                 *line_out = n;
                 return 1;
@@ -295,10 +315,8 @@ static void parse_tap(const char *output, struct jc_test_report *r)
             const char *d = buf;
             while (dig((unsigned char)*d)) d++;
             if (d[0] == '.' && d[1] == '.') {
-                long m = 0;
                 d += 2;
-                while (dig((unsigned char)*d)) { m = m * 10 + (*d - '0'); d++; }
-                total = (int)m;
+                read_num_capped(&d, &total);
                 continue;
             }
         }
@@ -383,22 +401,32 @@ static void extract_name(const char *line, char *dst, jc_size cap)
 }
 
 /* Read the integer ending just before `kw` (which points at a separating
- * space), or -1. */
+ * space), or -1. Backward multiply-accumulate (digit d at place value mul):
+ * guard BEFORE each addition so neither the place value nor the running total
+ * overflows; both cap at INT_MAX, and once capped they stay there while the
+ * rest of the digit run is still consumed down to `base` (A-12). */
 static int num_before(const char *base, const char *kw)
 {
     const char *p = kw;
-    long n = 0;
-    long mul = 1;
+    int n = 0;
+    int mul = 1;
     int got = 0;
 
     while (p > base && p[-1] == ' ') p--;
     while (p > base && dig((unsigned char)p[-1])) {
-        n += (long)(p[-1] - '0') * mul;
-        mul *= 10;
+        int dg = p[-1] - '0';
+        if (dg > 0 && n != INT_MAX) {
+            if (mul > (INT_MAX - n) / dg) n = INT_MAX;
+            else n += dg * mul;
+        }
+        if (mul != INT_MAX) {
+            if (mul > INT_MAX / 10) mul = INT_MAX;
+            else mul *= 10;
+        }
         p--;
         got = 1;
     }
-    return got ? (int)n : -1;
+    return got ? n : -1;
 }
 
 static void scan_counts(const char *output, struct jc_test_report *r)
@@ -420,10 +448,13 @@ static void scan_counts(const char *output, struct jc_test_report *r)
     }
     if ((q = strstr(output, "out of ")) != NULL) {
         const char *d = q + 7;
-        long n = 0;
-        int got = 0;
-        while (dig((unsigned char)*d)) { n = n * 10 + (*d - '0'); d++; got = 1; }
-        if (got) r->total = (int)n;
+        int n;
+        while (dig((unsigned char)*d)) d++;
+        if (d > q + 7) {
+            d = q + 7;
+            read_num_capped(&d, &n);
+            r->total = n;
+        }
     }
     /* "All N tests passed." (Zig) / "N tests" totals: read the number just
      * before a " tests" token. Only when no authoritative total was found, so
@@ -440,7 +471,7 @@ static void scan_counts(const char *output, struct jc_test_report *r)
         if (best >= 0) r->total = best;
     }
     if (r->total < 0 && r->failed >= 0 && r->passed >= 0) {
-        r->total = r->failed + r->passed;
+        r->total = (r->failed > INT_MAX - r->passed) ? INT_MAX : r->failed + r->passed;
     }
 }
 
@@ -543,7 +574,7 @@ int jc_test_report_count(const struct jc_test_report *r)
     if (r->passed >= 0 || r->failed >= 0) {
         int p = r->passed >= 0 ? r->passed : 0;
         int f = r->failed >= 0 ? r->failed : 0;
-        return p + f;
+        return (p > INT_MAX - f) ? INT_MAX : p + f;
     }
     return -1;
 }

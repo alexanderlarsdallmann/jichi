@@ -37,6 +37,8 @@ void jc_run_outcome_set(struct jc_run_outcome *out, enum jc_run_stop stop,
     case JC_STOP_ERROR:
     case JC_STOP_BUDGET:
     case JC_STOP_MAX_ITERS:
+    case JC_STOP_HANDOVER:   /* M920: cut off mid-work; the relay continues */
+    case JC_STOP_RELAY_STALLED:
         out->answer_complete = 0;
         break;
     }
@@ -65,6 +67,8 @@ const char *jc_run_stop_wire(enum jc_run_stop stop)
     case JC_STOP_VERIFY_FAILED: return "verify_failed";
     case JC_STOP_SCOPE_TAINTED: return "scope_tainted";
     case JC_STOP_MAX_ITERS:     return "max_iters";
+    case JC_STOP_HANDOVER:      return "handover";
+    case JC_STOP_RELAY_STALLED: return "relay_stalled";
     }
     return "done";   /* unreachable; -Wswitch guards the enum */
 }
@@ -91,6 +95,11 @@ const char *jc_run_stop_clause(enum jc_run_stop stop)
         return "finished, but wrote outside the edit scope first";
     case JC_STOP_MAX_ITERS:
         return "stopped at the tool-call cap";
+    case JC_STOP_HANDOVER:
+        return "ended to hand over: the window was exhausted, so the next leg "
+               "continues from the notes";
+    case JC_STOP_RELAY_STALLED:
+        return "stopped: the relay made no progress across its legs";
     }
     return NULL;
 }

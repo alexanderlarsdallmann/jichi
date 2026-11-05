@@ -79,6 +79,42 @@ static void test_telemetry_default_path(void)
     jc_telemetry_default_path("/home/u", "/home/u/dev/jichi", a, sizeof(a));
     JC_CHECK(strncmp(a, "/home/u/.jichi.d/telemetry/jichi-", 33) == 0);
     JC_CHECK(strstr(a, ".jsonl") != NULL);
+    /* After D-09 the <key> in "<base>-<key>.jsonl" is a SHA-256 digest as 64
+     * lowercase hex chars (not a decimal unsigned long). Extract it: the part
+     * after the last '-' in the basename, before ".jsonl". RED on the unfixed
+     * tree, where it is 20 decimal digits. */
+    {
+        const char *base;
+        const char *dash;
+        char k[128];
+        int hex = 1;
+        size_t i;
+        size_t len;
+        base = strrchr(a, '/');
+        if (base != NULL) base++;
+        JC_REQUIRE(base != NULL);
+        if (base != NULL) {
+            dash = strrchr(base, '-');
+            JC_REQUIRE(dash != NULL);
+            if (dash != NULL) {
+                const char *key = dash + 1;
+                /* drop the trailing ".jsonl" (a key is hex, never contains '.') */
+                jc_snprintf(k, sizeof(k), "%s", key);
+                len = strlen(k);
+                if (len > 6 && strcmp(k + len - 6, ".jsonl") == 0)
+                    k[len - 6] = '\0';
+                if (strlen(k) != 64) hex = 0;
+                for (i = 0; k[i] != '\0'; i++) {
+                    if (!((k[i] >= '0' && k[i] <= '9') ||
+                          (k[i] >= 'a' && k[i] <= 'f'))) {
+                        hex = 0;
+                        break;
+                    }
+                }
+                JC_CHECK(hex == 1);
+            }
+        }
+    }
     /* Deterministic: the same workspace names the same file. */
     jc_telemetry_default_path("/home/u", "/home/u/dev/jichi", b, sizeof(b));
     JC_CHECK(strcmp(a, b) == 0);
@@ -331,6 +367,36 @@ void test_telemetry(void)
                  strstr(r.data, "Self-correction:") != NULL &&
                  strstr(r.data, "fired=2 recovered=1 (50%)") != NULL &&
                  strstr(r.data, "ok=2/3 (66%)") != NULL);
+        jc_sb_free(&r);
+        jc_telemetry_summary_free(&ns);
+    }
+
+    /* M853: a delegate that ended its turn with a `finish`-like call is counted
+     * and shown under Self-correction. M852: a `shell_fence` `error` is a
+     * REFUSED task -- counting it as "ran UNFENCED", as the M831 reader did,
+     * reports a task that never ran as an escape risk. */
+    {
+        struct jc_telemetry_summary ns;
+        struct jc_sb r;
+        const char *log =
+            "{\"event\":\"finish_alias\",\"name\":\"finish\",\"message_bytes\":58}\n"
+            "{\"event\":\"finish_alias\",\"name\":\"done\",\"message_bytes\":9}\n"
+            "{\"event\":\"shell_fence\",\"state\":\"applied\"}\n"
+            "{\"event\":\"shell_fence\",\"state\":\"unavailable\"}\n"
+            "{\"event\":\"shell_fence\",\"state\":\"error\"}\n"
+            "{\"event\":\"shell_fence\",\"state\":\"error\"}\n";
+        jc_telemetry_summarize(log, &ns);
+        JC_CHECK(ns.finish_alias == 2);
+        JC_CHECK(ns.shell_fence_total == 4);
+        JC_CHECK(ns.shell_fence_unfenced == 1);
+        JC_CHECK(ns.shell_fence_refused == 2);
+        jc_sb_init(&r);
+        jc_telemetry_render(&ns, &r);
+        JC_CHECK(r.data != NULL &&
+                 strstr(r.data, "ended by a finish call  2 delegate turn(s)") != NULL);
+        JC_CHECK(r.data != NULL &&
+                 strstr(r.data, "1 ran UNFENCED") != NULL &&
+                 strstr(r.data, "2 were refused") != NULL);
         jc_sb_free(&r);
         jc_telemetry_summary_free(&ns);
     }

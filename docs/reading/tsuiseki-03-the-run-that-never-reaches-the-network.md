@@ -68,8 +68,8 @@ a line, with an empty symbol list (exercise 2 shows this). The filter is the
 *extension*, applied during the walk, before any file is read:
 
 ```c src/index/jc_repomap.c:rm_walk
-        } else if (lang_of(path_ext(full)) != RL_NONE &&
-                   jc_file_size(full) <= RM_MAX_FILE_BYTES) {
+            if (lang_of(path_ext(full)) != RL_NONE &&
+                jc_file_size(full) <= RM_MAX_FILE_BYTES) {
 ```
 
 `lang_of` knows C, C++, Python, Go, Rust, JavaScript/TypeScript, Java, Ruby,

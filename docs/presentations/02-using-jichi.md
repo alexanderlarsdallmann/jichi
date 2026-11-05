@@ -49,8 +49,8 @@ stdin is read when the prompt is `-`, so a whole file can be the prompt with no
 - **`/auto`** — autonomous; runs its sandboxed tools without prompting.
 
 ```sh
-jichi --plan -p "how would you add feature X?"    # a plan
-jichi --auto -p "add feature X and make tests pass"  # do it
+jichi --plan -p "how would you add feature X?" < /dev/null    # a plan
+jichi --auto -p "add feature X and make tests pass" < /dev/null  # do it
 ```
 
 <!-- Plan mode is the safe default for exploring an unfamiliar or shared repo. -->
@@ -105,7 +105,7 @@ jichi --auto \
   --budget-tokens 500k --deadline 30m \
   --edit-scope "src/**" \
   --journal run.jsonl --control \
-  -p "fix the failing ring-buffer tests"
+  -p "fix the failing ring-buffer tests" < /dev/null
 ```
 
 Pass → advance; fail → fix-forward N times, else roll back to the last green.

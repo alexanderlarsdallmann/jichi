@@ -90,22 +90,27 @@ static void test_locate(void)
     long line = -1;
     long col = -1;
 
-    /* First occurrence, 0-based line/col. */
-    JC_CHECK(jc_lsp_locate_symbol("int foo;\nbar(foo);\n", "foo", &line, &col)
-             == 1);
+    /* First occurrence, 0-based line/col. ASCII, so the wire column equals the
+     * byte offset in either encoding (M939; UTF-8 shown). */
+    JC_CHECK(jc_lsp_locate_symbol("int foo;\nbar(foo);\n", "foo", &line, &col,
+                                  JC_LSP_ENC_UTF8) == 1);
     JC_CHECK(line == 0 && col == 4);
 
     /* Word boundary: skip "foobar", match the standalone "foo". */
-    JC_CHECK(jc_lsp_locate_symbol("foobar foo", "foo", &line, &col) == 1);
+    JC_CHECK(jc_lsp_locate_symbol("foobar foo", "foo", &line, &col,
+                                  JC_LSP_ENC_UTF8) == 1);
     JC_CHECK(line == 0 && col == 7);
 
     /* On a later line. */
-    JC_CHECK(jc_lsp_locate_symbol("a\nb\n  zap()", "zap", &line, &col) == 1);
+    JC_CHECK(jc_lsp_locate_symbol("a\nb\n  zap()", "zap", &line, &col,
+                                  JC_LSP_ENC_UTF8) == 1);
     JC_CHECK(line == 2 && col == 2);
 
     /* Not found. */
-    JC_CHECK(jc_lsp_locate_symbol("nothing here", "missing", &line, &col) == 0);
-    JC_CHECK(jc_lsp_locate_symbol("x", "", &line, &col) == 0);
+    JC_CHECK(jc_lsp_locate_symbol("nothing here", "missing", &line, &col,
+                                  JC_LSP_ENC_UTF8) == 0);
+    JC_CHECK(jc_lsp_locate_symbol("x", "", &line, &col,
+                                  JC_LSP_ENC_UTF8) == 0);
 }
 
 void test_lsp_nav(void)

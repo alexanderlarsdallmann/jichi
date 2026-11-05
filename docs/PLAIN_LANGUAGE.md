@@ -26,17 +26,25 @@ You need three things:
 2. A language model. This is a service, on the internet or on your own machine.
 3. A key for that service. The key works like a password.
 
+The simplest free choice is a model on your **own machine**. **LM Studio** is one
+easy way to run one. A model on your own machine needs **no key**. To learn how,
+see [`LOCAL_MODELS.md`](LOCAL_MODELS.md). A model on the internet is quicker to
+start, but it may cost money — and then you need a key.
+
 ## Getting jichi
 
-jichi is one program file. You build it once from the source code:
+jichi is one program file. You build it once from the source code. Do this in the
+folder that holds jichi's source code — the one with the `Makefile` in it:
 
 ```
 make
 ```
 
-This makes a file called `jichi` in the folder. You can copy it somewhere on your
-`PATH` — that is the list of folders where your computer looks for programs. Or you
-can run it as `./jichi` from that folder.
+You should see it finish with no error. This makes a file called `jichi` in that
+folder. To type `jichi` from anywhere, install it (`sudo make install`) or add its
+folder to your `PATH` — the list of folders where your computer looks for programs.
+If you do neither, run it as `./jichi`, and write `./jichi` wherever this page
+writes `jichi`.
 
 If `make` does not work, you are missing a build tool. See
 [`INSTALL.md`](INSTALL.md).
@@ -321,7 +329,7 @@ file to stay the same automatically.
 
 ### If something goes wrong
 
-- **Ctrl-C** stops what jichi is doing.
+- **Ctrl-C** or **Esc** stops what jichi is doing.
 - `/undo` puts your files back the way they were.
 - `/exit` closes jichi.
 

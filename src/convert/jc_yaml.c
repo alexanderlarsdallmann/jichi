@@ -387,10 +387,10 @@ static jc_status split_lines(const char *text, struct jc_vec *out,
 /* --- recursive descent --- */
 
 static struct jc_yaml *parse_node(struct jc_vec *lines, jc_size *idx,
-                                  int indent, struct jc_arena *a);
+                                  int indent, struct jc_arena *a, jc_size depth);
 
 static struct jc_yaml *parse_seq(struct jc_vec *lines, jc_size *idx,
-                                 int indent, struct jc_arena *a)
+                                 int indent, struct jc_arena *a, jc_size depth)
 {
     struct jc_yaml *seq = new_node(a, JC_YAML_SEQ);
     while (*idx < lines->len) {
@@ -415,7 +415,12 @@ static struct jc_yaml *parse_seq(struct jc_vec *lines, jc_size *idx,
             } else if (*idx < lines->len) {
                 struct line *nx = (struct line *)jc_vec_at(lines, *idx);
                 if (nx->indent > indent) {
-                    child = parse_node(lines, idx, nx->indent, a);
+                    child = parse_node(lines, idx, nx->indent, a, depth + 1);
+                    /* If parse_node failed (e.g., depth exceeded), propagate the error. */
+                    if (child == NULL) {
+                        jc_yaml_free(seq);
+                        return NULL;
+                    }
                 } else {
                     child = new_scalar(a, jc_arena_strdup(a, ""));
                 }
@@ -426,7 +431,12 @@ static struct jc_yaml *parse_seq(struct jc_vec *lines, jc_size *idx,
             /* Inline content after the dash: reparse this line at `col`. */
             ln->indent = col;
             ln->text = (char *)rest;
-            child = parse_node(lines, idx, col, a);
+            child = parse_node(lines, idx, col, a, depth + 1);
+            /* If parse_node failed (e.g., depth exceeded), propagate the error. */
+            if (child == NULL) {
+                jc_yaml_free(seq);
+                return NULL;
+            }
         }
         jc_vec_push(&seq->items, &child);
     }
@@ -434,7 +444,7 @@ static struct jc_yaml *parse_seq(struct jc_vec *lines, jc_size *idx,
 }
 
 static struct jc_yaml *parse_map(struct jc_vec *lines, jc_size *idx,
-                                 int indent, struct jc_arena *a)
+                                 int indent, struct jc_arena *a, jc_size depth)
 {
     struct jc_yaml *map = new_node(a, JC_YAML_MAP);
     while (*idx < lines->len) {
@@ -489,7 +499,12 @@ static struct jc_yaml *parse_map(struct jc_vec *lines, jc_size *idx,
         } else if (*idx < lines->len) {
             struct line *nx = (struct line *)jc_vec_at(lines, *idx);
             if (nx->indent > indent) {
-                val = parse_node(lines, idx, nx->indent, a);
+                val = parse_node(lines, idx, nx->indent, a, depth + 1);
+                /* If parse_node failed (e.g., depth exceeded), propagate the error. */
+                if (val == NULL) {
+                    jc_yaml_free(map);
+                    return NULL;
+                }
             } else {
                 val = new_scalar(a, jc_arena_strdup(a, ""));
             }
@@ -504,17 +519,24 @@ static struct jc_yaml *parse_map(struct jc_vec *lines, jc_size *idx,
 }
 
 static struct jc_yaml *parse_node(struct jc_vec *lines, jc_size *idx,
-                                  int indent, struct jc_arena *a)
+                                  int indent, struct jc_arena *a, jc_size depth)
 {
     struct line *ln;
+    /* The ONLY recursion in this parser, so the depth bound lives here
+     * rather than in parse_seq/parse_map -- each of those has many
+     * return points, and a counter decremented at many of them is a
+     * counter that leaks at the next one someone adds (mirroring JSON M472). */
+    if (depth >= 256) {
+        return NULL;
+    }
     if (*idx >= lines->len) {
         return NULL;
     }
     ln = (struct line *)jc_vec_at(lines, *idx);
     if (is_dash(ln->text)) {
-        return parse_seq(lines, idx, indent, a);
+        return parse_seq(lines, idx, indent, a, depth + 1);
     }
-    return parse_map(lines, idx, indent, a);
+    return parse_map(lines, idx, indent, a, depth + 1);
 }
 
 struct jc_yaml *jc_yaml_parse(const char *text, struct jc_arena *a)
@@ -537,7 +559,7 @@ struct jc_yaml *jc_yaml_parse(const char *text, struct jc_arena *a)
     }
     {
         struct line *first = (struct line *)jc_vec_at(&lines, 0);
-        root = parse_node(&lines, &idx, first->indent, a);
+        root = parse_node(&lines, &idx, first->indent, a, 0);
     }
     jc_vec_free(&lines);
     return root;

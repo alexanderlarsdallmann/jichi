@@ -5,9 +5,39 @@ pass/warn/fail checklist with fix hints, so you can tell at a glance whether the
 environment is ready — instead of discovering a missing key or an unreachable
 server mid-conversation.
 
+**Who this is for, and when.** Run `doctor` right after `jichi setup`, and again
+whenever something stops working. A first-time reader needs only the first two sections
+("A check failed" and "What it checks"); the rest — `--live`, the cacheable prefix,
+`--dump-requests`, the gateway-admin notes — is for when you go further. Unfamiliar
+words (*posture*, *fence*, *tool profile*) are in [VOCABULARY.md](VOCABULARY.md).
+
 ```sh
 jichi doctor
 ```
+
+When your setup is healthy, every line is a `✓` and the summary reports no problems:
+
+```
+✓ libcurl available (networking enabled)
+    8.18.0 (TLS: OpenSSL/3.5.5; CA path: /etc/ssl/certs/ca-certificates.crt)
+✓ CA bundle: library default (/etc/ssl/certs/ca-certificates.crt)
+✓ configuration loaded
+    7 model(s); active: jlu/gemma-4-31b-it (hosted_vllm/gemma-4-31b-it)
+✓ API key present for the active model
+✓ model server reachable
+    jlu/gemma-4-31b-it: https://api.example.edu/v1
+✓ tool profile: full
+✓ git repository (git tools available)
+
+6 ok, 0 warnings, 0 problems
+```
+
+**Exit code:** `0` if there are no failures (warnings are fine), `1` if any check
+failed — so `doctor` works in CI or a pre-flight script.
+
+## A check failed — now what
+
+A run with problems looks like this — a `!` warning and a `✗` failure among the ticks:
 
 ```
 ✓ libcurl available (networking enabled)
@@ -24,17 +54,13 @@ jichi doctor
 5 ok, 1 warning, 1 problem
 ```
 
-**Exit code:** `0` if there are no failures (warnings are fine), `1` if any check
-failed — so `doctor` works in CI or a pre-flight script.
-
-## A check failed — now what
-
 `doctor` prints three kinds of line: `✓` fine, `!` a warning (the run will work;
 something is unmeasured or unbounded), `✗` a failure (fix this first). Here are the
 ones people actually hit, with the fix rather than the restatement.
 
 | You see | What it means | Do this |
 | --- | --- | --- |
+| `✗ model uses https but the linked libcurl has no TLS backend` | A `https://` endpoint would fail its first call; `doctor` fails now. | Rebuild with a TLS backend, or use `http://` if local. |
 | `✗ no models configured` | jichi found a config but no `models` array it could use. | Add one entry — see [MODELS.md](MODELS.md) §"the smallest config that works" — or run `jichi setup`. |
 | `✗ config source` / a parse complaint | The JSON did not parse, so **none** of your settings are in effect. | `jichi config validate` reports it. Note what it does **not** catch: jichi's config reader is JSONC-tolerant, so a trailing comma parses fine — and a model entry with no `model` key validates as `OK` while an id is substituted for it (see the row below). |
 | `! active model id was DEFAULTED, not configured` | Your config named no `model` for the active entry, so one came from the built-in default — `gpt-4o` for provider `openai`, an Anthropic id otherwise. **That can be a priced model you did not choose.** | Name the model id you intend. Fatal under `--unattended` on purpose: a loop should not start against a model nobody picked. |
@@ -47,6 +73,8 @@ ones people actually hit, with the fix rather than the restatement.
 | `! the stall timeout is Ns, but MODEL has answered as slowly as Ms here` | jichi aborts a model stream that sends nothing for `timeouts.stall` seconds (30 by default) — and **this machine has already recorded a call slower than that**, so a request in the latency tail is killed mid-run. Local models are where this bites: one measured 14.3 s mean and **228 s max** while its project set no `timeouts` block at all. Both numbers were on disk the whole time; nothing compared them (M589). Silent below 5 recorded calls — one slow request is not a tail. | `--timeout-stall <s>`, or a `"timeouts": {"stall": N}` block (a per-model block overrides the global one). |
 | `! shell-command timeout: none` | A build or test the model runs can hang forever and take the run with it. | Set `runTimeout` (or `--run-timeout`) — especially before any `--auto` run. |
 | `! no embed-role model` | `codebase_search` and `index` are unavailable; the agent falls back to `search_code`. | Add a second entry with `"roles": ["embed"]`, or accept it — literal search works without one. |
+| `! keys are NOT hidden from other same-user processes` | `JICHI_KEEP_DUMPABLE` is set, so jichi stays dumpable: a command the model runs can read the keys in jichi's environment from `/proc/<pid>/environ` (M770). | Unset it once you have the core dump or the debugger session it was for. |
+| `! keys may be readable by other same-user processes` | This system has no `PR_SET_DUMPABLE` (it is Linux-only), or the call was refused. The line gives the reason. | Where the model's shell must not see a key, run it as another user or in a container that mounts no key ([CONTAINER_TUTORIAL.md](CONTAINER_TUTORIAL.md)). |
 | `! path fence auto` … "active only in autonomous postures" | Not a problem: interactively you approve each call, so the fence engages when nobody is watching. | Nothing. `--path-fence` forces it on if you want it in chat mode too. |
 
 **Two rules for reading this output.** First, a `!` is not a `✗` — jichi
@@ -65,7 +93,9 @@ section.
 
 | Check | OK | Warn | Fail |
 | --- | --- | --- | --- |
-| **libcurl** | built with it | — | built without it (no networking) |
+| **libcurl** | built with it (version, TLS backend and CA path shown on a detail line) | — | built without it (no networking) |
+| **CA bundle** | the library's default (or the `caBundle` value you set, named) | — | — |
+| **https + TLS** | the library has a TLS backend (or no model uses `https://`) | — | a model uses `https://` but the linked libcurl reports no TLS backend |
 | **Config / models** | ≥1 model; shows the active one | — | no models configured |
 | **Active model id** | `model` set | — | `model` missing |
 | **API key** | present | absent (fine for keyless local servers); **literal `apiKey` in config** (prefer `apiKeyEnv`, M55) | — |
@@ -80,6 +110,7 @@ section.
 | **Model selectors** (M284) | every asset/routing `model:` resolves to exactly one model | a selector substring-matches several models (first wins by position), or names a role no model declares | a selector matches no configured model or role |
 | **Asset tool fences** (M285) | every `tools:` entry on a profile/skill can match a call and is advertised | an entry names no matchable tool (an alias or foreign name — a fence is exact-match, unlike a call, which resolves aliases), or names a real tool the resolved `toolProfile` never advertises | — |
 | **Path fence** | on / auto | off (warns; names `editScope`/`referenceRoots` when no edit scope is set, M55c) | — |
+| **Keys and same-user processes** (M770) | jichi is non-dumpable, so a command it runs cannot read its `/proc/<pid>/environ` or use its `fd/` | `JICHI_KEEP_DUMPABLE` is set; or it is not in force here: no `PR_SET_DUMPABLE` (not Linux), refused, or never applied | — |
 | **Reference roots** (M54) | configured roots exist | a `referenceRoots` entry isn't a directory | — |
 | **Verify gate** (M55a) | — | `routing.escalateOnVerify` on but no `verify`/`testCommand` configured | — |
 | **Tool calling** (`--live`, M167) | observed `native` | observed `text`, or a mismatch that is not fatal | configured `native` but observed `none` |
@@ -91,7 +122,10 @@ Everything above is offline or a bare reachability probe: it tells you a server
 answers, not that an *agentic turn* can happen. `doctor --live` closes that gap
 with one real request — a single trivial tool advertised, and an instruction to
 call it — then classifies the answer as `native`, `text` (described but not
-invoked), or `none`.
+invoked), or `none`. An observed `text` advises `toolCalling: "text"` (the
+M949 markdown recovery pass), not `"none"`: the model CAN use tools, it just
+narrates the calls, and `"none"` would strip the tools and the recovery with
+them.
 
 It replaces a hand-set per-model `toolCalling` flag with an observation. But its
 more useful job is as a **self-test of jichi's own request construction**. The probe
@@ -129,21 +163,17 @@ short-timeout `GET {apiBase}/models`). MCP servers are actually connected (and
 shut down) so "configured" vs "working" is distinguished; LSP servers are checked
 by resolving their `command` on `$PATH`.
 
-```mermaid
-flowchart TD
-    R[run_doctor] --> E[libcurl?]
-    E --> C[config + models + active id + key]
-    C --> N[probe each model server]
-    N --> RO[role coverage: embed / rerank]
-    RO --> G[git + snapshots]
-    G --> M[connect MCP servers]
-    M --> L[resolve LSP commands on PATH]
-    L --> AGG[jc_doctor: collect results]
-    AGG --> RENDER["render checklist (✓ / ! / ✗) + summary"]
-    RENDER --> X{any FAIL?}
-    X -- yes --> E1[exit 1]
-    X -- no --> E0[exit 0]
-```
+`doctor` runs these in order, then prints the checklist and its summary:
+
+1. libcurl present?
+2. config + models + active id + key
+3. probe each model server
+4. role coverage — embed / rerank
+5. git + snapshots
+6. connect (and shut down) MCP servers
+7. resolve LSP `command`s on `$PATH`
+
+It renders each as `✓` / `!` / `✗` and **exits 1 if any check failed, else 0**.
 
 ## Tools you pay for and never call (M316)
 

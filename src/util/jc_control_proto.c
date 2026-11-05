@@ -8,6 +8,7 @@
 #include "jc_control.h"
 #include "jc_perm.h"
 #include "jc_json.h"
+#include "jc_snprintf.h"
 #include "cJSON.h"
 
 #include <stdlib.h>
@@ -36,6 +37,26 @@ enum jc_control_cmd_type jc_control_type_parse(const char *s)
     if (strcmp(s, "abort") == 0)  return JC_CTL_ABORT;
     if (strcmp(s, "mode") == 0)   return JC_CTL_MODE;   /* M304 */
     return JC_CTL_UNKNOWN;
+}
+
+void jc_control_verb_list(char *buf, jc_size cap, const char *sep)
+{
+    int t;
+    jc_size len = 0;
+
+    if (buf == NULL || cap == 0) {
+        return;
+    }
+    buf[0] = '\0';
+    for (t = (int)JC_CTL_STATUS; t < (int)JC_CTL_UNKNOWN; t++) {
+        jc_snprintf(buf + len, cap - len, "%s%s",
+                    len > 0 ? (sep != NULL ? sep : "|") : "",
+                    jc_control_type_name((enum jc_control_cmd_type)t));
+        len = (jc_size)strlen(buf);
+        if (len + 1 >= cap) {
+            break;
+        }
+    }
 }
 
 jc_status jc_control_parse_request(const char *line,
@@ -80,6 +101,7 @@ jc_status jc_control_parse_request(const char *line,
     }
     if (out->type == JC_CTL_INJECT) {
         const char *txt = jc_json_get_str(o, "text", NULL);
+        const char *from = jc_json_get_str(o, "from", NULL);
         if (txt == NULL || txt[0] == '\0') {
             cJSON_Delete(o);
             return JC_ERR_INVALID;
@@ -88,6 +110,15 @@ jc_status jc_control_parse_request(const char *line,
         if (out->text == NULL) {
             cJSON_Delete(o);
             return JC_ERR_OOM;
+        }
+        if (from != NULL) {
+            out->from = jc_arena_strdup(a, from);
+            if (out->from == NULL) {
+                cJSON_Delete(o);
+                return JC_ERR_OOM;
+            }
+        } else {
+            out->from = NULL;
         }
     }
     cJSON_Delete(o);
@@ -123,7 +154,7 @@ static char *finish_line(cJSON *o)
 }
 
 char *jc_control_build_request(const char *type, const char *text,
-                               int extend)
+                               int extend, const char *from)
 {
     cJSON *o = cJSON_CreateObject();
 
@@ -145,6 +176,9 @@ char *jc_control_build_request(const char *type, const char *text,
     }
     if (extend) {
         cJSON_AddBoolToObject(o, "extend", 1); /* pause --extend (M162) */
+    }
+    if (from != NULL && from[0] != '\0') {
+        cJSON_AddStringToObject(o, "from", from);
     }
     return finish_line(o);
 }
@@ -220,5 +254,10 @@ char *jc_control_build_status(const struct jc_control_status *s)
         cJSON_AddStringToObject(o, "last_tool", s->last_tool);
     }
     cJSON_AddBoolToObject(o, "paused", s->paused);
+    /* M1045: the inject delivery state, ALWAYS emitted, zero included -- the
+     * rest of the numeric fields omit when zero, but a supervisor polling
+     * from cold must observe the 0/0 baseline. */
+    cJSON_AddNumberToObject(o, "injected", (double)s->injected);
+    cJSON_AddNumberToObject(o, "queued_injects", (double)s->queued_injects);
     return finish_line(o);
 }

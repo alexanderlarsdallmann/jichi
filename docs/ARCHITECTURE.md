@@ -403,8 +403,8 @@ architecture in general, using jichi as the worked example).*
   `parallelVerify`/`--parallel-verify`): before a write child's changes may
   merge, the verifier (pure `jc_parallel_verify_cmd`: envelope cmd > `verify` >
   `testCommand`) runs in that child's worktree; a red child is **quarantined**
-  (not merged; flagged + bounded output tail + a `parallel_verify` journal
-  event), a green one merges as before. libcurl is fork-safe (handle-per-request); the arena is
+  (not merged; flagged + its failing lines and a bounded output tail, M862, + the
+  whole output as a claim ticket + a `parallel_verify` journal event), a green one merges as before. libcurl is fork-safe (handle-per-request); the arena is
   COW. **Supervisor-control hardening (M62):** a **per-child watchdog** in
   `run_pool` kills+reaps any task past `config.parallel_task_timeout`
   (`parallelTaskTimeout`, default 300s) so a wedged/stalled child can't hang the
@@ -444,7 +444,8 @@ architecture in general, using jichi as the worked example).*
   `jc_config_model_for_role` calls in search/compact/parallel). Probing is
   opt-in (only when a `fallback` is set). `jc_url_join`/embeddings now insert
   `/v1` when `apiBase` lacks it (matching chat). Config precedence gained a
-  project-local `./local/config.json` (git-ignored) ahead of `~/.jichi`;
+  project-local `./local/config.json` (git-ignored) ahead of `~/.jichi` -- since M851
+  merged only through the trust step (`src/config/jc_config_trust.c`);
   the `models` subcommand lists models + live reachability. See `docs/MODELS.md`.
 - **Embeddings / rerank** (`src/net`): `jc_embed` (`POST {apiBase}/embeddings`,
   batched, ordered by `index`) and `jc_rerank` (`POST {apiBase}/rerank`,
@@ -797,7 +798,8 @@ architecture in general, using jichi as the worked example).*
   the parent dir) back `jc_app_path_fence_on`/`jc_app_read_file`/
   `jc_app_write_file` (`src/chat/jc_app.c`): when on, a path resolving outside
   the canonical `app->root` is refused with `JC_ERR_DENIED`. Tri-state config
-  `pathFence` (-1 auto = on in AUTO/auto-approve / 0 off / 1 on; `--path-fence`/
+  `pathFence` (-1 auto = on in AUTO/auto-approve and, since M848, for a delegate that runs
+  without asking / 0 off / 1 on; `--path-fence`/
   `--no-path-fence`); `edit_file`/`apply_patch` route through the `jc_app_*`
   chokepoint so all file tools + the ACP fs delegate are covered. **Reference
   roots** (M54): config `referenceRoots` (+ `--reference-root`, repeatable) lists
@@ -921,7 +923,8 @@ architecture in general, using jichi as the worked example).*
   `-c`/`--continue` (this dir's latest), `--session <id|prefix>`, `--all` (cross
   -project), the newest-first `ls` table (`ls --output json` emits the
   machine-readable form, M165), and the TUI `/sessions` `/resume`
-  `/title`. Resume restores the saved mode; tools act on the current cwd (no
+  `/title`. Resume applies the saved mode only to narrow the run's (M845,
+  `jc_perm_saved_mode`: a saved mode never widens); tools act on the current cwd (no
   chdir). Format is unchanged/back-compatible. **Fork** (M35b): `jc_session_fork`
   deep-copies a session (new id, `" (fork)"` title, history incl. tool
   calls/results + images) into an independent session; the TUI `/fork` saves the
@@ -1039,8 +1042,9 @@ architecture in general, using jichi as the worked example).*
   the command runs *as* the profile (graceful no-op if the profile is absent).
   Used by the M17 `/assign` `/solve` `/check` commands. A command's `model:`
   (switch the active model for the turn via `jc_app_command_model_apply`/
-  `_restore`) and `subtask:` (run the command in an isolated sub-agent via
-  `jc_agent_run_command_subtask`, recording only the prompt + final answer) are
+  `_restore`) and `subtask:` (run the command as a sub-agent on its own history via
+  `jc_agent_run_command_subtask`, under the user's posture since M848 and fenced
+  by its profile's `tools:`, recording only the prompt + final answer) are
   also **honored**, composing with `agent:`. A `subtask:` command may also declare
   `output:` (a workspace-relative file it produces, M79): the subtask snapshots
   that file's mtime and, if the run leaves it unchanged (the model narrated its
@@ -1190,9 +1194,12 @@ architecture in general, using jichi as the worked example).*
   not need the model's cooperation (path fence, approvals, edit scope, privileged/
   kinetic gates, budgets), and docs/HARDENING.md §6b says so explicitly.
   Deliberately NOT fenced: workspace files, and MCP *tool* results from a
-  hand-configured server (semi-trusted, like the user's own repo). Note only
-  `fetch_url` sets `block_private_addrs` — `@rss:` does not, since its URL is
-  user-typed rather than model-chosen.
+  hand-configured server (semi-trusted, like the user's own repo). `fetch_url`
+  and the image tool's server-named reply-URL fetch set `block_private_addrs`
+  (hop 1 is model- or server-named, so it is refused outright); `@rss:` and the
+  docs URL fetch instead set `block_redirect_private` (M1120) — the first hop
+  is user-named and allowed to be an internal feed, but a redirect target is
+  server-chosen and refused at a private address.
 - **Machine-surface completeness** (M441–M445): the register of supervisor-facing gaps,
   emptied. **M441** taught `tests/tools/mockmodel` to report `usage` on the **tool** path
   (a final chunk with an empty `choices`, as a real provider does) — it reported only on

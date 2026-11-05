@@ -6,11 +6,14 @@
 #include "jc_test.h"
 #include "jc_eventlog.h"
 #include "jc_version.h"
+#include "jc_log.h"      /* M1137 (C-19): jc_redact_register/active */
+#include "jc_fault.h"    /* M1137 (C-19): JC_FAULT_REDACT probe */
 #include "cJSON.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -71,7 +74,7 @@ static void test_begin_fields_and_tier(void)
 
     /* Read the file back: two parseable JSONL lines with the expected fields. */
     {
-        FILE *f = fopen(path, "r");
+        FILE *f = fopen(path, "rb");
         char line[4096];
         int n = 0;
         JC_CHECK(f != NULL);
@@ -203,7 +206,7 @@ static void test_version_stamp(void)
 
     /* EVERY written line carries it -- not just the first. */
     {
-        FILE *f = fopen(path, "r");
+        FILE *f = fopen(path, "rb");
         char line[4096];
         JC_CHECK(f != NULL);
         while (f != NULL && fgets(line, sizeof(line), f) != NULL) {
@@ -333,6 +336,134 @@ static void test_created_dir_is_private(void)
     (void)rmdir(dir);
 }
 
+/* M860 (N26): a child of batch `run` is stamped "<run>-t<N>" and banded by the band
+ * its parent numbered -- so the first task of a session's second batch is not the
+ * first task of its first. A band too large for a `long` is clamped, and band < 1
+ * falls back to the task index (jc_eventlog_set_task's banding). */
+static void test_task_run_per_batch(void)
+{
+    struct jc_eventlog log;
+    const char *path = jc_test_tmp("jichi_test_eventlog_batch.jsonl");
+    cJSON *o;
+
+    remove(path);
+    JC_CHECK(jc_eventlog_open(&log, path, "sess-9", JC_EVENTLOG_METRICS) == JC_OK);
+    jc_eventlog_set_task_run(&log, "sess-9-b2", 1, 3);
+    JC_CHECK_STR(log.task_run, "sess-9-b2-t1");
+    o = jc_eventlog_begin(&log, "model_call");
+    if (JC_REQUIRE(o != NULL)) {
+        JC_CHECK((long)cJSON_GetObjectItem(o, "seq")->valuedouble ==
+                 3L * JC_EVENTLOG_CHILD_SEQ_STRIDE);
+    }
+    jc_eventlog_end(&log, o);
+    /* no run: the session id, as jc_eventlog_set_task does */
+    jc_eventlog_set_task_run(&log, NULL, 2, 0);
+    JC_CHECK_STR(log.task_run, "sess-9-t2");
+    JC_CHECK(log.seq == 2L * JC_EVENTLOG_CHILD_SEQ_STRIDE);
+    /* a band past the type's range is clamped, never wrapped negative */
+    jc_eventlog_set_task_run(&log, "r", 1, LONG_MAX);
+    JC_CHECK(log.seq > 0);
+    /* task <= 0 clears the marking */
+    jc_eventlog_set_task_run(&log, "r", 0, 5);
+    JC_CHECK(log.task_run[0] == '\0');
+    jc_eventlog_close(&log);
+    remove(path);
+}
+
+/* M1137 (C-19): the full-tier add_text redaction must fail CLOSED. Open a
+ * full-tier log, register a real secret, and write a row whose value holds it.
+ * With JC_FAULT_REDACT armed (stands in for the scrub's malloc failing) the
+ * helper returns NULL and the site DROPS the key -- so the written row must not
+ * contain the key at all (RED pre-fix: the site did its own malloc, ignored the
+ * probe, and wrote the value unredacted, so the key was present with the canary
+ * in it). Control leg with the probe cleared: the key is present but the value
+ * is redacted ("***" in, canary out). FAULT=1 only (the probe is inert in a
+ * release build). */
+#ifdef JC_FAULT
+static void test_redact_failclosed(void)
+{
+    struct jc_eventlog log;
+    const char *path = jc_test_tmp("jichi_test_eventlog_reduct.jsonl");
+    const char *sec = "EVENTLOG-CANARY-0123456789";
+    const char *val = "note EVENTLOG-CANARY-0123456789 end";
+    cJSON *o;
+    FILE *f;
+    char *content;
+    long clen;
+
+    jc_redact_register(sec);
+    JC_CHECK(jc_redact_active() == 1);
+
+    /* RED leg: probe armed -> the key is dropped, never written unredacted. */
+    remove(path);
+    JC_CHECK(jc_eventlog_open(&log, path, "sid-r", JC_EVENTLOG_FULL) == JC_OK);
+    o = jc_eventlog_begin(&log, "turn");
+    JC_REQUIRE(o != NULL);
+    setenv("JICHI_FAULT_REDACT_AFTER", "0", 1);
+    jc_fault_reset();
+    jc_eventlog_add_text(o, "canarykey", val, 0);
+    unsetenv("JICHI_FAULT_REDACT_AFTER");
+    jc_fault_reset();
+    jc_eventlog_end(&log, o);
+    jc_eventlog_close(&log);
+    f = fopen(path, "rb");
+    content = NULL;
+    if (f != NULL) {
+        clen = 0;
+        fseek(f, 0, SEEK_END);
+        clen = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        content = (char *)malloc((size_t)clen + 1);
+        if (content != NULL) {
+            size_t rd = fread(content, 1, (size_t)clen, f);
+            content[rd] = '\0';
+        }
+        fclose(f);
+    }
+    JC_REQUIRE(f != NULL && content != NULL);
+    if (content != NULL) {
+        /* The key must be ABSENT (dropped), and so must the canary. */
+        JC_CHECK(strstr(content, "canarykey") == NULL);
+        JC_CHECK(strstr(content, sec) == NULL);
+        free(content);
+    }
+
+    /* Control leg: probe cleared -> the key is present, value redacted. */
+    remove(path);
+    JC_CHECK(jc_eventlog_open(&log, path, "sid-c", JC_EVENTLOG_FULL) == JC_OK);
+    o = jc_eventlog_begin(&log, "turn");
+    JC_REQUIRE(o != NULL);
+    jc_eventlog_add_text(o, "canarykey", val, 0);
+    jc_eventlog_end(&log, o);
+    jc_eventlog_close(&log);
+    f = fopen(path, "rb");
+    content = NULL;
+    if (f != NULL) {
+        clen = 0;
+        fseek(f, 0, SEEK_END);
+        clen = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        content = (char *)malloc((size_t)clen + 1);
+        if (content != NULL) {
+            size_t rd = fread(content, 1, (size_t)clen, f);
+            content[rd] = '\0';
+        }
+        fclose(f);
+    }
+    JC_REQUIRE(f != NULL && content != NULL);
+    if (content != NULL) {
+        /* The key IS present now, but the value is redacted. */
+        JC_CHECK(strstr(content, "canarykey") != NULL);
+        JC_CHECK(strstr(content, sec) == NULL);
+        JC_CHECK(strstr(content, "***") != NULL);
+        free(content);
+    }
+
+    jc_redact_reset();
+    remove(path);
+}
+#endif
+
 void test_eventlog(void)
 {
     test_version_stamp();
@@ -344,4 +475,8 @@ void test_eventlog(void)
     test_full_tier();
     test_parent_dir_not_retightened();
     test_created_dir_is_private();
+    test_task_run_per_batch();   /* M860 */
+#ifdef JC_FAULT
+    test_redact_failclosed();    /* M1137 (C-19) */
+#endif
 }

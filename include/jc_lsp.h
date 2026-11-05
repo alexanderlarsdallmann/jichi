@@ -62,6 +62,14 @@ void jc_lsp_frame_encode(const char *body, struct jc_sb *out);
  * boundary to preserve yet) and the framer resyncs. */
 #define JC_LSP_MAX_HEADER (64L * 1024L)
 
+/* LSP position encodings (M939, R09-F2). Position.character counts units in
+ * the encoding the SERVER chose at `initialize` (`capabilities.positionEncoding`);
+ * the spec default is UTF-16. jichi converts between wire units and the byte
+ * offsets its own buffers use, per line, with exactly these two rules.
+ * Advertised so a UTF-8-capable server can pick utf-8 (identity). */
+#define JC_LSP_ENC_UTF16 0
+#define JC_LSP_ENC_UTF8  1
+
 struct jc_lsp_framer { struct jc_sb buf; };
 void jc_lsp_framer_init(struct jc_lsp_framer *f);
 void jc_lsp_framer_free(struct jc_lsp_framer *f);
@@ -140,9 +148,12 @@ char *jc_lsp_diagnostics_for_line(const char *params_json, const char *want_uri,
                                   long line0);
 
 /* Find the first word-boundary occurrence of `symbol` in `text`; write its
- * 0-based line and column into the two out-params and return 1, else 0. */
+ * 0-based line and column into the two out-params and return 1, else 0.
+ * The column is reported in WIRE units of the connection's position encoding
+ * (M939): for `JC_LSP_ENC_UTF16` a UTF-16 unit count, for `JC_LSP_ENC_UTF8`
+ * the byte offset. Callers send it straight back to the same server. */
 int jc_lsp_locate_symbol(const char *text, const char *symbol, long *line,
-                         long *character);
+                         long *character, int enc);
 
 /* From a workspace/symbol result (SymbolInformation[]/WorkspaceSymbol[]), find
  * the first entry whose name equals `want_name`; copy its location uri into
@@ -154,12 +165,21 @@ int jc_lsp_first_symbol_location(const char *result_json, const char *want_name,
 /* Apply an LSP TextEdit[] (`edits_json`: a JSON array of {range:{start,end},
  * newText}) to `text`, appending the result to `out`. Edits are applied in
  * document order (sorted by start position); overlapping edits after the first
- * are skipped. `character` is treated as a byte offset within the line — exact
- * for ASCII/UTF-8 single-byte, an approximation where LSP counts UTF-16 units.
- * Returns the number of edits applied, or -1 on malformed `edits_json` (in which
- * case `out` is untouched, so the caller leaves the file unchanged). Pure. */
+ * are skipped. `character` is a count of units in `enc` (M939): with
+ * `JC_LSP_ENC_UTF16` the spec-default UTF-16 unit count, converted to a byte
+ * offset per line; with `JC_LSP_ENC_UTF8` a byte offset, identity. Returns the
+ * number of edits applied, or -1 on malformed `edits_json` (in which case `out`
+ * is untouched, so the caller leaves the file unchanged). Pure. */
 int jc_lsp_apply_text_edits(const char *text, const char *edits_json,
-                            struct jc_sb *out);
+                            struct jc_sb *out, int enc);
+
+/* From an `initialize` result JSON (the `result` of the LSP initialize
+ * request), read `capabilities.positionEncoding`. Returns `JC_LSP_ENC_UTF8`
+ * only for the exact value "utf-8" (case-insensitive); "utf-16", an absent or
+ * null value, any other value, or malformed input return `JC_LSP_ENC_UTF16` —
+ * the spec default is the conservative choice: identity is assumed only for
+ * the one string jichi advertised. Pure; unit-tested (M939). */
+int jc_lsp_encoding_from_initialize(const char *result_json);
 
 /* ----- manager --------------------------------------------------------- */
 
@@ -170,6 +190,15 @@ struct jc_lsp_manager {
 
 void jc_lsp_manager_init(struct jc_lsp_manager *m, struct jc_app *app);
 void jc_lsp_manager_shutdown(struct jc_lsp_manager *m);
+
+/* The position encoding of the ALREADY-INITIALIZED connection serving `path`
+ * (M939): `JC_LSP_ENC_UTF8` or `JC_LSP_ENC_UTF16`. Does not spawn a server;
+ * when no cfg matches or the connection is not up yet it returns
+ * `JC_LSP_ENC_UTF16`, the spec default — the safe direction, since the
+ * conversion is exact only for the encoding the server actually chose, and
+ * every tool that applies edits has run a query first, which brought the
+ * connection up. */
+int jc_lsp_server_encoding(struct jc_lsp_manager *m, const char *path);
 
 /* Non-zero if some configured server is matched to this file's extension. */
 int jc_lsp_handles(struct jc_lsp_manager *m, const char *path);

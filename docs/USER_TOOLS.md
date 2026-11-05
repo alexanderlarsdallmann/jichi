@@ -100,7 +100,7 @@ stays in your environment (`export TAVILY_API_KEY=…`). Swap the `curl` line fo
 any backend — the only contract is *read the query, print results to stdout*.
 
 ```sh
-jichi --config examples/config.web-search.json -p "what changed in C23?"
+jichi --config examples/config.web-search.json -p "what changed in C23?" < /dev/null
 ```
 
 *Beginner note:* the agent will call `web_search` on its own when a question

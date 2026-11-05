@@ -34,9 +34,12 @@ int jc_auditview_is_refusal(const char *decision)
     if (decision == NULL) {
         return 0;
     }
+    /* M849: delegate_refused is a refusal too -- an unknown value would be
+     * counted as "ran", a false record of what the audit saw. */
     return strcmp(decision, "deny") == 0 ||
            strcmp(decision, "ask_denied") == 0 ||
-           strcmp(decision, "unattended_refused") == 0;
+           strcmp(decision, "unattended_refused") == 0 ||
+           strcmp(decision, "delegate_refused") == 0;
 }
 
 static void count_bump(struct jc_vec *v, const char *name)
@@ -170,15 +173,15 @@ static void render_counts(const struct jc_vec *v, const char *label,
 
 static void render_ts(double ts, char *buf, jc_size cap)
 {
-    time_t t = (time_t)ts;
-    struct tm *tm;
+    struct tm tm;
 
     if (ts <= 0.0) {
         jc_snprintf(buf, cap, "%s", "?");
         return;
     }
-    tm = localtime(&t);
-    if (tm == NULL || strftime(buf, cap, "%Y-%m-%d %H:%M", tm) == 0) {
+    /* M839: UTC where the local zone is unusable (jc_platform.h). */
+    if (jc_localtime_checked((long)ts, &tm) < 0 ||
+        strftime(buf, cap, "%Y-%m-%d %H:%M", &tm) == 0) {
         jc_snprintf(buf, cap, "%.0f", ts);
     }
 }

@@ -54,6 +54,7 @@ send "0"
 delay 2000
 send "/exit\r"
 waitexit 20
+assertexit 0
 EOF
 
 printf 'static void greet(const char *who)\n{\n    printf("hello");\n}\n' \

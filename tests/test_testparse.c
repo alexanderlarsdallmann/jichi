@@ -6,6 +6,7 @@
 #include "jc_test.h"
 #include "jc_testparse.h"
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -248,6 +249,70 @@ static void test_count_and_zig(void)
     JC_CHECK(jc_test_report_count(NULL) == -1);
 }
 
+/* A-12 (M1112): an attacker-sized number in test output must cap at INT_MAX,
+ * not wrap (signed overflow is UB). Each input carries 30 digits (~1e30, far
+ * over INT_MAX); a pre-fix wrap yields garbage that cannot equal INT_MAX, so
+ * these four are red before the guard and green after. */
+static void test_overflow_cap(void)
+{
+    /* 1. junit: an oversized line number in a failure message. */
+    {
+        struct jc_test_report r;
+        jc_test_report_init(&r);
+        jc_testparse(
+            "<testsuite><testcase name=\"t\"><failure "
+            "message=\"foo.c:999999999999999999999999999999: error\">"
+            "x</failure></testcase></testsuite>", &r);
+        JC_CHECK(fail_at(&r, 0)->line == (long)INT_MAX);
+        jc_test_report_free(&r);
+    }
+    /* 2. tap: an oversized plan total. */
+    {
+        struct jc_test_report r;
+        jc_test_report_init(&r);
+        jc_testparse("1..999999999999999999999999999999\nok 1\nok 2\n"
+                     "not ok 3 - case\n", &r);
+        JC_CHECK(r.total == INT_MAX);
+        jc_test_report_free(&r);
+    }
+    /* 3. generic: an oversized "N out of M" total. */
+    {
+        struct jc_test_report r;
+        jc_test_report_init(&r);
+        jc_testparse("done: 3 out of 999999999999999999999999999999\n", &r);
+        JC_CHECK(r.total == INT_MAX);
+        jc_test_report_free(&r);
+    }
+    /* 4. generic: an oversized "N failed" count (backward accumulation). */
+    {
+        struct jc_test_report r;
+        jc_test_report_init(&r);
+        jc_testparse("999999999999999999999999999999 failed\n2 passed\n", &r);
+        JC_CHECK(r.failed == INT_MAX);
+        jc_test_report_free(&r);
+    }
+}
+
+/* A-12 review finding #6 (M1112-b): the INT_MAX cap M1112 introduced propagates
+ * into two downstream sums that can themselves overflow signed int --
+ * scan_counts' r->total = failed + passed, and jc_test_report_count's p + f.
+ * Two attacker-sized counts drive both fields to INT_MAX, leaving total unset
+ * (the unchecked sum INT_MAX + INT_MAX is UB); the checked fix caps it at
+ * INT_MAX. On the UNFIXED tree the plain gate cannot see the overflow (it
+ * wraps to a value that does not match, or the build folds it) -- the UBSan
+ * witness is the red; this leg is the regression tooth. */
+static void test_overflow_sum(void)
+{
+    struct jc_test_report r;
+
+    jc_test_report_init(&r);
+    jc_testparse("999999999999999999999999999999 failed\n"
+                 "999999999999999999999999999999 passed\n", &r);
+    JC_CHECK(r.total == INT_MAX);
+    JC_CHECK(jc_test_report_count(&r) == INT_MAX);
+    jc_test_report_free(&r);
+}
+
 void test_testparse(void)
 {
     test_junit();
@@ -259,4 +324,6 @@ void test_testparse(void)
     test_empty_and_noise();
     test_cap_and_render();
     test_count_and_zig();
+    test_overflow_cap();
+    test_overflow_sum();
 }

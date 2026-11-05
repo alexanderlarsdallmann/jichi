@@ -120,6 +120,28 @@ struct jc_message *jc_history_add_operator(struct jc_history *h,
     return m;
 }
 
+struct jc_message *jc_history_add_with_prefix(struct jc_history *h,
+                                              const char *prefix,
+                                              const char *text)
+{
+    struct jc_sb msg;
+    struct jc_message *m = NULL;
+    if (h == NULL || text == NULL || text[0] == '\0') {
+        return NULL;
+    }
+    if (prefix == NULL) {
+        prefix = "[operator] ";
+    }
+    jc_sb_init(&msg);
+    jc_sb_append(&msg, prefix);
+    jc_sb_append(&msg, text);
+    if (msg.data != NULL) {
+        m = jc_history_add(h, JC_ROLE_USER, msg.data);
+    }
+    jc_sb_free(&msg);
+    return m;
+}
+
 struct jc_message *jc_history_add_tool_result(struct jc_history *h,
                                               const char *tool_call_id,
                                               const char *content,
@@ -284,9 +306,11 @@ const char *jc_role_str(jc_role r)
  * results coalesce into a user message and the notice family appends user
  * notes after them; shipped clean against the Messages API since M159); a
  * TRUNCATED assistant's calls are still answered (M334 executes them and
- * error results land), so no truncation exemption exists; and an abort
- * cannot strand a call (the only abort exit is at round top, and aborted
- * tools still append error results). */
+ * error results land), so no truncation exemption exists; an abort cannot
+ * strand a call (the only abort exit is at round top, and aborted tools
+ * still append error results); and a budget stop cannot either (M919 answers
+ * every unrun call of the round with an error result before returning, so
+ * the saved session resumes wire-valid). */
 
 static void hc_violation(int *count, struct jc_sb *out, jc_size idx,
                          const char *what, const char *id)

@@ -4,7 +4,9 @@ This is a hands-on, step-by-step tutorial: how an agent comes to *use*
 `spawn_subagent` and `spawn_parallel`, how you steer that, and — just as
 important — when delegation is the wrong tool. It assumes the working bench
 from [TUTORIAL_BEGINNER.md](TUTORIAL_BEGINNER.md); the reference pages are
-[SUBAGENTS.md](SUBAGENTS.md) and [PARALLEL.md](PARALLEL.md). Like
+[SUBAGENTS.md](SUBAGENTS.md) and [PARALLEL.md](PARALLEL.md), and the team-scale
+companion — driving a lead that spawns workers, for a long unattended run — is
+[DRIVING_A_TEAM.md](DRIVING_A_TEAM.md). Like
 [PROJECT_RECORDS.md](PROJECT_RECORDS.md) this is **ungraded reading**: knowing
 *when* to delegate is a judgment built by practice, and a checker could only
 grade the shape of it.

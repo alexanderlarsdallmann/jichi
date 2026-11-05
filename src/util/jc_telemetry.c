@@ -15,6 +15,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>   /* jc_telemetry_feed_file: FILE* / fgetc / ungetc */
 
 void jc_telemetry_summary_init(struct jc_telemetry_summary *s)
 {
@@ -255,6 +256,16 @@ static void feed_event(struct jc_telemetry_summary *s, cJSON *o)
         if (lat > m->lat_max) {
             m->lat_max = lat;
         }
+        {   /* M897: present only when the stream carried output. */
+            cJSON *tf = cJSON_GetObjectItem(o, "ttft_ms");
+            if (cJSON_IsNumber(tf)) {
+                m->ttft_sum += tf->valuedouble;
+                m->ttft_n++;
+                if (tf->valuedouble > m->ttft_max) {
+                    m->ttft_max = tf->valuedouble;
+                }
+            }
+        }
         {   /* M192 input attribution. Present only on post-M192 events, so
              * `attr_n` gates the rendered line and old logs are unchanged. */
             cJSON *sysf = cJSON_GetObjectItem(o, "sys_tok");
@@ -328,7 +339,7 @@ static void feed_event(struct jc_telemetry_summary *s, cJSON *o)
          * by definition consecutive. */
         if (tname != NULL && tname[0] == '\0') {
             const char *sid = jc_json_get_str(o, "sid", "");
-            long turn = (long)jc_json_get_num(o, "turn", -1);
+            long turn = jc_json_clamp_long(jc_json_get_num(o, "turn", -1));
             s->tool_nameless++;
             if (s->nameless_turn != turn ||
                 strncmp(s->nameless_sid, sid, sizeof(s->nameless_sid) - 1) != 0) {
@@ -370,6 +381,31 @@ static void feed_event(struct jc_telemetry_summary *s, cJSON *o)
         } else if (strcmp(phase, "recovered") == 0) {
             s->nudge_recovered++;
         }
+    } else if (strcmp(ev, "md_tool_call_recovered") == 0) {
+        /* M949 (def-325): the text-call recovery pass recovered `count` tool calls
+         * from a reply written as markdown. */
+        s->md_recovered += jc_json_clamp_long(jc_json_get_num(o, "count", 0.0));
+    } else if (strcmp(ev, "relay") == 0) {
+        /* M951 (V2): the relay's measurement. `phase` "budget" is a handover
+         * that measured the next leg's tool-call budget from this leg's prompt
+         * growth (the P0/g/W/B numbers ride along for the log, not the count).
+         * The journal's `budget_adjust` carries the same numbers; this is the
+         * session-history half a supervisor sees in `telemetry` without the
+         * run's journal. */
+        const char *phase = jc_json_get_str(o, "phase", "");
+        if (strcmp(phase, "budget") == 0) {
+            s->relay_budget++;
+        }
+    } else if (strcmp(ev, "empty_reasoning") == 0) {
+        /* M937 (D3): the delegate's reasoning-only reply was asked once for its
+         * answer. `phase` is "fired" when the nudge was sent, "recovered" when
+         * the retry carried answer text. */
+        const char *phase = jc_json_get_str(o, "phase", "");
+        if (strcmp(phase, "fired") == 0) {
+            s->empty_reasoning_fired++;
+        } else if (strcmp(phase, "recovered") == 0) {
+            s->empty_reasoning_recovered++;
+        }
     } else if (strcmp(ev, "test_edit") == 0) {
         /* M417: the moved-goalpost heuristic fired (M88). One is already
          * lesson-worthy; see jc_insights. */
@@ -396,13 +432,87 @@ static void feed_event(struct jc_telemetry_summary *s, cJSON *o)
         s->kinetic_total++;
         if (strstr(d, "approved") == NULL) { s->kinetic_refused++; }
     } else if (strcmp(ev, "prefix_churn") == 0) {
-        long st = (long)jc_json_get_num(o, "streak", 0);
+        long st = jc_json_clamp_long(jc_json_get_num(o, "streak", 0));
         s->prefix_churn++;
         if (st > s->prefix_churn_max) { s->prefix_churn_max = st; }
+    } else if (strcmp(ev, "shell_fence") == 0) {
+        /* M831 (O9): a spawn_parallel write child's Landlock shell fence. Count how
+         * many children were fenced vs ran unfenced -- an unfenced child is the
+         * never-silent record that its shell could escape its worktree. */
+        const char *st = jc_json_get_str(o, "state", "");
+        s->shell_fence_total++;
+        /* M852: `error` means the task was REFUSED, never run. Before M852 it
+         * ran unfenced -- but no `error` had been seen then, and counting it
+         * as unfenced now would report a refused task as an escape risk. */
+        if (strcmp(st, "unavailable") == 0) { s->shell_fence_unfenced++; }
+        else if (strcmp(st, "error") == 0)  { s->shell_fence_refused++; }
+    } else if (strcmp(ev, "cut_continue") == 0) {
+        /* M859 (N42 (d)): a reply cut at the output ceiling, asked once to
+         * continue. */
+        s->cut_continue++;
+    } else if (strcmp(ev, "loop_stop") == 0) {
+        /* M869: a child ended by a loop stop, by kind. */
+        const char *k = jc_json_get_str(o, "kind", "");
+        if (strcmp(k, "refused") == 0)          { s->loop_stop_refused++; }
+        else if (strcmp(k, "placeholder") == 0) { s->loop_stop_placeholder++; }
+        else if (strcmp(k, "rotation") == 0)    { s->loop_stop_rotation++; }
+        else                                    { s->loop_stop_same++; }
+    } else if (strcmp(ev, "metric_gate") == 0) {
+        /* M875: the metric gate's verdict on a child that moved a pin. */
+        const char *vd = jc_json_get_str(o, "verdict", "");
+        if (strcmp(vd, "merged") == 0)    { s->metric_gate_merged++; }
+        else if (strcmp(vd, "held") == 0) { s->metric_gate_held++; }
+        else                              { s->metric_gate_unknown++; }
+    } else if (strcmp(ev, "test_edit_hold") == 0) {
+        /* M865: a parallel child changed an existing test assertion, and its
+         * merge was held. */
+        s->test_edit_holds++;
+    } else if (strcmp(ev, "no_merge_kept") == 0) {
+        /* M890 (N48): a write task set "merge": false, kept and not merged. */
+        s->no_merge_kept++;
+    } else if (strcmp(ev, "dirty_dispatch") == 0) {
+        /* M1006: the dirty-tree dispatch guard checked a write dispatch before
+         * any fork. `outcome` is "proceeded", "refused" or (M1006-a)
+         * "proceeded_unknown"; the refused ones are the guard doing its job --
+         * a dirty base that would have been merged on is stopped and named
+         * instead -- and the unknown ones are a FAILED probe (the tree state
+         * could not be read; the dispatch proceeded with a note, because an
+         * infra failure must not block work). */
+        const char *oc = jc_json_get_str(o, "outcome", "");
+        s->dirty_dispatch++;
+        if (strcmp(oc, "refused") == 0) {
+            s->dirty_refused++;
+        } else if (strcmp(oc, "proceeded_unknown") == 0) {
+            s->dirty_unknown++;
+        }
+    } else if (strcmp(ev, "new_dir_hold") == 0) {
+        /* M888 (N49 (b)): a write child's new directories over 1 MB or 100
+         * files, held out of the merge. */
+        s->new_dir_holds++;
+        s->new_dir_hold_dirs += jc_json_clamp_long(jc_json_get_num(o, "dirs", 0.0));
+        s->new_dir_hold_files += jc_json_clamp_long(jc_json_get_num(o, "files", 0.0));
+        s->new_dir_hold_bytes += jc_json_clamp_long(jc_json_get_num(o, "bytes", 0.0));
+    } else if (strcmp(ev, "pre_discard") == 0) {
+        /* M863 (N44 (a)): a write child ran a git command that discards work
+         * or moves HEAD; jichi kept its worktree first, or could not. */
+        const char *kept = jc_json_get_str(o, "kept", "");
+        if (strcmp(kept, "yes") == 0)         { s->pre_discard_kept++; }
+        else if (strcmp(kept, "failed") == 0) { s->pre_discard_failed++; }
+    } else if (strcmp(ev, "task_budget") == 0) {
+        /* M861 (N28): a spawn_parallel task's own max_tool_calls -- its one
+         * note at four-fifths, and its stop. */
+        const char *ph = jc_json_get_str(o, "phase", "");
+        if (strcmp(ph, "note") == 0)      { s->task_budget_notes++; }
+        else if (strcmp(ph, "stop") == 0) { s->task_budget_stops++; }
+    } else if (strcmp(ev, "finish_alias") == 0) {
+        /* M853 (N32): a delegate called a tool named like `finish` with a
+         * message, and that ended its turn. Before M853 the same call was a
+         * refused `tool_call` named `finish`; count those to compare. */
+        s->finish_alias++;
     } else if (strcmp(ev, "retrieve") == 0) {
         s->retrieve_calls++;
-        s->retrieve_blocks += (long)jc_json_get_num(o, "blocks", 0);
-        s->retrieve_tokens += (long)jc_json_get_num(o, "tokens", 0);
+        s->retrieve_blocks += jc_json_clamp_long(jc_json_get_num(o, "blocks", 0));
+        s->retrieve_tokens += jc_json_clamp_long(jc_json_get_num(o, "tokens", 0));
     } else if (strcmp(ev, "args_truncated") == 0) {
         s->args_truncated++;
     } else if (strcmp(ev, "history_check") == 0) {
@@ -418,6 +528,13 @@ static void feed_event(struct jc_telemetry_summary *s, cJSON *o)
         if (jc_json_get_bool(o, "ok", 0)) {
             s->repair_ok++;
         }
+    } else if (strcmp(ev, "undeclared_args") == 0) {
+        /* M1067: a tool call whose arguments carried top-level keys the schema
+         * does not declare. The call still ran on the declared arguments and
+         * named the ignored keys on its own result; the event counts how many
+         * such calls happened (`count` is the number of ignored keys). */
+        s->undeclared_args_calls++;
+        s->undeclared_args_keys += jc_json_clamp_long(jc_json_get_num(o, "count", 0.0));
     } else if (strcmp(ev, "route") == 0) {
         s->routes++;
     } else if (strcmp(ev, "compact") == 0) {
@@ -425,8 +542,8 @@ static void feed_event(struct jc_telemetry_summary *s, cJSON *o)
         session_for(s, jc_json_get_str(o, "sid", "(no-session)"))->compacts++;
         /* M192: only post-M192 events carry the split; absent => both stay 0
          * and the reclaim line is not rendered. */
-        s->compact_dup += (long)jc_json_get_num(o, "dup", 0.0);
-        s->compact_age += (long)jc_json_get_num(o, "age", 0.0);
+        s->compact_dup += jc_json_clamp_long(jc_json_get_num(o, "dup", 0.0));
+        s->compact_age += jc_json_clamp_long(jc_json_get_num(o, "age", 0.0));
         /* M323: absent on pre-M323 events => stays 0 and the line is omitted.
          *
          * M326x: `short` alone over-counts. Until M326x the emitter wrote
@@ -454,8 +571,8 @@ static void feed_event(struct jc_telemetry_summary *s, cJSON *o)
             } else {
                 /* Pre-M326x event: infer pressure the way the pass decides it
                  * -- the lossy age/args trims run ONLY past the high-water. */
-                pressed = ((long)jc_json_get_num(o, "age", 0.0)
-                           + (long)jc_json_get_num(o, "args", 0.0)) > 0;
+                pressed = (jc_json_clamp_long(jc_json_get_num(o, "age", 0.0))
+                           + jc_json_clamp_long(jc_json_get_num(o, "args", 0.0))) > 0;
             }
             if (pressed) {
                 s->compact_pressed++;
@@ -471,6 +588,14 @@ static void feed_event(struct jc_telemetry_summary *s, cJSON *o)
                     s->compact_unrelieved++;
                 }
             }
+        }
+    } else if (strcmp(ev, "scoped_edit") == 0) {
+        /* M975 (D6): the scoped edit check emitted a scoped_edit event. */
+        const char *kind = jc_json_get_str(o, "kind", "");
+        if (strcmp(kind, "trip") == 0) {
+            s->scoped_edit_trip++;
+        } else if (strcmp(kind, "detected") == 0) {
+            s->scoped_edit_detected++;
         }
     } else if (strcmp(ev, "turn_end") == 0) {
         /* M92: tally the autonomy-envelope outcome. Only turns run under an
@@ -491,6 +616,22 @@ static void feed_event(struct jc_telemetry_summary *s, cJSON *o)
     }
 }
 
+/* One NUL-terminated line through the parser and into the summary. Malformed
+ * lines are skipped (jc_json_parse returns NULL), which is the whole of the
+ * "tolerate a torn or hand-edited log" contract. Shared by the slurp feed
+ * (jc_telemetry_feed) and the streaming feed (jc_telemetry_feed_file) so the
+ * two cannot drift apart. */
+static void feed_line(struct jc_telemetry_summary *s, const char *line)
+{
+    if (line != NULL && line[0] != '\0') {
+        cJSON *o = jc_json_parse(line);
+        if (o != NULL) {
+            feed_event(s, o);
+            cJSON_Delete(o);
+        }
+    }
+}
+
 void jc_telemetry_feed(struct jc_telemetry_summary *s, const char *text)
 {
     const char *p = text;
@@ -503,14 +644,9 @@ void jc_telemetry_feed(struct jc_telemetry_summary *s, const char *text)
         if (len > 0) {
             char *line = (char *)malloc(len + 1);
             if (line != NULL) {
-                cJSON *o;
                 memcpy(line, p, len);
                 line[len] = '\0';
-                o = jc_json_parse(line);
-                if (o != NULL) {
-                    feed_event(s, o);
-                    cJSON_Delete(o);
-                }
+                feed_line(s, line);
                 free(line);
             }
         }
@@ -519,6 +655,61 @@ void jc_telemetry_feed(struct jc_telemetry_summary *s, const char *text)
         }
         p = nl + 1;
     }
+}
+
+/* Streaming feed: the F-04 path. `jc_telemetry_feed` needs the WHOLE log as
+ * one NUL-terminated string, which `jc_read_file` can only give for files up to
+ * JC_READ_FILE_MAX (64 MiB, include/jc_platform.h). A telemetry log grows one
+ * compact line per event with no rotation (def-198), so a long-lived workspace
+ * crosses 64 MiB while every line is still valid -- and the in-process readers
+ * went blind past it, reporting "no telemetry". This variant reads `f` line by
+ * line (unbounded) and feeds each line to the same `feed_event`, so the
+ * reader stays honest past the slurp cap. The peak is one line plus the
+ * summary, which holds only DISTINCT names (models/tools/workspaces/sessions,
+ * versions capped at 32) and does NOT grow with the line count -- so this is
+ * genuinely streaming, not the whole log buffered under a different name.
+ * Returns JC_OK when at least the file opened (an unopenable file is the one
+ * error the callers must distinguish); a line that fails to parse is skipped,
+ * exactly as jc_telemetry_feed does for a malformed line in the middle of a
+ * slurp. */
+jc_status jc_telemetry_feed_file(struct jc_telemetry_summary *s, FILE *f)
+{
+    struct jc_sb line;
+    int c;
+
+    if (f == NULL) {
+        return JC_ERR_IO;
+    }
+    jc_sb_init(&line);
+    c = fgetc(f);
+    while (c != EOF) {
+        if (c == '\n' || c == '\r') {
+            if (c == '\r') {
+                int n = fgetc(f);   /* a CRLF pair: swallow the LF */
+                if (n != '\n' && n != EOF) {
+                    ungetc(n, f);   /* a lone \r: the byte belongs to line+1 */
+                }
+            }
+            if (line.len > 0) {
+                line.data[line.len] = '\0';
+                feed_line(s, line.data);
+                jc_sb_clear(&line);
+            }
+        } else {
+            (void)jc_sb_append_char(&line, (char)c);
+        }
+        c = fgetc(f);
+    }
+    /* A trailing line with no final newline is fed too: the writer always ends
+     * one with '\n', so a missing terminator means a torn tail -- exactly what
+     * the no-fsync decision admits (docs/FILE_HANDLING.md) -- and the events
+     * already fed stand. */
+    if (line.len > 0) {
+        line.data[line.len] = '\0';
+        feed_line(s, line.data);
+    }
+    jc_sb_free(&line);
+    return JC_OK;
 }
 
 void jc_telemetry_summarize(const char *text, struct jc_telemetry_summary *out)
@@ -698,6 +889,16 @@ void jc_telemetry_render(const struct jc_telemetry_summary *s, struct jc_sb *out
             "lever; see /cache and the cached= token line.\n",
             s->prefix_churn, s->prefix_churn_max);
     }
+    if (s->shell_fence_total > 0) {
+        jc_sb_append_fmt(out,
+            "Shell fence: set up for %ld parallel write child(ren); %ld ran "
+            "UNFENCED (no Landlock on this kernel) -- an unfenced write child's "
+            "shell could write outside its worktree (M831, O9) -- and %ld were "
+            "refused because the fence could not be applied (M852). See `doctor` "
+            "for the capability on this host.\n",
+            s->shell_fence_total, s->shell_fence_unfenced,
+            s->shell_fence_refused);
+    }
     if (s->retrieve_calls > 0) {
         jc_sb_append_fmt(out,
             "Auto-context: %ld retrieval(s) attached %ld block(s), %ld token(s) "
@@ -773,9 +974,16 @@ void jc_telemetry_render(const struct jc_telemetry_summary *s, struct jc_sb *out
         double mean = (m->lat_n > 0) ? m->lat_sum / (double)m->lat_n : 0.0;
         jc_sb_append_fmt(out,
             "  %-24s calls=%ld err=%ld  in=%.0f out=%.0f  cost=$%.4f  "
-            "lat_ms mean=%.0f max=%.0f\n",
+            "lat_ms mean=%.0f max=%.0f",
             m->name, m->calls, m->errors, m->in_tok, m->out_tok, m->cost,
             mean, m->lat_max);
+        /* M897: the first-token time beside the latency; a log without it
+         * renders exactly as before. */
+        if (m->ttft_n > 0) {
+            jc_sb_append_fmt(out, "  ttft_ms mean=%.0f max=%.0f",
+                             m->ttft_sum / (double)m->ttft_n, m->ttft_max);
+        }
+        jc_sb_append(out, "\n");
         if (m->timeouts > 0) {
             jc_sb_append_fmt(out, "  %-24s   (of which %ld stalled/timed out)\n",
                              "", m->timeouts);
@@ -874,6 +1082,68 @@ void jc_telemetry_render(const struct jc_telemetry_summary *s, struct jc_sb *out
                          "evidence; review the TAINTED attempts / kept "
                          "worktrees\n", s->test_edits);
     }
+    if (s->loop_stop_same + s->loop_stop_refused + s->loop_stop_placeholder +
+        s->loop_stop_rotation > 0) {
+        /* M869/M870: children ended for repeating themselves, by kind. */
+        jc_sb_append_fmt(out, "Loop stops (children): %ld same result, %ld same "
+                         "refused call, %ld copied placeholders, %ld rotations\n",
+                         s->loop_stop_same, s->loop_stop_refused,
+                         s->loop_stop_placeholder, s->loop_stop_rotation);
+    }
+    if (s->metric_gate_merged + s->metric_gate_held +
+        s->metric_gate_unknown > 0) {
+        /* M875: what the metric gate decided for children that moved a pin. */
+        jc_sb_append_fmt(out, "Metric gate (parallel children): %ld merged, "
+                         "%ld held, %ld unknown\n", s->metric_gate_merged,
+                         s->metric_gate_held, s->metric_gate_unknown);
+    }
+    if (s->test_edit_holds > 0) {
+        /* M865: the merges held because a child moved an expected value. */
+        jc_sb_append_fmt(out, "Merges held for an edited test assertion "
+                         "(parallel children): %ld\n", s->test_edit_holds);
+    }
+    if (s->no_merge_kept > 0) {
+        /* M890 (N48): the probes kept, as their tasks asked. */
+        jc_sb_append_fmt(out, "Kept, not merged, as asked (\"merge\": false, parallel "
+                         "children): %ld\n", s->no_merge_kept);
+    }
+    if (s->dirty_dispatch > 0) {
+        /* M1006: the dirty-tree dispatch guard. Printed only when a write
+         * dispatch was checked (off is unchecked, so a quiet log stays quiet);
+         * the refused share is the number the measurement exists for.
+         * M1006-a: the unknown share is a FAILED probe (git could not report
+         * the tree state) -- the dispatch proceeded with a note, and the line
+         * says so instead of folding the failures into "clean". */
+        jc_sb_append_fmt(out,
+                         "Dirty-tree dispatch guard (write dispatches checked "
+                         "before fork): %ld checked, %ld refused (committed, "
+                         "then dispatched), %ld unknown (probe failed, "
+                         "proceeded with a note)\n",
+                         s->dirty_dispatch, s->dirty_refused, s->dirty_unknown);
+    }
+    if (s->new_dir_holds > 0) {
+        /* M888 (N49 (b)): the new directories kept out of a merge, and what
+         * they held. */
+        jc_sb_append_fmt(out, "New directories held out of the merge (parallel "
+                         "children): %ld in %ld task%s, %ld files, %.1f MB\n",
+                         s->new_dir_hold_dirs, s->new_dir_holds,
+                         s->new_dir_holds == 1 ? "" : "s", s->new_dir_hold_files,
+                         (double)s->new_dir_hold_bytes / (1024.0 * 1024.0));
+    }
+    if (s->pre_discard_kept > 0 || s->pre_discard_failed > 0) {
+        /* M863 (N44 (a)): how often a write child discarded its own work with
+         * git, and whether jichi kept it first. */
+        jc_sb_append_fmt(out, "Kept before a discarding git command (write "
+                         "children): %ld kept, %ld could not be kept\n",
+                         s->pre_discard_kept, s->pre_discard_failed);
+    }
+    if (s->task_budget_notes > 0 || s->task_budget_stops > 0) {
+        /* M861 (N28): how many tasks were told they were near their
+         * max_tool_calls, and how many reached it. */
+        jc_sb_append_fmt(out, "Task budgets (max_tool_calls): %ld note(s) at "
+                         "four-fifths, %ld task(s) stopped at the budget\n",
+                         s->task_budget_notes, s->task_budget_stops);
+    }
 
     /* Self-correction (M167): the nudge (M147) and argument-repair (M148)
      * counters. Printed only when something fired, so a clean log is unchanged.
@@ -881,7 +1151,11 @@ void jc_telemetry_render(const struct jc_telemetry_summary *s, struct jc_sb *out
      * recovers rarely means the model is probably not emitting native tool calls
      * at all -- and before blaming the model, check that jichi's request is
      * well-formed (docs/LOCAL_MODELS.md, "When the model calls no tool at all"). */
-    if (s->nudge_fired > 0 || s->nudge_recovered > 0 || s->repair_total > 0) {
+    if (s->nudge_fired > 0 || s->nudge_recovered > 0 || s->repair_total > 0 ||
+        s->undeclared_args_calls > 0 ||
+        s->finish_alias > 0 || s->cut_continue > 0 ||
+        s->empty_reasoning_fired > 0 || s->empty_reasoning_recovered > 0 ||
+        s->md_recovered > 0) {
         jc_sb_append(out, "\nSelf-correction:\n");
         if (s->nudge_fired > 0 || s->nudge_recovered > 0) {
             long pct = (s->nudge_fired > 0)
@@ -890,12 +1164,56 @@ void jc_telemetry_render(const struct jc_telemetry_summary *s, struct jc_sb *out
                 "  prose-call nudge         fired=%ld recovered=%ld (%ld%%)\n",
                 s->nudge_fired, s->nudge_recovered, pct);
         }
+        if (s->md_recovered > 0) {
+            jc_sb_append_fmt(out,
+                "  text-call recovery       recovered=%ld (M949)\n",
+                s->md_recovered);
+        }
+        if (s->empty_reasoning_fired > 0 || s->empty_reasoning_recovered > 0) {
+            long pct = (s->empty_reasoning_fired > 0)
+                       ? (s->empty_reasoning_recovered * 100 /
+                          s->empty_reasoning_fired) : 0;
+            jc_sb_append_fmt(out,
+                "  empty-answer nudge       fired=%ld recovered=%ld (%ld%%) (M937)\n",
+                s->empty_reasoning_fired, s->empty_reasoning_recovered, pct);
+        }
         if (s->repair_total > 0) {
             jc_sb_append_fmt(out,
                 "  argument repair          ok=%ld/%ld (%ld%%)\n",
                 s->repair_ok, s->repair_total,
                 s->repair_ok * 100 / s->repair_total);
         }
+        if (s->undeclared_args_calls > 0) {
+            /* M1067: the call ran on the declared arguments only; the ignored
+             * keys are named on the call's own result. `keys` is the sum of
+             * each call's `count`, so one call with two extra keys reads as
+             * 1 call, 2 keys. */
+            jc_sb_append_fmt(out,
+                "  undeclared arguments     call(s)=%ld key(s)=%ld (M1067)\n",
+                s->undeclared_args_calls, s->undeclared_args_keys);
+        }
+        if (s->finish_alias > 0) {
+            /* M853: a delegate ended with a call to a tool jichi does not have;
+             * its message was taken as the answer. */
+            jc_sb_append_fmt(out,
+                "  ended by a finish call  %ld delegate turn(s) (M853)\n",
+                s->finish_alias);
+        }
+        if (s->cut_continue > 0) {
+            jc_sb_append_fmt(out,
+                "  continued after a cut   %ld reply(s) (M859)\n",
+                s->cut_continue);
+        }
+    }
+
+    /* M951: the relay's measurements -- one line per session where a leg's
+     * budget was derived from its measured prompt growth, so a supervisor
+     * sees the relay TIGHTENED a leg (below the configured cap) instead of
+     * finding out a leg ran short only from the handover's stop reason. */
+    if (s->relay_budget > 0) {
+        jc_sb_append_fmt(out,
+            "\nRelay:\n  leg budgets measured   %ld handover(s) (M951)\n",
+            s->relay_budget);
     }
 
     /* Per-session timeline (M82): one line per run/phase, in first-seen order,
@@ -939,6 +1257,7 @@ void jc_telemetry_default_path(const char *home, const char *workspace,
     const char *p;
     const char *last;
     jc_size o = 0;
+    char key[65];   /* M1097 (D-09): the 64-hex workspace key */
 
     /* The last non-empty path component. */
     last = ws;
@@ -959,7 +1278,7 @@ void jc_telemetry_default_path(const char *home, const char *workspace,
         base[o++] = 's';
     }
     base[o] = '\0';
-    jc_snprintf(buf, cap, "%s/.jichi.d/telemetry/%s-%lu.jsonl",
-                (home != NULL && home[0] != '\0') ? home : ".", base,
-                jc_workspace_key(ws));
+    jc_workspace_key(ws, key, sizeof(key));
+    jc_snprintf(buf, cap, "%s/.jichi.d/telemetry/%s-%s.jsonl",
+                (home != NULL && home[0] != '\0') ? home : ".", base, key);
 }

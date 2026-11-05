@@ -30,6 +30,31 @@ What the research found broken along the way is in [`../DEFERRED.md`](../DEFERRE
 
 ---
 
+## Decisions — the operator, 2026-09-25
+
+The operator read this plan and decided the same night. Recorded here so the work
+proceeds from a decision, not from the recommendation it happened to agree with. Each
+row is the decision as given; the section it names holds the reasoning it accepted.
+
+| # | Decision | Status |
+|---|---|---|
+| 2 | **The recommendation:** a reading page (`ALGORITHMS.md`), ungraded, first; a graded track later, once the page has been read. Exercises stay C. | **built** — M755 (`ALGORITHMS.md`, four lessons, each measured); the graded track waits until the page has been read |
+| 3 | **The recommendation:** the SLM lab as level (b) — *train a character-level model from scratch* — on a CPU, shipped as a scaffold pack in `examples/`, ungraded. No GPU, no dataset-licence questions; it teaches the evaluation habit before the expensive part. | **built** — M764 (`examples/slm-lab/`, `charlm.c`), M764a |
+| 4 | **The recommended process and priority:** measure the POSIX gap in one `make -k` log before fixing anything; GNU/Hurd is the next platform; **yes** to the fork-free measuring milestone, which decides four rows at once. Then Haiku, then the AmigaOS/DOS/RTOS rows behind the fork-free design. | **measured** — GNU/Hurd, M767–M768 (`make -k`: nothing to report; the gaps are at run time; the row is Partly verified and Driven); the fork-free build, M769 (a read, edit and search agent needs no process; one spawn backend would restore the rest on three of the four rows). Haiku landed at M830 (Partly verified, Driven); the spawn backend landed at M832 (`jc_spawn`, fork + posix_spawn, gated on both every run) — the AmigaOS/DOS/RTOS rows are now open, in the order and with the predictions of [the fork-less rows plan](2026-09-29-the-fork-less-rows.md) |
+| 5 | **JupyterHub — deferred to a discussion next week.** No run planned until then; §5's "ask or record first" list is what that discussion needs. | discuss (week of 2026-09-28) |
+| 7 | **The CHR engine — deferred to a discussion later this week.** The engine's language, state, determinism, what "extended" adds, and its licence are the operator's to answer first (§7). | discuss (this week) |
+| 8 | **The recommendation:** one TUI principles page, a small repeatable learner study (3–5 self-learners, consent recorded), and the already-found UX defects. **Plus a new instruction:** [`../BIBLIOGRAPHY.md`](../BIBLIOGRAPHY.md) needs an **extended section on UX design** — the field of human interface / user interface / user experience (HCI), not UI design alone and not "UI/UX" as one word. See the note under §8. | **built** — M754 (the HCI section), M756 (the principles page, the study protocol; the study itself not yet run), M751 and M753 (the found defects) |
+| 9 | **The recommendation:** the per-user proposals (Esc interrupts, `/why`, `/fences`, the help-vs-`TUI_CMDS[]` lint, saved input history) and the per-agent ones (`jichi ps`, `describe` lists the socket's `mode` verb, "only a human grants" kept). Each is small; they need not land together. | **built** — Esc M753, `/why` M762, `/fences` M757, the help lint M751, saved history M763; `jichi ps` M759, `describe` M752 |
+| 10 | **The recommendation, and collect data to ground an opinion and gather different perspectives:** keep `AGENT_COLLABORATION.md`'s stance (files, not a negotiation protocol), fix the three broken conventions, and run the queue experiment — but treat the result as evidence to reason from, not a verdict, and seek more than one reading of it. | **built; measurement designed** — the three conventions M759–M761; the protocol and the experiment's design M765. The experiment waits on a sandbox and the testbed question |
+| 11 | **As an experiment, the recommendation:** the three-arm A/B (plain; restate-then-execute; plan-then-execute with the plan fed to the executor) over the drive corpus, before any code, with a person grading a sample for intent fidelity. The rule it must keep: a restatement is shown before it is used. | **planned** — M766. Waits on the task texts (lost on this machine) and the grader's hour |
+
+**Not decided here** (5 and 7 wait for their discussions), and **1, 6, 12 were already
+answered** at M740. The ordering of the "to build" items is not fixed by these
+decisions; the operator's earlier standing instruction is to proceed in a recommended
+order, milestone by milestone, each with its own plan and gate.
+
+---
+
 ## 2. An algorithms course
 
 **Short answer: there is none.** The nearest material is
@@ -296,6 +321,30 @@ That ratio is the argument for the study below.
 **For the operator:** who the learners are and how to reach them (a JLU course?), and consent —
 a study records people.
 
+**Decided 2026-09-25, and one addition.** The operator took the recommendation, and asked
+for something this section did not propose: **[`../BIBLIOGRAPHY.md`](../BIBLIOGRAPHY.md) is to
+gain an extended section on UX design** — the *human interface / user interface / user
+experience* field (HCI), read as one discipline. The distinction is the instruction: not "UI
+design" (the visual/interaction surface alone), and not "UI/UX" collapsed into a single
+label, but the broader field that includes how people perceive, learn, err at and feel about
+an interface — which for jichi is a **terminal** UX (a TUI and a screen reader), not a GUI, so
+the section must reach the interface tradition that predates and surrounds the web. Candidate
+anchors, to be checked against what the section already cites and filled with real
+bibliographic entries in the page's house shape (each with why-it-earns-its-place, not a bare
+citation): Norman, *The Design of Everyday Things* (affordances, signifiers, the gulfs of
+execution and evaluation — the vocabulary the accessibility proposals already use implicitly);
+Nielsen, *Usability Engineering* and the ten heuristics; Krug, *Don't Make Me Think*; Shneiderman
+& Plaisant, *Designing the User Interface* (the eight golden rules); Cooper, *About Face*;
+Raskin, *The Humane Interface* (directly a **non-GUI** argument, and the closest to a TUI); the
+CLI/TUI-specific tradition (the *Command Line Interface Guidelines*, `clig.dev`; the POSIX
+Utility Conventions; the readline/ncurses lineage); and accessibility as first-class UX (WCAG
+where it maps to a terminal, and the screen-reader literature the M551–M570 sittings drew on in
+practice). The section states what jichi's own UX documents already decided
+([`../INTERFACE_TUTORIAL.md`](../INTERFACE_TUTORIAL.md), the two 2026-08 proposals) and places
+them in that literature — it restates jichi's stance and cites the field, it does not invent a
+theory. This is its own milestone, held by `bibliography_lint` (verbatim-quote rule) and
+`reading_refs_lint`; the recommended principles page (item 1 above) can cite it once it exists.
+
 ---
 
 ## 9. Better TUI commands and control, for users and for agents
@@ -398,6 +447,10 @@ compute. The first two arms need no new code: a two-stage custom command with a 
 
 **For the operator:** is intent fidelity worth a person's hour per drive? Without it, the
 experiment measures only speed.
+
+**Planned (M766):** [`2026-09-25-intent-fidelity-ab.md`](2026-09-25-intent-fidelity-ab.md) is the
+run's plan, written before any run: the three arms, the blind 0–3 grading, an injection probe, the
+noise floor, and what would change the decision.
 
 ---
 

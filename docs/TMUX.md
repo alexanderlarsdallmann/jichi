@@ -75,7 +75,7 @@ tmux new -d -s task 'cd ~/project && \
     --journal ~/logs/task-$(date +%s).jsonl \
     --bell --notify "printf %s done | mail -s jichi me@host" \
     -p "implement feature X and make the tests pass" \
-    > ~/logs/task.out 2>&1'
+    > ~/logs/task.out 2>&1 < /dev/null'
 ```
 
 - `-d` starts it **detached** — no terminal attached, so a disconnect can't touch
@@ -95,7 +95,7 @@ detached session and connect to it from anywhere:
 tmux new -d -s jlud 'jichi --config ~/project/local/config.json \
   daemon --socket ~/.jichi.sock'
 # from any shell on the host (or over an SSH tunnel):
-jichi --connect ~/.jichi.sock -p "summarize today's changes"
+jichi --connect ~/.jichi.sock -p "summarize today's changes" < /dev/null
 ```
 
 The daemon keeps config/MCP/LSP/index hot and now serves requests from a
@@ -191,8 +191,8 @@ tmux capture-pane -p -t jichi:0.1 -S - > pane1.log
 jichi write the record itself — it is structured, complete, and unaffected by scrollback:
 
 ```sh
-jichi -p "$task" --auto --output jsonl | tee run.jsonl   # machine-readable events
-jichi --log-level metrics -p "$task"                     # telemetry (docs/TELEMETRY.md)
+jichi -p "$task" --auto --output jsonl < /dev/null | tee run.jsonl   # machine-readable events
+jichi --log-level metrics -p "$task" < /dev/null                     # telemetry (docs/TELEMETRY.md)
 jichi export --output json > transcript.json             # the conversation afterwards
 ```
 
@@ -262,6 +262,7 @@ paste arrives as one logical line rather than being executed line by line (M156)
 For a **looped/scheduled** run that works a *queue* of tasks (not one detached
 run), see [AUTONOMOUS_LOOPS.md](AUTONOMOUS_LOOPS.md).
 
-See also: [REMOTE_SSH.md](REMOTE_SSH.md), [DEPLOYMENT.md](DEPLOYMENT.md),
+See also: [SCREEN.md](SCREEN.md) (the same job with GNU screen, and reaching one session from two
+machines), [REMOTE_SSH.md](REMOTE_SSH.md), [DEPLOYMENT.md](DEPLOYMENT.md),
 [AUTONOMY.md](AUTONOMY.md), [DAEMON.md](DAEMON.md),
 [AUTONOMOUS_LOOPS.md](AUTONOMOUS_LOOPS.md).

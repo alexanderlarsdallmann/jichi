@@ -40,6 +40,13 @@ the operator to "be careful"; it makes the model's claims *checkable*:
 > about: fluent prose about behaviour nobody checked. Whether to surface the
 > trace is a feature decision, recorded open; this note only makes the
 > description true.
+>
+> **Added 2026-10-04.** Two things moved since. The Anthropic provider now
+> notes a `thinking_delta` as reasoning (M897), so a call's first-token time
+> counts it -- and still shows none of it. And the open question was decided
+> by the operator: a setting that shows the reasoning, off by default, not
+> yet built ([DEFERRED](../DEFERRED.md) def-317). Sending earlier reasoning
+> back to the model, which some APIs require with tools, is def-318.
 
 - the reasoning is ~~**streamed** so you can audit it, never hidden~~
   **detected, and not shown** — see the correction below;
@@ -132,7 +139,7 @@ Run the loop's front half offline and read what it found:
 # in the jichi checkout (where you ran `make`)
 # the log goes to /tmp on purpose: it is not yours to commit
 jichi --readonly --log /tmp/t.jsonl --log-level metrics \
-      -p "read src/util/jc_str.c and summarize it"
+      -p "read src/util/jc_str.c and summarize it" < /dev/null
 jichi telemetry /tmp/t.jsonl          # the summary jc_insights ranks
 jichi learn analyze /tmp/t.jsonl      # the ranked problems, propose-only
 ```

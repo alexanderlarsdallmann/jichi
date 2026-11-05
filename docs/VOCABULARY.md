@@ -11,7 +11,8 @@ without inferring meanings from context.
 > page is about our words.
 
 If a term you met is missing, that is a defect in this page — the honest kind, and
-worth reporting.
+worth reporting (open an issue on the project's tracker, or note it in a pull
+request). Nobody should have to infer a word.
 
 ## Talking to a model
 
@@ -20,15 +21,39 @@ worth reporting.
   per-turn.
 - **token** — the unit a model reads and bills in; roughly ¾ of a word for English
   prose, far less for code. Every "cost" in this project is tokens.
-- **context window** — how many tokens a model can hold at once. `contextLength`
-  in your config *declares* it; declaring it larger than the server's real window
-  means your budget is unenforced until the server rejects the request.
+- **context window** — how many tokens a model can hold at once. Two config keys
+  touch it, and they are not the same: per-model **`contextLength`** *declares* the
+  model's window (declaring it larger than the server's real one leaves your budget
+  unenforced until the server rejects the request), while top-level **`contextLimit`**
+  caps how much jichi will actually use. Setting one where the other belongs silently
+  does nothing.
 - **system prompt** — the instructions jichi sends ahead of your conversation:
-  who the agent is, what tools exist, the repo map, your rules and memory.
-  `jichi sysmsg` prints it; `jichi context` sizes it.
-- **role** — what a configured model is *for*: `chat`, `embed`, `rerank`,
-  `audio`, `transcribe`, `vision`. One entry can hold several. jichi picks a model
-  by role, so "no embed-role model" means semantic search is simply off.
+  who the agent is, how to use its tools, the repo map, your rules and memory.
+  `jichi sysmsg` prints it; `jichi context` sizes it. The tool definitions
+  themselves travel beside it, in the request's separate `tools` field, and are
+  usually the larger part: 14,246 of a traced 17,145-byte request
+  ([tsuiseki-02](reading/tsuiseki-02-the-turn-that-calls-no-tool.md)).
+- **role** — what a configured model is *for*: `chat`, `edit`, `apply`,
+  `autocomplete`, `embed`, `rerank`, `summarize`, `image`, `audio`, `transcribe`.
+  One entry can hold several. jichi picks a model by role, so "no embed-role model"
+  means semantic search is simply off. (`vision` is a per-model *setting*, not a
+  role — see [MODELS.md](MODELS.md).)
+- **provider** — the *wire dialect* a model speaks, not the company that made it:
+  `anthropic` or `openai`. A local server (LM Studio, llama.cpp, vLLM, Ollama) is
+  reached with `openai` **plus an `apiBase`**, because it speaks the OpenAI wire
+  format. [CONFIG_TUTORIAL.md](CONFIG_TUTORIAL.md) §0a calls this "the one word that
+  confuses everybody".
+- **apiBase** — the server address a provider talks to, **ending in `/v1`** for an
+  OpenAI-compatible server so chat and embeddings both resolve. Omit it for a
+  provider's own cloud.
+- **apiKeyEnv** — the *name* of the environment variable that holds your API key,
+  never the key itself, so a config is safe to commit or share. A local server needs
+  none.
+- **selector** — how a model is named anywhere jichi expects one (`--model`, a
+  `fallback`, an agent's `model:`): its config **name** or its **model-id**, matched
+  as a substring, so an ambiguous match is an error, not a guess.
+- **fallback** — a second (or third) model, named by selector, that jichi tries when
+  the first is unreachable or refuses — so one server going down does not end the run.
 - **routing tier** — `fast` or `strong`: a cheap model for mechanical work, a
   capable one for reasoning, chosen per call.
 - **compaction** — summarising older history to stay inside the context window.
@@ -85,6 +110,30 @@ worth reporting.
 - **drift** — a claim that used to be true. A number nobody re-measured, a doc
   describing an older behaviour, a translation tracking an older revision.
 
+## Setting up and running
+
+- **preset** — a *recipe* `jichi setup` applies: a scaffold pack, a default mode, a
+  set of features and a start-script, named for a kind of work (`developer`,
+  `technical-writer`, `generic`). Not a bundle of files but a row over an existing
+  pack. See [SETUP_WIZARD.md](SETUP_WIZARD.md).
+- **journey** — an *optional* second choice at setup, layered on top of the preset:
+  what you are walking **into** (`refactor`, `rewrite`, `contributor`, `architect`),
+  not who you are. Its features fill whatever the preset left unset.
+- **headless** — running jichi with `-p "…"` and no interactive UI, for scripts, CI
+  and automation; the counterpart to the TUI. See [SCRIPTING.md](SCRIPTING.md).
+- **daemon** — a warm jichi process kept running so later calls skip start-up,
+  reached over a socket. See [DAEMON.md](DAEMON.md).
+- **subagent** — a second agent the main one spawns for a scoped task, with its own
+  tool fence and often read-only. See [SUBAGENTS.md](SUBAGENTS.md).
+- **fork pool** — the pool of worker processes that run parallel agents or attempts,
+  bounded by `maxParallelAgents`. See [PARALLEL.md](PARALLEL.md).
+- **MCP** — Model Context Protocol: a standard way to give the agent tools jichi does
+  not ship, from an external server. See [MCP.md](MCP.md).
+- **LSP** — Language Server Protocol: the editor-tooling protocol jichi uses for code
+  navigation and diagnostics. See [LSP.md](LSP.md).
+- **SDLC** — the software development lifecycle (plan, build, test, review, ship);
+  [SDLC.md](SDLC.md) maps jichi's journeys onto it.
+
 ## How this codebase is built and checked
 
 You need these to read the source-reading guides, the tests, or any analysis note.
@@ -99,6 +148,10 @@ You need these to read the source-reading guides, the tests, or any analysis not
 - **invariant** — something that must be true at all times ("the arena is never
   freed mid-turn"). A test that pins one is worth more than ten that sample
   behaviour.
+- **arena** — a block of memory freed all at once, by lifetime, instead of object
+  by object. jichi has three (session-lived, per-turn, per-tool-call); "the arena is
+  never freed mid-turn" is one of its invariants. See
+  [ARCHITECTURE.md](ARCHITECTURE.md).
 - **immutable** — never modified after creation. Cheaper to reason about, because
   no other code can have changed it behind your back.
 - **lint** — a check that reads the *source or docs* rather than running the
@@ -109,7 +162,7 @@ You need these to read the source-reading guides, the tests, or any analysis not
   output format the smoke tier prints. A plan line (`1..8`) says how many checks
   to expect, so a suite that dies early cannot look green.
 - **smoke tier** — the POSIX-sh test suite (`tests/smoke/`) that drives the real
-  binary end to end: 329 drivers, ~1,940 checks, no Python, so it runs on a
+  binary end to end: 542 drivers, ~2,600 checks, no Python, so it runs on a
   256 MB box and on four kernels.
 - **two-sided proof** — a new test must be shown **failing** without its fix and
   passing with it. A test that has never been red proves nothing about the bug it

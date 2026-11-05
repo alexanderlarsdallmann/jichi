@@ -6,6 +6,12 @@ request prefix. The **daemon** keeps one fully-configured app hot and serves
 requests over a Unix socket, so a client pays none of that per request — cutting
 latency and, on a cacheless backend, cost.
 
+**Not on every build.** Both ends talk over a Unix socket, so a jichi built on a
+system without sockets has no daemon. Today that is DJGPP on FreeDOS, where
+`make info` reports `SOCKET_LIBS = none`. There `jichi daemon` and `--connect`
+refuse with exit 2 and point you to `jichi -p`, and `jichi doctor` lists
+"built without sockets" (M835).
+
 ## Usage
 
 ```sh
@@ -14,8 +20,8 @@ latency and, on a cacheless backend, cost.
 jichi --config ./config.json daemon --socket /tmp/jichi.sock
 
 # From anywhere, send a turn to it (thin client -- no app setup on this side):
-jichi --connect /tmp/jichi.sock -p "explain src/foo.c"
-jichi --connect /tmp/jichi.sock --output jsonl -p "run the tests"
+jichi --connect /tmp/jichi.sock -p "explain src/foo.c" < /dev/null
+jichi --connect /tmp/jichi.sock --output jsonl -p "run the tests" < /dev/null
 echo "summarise this" | jichi --connect /tmp/jichi.sock -p -
 ```
 
@@ -34,7 +40,7 @@ warm:
 ```sh
 cd /path/to/your/project
 jichi doctor          # every line a tick, or fix what it names
-jichi -p "say ok"     # a real answer, so the model is reachable
+jichi -p "say ok" < /dev/null     # a real answer, so the model is reachable
 ```
 
 If `doctor` reports a problem, stop here. A daemon started on a broken config serves that
@@ -68,7 +74,7 @@ looser, you are on a build older than M322 — see [Trust model](#trust-model-an
 **4. Send it a turn.**
 
 ```sh
-jichi --connect ~/.jichi.d/daemon.sock -p "list the files here"
+jichi --connect ~/.jichi.d/daemon.sock -p "list the files here" < /dev/null
 ```
 
 The answer arrives on stdout exactly as with a normal `-p` run. The difference is invisible and
@@ -77,8 +83,8 @@ is the point: no config reload, no MCP reconnect, no index reload.
 **5. Confirm you are actually saving something.** Time both paths on the same prompt:
 
 ```sh
-time jichi -p "say ok"                                   # cold
-time jichi --connect ~/.jichi.d/daemon.sock -p "say ok"  # warm
+time jichi -p "say ok" < /dev/null                                   # cold
+time jichi --connect ~/.jichi.d/daemon.sock -p "say ok" < /dev/null  # warm
 ```
 
 If the warm one is not noticeably faster, your cold start was already cheap (no MCP, no LSP, no
@@ -134,7 +140,7 @@ as *Stable* in [EMBEDDING.md](EMBEDDING.md), so a handshake is never required an
 a client that has never heard of `hello` keeps working unchanged. Its reply:
 
 ```json
-{"v":1,"type":"hello.ok","agent":"jichi 0.12.0","proto":[1],
+{"v":1,"type":"hello.ok","agent":"jichi 0.13.0","proto":[1],
  "groups":["session"],
  "limits":{"maxLine":1048576,"maxConcurrent":4},
  "auth":{"transport":"unix","mechanism":"socket-mode","uid":1000,

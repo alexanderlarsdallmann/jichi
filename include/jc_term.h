@@ -195,6 +195,11 @@ void jc_term_hold_end(struct jc_term *t);
  * hold sets VMIN=0/VTIME=0, so this never blocks). -1 also when not holding. */
 int  jc_term_poll_key(struct jc_term *t);
 
+/* M753: as jc_term_poll_key, but wait up to `ms` milliseconds for the byte.
+ * Used after a bare ESC, to tell the Esc key (nothing follows) from the first
+ * byte of an arrow or an Alt chord (the rest arrives in the same burst). */
+int  jc_term_poll_key_wait(struct jc_term *t, int ms);
+
 /* Record `line` in the editor's recall history, exactly as a submitted line
  * would be (empty input is ignored). Needed because a line can now reach the
  * agent WITHOUT going through jc_term_readline -- the M254 type-ahead queue --

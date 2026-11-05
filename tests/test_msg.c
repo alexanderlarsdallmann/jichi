@@ -243,7 +243,7 @@ void test_msg(void)
                      * M571 raised it 13 -> 14: JC_MSG_TOOL_REFUSED, again
                      * English and German only. M572 raised it to 15 with
                      * JC_MSG_DENY_HINT, and M578 to 16 with JC_MSG_SUGGESTION. */
-                    JC_CHECK(untranslated == 16);
+                    JC_CHECK(untranslated == 18);
                 }
             }
 

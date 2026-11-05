@@ -43,6 +43,7 @@ delay 500
 send "\x15"
 send "/exit\r"
 waitexit 10
+assertexit 0
 EOF
 
 (cd "$ws" && "$SMOKE_TOOLS/ptydrive" --deadline 45 --cols 100 \

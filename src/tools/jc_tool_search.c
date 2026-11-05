@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 
 /* -I IS NOT UNIVERSAL, and the fifth grep is the one that proved it (M658).
@@ -49,22 +50,30 @@ const char *jc_search_grep_prefix(int have_dash_i)
 
 static void append_quoted(struct jc_sb *sb, const char *s);
 
-/* When grep fails and prints nothing, say WHICH thing failed. `2>/dev/null`
- * keeps grep's stderr out of the result on the normal path (a stray warning must
- * not read as a match), so the diagnostic is recovered by asking grep about the
- * pattern alone: /dev/null cannot match, so a valid pattern exits 1 and an
- * invalid one exits 2 with grep's own message. Only on the failure path, and
- * grep reading /dev/null is free. Fills `msg` with grep's first line when the
- * PATTERN is invalid and returns 1; returns 0 when the pattern is fine (so the
- * failure was about the files) or the probe itself could not run. */
-/* M732: the probe, generalised. Asks grep about the pattern alone against
- * /dev/null and returns grep's exit status (-1 when the probe could not run),
- * with grep's first line of output in `msg` ("" when it printed nothing).
- * /dev/null cannot match, so any line IS a diagnostic: with exit >= 2 it is the
- * reason the pattern is invalid, with exit 1 it is a WARNING about a pattern
- * grep accepted -- `(?:x)` gives "? at start of expression" and then matches
- * something other than what was meant. */
-static int pattern_probe(const char *pattern, char *msg, jc_size cap)
+/* M956: the probe asks grep to COMPILE the pattern and reports grep's exit
+ * status (-1 when the probe could not run), with grep's first line of output in
+ * `msg` ("" when it printed nothing). The two callers need the pattern to be
+ * compiled against DIFFERENT input, and no single input serves both -- so the
+ * target is a parameter, not a constant. (The M732 probe used to be a single
+ * /dev/null form shared by both; the i386/Alpine campaign proved that was two
+ * instruments over-merged. See docs/plans/2026-10-15-search-pattern-classification.md.)
+ *
+ * with_content == 1: grep reads one readable line (`printf x |`). Required by
+ * the INVALID-detection caller, because busybox defers its "bad regex" compile
+ * error until it has actually read input -- against /dev/null it exits 1
+ * silently, so the error is invisible there. GNU reports either way. Measured:
+ *   `printf x | grep -E -e 'unbalanced('` -> GNU rc=2 "Unmatched ( or \(",
+ *   busybox rc=2 "bad regex 'unbalanced('".
+ *
+ * with_content == 0: grep reads /dev/null, which CANNOT match. Required by the
+ * M732 WARNING-detection caller, because it keys on rc==1 meaning "accepted, no
+ * match, maybe warned". A readable line would break that: a pattern that both
+ * warns and matches (e.g. `.*`, which matches the empty line) returns rc=0 and
+ * the warning is lost. /dev/null keeps rc==1 honest. GNU is the only grep that
+ * warns at all on `(?:...)`; busybox accepts it silently (documented, not a
+ * defect jichi can fix).
+ */
+static int pattern_probe(const char *pattern, int with_content, char *msg, jc_size cap)
 {
     struct jc_sb cmd;
     FILE *p;
@@ -75,9 +84,15 @@ static int pattern_probe(const char *pattern, char *msg, jc_size cap)
     msg[0] = '\0';
     line[0] = '\0';
     jc_sb_init(&cmd);
-    jc_sb_append(&cmd, "GREP_OPTIONS= grep -E -e ");
-    append_quoted(&cmd, pattern);
-    jc_sb_append(&cmd, " /dev/null 2>&1");
+    if (with_content) {
+        jc_sb_append(&cmd, "printf x | GREP_OPTIONS= grep -E -e ");
+        append_quoted(&cmd, pattern);
+        jc_sb_append(&cmd, " 2>&1");
+    } else {
+        jc_sb_append(&cmd, "GREP_OPTIONS= grep -E -e ");
+        append_quoted(&cmd, pattern);
+        jc_sb_append(&cmd, " /dev/null 2>&1");
+    }
     p = jc_proc_popen(cmd.data, "r");
     jc_sb_free(&cmd);
     if (p == NULL) {
@@ -90,7 +105,7 @@ static int pattern_probe(const char *pattern, char *msg, jc_size cap)
         /* drain, so grep never blocks on a full pipe */
     }
     msg[0] = '\0';
-    st = pclose(p);
+    st = jc_proc_pclose(p);
     n = (jc_size)strlen(line);
     while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r')) {
         line[--n] = '\0';
@@ -102,10 +117,12 @@ static int pattern_probe(const char *pattern, char *msg, jc_size cap)
     return WEXITSTATUS(st);
 }
 
-/* The failure-path question: is the PATTERN invalid (exit >= 2)? */
+/* The failure-path question: is the PATTERN invalid (exit >= 2)? The probe
+ * must read CONTENT so busybox reports its compile error (see pattern_probe);
+ * GNU reports it against /dev/null too, so this is a no-op there. */
 static int pattern_error(const char *pattern, char *msg, jc_size cap)
 {
-    if (pattern_probe(pattern, msg, cap) < 2) {
+    if (pattern_probe(pattern, 1, msg, cap) < 2) {
         msg[0] = '\0';
         return 0;
     }
@@ -133,7 +150,7 @@ static int grep_has_dash_i(void)
         cached = 1;          /* cannot probe: keep the historical behaviour */
         return cached;
     }
-    st = pclose(p);
+    st = jc_proc_pclose(p);
     cached = (st != -1 && WIFEXITED(st) && WEXITSTATUS(st) < 2) ? 1 : 0;
     return cached;
 }
@@ -200,6 +217,52 @@ static jc_status search_run(const cJSON *args, struct jc_tool_result *out,
         tu_err(out, "error: path is outside the workspace (path fence)");
         return JC_OK;
     }
+    /* D-31: refuse a path that begins with `-` to prevent it being read as a
+     * grep option. The path fence above already checks that the path is under
+     * the workspace, so what remains is the tool argument being misinterpreted
+     * by grep. */
+    if (path != NULL && path[0] == '-') {
+        tu_err(out, "error: 'path' must not begin with a dash (it would be read as a grep option); use a relative path or './'");
+        return JC_OK;
+    }
+    /* D-36 (M1110; M1110-b): refuse a PRESENT path that is not searchable.
+     * A FIFO, device or socket passed as `path` makes grep block forever in
+     * open() (no writer), hanging the whole tool call -- the lead measured
+     * rc 124 under a deadline for the exact composed command (LOG-3, Run
+     * 0114). The hang is only the TOP-LEVEL path: grep -r already skips a
+     * FIFO inside a directory (rc 0, real matches), and --devices=skip does
+     * not cover the top-level case (measured) while -I is non-universal
+     * (M658). So the guard lives here, before the popen.
+     *
+     * M1110-b (3ed79604 follow-up): stat, not lstat. stat FOLLOWS a link, so
+     * a symlink resolving to a regular file is searched (the M992/M1020/
+     * M1108 house semantics -- the pre-M1110 grep itself opened the link and
+     * searched the target); lstat would report the link's own type and
+     * over-refuse it (the M1110-b regression, pinned by search_option_path
+     * leg 5). A symlink TO a FIFO is still refused, because stat reports the
+     * TARGET's type (S_ISFIFO) without opening it -- stat only reads
+     * metadata, it never blocks on a FIFO (verified in /tmp: stat a FIFO and
+     * a symlink-to-FIFO, both return promptly). A broken or missing path
+     * gives stat != 0 and falls through, keeping grep's usual "reading the
+     * path" error -- pinned by two sibling unit teeth in test_tool.c: the
+     * M1110-b tooth for a MISSING path and the M1110-c tooth for a DANGLING
+     * symlink (a present link whose target is absent).
+     *
+     * stat takes the caller's string directly, so the earlier `char sp[1024]`
+     * copy is gone. That copy was not just redundant: for a >1023-char path
+     * it lstat'ed the TRUNCATED PREFIX -- usually a DIRECTORY -- which PASSED
+     * the guard and sent the real FIFO to grep (a hang bypass, M1110-b).
+     * stat(path, &st) removes the class. */
+    {
+        struct stat st;
+        if (stat(path, &st) == 0 &&
+            !S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode)) {
+            tu_err(out, "error: search path is not a regular file or directory "
+                        "(it is a device, FIFO or socket); search_code cannot "
+                        "search it");
+            return JC_OK;
+        }
+    }
     if (context < 0) {
         context = 0;
     }
@@ -229,7 +292,7 @@ static jc_status search_run(const cJSON *args, struct jc_tool_result *out,
     }
     jc_sb_append(&cmd, " -e ");
     append_quoted(&cmd, pattern);
-    jc_sb_append_char(&cmd, ' ');
+    jc_sb_append(&cmd, " -- ");
     append_quoted(&cmd, path);
     jc_sb_append(&cmd, " 2>/dev/null");
 
@@ -248,7 +311,7 @@ static jc_status search_run(const cJSON *args, struct jc_tool_result *out,
         }
         jc_sb_append_n(&result, chunk, (jc_size)n);
     }
-    status = pclose(pipe);
+    status = jc_proc_pclose(pipe);
 
     /* grep's contract: 0 = matched, 1 = no match, >=2 = grep itself failed.
      * Only the LAST of those may not be reported as "(no matches)", which is
@@ -283,8 +346,17 @@ static jc_status search_run(const cJSON *args, struct jc_tool_result *out,
          * above keeps warnings out of real results, and pattern_error() only
          * runs when grep fails -- so a pattern grep accepts with a warning
          * (exit 1) used to come back as a bare "(no matches)", and in the M731
-         * drive a model repeated one such search thirteen times. */
-        if (pattern_probe(pattern, warn, sizeof warn) == 1 && warn[0] != '\0') {
+         * drive a model repeated one such search thirteen times.
+         *
+         * The probe reads /dev/null (with_content 0) ON PURPOSE: this check
+         * keys on exit 1 meaning "accepted, no match, maybe warned", and that
+         * is only honest when the input cannot match. A content probe (like
+         * pattern_error's) would return exit 0 for a pattern that both warns
+         * and matches (e.g. `.*`) and lose the warning. /dev/null keeps exit 1
+         * true. GNU is the only grep that warns on `(?:...)`; busybox accepts
+         * it silently, so this feedback is GNU-only by nature -- documented,
+         * not a defect. (See docs/plans/2026-10-15-search-pattern-classification.md.) */
+        if (pattern_probe(pattern, 0, warn, sizeof warn) == 1 && warn[0] != '\0') {
             jc_sb_append(&result, "\ngrep warned about the pattern: ");
             jc_sb_append(&result, warn);
             jc_sb_append(&result, " -- grep -E is not Perl: it has no (?:...) "

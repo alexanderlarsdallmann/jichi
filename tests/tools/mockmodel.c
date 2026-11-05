@@ -5,7 +5,7 @@
  * (tests/tools, M209).
  *
  *   mockmodel --script FILE --capture DIR [--port-file PATH]
- *             [--deadline SECS] [--max-requests N]
+ *             [--deadline SECS] [--max-requests N] [--keep-alive]
  *
  * Binds 127.0.0.1:0 and serves requests sequentially (jichi issues one
  * model call at a time and every non-stall reply is Connection: close, so
@@ -24,6 +24,11 @@
  * feed bytes, so the ANECDOTES #18 truncated-request bug cannot recur
  * here. --deadline arms a self-watchdog alarm (exit 3) so a wedged run
  * cannot outlive its driver even on a box without timeout(1).
+ *
+ * --keep-alive (M882): replies without `Connection: close`, and serves a
+ * connection's next request until the client closes it; each closed
+ * connection appends "requests=N" to DIR/conns, so a driver can prove a
+ * connection outlived its first transfer.
  *
  * Exit codes: 0 (served --max-requests / clean shutdown), 2 usage/script
  * error, 3 deadline. Test-only; never installed.
@@ -119,6 +124,43 @@ static int send_all(int fd, const char *buf, size_t len)
         off += (size_t)n;
     }
     return 0;
+}
+
+/* M897: send a rendered SSE response (head + body) one event at a time: the
+ * head and the first event together, then each later event after `ms`
+ * milliseconds. An event ends at a blank line ("\n\n"). */
+static void send_dripped(int conn, const char *resp, size_t len, long ms)
+{
+    const char *body = strstr(resp, "\r\n\r\n");
+    size_t pos = 0;
+    int first = 1;
+
+    if (body == NULL) {
+        send_all(conn, resp, len);
+        return;
+    }
+    pos = (size_t)(body - resp) + 4;
+    {
+        size_t start = 0;
+        while (pos < len) {
+            const char *end = strstr(resp + pos, "\n\n");
+            size_t stop = (end != NULL) ? (size_t)(end - resp) + 2 : len;
+            if (stop > len)
+                stop = len;
+            if (!first) {
+                struct timeval tv;
+                tv.tv_sec = ms / 1000;
+                tv.tv_usec = (ms % 1000) * 1000;
+                select(0, NULL, NULL, NULL, &tv);
+            }
+            send_all(conn, resp + start, stop - start);
+            first = 0;
+            start = stop;
+            pos = stop;
+        }
+        if (start < len)
+            send_all(conn, resp + start, len - start);
+    }
 }
 
 /* The embed action (M213): parse the request's "input" (string or array)
@@ -284,7 +326,11 @@ static int serve_one(int conn, int req_index, const struct mm_script *script,
     body = mm_http_body(&http, &body_len);
     rule = mm_select(script, body, body_len, req_index);
 
-    if (rule != NULL && rule->delay_ms > 0) {
+    /* A text-stream rule sends its delay AFTER the headers (the prefill
+     * shape: answered, then silent, then the body), so the generic
+     * pre-dispatch sleep would put the silence in the wrong place. */
+    if (rule != NULL && rule->delay_ms > 0 &&
+        rule->action != MM_ACT_TEXT_STREAM) {
         struct timeval tv;
         tv.tv_sec = rule->delay_ms / 1000;
         tv.tv_usec = (rule->delay_ms % 1000) * 1000;
@@ -327,25 +373,131 @@ static int serve_one(int conn, int req_index, const struct mm_script *script,
             char *resp = NULL;
             size_t rlen = 0;
             if (mm_render_sse_body(fbody, flen, &resp, &rlen) == 0) {
-                send_all(conn, resp, rlen);
+                if (rule->drip_ms > 0)
+                    send_dripped(conn, resp, rlen, rule->drip_ms);
+                else
+                    send_all(conn, resp, rlen);
                 free(resp);
             }
             free(fbody);
         }
+    } else if (rule->action == MM_ACT_TEXT_STREAM) {
+        /* The prefill shape: headers go out, the socket is SILENT for the
+         * delay (a stall cap shorter than it must cut here), then the body. */
+        char *resp = NULL;
+        char *tbody = NULL;
+        size_t rlen = 0;
+        size_t tlen = 0;
+        int ok = 1;
+        if (mm_render_response(rule, &resp, &rlen, req_index) != 0 ||
+            mm_render_text_stream_body(rule, &tbody, &tlen,
+                                       req_index) != 0)
+            ok = 0;
+        if (ok) {
+            send_all(conn, resp, rlen);
+            if (rule->delay_ms > 0) {
+                struct timeval tv;
+                tv.tv_sec = rule->delay_ms / 1000;
+                tv.tv_usec = (rule->delay_ms % 1000) * 1000;
+                select(0, NULL, NULL, NULL, &tv);
+            }
+            send_all(conn, tbody, tlen);
+        }
+        free(resp);
+        free(tbody);
     } else {
         char *resp = NULL;
         size_t rlen = 0;
-        if (mm_render_response(rule, &resp, &rlen) == 0) {
+        if (mm_render_response(rule, &resp, &rlen, req_index) == 0) {
             send_all(conn, resp, rlen);
             free(resp);
+            /* M1062: stall none sent ZERO bytes (the render above), so the
+             * dead-stream shape -- the peer is waiting on a silence that never
+             * breaks -- is completed by holding, like the other stalls. */
             if (rule->action == MM_ACT_STALL_HEADER ||
-                rule->action == MM_ACT_STALL_MID)
+                rule->action == MM_ACT_STALL_MID ||
+                rule->action == MM_ACT_STALL_NONE)
                 hold_until_close(conn);
         }
     }
 
     mm_http_free(&http);
     return 1;
+}
+
+/* Substitute @PORT@ token with the decimal port number in the script text.
+ * Returns a new malloc'd string (caller must free) or the original if no
+ * @PORT@ is found (backward compatible). */
+static char *substitute_port(const char *text, int port)
+{
+    const char *p;
+    const char *tok;
+    size_t len;
+    size_t new_len;
+    size_t copy_len;
+    char port_str[16];
+    int port_len;
+    int nport;
+    char *dup;
+    char *new_text;
+    char *out;
+
+    len = strlen(text);
+
+    /* Find the first occurrence of @PORT@ */
+    p = strstr(text, "@PORT@");
+    if (p == NULL) {
+        /* No token found - return original (byte-identical) */
+        dup = malloc(len + 1);
+        if (dup != NULL)
+            memcpy(dup, text, len + 1);
+        return dup;
+    }
+
+    /* Convert port to string */
+    port_len = jc_snprintf(port_str, sizeof(port_str), "%d", port);
+    if (port_len < 0 || (size_t)port_len >= sizeof(port_str)) {
+        return NULL;
+    }
+
+    /* Count occurrences of @PORT@ */
+    nport = 0;
+    p = text;
+    while ((p = strstr(p, "@PORT@")) != NULL) {
+        nport++;
+        p += 6;  /* skip "@PORT@" */
+    }
+
+    /* Allocate new buffer: original length - (6 * nport) + (port_len * nport) + 1 */
+    new_len = len - (6 * nport) + (port_len * nport) + 1;
+    new_text = malloc(new_len);
+    if (new_text == NULL) {
+        return NULL;
+    }
+
+    /* Build the new text */
+    p = text;
+    out = new_text;
+    while (nport > 0) {
+        tok = strstr(p, "@PORT@");
+        if (tok == NULL)
+            break;
+        /* Copy everything before the token */
+        copy_len = (size_t)(tok - p);
+        memcpy(out, p, copy_len);
+        out += copy_len;
+        /* Copy the port number */
+        memcpy(out, port_str, port_len);
+        out += port_len;
+        p = tok + 6;  /* skip "@PORT@" */
+        nport--;
+    }
+    /* Copy remaining text */
+    memcpy(out, p, strlen(p));
+    out += strlen(p);
+    *out = '\0';
+
+    return new_text;
 }
 
 int main(int argc, char **argv)
@@ -376,6 +528,8 @@ int main(int argc, char **argv)
             deadline = strtol(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--max-requests") == 0 && i + 1 < argc) {
             max_requests = strtol(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--keep-alive") == 0) {
+            mm_keep_alive = 1;
         } else {
             usage();
             return TT_EXIT_USAGE;
@@ -385,18 +539,6 @@ int main(int argc, char **argv)
         usage();
         return TT_EXIT_USAGE;
     }
-
-    script_text = read_file_all(script_path, NULL);
-    if (script_text == NULL) {
-        fprintf(stderr, "%s: cannot read %s\n", g_prog, script_path);
-        return TT_EXIT_USAGE;
-    }
-    if (mm_script_parse(script_text, &script, err, sizeof(err)) != 0) {
-        fprintf(stderr, "%s: %s: %s\n", g_prog, script_path, err);
-        free(script_text);
-        return TT_EXIT_USAGE;
-    }
-    free(script_text);
 
     signal(SIGPIPE, SIG_IGN);
     if (deadline > 0) {
@@ -452,6 +594,32 @@ int main(int argc, char **argv)
     printf("PORT=%d\n", port);
     fflush(stdout);
 
+    /* Read the script now that we have the port (for @PORT@ substitution). */
+    script_text = read_file_all(script_path, NULL);
+    if (script_text == NULL) {
+        fprintf(stderr, "%s: cannot read %s\n", g_prog, script_path);
+        return TT_EXIT_USAGE;
+    }
+
+    /* Substitute @PORT@ token with the actual port number.
+     * Returns the original text if no token found (backward compatible). */
+    {
+        char *substituted = substitute_port(script_text, port);
+        free(script_text);
+        if (substituted == NULL) {
+            fprintf(stderr, "%s: port substitution failed\n", g_prog);
+            return TT_EXIT_USAGE;
+        }
+        script_text = substituted;
+    }
+
+    if (mm_script_parse(script_text, &script, err, sizeof(err)) != 0) {
+        fprintf(stderr, "%s: %s: %s\n", g_prog, script_path, err);
+        free(script_text);
+        return TT_EXIT_USAGE;
+    }
+    free(script_text);
+
     for (;;) {
         int conn = accept(srv, NULL, NULL);
         if (conn < 0)
@@ -463,8 +631,27 @@ int main(int argc, char **argv)
          * in bounded time by the watchdog/abort closing it, and the merge
          * drivers' calls are quick -- verified 9/9, so no concurrent accept
          * was needed (D4's assumption corrected in M216). */
-        if (serve_one(conn, req_index + 1, &script, capture_dir))
+        if (serve_one(conn, req_index + 1, &script, capture_dir)) {
+            int on_conn = 1;
             req_index++;
+            /* M882: --keep-alive serves the connection's next request, until
+             * the client closes it (serve_one: no full request) */
+            while (mm_keep_alive &&
+                   !(max_requests > 0 && req_index >= max_requests) &&
+                   serve_one(conn, req_index + 1, &script, capture_dir)) {
+                req_index++;
+                on_conn++;
+            }
+            if (mm_keep_alive) {
+                char path[512];
+                FILE *f;
+                if (jc_snprintf(path, sizeof(path), "%s/conns", capture_dir) >= 0 &&
+                    (f = fopen(path, "a")) != NULL) {
+                    fprintf(f, "requests=%d\n", on_conn);
+                    fclose(f);
+                }
+            }
+        }
         close(conn);
 
         if (max_requests > 0 && req_index >= max_requests)

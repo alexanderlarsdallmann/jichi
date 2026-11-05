@@ -265,7 +265,7 @@ static void oa_handle_tool_calls(struct prov_state *s, cJSON *delta)
         return;
     }
     cJSON_ArrayForEach(tc, tcs) {
-        int idx = (int)jc_json_get_num(tc, "index", 0.0);
+        int idx = jc_json_clamp_int(jc_json_get_num(tc, "index", 0.0));
         struct prov_call *slot = jc_prov_call_slot(s, idx);
         const char *id;
         cJSON *fn;
@@ -285,9 +285,33 @@ static void oa_handle_tool_calls(struct prov_state *s, cJSON *delta)
                 jc_sb_append(&slot->name, name);
             }
             if (args != NULL) {
-                jc_sb_append(&slot->args, args);
+                jc_prov_append_args(s, slot, args);   /* A-07 / M1090 */
             }
         }
+    }
+}
+
+/* M858 (N42): a reply that used its WHOLE output budget was cut, whatever its
+ * finish_reason says. Measured on the institution's gateway (2026-10-02, two
+ * streamed requests to jlu/qwen3-coder-next with max_tokens 48): a text reply cut
+ * at the limit ends "length", but a TOOL-CALL reply cut at the limit ends
+ * "tool_calls", with completion_tokens 48. So M334's finish_reason check never saw
+ * a cut tool call there -- args_truncated fired 0 times in the demos drive's 90
+ * runs while M148's repair ran 830 times. The ceiling compared is the one the
+ * request sent (jc_config_effective_max_tokens, as oa_build_request computes it).
+ * No usage, no verdict: a reply whose size is unknown is never marked. */
+static void oa_mark_cut_by_usage(struct jc_provider *self, struct prov_state *s)
+{
+    long cap;
+
+    if (s->hit_length_cap || s->usage_out <= 0.0 || self == NULL ||
+        self->model == NULL) {
+        return;
+    }
+    cap = jc_config_effective_max_tokens(self->model->max_tokens,
+                                         self->model->context_limit);
+    if (cap > 0 && s->usage_out >= (double)cap) {
+        s->hit_length_cap = 1;
     }
 }
 
@@ -296,7 +320,8 @@ static void oa_handle_tool_calls(struct prov_state *s, cJSON *delta)
  * surface (TUI shows nothing, ACP end_turn with no chunks, one-shot helpers
  * return NULL). Surface it at the source so the cause is obvious. Fires only
  * when it actually bit: reasoning seen, no text, no tool call. */
-static void oa_reasoning_empty_hint(struct prov_state *s)
+static void oa_reasoning_empty_hint(struct jc_provider *self,
+                                    struct prov_state *s)
 {
     /* "no answer" means the accumulated text has no non-whitespace content --
      * not merely !text_started, since an empty-string content delta ("") still
@@ -324,10 +349,15 @@ static void oa_reasoning_empty_hint(struct prov_state *s)
          * asserts an unchecked cause is the same defect as a classifier whose
          * else-branch is a finding (docs/TEST_INTEGRITY.md). */
         if (s->hit_length_cap) {
+            long cap = jc_config_effective_max_tokens(self->model->max_tokens,
+                                                      self->model->context_limit);
             jc_logf(JC_LOG_WARN,
                 "model returned reasoning but no answer text, and the reply hit "
-                "the OUTPUT CEILING -- raise this model's maxTokens, or declare "
-                "a larger contextLength (max_tokens defaults to a fifth of it)");
+                "the OUTPUT CEILING -- the reply was cut at its %ld max_tokens "
+                "cap, part-way through; raising the model's maxTokens allows a "
+                "longer cut, and continueCutReply (delegates, headless) asks "
+                "the model once for the rest",
+                (long)cap);
         } else if (s->usage_out > 0.0) {
             jc_logf(JC_LOG_WARN,
                 "model returned reasoning but no answer text, ending on its own "
@@ -359,20 +389,44 @@ static void oa_on_event(struct jc_provider *self,
         return;
     }
     if (strcmp(ev->data, "[DONE]") == 0) {
-        oa_reasoning_empty_hint(s);
+        oa_mark_cut_by_usage(self, s);   /* M858: before the hint reads it */
+        oa_reasoning_empty_hint(self, s);
         jc_prov_flush(s, out);
         *done = 1;
         return;
     }
     root = cJSON_Parse(ev->data);
     if (root == NULL) {
+        /* M909: an `event: error` whose data is not JSON is still an error */
+        if (ev->event != NULL && strcmp(ev->event, "error") == 0) {
+            jc_prov_set_stream_error(s, ev->data);
+            jc_prov_flush(s, out);
+            *done = 1;
+        }
+        /* M1094 (G3): a parse refused by the per-parse node cap is not
+         * malformed data -- its text/args would have been real. The mark
+         * rides the existing truncated_reply flag (M1090); a refused error
+         * event is both an error and a cap hit, and the error wins above. */
+        if (cJSON_jc_parse_refused_by_cap()) {
+            s->truncated_reply = 1;
+            jc_logf(JC_LOG_WARN,
+                "[provider] openai SSE event dropped: its data would exceed "
+                "the per-parse node cap (JC_JSON_MAX_NODES); the streamed "
+                "reply is marked truncated because that event's text or "
+                "tool-call arguments were lost");
+        }
         return;
     }
-    /* Surface API errors. */
-    if (cJSON_GetObjectItem(root, "error") != NULL) {
-        const char *msg = jc_json_get_str(cJSON_GetObjectItem(root, "error"),
-                                          "message", "provider error");
-        jc_prov_emit_text(s, sink, msg, (jc_size)strlen(msg));
+    /* M909: an error inside the stream fails the call; it is not the answer.
+     * The message sits at error.message (OpenAI, LM Studio's stream), or the
+     * error IS the message (LM Studio's non-streamed body), or at the top. */
+    if (cJSON_GetObjectItem(root, "error") != NULL ||
+        (ev->event != NULL && strcmp(ev->event, "error") == 0)) {
+        cJSON *err = cJSON_GetObjectItem(root, "error");
+        const char *msg = cJSON_IsString(err) ? err->valuestring
+                        : jc_json_get_str(err, "message",
+                              jc_json_get_str(root, "message", NULL));
+        jc_prov_set_stream_error(s, msg);
         jc_prov_flush(s, out);
         *done = 1;
         cJSON_Delete(root);
@@ -462,14 +516,15 @@ static jc_status oa_parse_full(struct jc_provider *self, const char *body,
                         const char *name = jc_json_get_str(fn, "name", "");
                         const char *args = jc_json_get_str(fn, "arguments", "{}");
                         jc_sb_append(&slot->name, name);
-                        jc_sb_append(&slot->args, args);
+                        jc_prov_append_args(s, slot, args);   /* A-07 / M1090 */
                     }
                 }
                 idx++;
             }
         }
     }
-    oa_reasoning_empty_hint(s);
+    oa_mark_cut_by_usage(self, s);   /* M858 */
+    oa_reasoning_empty_hint(self, s);
     jc_prov_flush(s, out);
     cJSON_Delete(root);
     return JC_OK;
@@ -492,7 +547,8 @@ static void oa_free(struct jc_provider *self)
 static void oa_stream_end(struct jc_provider *self, struct jc_message *out)
 {
     struct prov_state *s = (struct prov_state *)self->state;
-    oa_reasoning_empty_hint(s);
+    oa_mark_cut_by_usage(self, s);   /* M858 */
+    oa_reasoning_empty_hint(self, s);
     jc_prov_flush(s, out);
 }
 
@@ -506,7 +562,9 @@ static const struct jc_provider_vtable OA_VTABLE = {
     oa_parse_full,
     jc_prov_get_usage,
     jc_prov_get_cache_usage,
-    oa_free
+    oa_free,
+    jc_prov_stream_started,
+    jc_prov_stream_error
 };
 
 struct jc_provider *jc_provider_openai_create(const struct jc_model_cfg *model)

@@ -43,6 +43,17 @@ static jc_status remember_run(const cJSON *args, struct jc_tool_result *out,
         tu_err(out, "error: note is empty after normalization");
         return JC_OK;
     }
+    /* D-16/M1100: a PRESENT-but-unreadable memory.md is refused, never
+     * replaced. The model reads this and can tell the user to check or
+     * shrink the file (the M533 board rule, for the file tools). */
+    if (st == JC_ERR_UNREADABLE) {
+        tu_err(out,
+            "error: .jichi/memory.md is present but could not be read "
+            "(e.g. over the 64 MiB read cap, JC_READ_FILE_MAX); jichi will "
+            "not replace a file it could not read (M533 rule). Check or "
+            "reduce the file and retry.");
+        return JC_OK;
+    }
     if (st != JC_OK) {
         tu_err(out, "error: could not write .jichi/memory.md");
         return JC_OK;

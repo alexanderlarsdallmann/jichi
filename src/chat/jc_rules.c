@@ -7,8 +7,11 @@
 #include "jc_app.h"
 #include "jc_str.h"
 #include "jc_snprintf.h"
+#include "jc_path.h"
+#include "jc_log.h"
 
 #include <string.h>
+#include <sys/stat.h>
 
 #define JC_RULES_MAX   (32 * 1024)
 #define JC_RULES_WALK_MAX 64 /* guard against pathological directory chains */
@@ -18,6 +21,7 @@ struct rules_ctx {
     struct jc_vec    seen; /* of char*: paths already included */
     struct jc_arena *a;
     int              truncated;
+    const char      *wsroot; /* canonical workspace root for symlink guard */
 };
 
 static int already_seen(struct rules_ctx *c, const char *path)
@@ -39,11 +43,32 @@ static void add_file(struct rules_ctx *c, const char *path)
     jc_size len = 0;
     char hdr[1200];
     char *pc;
+    struct stat st;
 
     if (c->truncated || already_seen(c, path)) {
         return;
     }
-    if (jc_read_file(path, &data, &len, c->a) != JC_OK) {
+    /* M1108 (D-33): a non-regular file here -- a FIFO/device/socket would
+     * block jc_read_file's fopen until the run's deadline; a directory is
+     * skipped the same way without ever being read (M1108-b: the WARN says
+     * so, true for every non-regular shape). This is the single choke
+     * point for the two
+     * routes M1020's add_dir_rules lstat guard never saw: the global
+     * ~/.config/jichi/AGENTS.md and the explicit config `instructions`
+     * paths. Following stat (not lstat), so a symlink that resolves to a
+     * regular file still reads (M992/M1020 semantics); a missing or broken
+     * link gives stat != 0 and falls through to jc_read_file, which returns
+     * NOTFOUND and the skip below stays silent -- behaviour unchanged. */
+    if (stat(path, &st) == 0 && !S_ISREG(st.st_mode)) {
+        jc_logf(JC_LOG_WARN, "rules: skipping %s: not a regular file -- skipped without reading", path);
+        return;
+    }
+    /* M1109 (D-35): read at most JC_RULES_MAX + 1 LEADING bytes -- the head
+     * the cut below keeps. The +1 is the UTF-8 boundary byte the M516
+     * backstep needs at data[rem]. Pre-fix the whole file (up to the 64 MB
+     * JC_READ_FILE_MAX) sat on the session arena for the process lifetime. */
+    if (jc_read_file_bounded(path, &data, &len, c->a,
+                             (jc_size)JC_RULES_MAX + 1, 1) != JC_OK) {
         return;
     }
     pc = jc_arena_strdup(c->a, path);
@@ -80,18 +105,59 @@ static void add_file(struct rules_ctx *c, const char *path)
     }
 }
 
-/* Try AGENTS.md in `dir`, then CLAUDE.md as a fallback. */
+/* Try AGENTS.md in `dir`, then CLAUDE.md as a fallback.
+ * Regular files are read directly (pre-M992 behavior).
+ * Symlinks are guarded: they are only read if their resolved target is
+ * under the canonical workspace root (M992 D-34 protection).
+ * Other file types (FIFO, device, socket) are skipped. */
 static void add_dir_rules(struct rules_ctx *c, const char *dir)
 {
     char path[1100];
+    char resolved[JC_PATH_MAX];
+    struct stat st;
+
+    /* First try AGENTS.md */
     jc_snprintf(path, sizeof(path), "%s/AGENTS.md", dir);
     if (jc_file_exists(path)) {
-        add_file(c, path);
+        /* lstat to determine file type without following symlinks */
+        if (lstat(path, &st) == 0) {
+            if (S_ISREG(st.st_mode)) {
+                /* Regular file: read without resolve/under-root check (pre-M992) */
+                add_file(c, path);
+            } else if (S_ISLNK(st.st_mode)) {
+                /* Symlink: resolve and check if target is under root (M992 guard) */
+                if (jc_path_resolve(path, resolved, sizeof(resolved)) != JC_OK ||
+                    !jc_path_under_root(c->wsroot, resolved)) {
+                    jc_logf(JC_LOG_WARN, "rules: skipping %s: symlink target outside the workspace (or unresolvable)", path);
+                } else {
+                    add_file(c, path);
+                }
+            } else {
+                jc_logf(JC_LOG_WARN, "rules: skipping %s: not a regular file or symlink", path);
+            }
+        }
         return;
     }
+    /* Then try CLAUDE.md */
     jc_snprintf(path, sizeof(path), "%s/CLAUDE.md", dir);
     if (jc_file_exists(path)) {
-        add_file(c, path);
+        /* lstat to determine file type without following symlinks */
+        if (lstat(path, &st) == 0) {
+            if (S_ISREG(st.st_mode)) {
+                /* Regular file: read without resolve/under-root check (pre-M992) */
+                add_file(c, path);
+            } else if (S_ISLNK(st.st_mode)) {
+                /* Symlink: resolve and check if target is under root (M992 guard) */
+                if (jc_path_resolve(path, resolved, sizeof(resolved)) != JC_OK ||
+                    !jc_path_under_root(c->wsroot, resolved)) {
+                    jc_logf(JC_LOG_WARN, "rules: skipping %s: symlink target outside the workspace (or unresolvable)", path);
+                } else {
+                    add_file(c, path);
+                }
+            } else {
+                jc_logf(JC_LOG_WARN, "rules: skipping %s: not a regular file or symlink", path);
+            }
+        }
     }
 }
 
@@ -103,6 +169,7 @@ char *jc_rules_load(struct jc_app *app)
     char cur[1100];
     const char *home;
     char *result;
+    char wsroot[JC_PATH_MAX];
     jc_size i;
     int guard;
 
@@ -110,6 +177,58 @@ char *jc_rules_load(struct jc_app *app)
     jc_vec_init(&c.seen, sizeof(char *));
     c.a = app->arena;
     c.truncated = 0;
+
+    /* Compute the canonical workspace root for the symlink guard.
+     * The walk stops at the nearest .git directory (or file, for worktrees).
+     * The workspace root is the PARENT of .git (the repository directory).
+     * If found, wsroot is the realpath of the parent of .git; otherwise,
+     * wsroot is the realpath of app->cwd. On any resolve failure wsroot
+     * stays empty, which FAILS CLOSED: an empty root denies every
+     * discovered SYMLINKED workspace file (jc_path_under_root rejects an
+     * empty root by design), so an unresolvable cwd means no symlinked
+     * rules/glossary files are loaded. Regular files are read without
+     * this guard, preserving pre-M992 behavior. */
+    {
+        char *root_path = NULL;
+        char *slash;
+        char tmp_cur[1100];
+        strcpy(tmp_cur, app->cwd);
+        for (guard = 0; guard < JC_RULES_WALK_MAX; guard++) {
+            /* Check for .git directory or file (worktree/submodule) */
+            jc_snprintf(path, sizeof(path), "%s/.git", tmp_cur);
+            if (jc_file_exists(path)) {
+                root_path = tmp_cur;  /* use the PARENT directory, not .git itself */
+                break;
+            }
+            /* Walk up */
+            slash = strrchr(tmp_cur, '/');
+            if (slash == NULL) {
+                break;
+            }
+            if (slash == tmp_cur) {
+                if (tmp_cur[1] == '\0') {
+                    break; /* already at "/" */
+                }
+                tmp_cur[1] = '\0';
+            } else {
+                *slash = '\0';
+            }
+        }
+        /* root_path points to parent of .git if found, else use app->cwd */
+        if (root_path) {
+            if (jc_path_resolve(root_path, wsroot, sizeof(wsroot)) != JC_OK) {
+                /* Resolve failed: fall back to raw app->cwd canonicalized */
+                if (jc_path_resolve(app->cwd, wsroot, sizeof(wsroot)) != JC_OK) {
+                    wsroot[0] = '\0'; /* fail closed */
+                }
+            }
+        } else {
+            if (jc_path_resolve(app->cwd, wsroot, sizeof(wsroot)) != JC_OK) {
+                wsroot[0] = '\0'; /* fail closed */
+            }
+        }
+    }
+    c.wsroot = wsroot;
 
     /* 1. Global instructions. */
     home = jc_home_dir();
@@ -125,9 +244,14 @@ char *jc_rules_load(struct jc_app *app)
         char *slash;
         jc_vec_push(&dirs, &d);
 
+        /* Stop at the repository root: the nearest directory holding a `.git`
+         * of either kind -- a directory in a checkout, a FILE ("gitdir: ...")
+         * in a linked worktree or a submodule. Testing for a directory alone
+         * let the walk climb out of every worktree and read the rules files
+         * above it (M884). */
         jc_snprintf(path, sizeof(path), "%s/.git", cur);
-        if (jc_is_dir(path)) {
-            break; /* stop at the repository root */
+        if (jc_file_exists(path)) {
+            break;
         }
         slash = strrchr(cur, '/');
         if (slash == NULL) {

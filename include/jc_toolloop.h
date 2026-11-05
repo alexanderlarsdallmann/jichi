@@ -78,8 +78,10 @@ enum jc_fail_class {
     JC_FAIL_DENIED,        /* refused by a fence, permission or policy          */
     JC_FAIL_BAD_ARGS,      /* malformed or missing arguments                    */
     JC_FAIL_KILLED,        /* timed out, or killed on an output/memory cap      */
-    JC_FAIL_NONZERO_EXIT   /* a command ran and returned non-zero               */
+    JC_FAIL_NONZERO_EXIT,  /* a command ran and returned non-zero               */
+    JC_FAIL_AT_BOUND       /* ran until its OWN time limit and was cut off (R6) */
 };
+#define JC_FAIL_CLASS_COUNT 7  /* M876: the values above, for per-class counts */
 
 /* Which key tripped, if any. EXACT outranks CLASS when both do, because it is the
  * more specific finding and the advice for it is stronger. */
@@ -91,7 +93,13 @@ enum jc_toolloop_verdict {
 
 struct jc_toolloop {
     char tool[JC_TOOLLOOP_MAX_ENTRIES][JC_TOOLLOOP_TOOL_MAX];
-    char key[JC_TOOLLOOP_MAX_ENTRIES][JC_TOOLLOOP_KEY_MAX];
+    /* M868 (LOOP-1): the key as a hash and a length. M432 kept the key's text cut
+     * to JC_TOOLLOOP_KEY_MAX - 1 bytes and compared it with the WHOLE incoming key,
+     * so two failures whose arguments ran to 160 bytes or more never matched: 77%
+     * of the demos drive's failed calls (a worktree's `cd .../wt-N &&` prefix alone
+     * is ~75 bytes) went unseen, each adding a row until the table was full. */
+    unsigned long keyhash[JC_TOOLLOOP_MAX_ENTRIES];
+    unsigned long keylen[JC_TOOLLOOP_MAX_ENTRIES];
     int  exact[JC_TOOLLOOP_MAX_ENTRIES];   /* 1 => key is the argument text     */
     int  count[JC_TOOLLOOP_MAX_ENTRIES];
     int  told[JC_TOOLLOOP_MAX_ENTRIES];    /* already reported for this pair    */
@@ -104,8 +112,24 @@ void jc_toolloop_init(struct jc_toolloop *w);
 /* Classify a failed tool result. `result` is the text the model will read; `exit_status`
  * is the tool's exit code where it has one (pass -1 when it does not). Pure;
  * unit-tested. Order matters: a killed call and a denied call BOTH often mention a
- * path, so the more specific causes are tested first. */
-enum jc_fail_class jc_fail_classify(const char *result, int exit_status);
+ * path, so the more specific causes are tested first.
+ *
+ * `tool` is the tool name, used to apply stricter rules for shell tools:
+ * for `run_terminal_command` and `run_tests`, DENIED is only returned when
+ * the result BEGINS with jichi's own refusal phrases (e.g., "refused by safety fence");
+ * a nonzero exit with ordinary output (including text like "connection refused"
+ * from the command itself) is JC_FAIL_NONZERO_EXIT. For all other tools, the
+ * current wording-based classification is preserved.
+ *
+ * `policy_refusal` is the flag set by the executor's fence checks ( jc_tool.c:
+ * read-only gate, main-agent-only gate). If non-zero, the result is classified
+ * as JC_FAIL_DENIED regardless of the wording, because the refusal is by policy
+ * (the fence) not by capability or accident. This fixes M1041-b: the read-only
+ * refusal was classified DENIED before M1041 and `other` after, and the driver
+ * could not verify the shell branch because it read advice prose instead of the
+ * producer's class. */
+enum jc_fail_class jc_fail_classify(const char *result, int exit_status,
+                                     const char *tool, int policy_refusal);
 
 /* Record one FAILED call and return which threshold it just crossed.
  *
@@ -128,6 +152,39 @@ void jc_toolloop_render(enum jc_toolloop_verdict v, const char *tool,
 
 /* The class name, for the journal event and telemetry. Pure. */
 const char *jc_fail_class_name(enum jc_fail_class c);
+
+/* ---- R6: a shell command that keeps ending at its own time limit -------------
+ *
+ * THE GAP THIS CLOSES. On the 2026-09-26 drive one worker ran the SAME hanging
+ * check for three hours, and the loop detector above never fired -- for two
+ * reasons this addresses. (1) The check was spelled a little differently each
+ * time (`timeout 2 X`, `cd . && timeout 2 X`, `timeout 3 X`, `... 2>&1`,
+ * `... | head`), so the EXACT key -- the raw argument text -- matched none of its
+ * own repeats. (2) Half the runs were piped into `head`, which exits 0, so they
+ * were SUCCESSES and never reached the failure detector at all; yet each one had
+ * run its inner `timeout` to the end and been cut off. A call that is cut off at
+ * its own bound is not making progress whether the pipeline reports 0 or 124.
+ *
+ * `jc_toolloop_shell_norm` derives a stable key: it strips the wrapping that does
+ * not change what the command DOES -- a leading `cd DIR &&`, leading `NAME=val`
+ * environment assignments, a leading `timeout [-k N] SECS`, and a trailing
+ * redirection (`2>&1`, `>/dev/null`) or filter (`| head`/`| tail`/`| grep ...`).
+ * It strips ONLY this wrapping: two genuinely different commands stay different
+ * keys, because over-normalising would muzzle a working agent that is legitimately
+ * varying what it runs. Writes at most `cap-1` bytes plus a NUL; returns the
+ * written length. On NULL/empty input it writes "" and returns 0.
+ *
+ * `jc_toolloop_shell_timeout_secs` returns the SECONDS of a leading `timeout`
+ * (after any `cd &&`/env prefix), or 0 when there is none.
+ *
+ * `jc_toolloop_at_bound` is the predicate the agent loop uses: the command has an
+ * inner `timeout N` AND the call's measured wall-time reached it (>= 90% of N
+ * seconds), so it was cut off at its own bound. Pure -- `dur_ms` is the caller's
+ * measurement. These feed `jc_toolloop_note` with `JC_FAIL_AT_BOUND` and the
+ * normalised key, on the SUCCESS path as well as the failure path. */
+jc_size jc_toolloop_shell_norm(const char *cmd, char *out, jc_size cap);
+long jc_toolloop_shell_timeout_secs(const char *cmd);
+int jc_toolloop_at_bound(const char *cmd, double dur_ms);
 
 /* ---- the success twin: the same call, the same answer (plan D1, M733) -------
  *
@@ -172,14 +229,29 @@ const char *jc_fail_class_name(enum jc_fail_class c);
  * the note is appended to the newest result, which is always whole, so "use the
  * result you already have" stays true whatever an earlier pass elided.
  *
- * ONE NOTE PER CALL PER TURN, and the note claims only what was measured -- the
- * same arguments, the same result. It never says "nothing changed", which the loop
- * cannot know for a shell command. Past the table the least recently seen call is
- * forgotten: the worst case is a missed note, never an allocation in the loop.
+ * A NOTE AT EACH MULTIPLE OF THE THRESHOLD (M819, N2's sibling N4a), as M806 does
+ * for the failure detector -- not once and then silent. The note claims only what
+ * was measured (the same arguments, the same result); it never says "nothing
+ * changed", which the loop cannot know for a shell command. A genuine edit resets
+ * every count, so the re-warn only fires inside an unbroken same-call loop. Past
+ * the table the least recently seen call is forgotten: the worst case is a missed
+ * note, never an allocation in the loop. (It used to fire once per turn; on the
+ * weekend drive a child made one passing call 1,126 times in its single turn and
+ * was warned once, so "once per turn" was "once, ever".)
  *
- * THE STOP IS NOT BUILT. The plan's second threshold ends the turn; the drive's 47
- * turns cannot fit it, and its exit code is DEFERRED item 7's question. */
+ * THE STOP, at depth >= 1 (M829, N4b). The plan's second threshold ends the turn;
+ * at the TOP level that is wrong -- a run has many turns and an operator to steer
+ * it, and the drive's 47 turns cannot fit one stop. But a spawn_parallel/subagent
+ * CHILD's whole task is ONE turn, so a loop there never gets a second chance: the
+ * caller ends the child when the same successful call reaches JC_NOPROGRESS_STOP_AT
+ * (after two warnings, at 3 and 6), keeping its last answer and recording the repeat
+ * count in its end record (M808's `repeated`). The top level still only warns. */
 #define JC_NOPROGRESS_MAX_ENTRIES 32
+#define JC_NOPROGRESS_STOP_AT     9   /* M829 (N4b): end a depth>=1 child here */
+/* M869 (N27 (b)): copied placeholders in a row that end a depth>=1 child. A model
+ * that copies M218's placeholder as arguments has lost its thread, and rephrasing
+ * cannot bring back arguments that are gone: run 0015's worker did it 742 times. */
+#define JC_PLACEHOLDER_STOP_AT    3
 #define JC_NOPROGRESS_NOTE_AT     3
 
 enum jc_noprogress_role {
@@ -188,7 +260,19 @@ enum jc_noprogress_role {
     JC_NOPROGRESS_IGNORE
 };
 
+/* M870 (N21): the novelty window. A call is STALE when its (tool, args, result)
+ * triple appeared among the JC_NOVELTY_WINDOW calls before it; JC_NOVELTY_WINDOW
+ * stale calls in a row mean the run is repeating itself in some order -- run 0012's
+ * worker rotated four checks (a build, `ls`, `git status`, `git log`) for 28
+ * minutes, and M829 never fired because each shell command restarts the other
+ * calls' counts. A depth >= 1 child is ended there. */
+#define JC_NOVELTY_WINDOW 24
+
 struct jc_noprogress {
+    unsigned long ring[JC_NOVELTY_WINDOW];   /* M870: the last calls' triples */
+    int  ring_n;                             /* how many are held (<= window) */
+    int  ring_at;                            /* the next slot to write        */
+    int  stale;                              /* stale calls in a row          */
     unsigned long tool_h[JC_NOPROGRESS_MAX_ENTRIES];
     unsigned long args_h[JC_NOPROGRESS_MAX_ENTRIES];
     unsigned long args_n[JC_NOPROGRESS_MAX_ENTRIES];
@@ -208,15 +292,15 @@ void jc_noprogress_init(struct jc_noprogress *w);
  * flag (0 for a tool the registry does not know). Pure; unit-tested. */
 enum jc_noprogress_role jc_noprogress_role(const char *tool, int readonly);
 
-/* Record one successful COUNT call. Returns its repeat count when this call is the
- * first to reach JC_NOPROGRESS_NOTE_AT for its key, else 0 -- so the caller may
- * call it for every COUNT call and each finding is told once per turn. A
+/* Record one successful COUNT call. Returns its repeat count at each multiple of
+ * JC_NOPROGRESS_NOTE_AT for its key (3, 6, 9 ...), else 0 -- so the caller may call
+ * it for every COUNT call and a stuck loop is re-flagged, not flagged once (M819). A
  * run_terminal_command also clears every other key's count. Pure. */
 int jc_noprogress_note(struct jc_noprogress *w, const char *tool,
                        const char *args, const char *result);
 
-/* Something changed (a RESET call): every count starts again. What was already
- * told stays told. Pure. */
+/* Something changed (a RESET call): every count starts again, so a fresh same-call
+ * loop is measured (and re-notable) from zero. Pure. */
 void jc_noprogress_reset(struct jc_noprogress *w);
 
 /* The note the model reads. Pure; unit-tested. */

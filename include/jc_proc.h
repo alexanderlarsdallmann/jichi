@@ -19,6 +19,8 @@ extern "C" {
 #include "jc_platform.h"
 
 #include <stdio.h>
+#include <sys/types.h> /* pid_t: MiNTLib's <unistd.h> declares it only under an X/Open level (M723) */
+#include <signal.h>    /* sigaction, sigset_t, SIGCHLD, SIG_DFL, SIG_IGN, SIGINT, SIGTERM, SIGHUP */
 
 struct jc_sb;  /* jc_str.h */
 struct jc_vec; /* jc_vec.h */
@@ -49,11 +51,48 @@ struct jc_vec; /* jc_vec.h */
  * tests/smoke/posix_utils_lint.sh fails the build on a bare exec or popen. */
 void jc_proc_child_sigreset(void);
 
-/* popen(3) with SIGPIPE at SIG_DFL for the duration of the fork, so the child
- * does not inherit the agent's SIG_IGN. The parent's disposition is restored
- * before this returns; the window contains nothing but popen() itself, and
- * jichi forks rather than threads, so nothing else can observe it. */
+/* popen(3)'s read half, built over jc_spawn (M832) rather than libc, so the
+ * child gets the same rituals as every other child jichi starts -- the SIGPIPE
+ * reset (libc popen inherited the agent's SIG_IGN and needed the parent's
+ * disposition flipped around the call; no longer), the secret-env scrub, and
+ * CLOEXEC pipe ends from birth (libc's popen deliberately cleared the flag on
+ * the parent's end, M472) -- and so it exists at all on a fork-less backend.
+ * Only mode "r" is supported (no caller has ever written). Close the stream
+ * with jc_proc_pclose(), NEVER pclose(3): the FILE* is fdopen'd, and libc's
+ * pclose on it is undefined behaviour. posix_utils_lint enforces that too. */
 FILE *jc_proc_popen(const char *cmd, const char *mode);
+
+/* Close a jc_proc_popen() stream and reap its child: returns the wait status
+ * exactly as pclose(3) would (WIFEXITED/WEXITSTATUS-readable), or -1. */
+int jc_proc_pclose(FILE *f);
+
+/* Reap a child with a checked waitpid that retries on EINTR and treats any
+ * failure (including ECHILD when SIGCHLD was inherited ignored) as "unknown".
+ * Returns 0 on success (status is stored in *status_out if non-NULL), -1 on
+ * failure. A reaper failure is UNKNOWN, never a status to decode -- the
+ * project rule: a classifier's else-branch must say unknown. */
+int jc_proc_waitpid(pid_t pid, int *status_out);
+
+/* Bounded, interrupt-aware reap helper (M989, B-01, B-06, R06-#3).
+ *
+ * Polls waitpid(pid, &status, WNOHANG) in ~20ms slices. Returns:
+ *   0  -- child reaped; *status_out holds the exit status.
+ *  -1  -- ECHILD (SIGCHLD was ignored, kernel auto-reaped, no status).
+ *  -2  -- deadline exceeded; child was stopped via SIGTERM/SIGKILL.
+ *  -3  -- abort flag set; child was stopped via SIGTERM/SIGKILL.
+ *
+ * "Stop the child" = SIGTERM to the group (kill(-pid)), ~1s grace, SIGKILL,
+ * then a final blocking reap via jc_proc_waitpid (the child is being killed,
+ * so blocking is acceptable here). The return is -2 or -3 regardless of the
+ * final status.
+ *
+ * deadline_ms == 0 means no time bound, only interrupt-aware.
+ * abort_flag may be NULL (no interrupt support).
+ *
+ * On EINTR during polling: retry. On ECHILD: return -1 (unknown). This is
+ * why the M987 teeth hold (SIGCHLD=SIG_IGN -> ECHILD -> -1, not 0). */
+int jc_proc_reap_bounded(pid_t pid, double deadline_ms, volatile int *abort_flag,
+                         int *status_out);
 
 /* --- inherited file descriptors (M472) --------------------------------------
  *
@@ -124,12 +163,37 @@ int jc_pipe_cloexec(int fds[2]);
  * tests/smoke/child_fds.sh asserts the result rather than the ordering. */
 void jc_proc_child_close_fds(void);
 
+/* The PARENT-side twin of the backstop, for jc_spawn's posix_spawn backend
+ * (M832), which has no child-side hook: mark every descriptor above stderr
+ * close-on-exec just before the spawn, so nothing jichi OR A LIBRARY holds
+ * crosses the exec.
+ *
+ * MEASURED why the primary layer is not enough: libcurl creates its internal
+ * pipe with pipe2(fds, 0) -- no O_CLOEXEC -- inside curl_easy_perform, so
+ * jc_fd_cloexec-at-creation structurally cannot reach it (the descriptor is not
+ * jichi's). Under posix_spawn both ends reached every model-issued shell
+ * (child_fds.sh check 1, found by the M832 NOFORK measurement). The same pipe
+ * reached every shell on the OLD libc-popen path too -- installed M831 binary,
+ * fds 4 and 5 -- because libc's popen child runs no jichi code either; routing
+ * popen through jc_spawn closed that (child_fds.sh check 4).
+ *
+ * Safe: nothing jichi execs inherits a descriptor above stderr BY DESIGN (the
+ * fork backend's backstop closes them all), dup2'd stdio slots are new
+ * descriptors without the flag, and CLOEXEC does not affect fork() -- the pool
+ * and daemon children keep everything. jichi forks rather than threads; a
+ * library thread creating a descriptor mid-sweep could escape it, and none runs
+ * between model calls, which is when tools start children. */
+void jc_proc_parent_cloexec_all(void);
+
 /* Default kill deadline (seconds) when `timeout` <= 0. */
 #define JC_PROC_DEF_TIMEOUT 30L
 
 /* Run argv (NULL-terminated), writing `stdin_data` (may be NULL/empty) to its
  * stdin and appending combined stdout+stderr to `out`, bounded by `cap` (a
- * "\n... [output truncated]" note is appended when the cap is hit). `env` is an
+ * "\n... [output truncated]" note is appended when the cap is hit). A NULL
+ * `out` is a legal discard path: the pipe is still drained so the child
+ * cannot block, and the exit code is returned as usual (M929, R06-#1).
+ * `env` is an
  * optional jc_vec of char* "KEY=VALUE" applied in the child (NULL for none).
  * Killed after `timeout` seconds or when *abort_flag becomes non-zero
  * (abort_flag may be NULL). Returns the child's exit code, -1 on spawn failure,
@@ -180,6 +244,111 @@ jc_size jc_proc_secret_env_prefix_size(void);
  * process-wide registry and must leave it as they found it (M724). */
 int jc_proc_secret_env_count(void);
 void jc_proc_secret_env_truncate(int n);
+
+/* Whether the first `name_len` bytes of `name` are a secret env-var NAME --
+ * a registered apiKeyEnv, a configured secretEnv name, or a built-in default
+ * (provider keys plus the M1043-a CI/forge names); exactly the set the
+ * child-side scrub drops. For jc_spawn's posix_spawn backend (M832), which
+ * cannot run the scrub in a child and builds the child's envp in the parent
+ * instead: one predicate, owned here beside the lists, so the two scrub paths
+ * cannot drift. */
+int jc_proc_env_name_is_secret(const char *name, jc_size name_len);
+
+/* M1043-a: doctor's suffix scan. Walk the process environment and fill `found`
+ * (an array of max_found 128-byte name slots, written NUL-terminated) with the
+ * NAMES that are set and non-empty, end in one of the case-sensitive suffixes
+ * _TOKEN, _KEY, _SECRET or _PASSWORD, and are in NEITHER the built-in list nor
+ * the registered set (not listed by jc_proc_env_name_is_secret). The suffix
+ * list lives here, beside the lists it is judged against. Returns how many
+ * names were written (max_found when there are more), or -1 when `found` is
+ * NULL or max_found is not positive. Names that a list already holds never
+ * appear: the warning is for a credential jichi does not know. */
+int jc_proc_secret_env_scan(char found[128][128], int max_found);
+
+/* --- the parent's own /proc entries (M770) ------------------------------------
+ *
+ * The scrub above clears the CHILD's environment, and that turned out to be half
+ * of the fence. The child runs as the same user as jichi, and Linux lets a
+ * same-user process read /proc/<pid>/environ of any process that is DUMPABLE --
+ * every ordinary process is. jichi's own environment still holds the key, since
+ * that is where jichi read it, so one model-issued command got it back:
+ *
+ *   tr '\0' '\n' < /proc/$PPID/environ | grep KEY
+ *
+ * MEASURED 2026-09-25, on the host and in a rootless container, under Yama
+ * ptrace_scope 1 -- which restricts attaching, not this weaker read. The same
+ * route let a child write into jichi's stdout through /proc/$PPID/fd/1. It is a
+ * FIFTH channel next to the four above (environment, file modes, descriptors,
+ * arguments): the parent's own /proc entries. See
+ * docs/analysis/2026-08-17-source-hardening-audit.md §H2.
+ *
+ * jc_proc_harden_environ() makes jichi non-dumpable (prctl PR_SET_DUMPABLE 0).
+ * The kernel then makes /proc/<pid>/{environ,fd,maps,mem,...} root-owned and
+ * refuses them to other processes of the same user. It resets the flag at
+ * every exec of a non-setuid program, so the children jichi starts are
+ * dumpable, and readable, as before. MEASURED what jichi keeps of ITSELF: its
+ * own /proc/self/{exe,stat,status}, which are all it reads of itself, still
+ * read, and so do fd/ and maps. Its own environ and auxv do NOT (0400,
+ * root-owned, no self exemption): a future feature that reads them breaks
+ * here, and now knowably.
+ *
+ * What it costs: jichi itself leaves no core dump, and a same-user debugger
+ * cannot attach to it. JICHI_KEEP_DUMPABLE=1 (any yes of jc_bool_from_word)
+ * skips the call for exactly those cases, and doctor says so; anything else,
+ * a typo included, keeps it on.
+ *
+ * Linux-only, behind the HAVE_SET_DUMPABLE probe (JC_HAVE_SET_DUMPABLE). Where
+ * it is absent the call records UNAVAILABLE and does nothing, and doctor says
+ * so: the class may exist there by another route, unmeasured.
+ *
+ * Called once, first thing in main(), so before any child can exist and for
+ * every subcommand. tests/smoke/proc_key_hidden.sh drives it. */
+/* OpenBSD, NetBSD and illumos have no dumpable/trace-control flag; the in-place
+ * environ scrub (jc_proc_harden_secret_env) is their partial substitute. Pure
+ * libc, so no Makefile probe -- gated on the compiler's own platform macro. Extend
+ * the condition only for a platform MEASURED to (a) expose env via `ps`, `pargs`
+ * or /proc/<pid>/environ and (b) hide it after the scrub, as OpenBSD (M796),
+ * NetBSD (M798) and illumos (M799) were. On NetBSD (procfs mounted) and illumos,
+ * /proc/<pid>/fd and /proc/<pid>/{mem,as} stay open and no facility there closes
+ * them -- HARDENING.md §2. */
+#if defined(__OpenBSD__) || defined(__NetBSD__) || (defined(__sun) && defined(__SVR4))
+#define JC_HAVE_ENVIRON_SCRUB 1
+#endif
+
+enum jc_harden {
+    JC_HARDEN_NOT_RUN = 0,  /* jc_proc_harden_environ() never ran: a bug */
+    JC_HARDEN_ON,           /* non-dumpable: hidden from same-user processes */
+    JC_HARDEN_OFF_OPTOUT,   /* JICHI_KEEP_DUMPABLE kept the process dumpable */
+    JC_HARDEN_UNAVAILABLE,  /* built without PR_SET_DUMPABLE (not Linux) */
+    JC_HARDEN_FAILED,       /* prctl refused, or the flag did not read back 0 */
+    JC_HARDEN_ON_PARTIAL    /* environ scrubbed: `ps -e`/`/proc/environ` closed,
+                             * ptrace (and, on a procfs NetBSD, /proc fd+mem) NOT
+                             * (OpenBSD/NetBSD -- no PR_SET_DUMPABLE, no procctl) */
+};
+
+void jc_proc_harden_environ(void);
+
+/* OpenBSD (M796): a same-user `ps -e` reads a process's LIVE environment off its
+ * user stack, so it shows jichi's API key -- and OpenBSD has neither
+ * PR_SET_DUMPABLE nor procctl PROC_TRACE_CTL to make the process unreadable.
+ * What works, measured on OpenBSD 7.9: overwrite the registered secret env
+ * strings in place, so `ps -e` reads the zeroed bytes. This is a PARTIAL guard:
+ * it closes the `ps -e` route (the trivial one a model-issued shell command
+ * takes) but NOT ptrace -- a debugger can still read jichi's in-memory key copy,
+ * which no OpenBSD facility can prevent. Call it AFTER the secret registry is
+ * armed and the config's keys are resolved (every key is read from getenv() into
+ * the config at load, and nothing re-reads it after, so scrubbing is safe).
+ * JICHI_KEEP_DUMPABLE=1 skips it, as with the dumpable flag. It records
+ * JC_HARDEN_ON_PARTIAL (or OFF_OPTOUT); where JC_HAVE_ENVIRON_SCRUB is not
+ * defined it does nothing. tests/smoke/proc_key_hidden.sh drives it. */
+void jc_proc_harden_secret_env(void);
+
+/* The state jc_proc_harden_environ() left, as an enum jc_harden. Five states,
+ * not three, so that doctor's sentence is true in each: a build WITH the probe
+ * whose call never ran used to be reported as a build without it -- the M693
+ * class, a diagnostic contradicting the build it describes (seen at M770 by
+ * removing the call). */
+int jc_proc_harden_state(void);
 
 /* Memory-watchdog verdict for a subprocess (M117). */
 enum jc_memwatch {

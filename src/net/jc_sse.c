@@ -13,6 +13,7 @@ void jc_sse_init(struct jc_sse_parser *p, jc_sse_cb cb, void *user)
     jc_sb_init(&p->evtype);
     p->have_data = 0;
     p->overflowed = 0;
+    p->last_was_cr = 0;
     p->cb = cb;
     p->user = user;
 }
@@ -87,18 +88,31 @@ void jc_sse_feed(struct jc_sse_parser *p, const char *bytes, jc_size n)
     jc_size i;
     for (i = 0; i < n; i++) {
         char c = bytes[i];
-        if (c == '\n') {
-            jc_size len = p->line.len;
-            /* Strip a trailing CR (CRLF terminators). */
-            if (len > 0 && p->line.data[len - 1] == '\r') {
-                len--;
-            }
-            handle_line(p, (p->line.data != NULL) ? p->line.data : "", len);
+        if (c == '\r') {
+            /* WHATWG allows three line endings: CRLF, LF, and a bare CR not
+             * followed by LF. So a CR ends a line here and now. Remember it, so
+             * that the LF of a CRLF -- which may arrive in the NEXT chunk -- is
+             * swallowed rather than ending a second, empty line. That one bit of
+             * state is what keeps the every-chunk-size property (M775). */
+            handle_line(p, (p->line.data != NULL) ? p->line.data : "",
+                        p->line.len);
             jc_sb_clear(&p->line);
-        } else if (p->line.len < (jc_size)JC_SSE_FIELD_MAX) {
-            jc_sb_append_char(&p->line, c);
+            p->last_was_cr = 1;
+        } else if (c == '\n') {
+            if (p->last_was_cr) {
+                p->last_was_cr = 0; /* the LF of a CRLF; the CR already ended it */
+            } else {
+                handle_line(p, (p->line.data != NULL) ? p->line.data : "",
+                            p->line.len);
+                jc_sb_clear(&p->line);
+            }
         } else {
-            p->overflowed = 1; /* drop bytes of a pathologically long line */
+            p->last_was_cr = 0;
+            if (p->line.len < (jc_size)JC_SSE_FIELD_MAX) {
+                jc_sb_append_char(&p->line, c);
+            } else {
+                p->overflowed = 1; /* drop bytes of a pathologically long line */
+            }
         }
     }
 }

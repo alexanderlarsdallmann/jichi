@@ -70,6 +70,25 @@ static void test_rerank_parse_results(void)
     JC_CHECK(s[0] == 0.0 && s[1] == 0.0);
 }
 
+static void test_rerank_parse_out_of_range_index(void)
+{
+    const char *json =
+        "{ \"data\": ["
+        "  { \"index\": 0, \"relevance_score\": 0.30 },"
+        "  { \"index\": 1e300, \"relevance_score\": 0.99 },"
+        "  { \"index\": 2, \"relevance_score\": 0.70 } ] }";
+    double s[3];
+
+    JC_CHECK(jc_rerank_parse(json, 3, s) == JC_OK);
+    JC_CHECK_NEAR(s[0], 0.30);
+    /* The out-of-range index clamps to INT_MAX, fails the 0..n-1 check, and
+     * its row is dropped (stays the parser's 0.0), NOT written out of bounds.
+     * On the pre-fix (int) cast this double was undefined behaviour (C-17);
+     * the sibling jc_embed site is pinned the same way at M725. */
+    JC_CHECK(s[1] == 0.0);
+    JC_CHECK_NEAR(s[2], 0.70);
+}
+
 static char *join_chunks(const char *const *chunks)
 {
     struct jc_sb sb;
@@ -135,4 +154,5 @@ void test_embed(void)
     test_embed_parse_recorded();
     test_rerank_parse_data();
     test_rerank_parse_results();
+    test_rerank_parse_out_of_range_index();
 }

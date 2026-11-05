@@ -113,7 +113,8 @@ cJSON *jc_agentjson_result(const char *text, const char *model,
                            int answer_capped,
                            int err_code, const char *err_type,
                            const char *err_msg,
-                           const struct jc_agent_econ *econ, cJSON *reach);
+                           const struct jc_agent_econ *econ, cJSON *reach,
+                           cJSON *relay);
 
 #ifdef __cplusplus
 }

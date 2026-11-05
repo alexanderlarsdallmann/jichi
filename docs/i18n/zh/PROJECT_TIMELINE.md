@@ -1,5 +1,5 @@
 <!-- tracks: ../../PROJECT_TIMELINE.md @ 34a65b7 -->
-<!-- figures-behind: 21 (that many numbers of three digits or more appear here and not
+<!-- figures-behind: 29 (that many numbers of three digits or more appear here and not
      in the English page). PROJECT_TIMELINE.md was re-counted at M579; this translation
      still carries the earlier figures. One went from the count at M587: the false
      "third-party cJSON" row (see below). The rest are NOT substituted one by one:

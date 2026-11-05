@@ -347,3 +347,65 @@ int jc_path_in_root(const char *root, const char *path)
     }
     return jc_path_under_root(root, resolved);
 }
+
+/* D-15: check that a .jichi/ path points to a regular file, not a symlink.
+ * The helper does NOT do realpath: the caller must ensure the path is built
+ * from app->root so that under-rootness is guaranteed by construction.
+ * Returns:
+ *   JC_OK if the directory part is absent or a real directory and the leaf
+ *   is absent (the write case), a regular file, or -- for a directory check
+ *   -- the real .jichi directory itself
+ *   JC_ERR_DENIED if the directory part exists and is a symlink
+ *   JC_ERR_INVALID if the directory part exists but is not a directory, or
+ *   if the leaf exists and is a symlink or non-regular (FIFO, device, ...) */
+jc_status jc_state_file_check(const char *root, const char *path)
+{
+    char dir[JC_PATH_MAX];
+    const char *last_slash;
+    struct stat st;
+    (void)root;  /* unused: under-rootness is guaranteed by construction */
+
+    if (path == NULL || path[0] == '\0') {
+        return JC_ERR_INVALID;
+    }
+
+    /* Extract the directory part of the path (everything before the last '/'). */
+    last_slash = strrchr(path, '/');
+    if (last_slash == NULL) {
+        return JC_ERR_INVALID;
+    }
+
+    /* Build the directory path. */
+    if ((size_t)(last_slash - path + 1) > sizeof(dir) - 1) {
+        return JC_ERR_TOOBIG;
+    }
+    memcpy(dir, path, last_slash - path);
+    dir[last_slash - path] = '\0';
+
+    /* Check that the directory is not a symlink and is a regular directory. */
+    if (lstat(dir, &st) != 0) {
+        /* Directory does not exist: this is fine for the write case. */
+        return JC_OK;
+    }
+    if (S_ISLNK(st.st_mode)) {
+        return JC_ERR_DENIED; /* directory is a symlink */
+    }
+    if (!S_ISDIR(st.st_mode)) {
+        return JC_ERR_INVALID; /* directory is not a directory */
+    }
+
+    /* Check the leaf. */
+    if (lstat(path, &st) != 0) {
+        /* Path does not exist: this is fine for the write case. */
+        return JC_OK;
+    }
+    if (S_ISLNK(st.st_mode)) {
+        return JC_ERR_INVALID; /* symlink (either directory or file) */
+    }
+    /* Allow directories (for .jichi/ check) or regular files (for state files). */
+    if (S_ISDIR(st.st_mode) || S_ISREG(st.st_mode)) {
+        return JC_OK;
+    }
+    /* FIFO, device, socket, etc. - not allowed. */
+    return JC_ERR_INVALID;
+}

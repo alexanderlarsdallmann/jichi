@@ -34,6 +34,13 @@ different (and worse) project — the same rule that keeps audio playback an
 external `aplay` and PDF extraction an external `pdftotext`: **shell out,
 never vendor** ([SOUND.md](SOUND.md), the M42 pattern).
 
+**The one place a model is trained is the learner's own program.** The
+[`slm-lab`](../examples/slm-lab/) bench (M764) gives a learner `charlm.c`, which
+trains a character-level model on a CPU. The learner compiles it and runs it;
+jichi builds, runs, reads and reviews it, and none of it is in the binary. The
+rule above is about what jichi contains, and jichi still contains no training
+code.
+
 ## The three recommended extension patterns
 
 **1. A user-defined tool wrapping your ML script** — the sanctioned escape

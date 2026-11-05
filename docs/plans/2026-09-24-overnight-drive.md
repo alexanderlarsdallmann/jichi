@@ -2,8 +2,9 @@
 
 *A plan, written on threadwork before the drive, so the reading afterwards is held to
 questions asked in advance. The drive runs `scripts/corpus-drive.sh` (M735) against
-zigodot; its output lives in `~/.cache/jichi-corpus/2026-09-24-zigodot/`, outside every
-repository. The analysis page that reads it is written after, and cites this one.*
+zigodot; its output lived in `~/.cache/jichi-corpus/2026-09-24-zigodot/`, outside every
+repository, until a model's shell command deleted it at 00:42 on 2026-09-25 (§7). The analysis
+page that reads it is [`2026-09-25-the-overnight-drive.md`](../analysis/2026-09-25-the-overnight-drive.md).*
 
 ## 0. Why this drive, and why tonight
 
@@ -150,3 +151,22 @@ stopped lane and why is recorded in the drive's `SUPERVISION.md` and in the anal
 | a priced model | refused by the script before the first request |
 | a branch name reused | a plain push fails and is recorded; nothing is overwritten |
 | reading the numbers before the questions | this page, committed before launch |
+
+## 7. Afterwards (2026-09-25): what this plan missed
+
+*Added after the drive, and kept separate so the plan above stays as it was written.* The drive
+ran as planned until **00:42:24**, when a model's shell command emptied `~/.cache/jichi-corpus/`,
+this drive's directory and the previous one's
+([analysis](../analysis/2026-09-25-the-overnight-drive.md) §1). Three things this plan should have
+said, and did not:
+
+- **§4 listed the fences and the caps, and not the shell's reach.** The edit scope and the path
+  fence bind jichi's file tools. A shell command can write anything the operator can. The plan put
+  the drive's record in the same tree as the workspaces and ran the shell as the operator. DEFERRED's
+  shell-sandbox row already said the answer is deployment.
+- **§4 also missed a cap.** `parallelTaskTimeout` stayed at its 300 s default and cut two of three
+  children in one `spawn_parallel` call.
+- **§6 did not list the risk.** "A model deletes the drive" was not among the things that would
+  spoil it, and half-hourly supervision cannot stop a command that takes a second.
+
+The next drive's plan starts from DEFERRED's M744 section.

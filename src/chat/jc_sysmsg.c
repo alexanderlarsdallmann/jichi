@@ -501,21 +501,21 @@ void jc_sysmsg_append_envelope(struct jc_sb *sb, const struct jc_envelope *e)
 
 void jc_sysmsg_append_date(struct jc_sb *sb, long now)
 {
-    struct tm *tmv;
-    time_t t = (time_t)now;
+    struct tm tmv;
+    int local;
     char buf[32];
 
     if (sb == NULL) {
         return;
     }
-    tmv = localtime(&t);
-    if (tmv == NULL) {
+    /* M839: a local date the C library got wrong is not shown as one; the
+     * model is told the UTC date and that it is UTC. */
+    local = jc_localtime_checked(now, &tmv);
+    if (local < 0 || strftime(buf, sizeof(buf), "%Y-%m-%d", &tmv) == 0) {
         return;
     }
-    if (strftime(buf, sizeof(buf), "%Y-%m-%d", tmv) == 0) {
-        return;
-    }
-    jc_sb_append_fmt(sb, "- Today's date: %s\n", buf);
+    jc_sb_append_fmt(sb, local ? "- Today's date: %s\n"
+                               : "- Today's date: %s (UTC)\n", buf);
 }
 
 static void append_env(struct jc_sb *sb, struct jc_app *app)
@@ -780,6 +780,19 @@ char *jc_sysmsg_build_parts(struct jc_app *app, struct jc_sysmsg_parts *parts)
         jc_sb_append(&sb, "\n\n# Remembered notes\n\n"
                           "Durable notes from earlier sessions (use the "
                           "remember tool to add more):\n\n");
+        /* M965 (D5 delta): the invariant is memory_truncated==1 => memory_dropped is non-empty.
+         * Both are set in the same arm of jc_memory_load: when memory is truncated, the
+         * over-budget code path always writes a non-empty dropped summary (either from
+         * jc_memory_dropped_summary or the literal "older notes"). */
+        if (app->memory_truncated) {
+            /* The dropped string is always non-empty (see invariant above). */
+            jc_sb_append(&sb, "This memory block is truncated: the notes exceed the "
+                              "injection budget, so the OLDEST notes are not "
+                              "here (dropped: ");
+            jc_sb_append(&sb, app->memory_dropped);
+            jc_sb_append(&sb, "). Treat the memory as partial -- the full "
+                              "file is .jichi/memory.md.\n\n");
+        }
         jc_sb_append(&sb, app->memory);
     }
     mark(parts, JC_SYSPART_MEMORY, &sb, &at);

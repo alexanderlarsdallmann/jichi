@@ -40,7 +40,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#include <sys/select.h>
+#include "jc_select.h"  /* M834: <sys/select.h> where it exists */
 #include <sys/time.h> /* struct timeval: MiNTLib's <sys/select.h> only forward-declares it (M723) */
 
 #define ACP_RESULT_MAX 8192   /* cap on tool-result text echoed to the client */
@@ -300,7 +300,7 @@ static int acp_request_await(struct acp_server *s, const char *method,
         idobj = cJSON_GetObjectItem(root, "id");
         has_id = cJSON_IsNumber(idobj);
         if (has_id) {
-            id = (long)idobj->valuedouble;
+            id = jc_json_clamp_long(idobj->valuedouble);
         }
         if (m != NULL && strcmp(m, "session/cancel") == 0) {
             s->cancelled = 1;
@@ -684,7 +684,11 @@ static int new_session(struct acp_server *s)
     return 1;
 }
 
-/* Persist the current session (history + autotitle), unless --no-session. */
+/* Persist the current session (history + autotitle), unless --no-session.
+ * M1082 (F-02): a failed save says so, once per process, on stderr. The ACP
+ * has no human tty to interrupt, but its parent (the editor) inherits this
+ * stderr, which is where a failed save has to surface to be seen at all. The
+ * latch is app-level, shared with the headless and TUI call sites. */
 static void save_session(struct acp_server *s)
 {
     if (!s->have_session || s->app->no_session) {
@@ -692,7 +696,7 @@ static void save_session(struct acp_server *s)
     }
     s->sess.mode = s->app->mode;
     jc_session_autotitle(&s->sess);
-    jc_session_save(&s->sess);
+    jc_app_note_failed_session_save(s->app, &s->sess, jc_session_save(&s->sess));
 }
 
 /* Replay a loaded session's history to the client as session/update
@@ -939,7 +943,16 @@ static void handle_load(struct acp_server *s, long id, cJSON *params)
     s->sess_arena = arena;
     s->have_session = 1;
     s->app->todos = &s->sess.todos; /* M606: the loaded session's list */
-    jc_app_set_mode(s->app, s->sess.mode);
+    /* M845 (D5): a saved mode may narrow the process's mode, never widen it;
+     * this used to apply it unconditionally. The note goes to stderr, the log
+     * an editor shows for its agent. */
+    {
+        char note[256];
+        (void)jc_app_apply_saved_mode(s->app, s->sess.mode, note, sizeof note);
+        if (note[0] != '\0') {
+            jc_logf(JC_LOG_WARN, "session/load: %s", note);
+        }
+    }
 
     /* Stream the transcript as session/update notifications, then respond:
      * per ACP, the response to session/load means "replay complete". */

@@ -51,6 +51,18 @@ struct jc_sessmeta {
     int  has_workspace;
     int  nmsgs;      /* objects directly inside the top-level "history" array */
     int  has_history;
+    /* M954 (store v3): the relay's chain fields, captured when present.
+     * relay_id, prev_session and notes_path are strings (their own caps are
+     * generous for a UUID and a path); leg is the 1-based leg number (0 =
+     * not a relay leg, the field was absent). All have has_* flags. */
+    char relay_id[JC_SESSMETA_ID];
+    char prev_session[JC_SESSMETA_ID];
+    char notes_path[JC_SESSMETA_WS];
+    long leg;
+    int  has_relay_id;
+    int  has_prev_session;
+    int  has_notes_path;
+    int  has_leg;
 };
 
 /* Scan `text` (NUL-terminated is fine; `len` bounds it) for the listing fields.

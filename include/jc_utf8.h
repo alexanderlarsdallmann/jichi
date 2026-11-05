@@ -64,6 +64,21 @@ jc_size jc_utf8_trunc_len(const char *s, jc_size n);
  * kept SUFFIX, whose first byte would otherwise be a stray continuation byte. */
 jc_size jc_utf8_resync(const char *s, jc_size len, jc_size off);
 
+/* Largest k <= len such that s[0..k) is well-formed UTF-8 -- use when a
+ * stream is being emitted in chunks and the CURRENT chunk must not end inside
+ * a multi-byte sequence. A trailing INCOMPLETE sequence (its 1-3 continuation
+ * bytes, or a lone lead) is EXCLUDED from k and must be held to the next
+ * chunk; NULL or len == 0 yields 0.
+ *
+ * Distinct from jc_utf8_trunc_len, which trims a PREFIX to a boundary by
+ * stepping back over continuation bytes and ASSUMES s[len] is readable (it is
+ * a fixed-buffer cut, not a stream); and from jc_utf8_resync, which SKIPS stray
+ * continuation bytes (the suffix half) rather than HOLDING them. Implemented by
+ * stepping back from len with jc_utf8_prev (bounded, so a malformed tail costs
+ * at most 4 steps) and then verifying the prefix is well-formed: if the last
+ * whole sequence at that boundary is itself truncated at len, it is excluded. */
+jc_size jc_utf8_stream_prefix(const char *s, jc_size len);
+
 /* Replace every ill-formed byte in `s[0..len)` with U+FFFD. Returns 1 and sets
  * *out (malloc'd, NUL-terminated; caller frees) and *out_len (may be NULL) when
  * a repair was needed; returns 0 -- allocating nothing -- when `s` is already

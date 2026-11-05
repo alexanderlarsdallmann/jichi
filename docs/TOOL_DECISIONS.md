@@ -14,33 +14,8 @@ Here is the order, taken from the code that runs it, not from a summary.
 
 ## The chain, in order
 
-```mermaid
-%%{init: {'theme':'base','themeVariables':{'lineColor':'#111111','fontSize':'14px'}}}%%
-flowchart TD
-    C["the model requests a tool call"] --> F1
-    F1{"1. is this tool even<br/>offered to this agent?"} -->|no| X1["refused; the message names<br/>the tools that ARE available"]
-    F1 -->|yes| V["2. the verdict:<br/>ASK / ALLOW / DENY"]
-    V -->|DENY| X2["refused, permanently for this run"]
-    V --> K3{"3. does an operator<br/>constraint forbid it?"}
-    K3 -->|yes| X3["blocked; the rule is named"]
-    K3 -->|no| K4{"4. is it a privileged<br/>command (sudo/doas/…)?"}
-    K4 -->|yes, and policy says no| X4["refused + audited"]
-    K4 --> K5{"5. does it move mass<br/>or energy (kinetic)?"}
-    K5 -->|yes, and posture says no| X5["refused + audited"]
-    K5 --> A{"6. ASK? then YOU answer"}
-    A -->|"n"| X6["denied by the user"]
-    A -->|"y / a / e"| S{"7. is the path inside<br/>the run's edit scope?"}
-    S -->|no| X7["refused; the path and the<br/>allowed scope are both named"]
-    S -->|yes| H{"8. a PreToolUse hook<br/>may still veto"}
-    H -->|blocked| X8["blocked by the hook"]
-    H -->|allowed| R["9. checkpoint, then execute<br/>(file tools re-check the path fence)"]
-    classDef step fill:#0d47a1,stroke:#001a4d,color:#ffffff,stroke-width:2px;
-    classDef gate fill:#e65100,stroke:#5f2600,color:#ffffff,stroke-width:2px;
-    classDef stop fill:#b71c1c,stroke:#5f0000,color:#ffffff,stroke-width:2px;
-    class C,V,R step;
-    class F1,K3,K4,K5,A,S,H gate;
-    class X1,X2,X3,X4,X5,X6,X7,X8 stop;
-```
+The nine mechanisms, in the order they apply, are the numbered table below -- it reads
+at any width.
 
 | # | Mechanism | Who sets it | Where it is documented |
 | --- | --- | --- | --- |
@@ -85,9 +60,18 @@ arguments, the checks re-run against the **edited** call, not the original.
 **Headless is not "auto".** With `-p` and no `--auto`, an ASK verdict has nobody
 to ask, so it is **refused** with a message telling the model to re-run under
 `--auto`. It does not silently proceed, and it does not hang. (One exception,
-stated because it surprises people: a *subagent* running under an auto posture
-executes ASK verdicts without prompting — its fence is the tool list it was given
-at step 1, plus everything from step 3 onward.)
+stated because it surprises people: a *delegate* the model starts —
+`spawn_subagent`, a parallel child, `ask_for_help`'s helper, a workflow stage —
+runs under an auto posture and executes ASK verdicts without prompting — except a
+**shell** call (`run_terminal_command`, `run_tests` with a command), which since
+M849 follows your posture: the TUI asks, and where the delegate has no way to ask
+(headless, an editor, a parallel child) it is refused. A delegate never runs a
+privileged command through `privilegedCommandsAllow`. Its other fences are the
+tool list it was given at step 1, if it has one (a profile's `tools:`),
+everything from step 3 onward, and since M848 the path fence, which is on for such
+a run even in chat mode. A `subtask: true` **command** is not that kind of
+delegate: it is your turn, so it asks like one — M848; before it, a subtask ran
+with every tool and asked nothing.)
 
 ## `ask_user` is the other direction
 

@@ -11,12 +11,22 @@
 #ifndef JC_TOOL_H
 #define JC_TOOL_H
 
+/* M895 (the demos drive's N54 (a)): what the shell tool says when a command exits 0
+ * and prints nothing. "(no output)" alone read as something missing, and six
+ * workers in two days re-ran a passing `zig build test` looking for it. The agent
+ * loop recognises a silent success by this exact prefix (N54 (b)). */
+#define JC_RUN_SILENT_OK "(no output: the command succeeded and printed nothing)"
+/* M895 (N54 (b)): the silent successes of one command, in one turn, at which its
+ * result says so. */
+#define JC_SILENT_NOTE_AT 3
+
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 #include "jc_platform.h"
 #include "jc_vec.h"
+#include "jc_str.h"
 #include "cJSON.h"
 
 struct jc_app;         /* jc_app.h  */
@@ -143,6 +153,11 @@ void jc_tool_registry_init(struct jc_tool_registry *r);
 void jc_tool_registry_free(struct jc_tool_registry *r);
 void jc_tool_registry_register(struct jc_tool_registry *r,
                                const struct jc_tool *t);
+/* M965 (O1): replace the same-name entry in place if present, else append.
+ * Used ONLY where spawn_subagent's dynamic form intentionally replaces the
+ * static one; all other registrations use register() with warn-on-duplicate. */
+void jc_tool_registry_replace(struct jc_tool_registry *r,
+                              const struct jc_tool *t);
 const struct jc_tool *jc_tool_registry_find(const struct jc_tool_registry *r,
                                             const char *name);
 
@@ -184,8 +199,32 @@ cJSON *jc_tool_unwrap_self_named(cJSON *args, const char *tool_name);
  * Pure apart from the mutation; unit-tested in tests/test_tool.c. */
 int jc_tool_unstring_args(cJSON *args, const cJSON *schema);
 
+/* M981 (B-04 + A-01): normalise the raw arguments exactly as the executor does.
+ * Returns a newly allocated cJSON tree (caller owns, must delete), or NULL if
+ * the executor would reject (parse failed, truncated, etc.).
+ * This helper exists so the fence and executor see the SAME tree:
+ *   call_out_of_scope_path() and the merge check both call this before
+ *   reading path/edits[].path, just like jc_tool_execute does before running.
+ * The caller must provide the tool name and schema (for unstringing) so the
+ * helper can perform the same normalisation the executor performs.
+ *
+ * The sequence reproduced:
+ *   1. parse raw JSON (cJSON_Parse); on NULL and not truncated, repair+re-parse
+ *   2. M334: if response truncated, reject (not repairable)
+ *   3. M289: elided_placeholder check (cannot repair)
+ *   4. M172: unwrap self-named wrapper
+ *   5. M193: unstring array/object args (using the tool's schema)
+ *
+ * If repaired_out is non-NULL, *repaired_out is set to 1 when a JSON syntax
+ * repair occurred (kind:"repair" in args_repair telemetry), else 0.
+ * This is needed for the M353 note that appends to successful repairs. */
+cJSON *jc_tool_normalize_args(const char *name, const cJSON *schema,
+                              const char *arguments_json, struct jc_app *app,
+                              int *repaired_out);
+
 /* Run the read-only assignment-helper tutor sub-agent on `question`; *answer_out
- * is malloc'd (caller frees). JC_ERR_NOTFOUND when no helper can run. Used by
+ * is arena-allocated on the per-turn scratch (jc_subagent_answer_into,
+ * M911) -- the caller must NOT free it. JC_ERR_NOTFOUND when no helper can run. Used by
  * the ask_for_help tool and the TUI /tutor command (M173b). */
 jc_status jc_tool_help_tutor(struct jc_app *app, const char *question,
                              char **answer_out);
@@ -217,6 +256,25 @@ const char *jc_tool_canonical_name(const char *name);
 int jc_toolcall_scan(const char *text, const struct jc_tool_registry *r,
                      char *name_out, jc_size cap);
 
+/* M949: the text-tool-call recovery pass (the model emits its call as
+ * markdown instead of natively). `out` (caller-inited to a vector of
+ * `struct jc_tool_call`) receives one entry per well-formed block, in
+ * document order. The only accepted shapes:
+ *   1. a fenced block whose language tag is a registered tool name, whose
+ *      body is exactly one JSON object (the arguments);
+ *   2. a json-tagged fence whose body is exactly
+ *      {"name": <registered tool>, "arguments"|"args"|"parameters": <object>};
+ *   3. an un-fenced line that is exactly such an object (bare JSON lines).
+ * A fence whose tag names an unregistered tool is a PROSE EXAMPLE and is
+ * skipped (it would otherwise shadow the real call later in the document).
+ * Anything else -- intent prose, JSON nested in JSON, an unclosed fence, an
+ * unparseable body, an unregistered name -- never matches, and each failed
+ * candidate appends a short note to `reason` (may be NULL) so the caller can
+ * hand the model a value instead of a silence. Returns the number of calls
+ * recovered (0 => the reply is a plain answer). Pure; unit-tested. */
+int jc_toolcall_recover(const char *text, const struct jc_tool_registry *r,
+                        struct jc_vec *out, struct jc_sb *reason);
+
 const char *jc_tool_suggest_name(const struct jc_tool_registry *r,
                                  const char *unknown);
 
@@ -229,6 +287,47 @@ const char *jc_tool_suggest_name(const struct jc_tool_registry *r,
  * fallback when edit distance finds nothing, and only when the mapped tool is
  * actually registered. Pure; unit-tested. */
 const char *jc_tool_semantic_alias(const char *name);
+
+/* M853 (N32): 1 when `name` is one a model calls to END its turn, as if jichi had
+ * a tool for that: `finish`, `done`, `complete`, `submit`, `task_complete` or
+ * `final_answer`. jichi has none -- a turn ends with a reply that makes no tool
+ * call. Exact and case-sensitive; NULL is 0. Only `finish` is measured (the demos
+ * drive's children, 203 calls); the other five are the handoff's list. Pure;
+ * unit-tested. */
+int jc_tool_is_finish_alias(const char *name);
+
+/* M855 (N34): 1 when a shell command line runs `git stash` (also `git -C <dir>
+ * stash`), 0 otherwise or for NULL. A substring test on the words, not a parse:
+ * it decides whether to add a one-line hint, never whether to run anything.
+ * Pure; unit-tested. */
+int jc_cmd_runs_git_stash(const char *cmd);
+
+/* M863 (N44 (a)): 1 when a shell command line runs a git subcommand that can
+ * discard uncommitted work or move HEAD -- checkout, switch, restore, reset,
+ * clean, rebase -- naming it in `what` (may be NULL); 0 otherwise or for NULL.
+ * Harmless forms are 0: `checkout -b/-B`, `switch -c/-C` (a new branch where HEAD
+ * is), `restore --staged` without --worktree (it only unstages), a bare `reset`
+ * (it only unstages), `clean -n`/`--dry-run`, any `--help`. `stash` is M855's
+ * (jc_cmd_runs_git_stash). Words, not a parse: it decides whether jichi keeps the
+ * worktree first, never whether the command runs. Pure; unit-tested. */
+int jc_cmd_git_discards(const char *cmd, char *what, jc_size cap);
+
+/* M863 (N44 (a)): in a parallel write child, before a shell call whose `command`
+ * (in `args_json`) discards work or moves HEAD, keep the worktree's state
+ * (jc_snapshot_worktree_pin) and name the ref in `ref_out`. Returns 1 when it kept
+ * one, 0 when the call is not such a command, the child is not a write child, or
+ * there was nothing to lose, -1 when keeping failed (the command still runs; the
+ * caller says so). Defined in jc_tool_parallel.c, beside the child's own state. */
+int jc_parallel_pre_discard(struct jc_app *app, const char *args_json,
+                            char *ref_out, jc_size cap);
+
+/* M853 (N32): the non-blank `message` string a finish-like call carries, as a
+ * malloc'd copy the caller frees; NULL for no message, a blank one, a non-string,
+ * or arguments that are not a JSON object. Only `message`, the measured shape: a
+ * call without one is answered with the error that names the plain-text ending,
+ * never guessed at -- `complete {"id": 3}` must not end a turn with "3". Pure;
+ * unit-tested. */
+char *jc_tool_finish_alias_message(const char *arguments_json);
 
 /* Register the built-in tools (read/write/edit/ls/run/search). */
 void jc_tool_register_builtins(struct jc_tool_registry *r);
@@ -294,11 +393,16 @@ void jc_tool_refusal_render(const struct jc_vec *allow, const char *name,
 
 /* Intersect two allow-lists into `out` (a freshly jc_vec_init'd vec of char*,
  * whose pushed pointers are copied onto `a`). Used when both an agent profile and
- * a restrict-tools skill fence a subagent: the effective fence is the tools common
- * to both. A NULL/empty list means "no fence" (permits everything), so it acts as
- * the identity: intersecting with it yields a copy of the other. When both are
- * non-empty, `out` holds each name from `a_list` also present in `b_list`. Pure;
- * unit-tested. Returns the number of names pushed. */
+ * a restrict-tools skill fence a subagent, and (M848) when `attempt --agent`
+ * fences a core-profile turn: the effective fence is the tools common to both. A
+ * NULL/empty list means "no fence" (permits everything), so it acts as the
+ * identity: intersecting with it yields a copy of the other. When both are
+ * non-empty, `out` holds each name from `a_list` also present in `b_list`; if
+ * they share NONE, `out` holds the single sentinel JC_TOOL_ALLOW_NONE, which no
+ * tool matches -- never an empty list, which would read as "no fence" (M848: it
+ * did, and a disjoint profile + skill ran a subagent with every tool). Pure;
+ * unit-tested. Returns the number of tool names in common (0 when disjoint). */
+#define JC_TOOL_ALLOW_NONE "(none)"
 int jc_tool_allow_intersect(const struct jc_vec *a_list,
                             const struct jc_vec *b_list,
                             struct jc_arena *a, struct jc_vec *out);
@@ -306,6 +410,12 @@ int jc_tool_allow_intersect(const struct jc_vec *a_list,
 /* True when `name` is in the lean "core" tool set (the minimal read/edit/search/
  * run loop) advertised to small-context models. Pure; unit-tested (M74). */
 int jc_tool_is_core(const char *name);
+
+/* M846 (PAR-2): does this built-in tool carry a shell command the user wrote?
+ * True for `run_terminal_command` and `run_tests` (M501 counts the latter as a
+ * shell). The single source of truth for every gate that means "a shell command
+ * is about to run"; see the definition in jc_tool.c. */
+int jc_tool_name_runs_shell(const char *name);
 
 /* True when `name` is a built-in tool name jichi can register (M285). Because
  * registration is conditional (git_* need a repo, the LSP tools need lspServers,
@@ -351,7 +461,12 @@ const struct jc_tool *jc_tool_run_tests(void);
 const struct jc_tool *jc_tool_search(void);
 const struct jc_tool *jc_tool_fetch(void);
 const struct jc_tool *jc_tool_codebase_search(void);
+/* The static tool for backward compatibility (e.g. tests that only register
+ * builtins). The schema won't include the model list. */
 const struct jc_tool *jc_tool_subagent(void);
+/* Dynamic tool (M965): its schema includes the configured models list.
+ * Allocated from app->arena; call from jc_tool_register_configured. */
+const struct jc_tool *jc_tool_subagent_with_app(struct jc_app *app);
 const struct jc_tool *jc_tool_parallel(void);
 const struct jc_tool *jc_tool_find_definition(void);
 const struct jc_tool *jc_tool_find_references(void);
@@ -413,10 +528,21 @@ int jc_websearch_format(const char *json, int max, struct jc_sb *out);
 /* Resolve a subagent model selector (a name/id substring, 1-based index, or a
  * role name) to a stable model-config pointer. Returns the active model when
  * `selector` is NULL/empty (with *found=1). On a non-empty selector that
- * matches nothing, returns NULL with *found=0. Exposed for testing. */
+ * matches nothing, returns NULL with *found=0. Exposed for testing.
+ *
+ * M745: "default" and "current" (any case) that name no configured model are
+ * the active model, since the tool's own description says "Defaults to the
+ * current model"; a real role that no configured model declares is the active
+ * model too, with *found=2 so the caller can say so. Both were refusals, and on
+ * the 2026-09-24 drive each cost its parent a retry. */
 struct jc_model_cfg *jc_subagent_resolve_model(struct jc_config *cfg,
                                                const char *selector,
                                                int *found);
+
+/* Append the configured models a selector can name -- "1 'name' (model id), 2
+ * ..." -- so a refusal can list the choices instead of only the miss (M745).
+ * Pure; appends "(none configured)" for an empty list. */
+void jc_subagent_model_menu(const struct jc_config *cfg, struct jc_sb *sb);
 
 /* The grep command prefix search_code runs, given whether this platform's grep
  * accepts -I (skip binary files). illumos's does not -- the fifth grep in the

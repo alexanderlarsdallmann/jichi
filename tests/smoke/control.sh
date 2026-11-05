@@ -10,14 +10,27 @@
 #      deadline_credit -> resume (credit journaled, M162) -> completes.
 #   3. a third run: abort during the sleep -> exit 130.
 #   4. a fourth run: mode -- narrowing applied, WIDENING REFUSED (M304).
+#   5. a fifth run: inject with `from:supervisor` lands as `[supervisor] `
+#      (not `[supervisor: supervisor]`) in the model's history (H9).
+#   6. a sixth run: the inject delivery state in status (M1045/M1045-b) --
+#      the baseline pair is emitted as zeros before any inject,
+#      injected=1 / queued_injects=1 after one, and a SECOND inject whose
+#      text carries a real newline reads queued_injects=2 (notes, not
+#      lines; the shipped ctl client cannot carry one, so sockq does).
+#   7. a seventh run: the fold's reset of the note count (M1046) --
+#      after two injects fold at the tool boundary, status read during the
+#      next tool call says queued_injects=0 while injected stayed 2 (the X2 pin).
 # (Port of tests/e2e/control.py, M214.)
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 10
+t_plan 17
 smoke_home
 tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
 JQ="$SMOKE_TOOLS/jsonq"
+# M1045-b: the raw-socket note client (run 6's second inject needs it; a
+# newline in the note is exactly what the single-line ctl client cannot send).
+SOCKQ="$SMOKE_TOOLS/sockq"
 
 cat > "$tmp/replies.mm" <<'EOF'
 wire openai
@@ -54,7 +67,7 @@ start_run "$tmp/c1.sock" "$tmp/o1"
 if ! wait_sock "$tmp/c1.sock"; then
     kill "$RUN_PID" 2>/dev/null
     t_fail "run1: control socket never appeared"
-    t_fail -; t_fail -; t_fail -; t_fail -; t_fail -; t_fail -; t_done
+    t_fail -; t_fail -; t_fail -; t_fail -; t_fail -; t_fail -; t_fail -; t_done
 fi
 sleep 1                       # the run is inside `sleep 3` now
 # Fire status + inject concurrently; wait for THOSE specific jobs, not a
@@ -65,7 +78,12 @@ ctl "$tmp/c1.sock" status > "$tmp/st" 2>&1 &
 _spid=$!
 ctl "$tmp/c1.sock" inject "wrap up and answer now" > "$tmp/inj" 2>&1 &
 _ipid=$!
-wait "$_spid"; wait "$_ipid"
+# M752: a verb the codec does not know, sent raw (the shipped client refuses it
+# before connecting). The server's reply lists the verbs it serves.
+printf '%s\n' '{"v":1,"type":"steer"}' \
+    | "$SMOKE_TOOLS/sockq" --deadline 60 "$tmp/c1.sock" > "$tmp/unk" 2>&1 &
+_upid=$!
+wait "$_spid"; wait "$_ipid"; wait "$_upid"
 wait "$RUN_PID"; run_rc=$?
 mm_stop
 
@@ -222,5 +240,227 @@ else
     grep -h '"event":"control"' "$HOME/.jichi.d/runs"/*.jsonl 2>/dev/null \
         | sed 's/^/    | /' | head -6
 fi
+
+# M752: THE SERVER'S OWN REPLY NAMES EVERY VERB IT SERVES. It listed five by hand,
+# "status|inject|pause|resume|abort", and omitted `mode` from M304 to M752. The
+# list is the codec's now (jc_control_verb_list). The match is the list's tail
+# `abort|mode`, not the word "mode", which the reply's advice also contains.
+if grep -q 'unknown command' "$tmp/unk" && grep -q 'abort|mode' "$tmp/unk"; then
+    t_ok "an unknown verb's reply lists all six verbs, mode included"
+else
+    t_fail "unknown-verb reply: $(head_bytes 200 "$tmp/unk")"
+fi
+
+# --- run 5: inject with from:supervisor lands as [supervisor] (H9) ---------
+# The ctl client does not expose a `from` argument, so we use sockq to send
+# raw JSON with `"from":"supervisor"`. The fix changes the prefix from
+# `[supervisor: supervisor] ` to `[supervisor] `.
+SOCKQ="$SMOKE_TOOLS/sockq"
+mm_start "$tmp/replies.mm" "$tmp/cap5"
+write_config "$tmp/config.json" "$MM_PORT"
+start_run "$tmp/c5.sock" "$tmp/o5"
+if ! wait_sock "$tmp/c5.sock"; then
+    kill "$RUN_PID" 2>/dev/null; mm_stop; t_fail "run5: no socket"
+    t_fail "-"; t_fail "-"; t_fail "-"; t_fail "-"; t_fail "-"; t_fail "-"; t_fail "-"; t_done
+fi
+sleep 1
+# Send inject with from:supervisor via sockq (raw JSON)
+printf '%s\n' '{"v":1,"type":"inject","text":"from supervisor","from":"supervisor"}' \
+    | "$SOCKQ" --deadline 60 "$tmp/c5.sock" > "$tmp/inj5" 2>&1 &
+_i5pid=$!
+wait "$_i5pid"
+wait "$RUN_PID"; run_rc=$?
+mm_stop
+if [ "$run_rc" -eq 0 ] && grep -q "CTL_DONE" "$tmp/o5"; then
+    # Check that the injected text appears as [supervisor] (not [supervisor: supervisor])
+    # Run 5 captures to cap5, not tmp
+    if grep -q '"role":"tool"' "$tmp/cap5/req.2" 2>/dev/null \
+       && grep -q "\[supervisor\] " "$tmp/cap5/req.2" 2>/dev/null; then
+        t_ok "inject with from:supervisor lands as [supervisor] (H9)"
+    else
+        t_fail "inject with from:supervisor: expected [supervisor] in cap5/req.2"
+        grep "\[supervisor" "$tmp/cap5/req.2" 2>/dev/null | sed 's/^/    | /'
+    fi
+else
+    t_fail "run5 did not complete (rc=$run_rc): $(head_bytes 200 "$tmp/o5")"
+    t_fail "-"
+    t_fail "-"
+    t_fail "-"
+    t_fail "-"
+    t_fail "-"
+    t_fail "-"
+fi
+
+# --- run 6: the inject delivery state in status (M1045/M1045-b) -----------
+# `injected` and `queued_injects` are ALWAYS emitted, zero included: a
+# supervisor polling from cold must observe the baseline (0/0), and the
+# pair is the observable correction for the paused-ack overclaim.
+# M1045-b: the second leg injects a note whose text carries a REAL newline
+# (a raw-socket note -- the shipped `ctl` client joins single-line args and
+# cannot carry one) and re-reads status: `queued_injects` must count NOTES, not
+# lines (2, not 3). On the unfixed line-count build the second status reads
+# queued_injects=3 (1 line from the first note + 2 from the second) -- the red.
+mm_start "$tmp/replies.mm" "$tmp/cap6"
+write_config "$tmp/config.json" "$MM_PORT"
+start_run "$tmp/c6.sock" "$tmp/o6"
+if ! wait_sock "$tmp/c6.sock"; then
+    kill "$RUN_PID" 2>/dev/null; mm_stop; t_fail "run6: no socket"; t_done
+fi
+sleep 1
+# Baseline: no inject yet -- the pair must be present and zero, not omitted.
+ctl "$tmp/c6.sock" status > "$tmp/st6a" 2>&1
+i0=$("$JQ" '.injected' "$tmp/st6a" 2>/dev/null)
+q0=$("$JQ" '.queued_injects' "$tmp/st6a" 2>/dev/null)
+if [ "$i0" = "0" ] && [ "$q0" = "0" ]; then
+    t_ok "baseline status emits injected=0 and queued_injects=0"
+else
+    t_fail "baseline status wrong (injected=$i0 queued_injects=$q0): $(cat "$tmp/st6a")"
+fi
+ctl "$tmp/c6.sock" inject "delivery-state probe text" > "$tmp/inj6" 2>&1
+if grep -q "applied at next model call" "$tmp/inj6"; then
+    t_ok "the inject ack still says applied at next model call"
+else
+    t_fail "inject ack changed: $(cat "$tmp/inj6")"
+fi
+ctl "$tmp/c6.sock" status > "$tmp/st6b" 2>&1
+i1=$("$JQ" '.injected' "$tmp/st6b" 2>/dev/null)
+q1=$("$JQ" '.queued_injects' "$tmp/st6b" 2>/dev/null)
+if [ "$i1" = "1" ] && [ "$q1" = "1" ]; then
+    t_ok "status after the inject: injected=1 and queued_injects=1"
+else
+    t_fail "status after inject wrong (injected=$i1 queued_injects=$q1): $(cat "$tmp/st6b")"
+fi
+# M1045-b: the second leg -- a note with a real newline (raw socket: the
+# \n here is the JSON escape; cJSON decodes it to a newline byte, and that
+# is precisely the input the old line-counting helper miscounted). Wait for
+# the job and check the reply carries ok, as run 5 does with _i5pid.
+printf '%s\n' '{"v":1,"type":"inject","text":"second note, first line\nsecond note, second line"}' \
+    | "$SOCKQ" --deadline 60 "$tmp/c6.sock" > "$tmp/inj6b" 2>&1 &
+_i6bpid=$!
+wait "$_i6bpid"
+# Gate, not a check: the leg cannot proceed without an accepted second inject.
+if ! grep -q '"ok":true' "$tmp/inj6b"; then
+    t_fail "second inject not acked: $(cat "$tmp/inj6b")"
+    t_done
+fi
+ctl "$tmp/c6.sock" status > "$tmp/st6c" 2>&1
+i2=$("$JQ" '.injected' "$tmp/st6c" 2>/dev/null)
+q2=$("$JQ" '.queued_injects' "$tmp/st6c" 2>/dev/null)
+if [ "$i2" = "2" ] && [ "$q2" = "2" ]; then
+    t_ok "a second two-line note: injected=2 and queued_injects=2 (notes, not lines)"
+else
+    t_fail "status after the second inject wrong (injected=$i2 queued_injects=$q2): $(cat "$tmp/st6c")"
+fi
+# abort (the run was never resumed, so the queued note stays queued -- a
+# folded-state check would be a false green from the next run's mock).
+ctl "$tmp/c6.sock" abort > /dev/null 2>&1
+wait "$RUN_PID" 2>/dev/null
+mm_stop
+
+# --- run 7: the fold's reset of the note count (M1046) ---------------------
+# A dedicated post-fold leg with its own capture (cap7) AND its own reply
+# table (replies7.mm), so a resumed leg cannot take the false green from the
+# next run's mock (the warning just above the c6 teardown).
+#
+# WHY A SEPARATE TABLE: the fold lands in REQUEST 2 -- the first post-tool
+# request (roles system/user/assistant/tool/[operator]) -- and request 2 must
+# be a `sleep 3` so status can be read DURING it. A `count 3` rule would never
+# be reached (request 2 matches `match "\"role\":\"tool\""` -> CTL_DONE and
+# ends the run, so no request 3 exists), and a `count 2` rule in the SHARED
+# replies.mm would turn runs 1-6's request 2 into a sleep (breaking their
+# CTL_DONE checks). So run 7 owns its table: req.1 sleep3 (catch-all),
+# req.2 sleep3 (count 2), req.3 CTL_DONE (match tool-role). Verified by hand:
+# 3 requests, the fold in req.2, status during sleep3#2 -> queued_injects=0.
+#
+# PLAN ARITHMETIC: runs 1-6 emit 16 checks (T_N=16) before this leg, and this
+# leg plans exactly ONE -- the post-fold status (check 17). So every early exit
+# that emits a descriptive t_fail lands on check #17 (16+1=17=plan, a clean
+# single-fail t_done). The fold gate emits NO t_fail: on gate failure t_done
+# reports the plan mismatch (16 ran of 17); a t_fail there would miscount.
+# No padding is needed on any path in this leg.
+cat > "$tmp/replies7.mm" <<'EOF'
+wire openai
+rule
+  count 2
+  tool run_terminal_command {"command":"sleep 3"}
+rule
+  match "\"role\":\"tool\""
+  text CTL_DONE
+rule
+  tool run_terminal_command {"command":"sleep 3"}
+EOF
+mm_start "$tmp/replies7.mm" "$tmp/cap7"
+write_config "$tmp/config.json" "$MM_PORT"
+start_run "$tmp/c7.sock" "$tmp/o7"
+if ! wait_sock "$tmp/c7.sock"; then
+    kill "$RUN_PID" 2>/dev/null; mm_stop; t_fail "run7: no socket"; t_done
+fi
+sleep 1                       # the run is inside the first `sleep 3` now
+# Inject two one-line notes, each GATED: the fold happens at the boundary
+# after the first sleep 3; the gate below asserts BOTH note texts in
+# cap7/req.2 (the fold folds the whole buffer into ONE [operator] message), so
+# a note acked after the boundary cannot pass it. (A retry can accept a
+# duplicate on a re-inject, which is why check 17 allows injected>=2 rather
+# than hard-requiring 2.)
+_tries=0; _ok=""
+while [ "$_tries" -lt 8 ]; do
+    ctl "$tmp/c7.sock" inject "x2 pin note A" > "$tmp/inj7a" 2>&1
+    if grep -q '"ok":true' "$tmp/inj7a"; then _ok=1; break; fi
+    _tries=$((_tries + 1)); sleep 1
+done
+if [ -z "$_ok" ]; then
+    # T_N is 16; this one fail is check #17 -> clean exit (no padding).
+    t_fail "run7: inject A not acked: $(cat "$tmp/inj7a")"; t_done
+fi
+_tries=0; _ok=""
+while [ "$_tries" -lt 8 ]; do
+    ctl "$tmp/c7.sock" inject "x2 pin note B" > "$tmp/inj7b" 2>&1
+    if grep -q '"ok":true' "$tmp/inj7b"; then _ok=1; break; fi
+    _tries=$((_tries + 1)); sleep 1
+done
+if [ -z "$_ok" ]; then
+    # T_N is 16; this one fail is check #17 -> clean exit (no padding).
+    t_fail "run7: inject B not acked: $(cat "$tmp/inj7b")"; t_done
+fi
+# GATE the fold (NOT a planned check): request 2 must carry the first note as
+# an [operator] message. Retry up to 5 x 1s for cap7/req.2 to exist. On gate
+# failure: t_done reports the plan mismatch; a t_fail would miscount.
+_i=0
+[ -e "$tmp/cap7/req.2" ] || {
+    while [ $_i -lt 5 ] && [ ! -e "$tmp/cap7/req.2" ]; do
+        _i=$((_i + 1)); sleep 1
+    done
+}
+if [ -e "$tmp/cap7/req.2" ] \
+   && grep -q '"role":"tool"' "$tmp/cap7/req.2" \
+   && grep -q 'x2 pin note A' "$tmp/cap7/req.2" \
+   && grep -q 'x2 pin note B' "$tmp/cap7/req.2" \
+   && grep -q '\[operator\]' "$tmp/cap7/req.2"; then
+    :
+else
+    echo "run7 gate failed: fold not observed in cap7/req.2" >> "$tmp/o7.err"
+    kill "$RUN_PID" 2>/dev/null; mm_stop; t_done
+fi
+# The run is inside the SECOND `sleep 3` (request 2's tool call); the fold
+# already zeroed pending_notes at the boundary. Read status (sleep 3 is long
+# enough; a cold reply missing the fields is re-read once after sleep 1).
+ctl "$tmp/c7.sock" status > "$tmp/st7" 2>&1
+if [ -z "$("$JQ" '.queued_injects' "$tmp/st7" 2>/dev/null)" ] \
+   || [ -z "$("$JQ" '.injected' "$tmp/st7" 2>/dev/null)" ]; then
+    sleep 1
+    ctl "$tmp/c7.sock" status > "$tmp/st7" 2>&1
+fi
+i7=$("$JQ" '.injected' "$tmp/st7" 2>/dev/null)
+q7=$("$JQ" '.queued_injects' "$tmp/st7" 2>/dev/null)
+if [ "$q7" = "0" ] && [ "$i7" -ge 2 ] 2>/dev/null; then
+    t_ok "post-fold status: queued_injects=0 while injected=$i7 (the fold reset the note count, M1046)"
+else
+    t_fail "post-fold status wrong (injected=$i7 queued_injects=$q7, want 0; reset line jc_control.c pending_notes=0): $(cat "$tmp/st7")"
+fi
+# Teardown (run 6's shape): the run is at its scripted end (req.3 answers
+# CTL_DONE); abort is harmless on a closing socket, errors to /dev/null.
+ctl "$tmp/c7.sock" abort > /dev/null 2>&1
+wait "$RUN_PID" 2>/dev/null
+mm_stop
 
 t_done

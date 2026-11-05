@@ -67,10 +67,69 @@ void jc_multipart_field(struct jc_multipart *mp, const char *name,
     jc_sb_append(&mp->body, "\r\n");
 }
 
-void jc_multipart_file(struct jc_multipart *mp, const char *name,
-                       const char *filename, const char *content_type,
-                       const unsigned char *data, jc_size len)
+jc_status jc_multipart_file(struct jc_multipart *mp, const char *name,
+                            const char *filename, const char *content_type,
+                            const unsigned char *data, jc_size len)
 {
+    /* C-10 (M1121): a part's data unit must not contain the delimiter
+     * "--<boundary>" (the boundary's two leading dashes + the boundary, the
+     * sequence that terminates a part; RFC 7578). A file part's payload is
+     * MODEL-CHOSEN bytes, so scan it for the delimiter BEFORE appending; on a
+     * match regenerate the boundary (fresh jc_uuid_v4, the same
+     * "jichiBoundary%s" format jc_multipart_init uses) and re-scan, capped at
+     * 5 regenerations -- a fresh OS-entropy boundary will not appear in the
+     * unchanged payload, so the loop converges on the first pass. The payload
+     * is NEVER modified. On the common path (no regeneration) every part
+     * header and the closing boundary render under the one mp->boundary, so
+     * the body is built once and is self-consistent; no re-render is needed
+     * (the only bytes that can introduce the delimiter are these file payload
+     * bytes). If a regeneration DID occur after some field parts were already
+     * rendered (only the jc_transcribe order: model, response_format, the
+     * optional language, then the file part), those earlier parts keep the
+     * OLD boundary and the closing boundary the NEW one -- a mixed-boundary
+     * body. That is still safe and fail-closed: the server expects its first
+     * delimiter to be the NEW boundary and rejects the body, so the upload
+     * fails rather than leaks; and the planted part carries the old
+     * boundary, not the new one, so it is not an injection. The path
+     * converges on the first pass under OS entropy, so the mixed case is
+     * near-impossible.
+     *
+     * Scope: the field path (jc_multipart_field) is deliberately NOT checked
+     * -- a field VALUE is a text parameter, not a byte-exact model payload,
+     * and its collision is negligible under OS entropy. And the caller reads
+     * the Content-Type after finish, so the regenerated boundary is what the
+     * request carries. */
+    if (data != NULL && len > 0) {
+        char delim[64];
+        int tries;
+        for (tries = 0; tries <= 5; tries++) {
+            jc_size dl = (jc_size)strlen(mp->boundary);
+            jc_size i;
+            if (dl > sizeof(delim) - 3) {
+                return JC_ERR_INVALID;   /* cannot even name the delimiter */
+            }
+            delim[0] = '-';
+            delim[1] = '-';
+            memcpy(delim + 2, mp->boundary, dl + 1);
+            for (i = 0; i + 2 + dl <= len; i++) {
+                if (memcmp(data + i, delim, 2 + dl) == 0) {
+                    break;
+                }
+            }
+            if (i + 2 + dl > len) {
+                break;                   /* payload is clean under this boundary */
+            }
+            if (tries == 5) {
+                return JC_ERR_INVALID;   /* impossible under OS entropy */
+            }
+            {
+                char uuid[40];
+                jc_uuid_v4(uuid);
+                jc_snprintf(mp->boundary, sizeof(mp->boundary),
+                            "jichiBoundary%s", uuid);
+            }
+        }
+    }
     part_header(mp);
     jc_sb_append(&mp->body, "Content-Disposition: form-data; name=\"");
     append_quoted(mp, name != NULL ? name : "");
@@ -85,6 +144,7 @@ void jc_multipart_file(struct jc_multipart *mp, const char *name,
         jc_sb_append_n(&mp->body, (const char *)data, len);
     }
     jc_sb_append(&mp->body, "\r\n");
+    return JC_OK;
 }
 
 char *jc_multipart_finish(struct jc_multipart *mp, jc_size *out_len)

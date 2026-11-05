@@ -21,7 +21,7 @@ run ends with a non-zero status. Every decision is appended to a structured
 jichi --auto --verify 'make && make test' \
   --budget-tokens 200k --deadline 20m --max-tool-calls 60 \
   --edit-scope 'src/**' --edit-scope 'tests/**' \
-  -p "Fix the failing parser tests"
+  -p "Fix the failing parser tests" < /dev/null
 ```
 
 The envelope composes existing machinery — [snapshots](SNAPSHOTS.md),
@@ -161,7 +161,7 @@ git checkout -b jichi-scratch          # 1. a branch you do not mind losing
    is the limit you can feel:
 
    ```sh
-   jichi --auto --deadline 10m --verify "make test" --edit-scope 'src/**' -p "Fix the failing test in src/, and nothing else."
+   jichi --auto --deadline 10m --verify "make test" --edit-scope 'src/**' -p "Fix the failing test in src/, and nothing else." < /dev/null
    ```
 
 4. **One directory of scope.** `--edit-scope 'src/**'` means a write outside
@@ -474,7 +474,8 @@ when the scope is trustworthy. Needs snapshots (the baseline) like the guard
 itself.
 
 Add **`--strict-scope`** to close the shell escape: while an edit-scope is in
-force it refuses `run_terminal_command` outright, so *every* mutation must go
+force it refuses the shell -- `run_terminal_command` and `run_tests` with a
+`command` (M846) -- outright, so *every* mutation must go
 through the scoped `edit_file`/`write_file` tools. Use it when you want the
 edit-scope to be a hard boundary rather than guidance (at the cost of the agent
 having no shell).
@@ -509,8 +510,9 @@ call resolves instead of failing), and a recursive walk is a different propositi
 filesystem. The feature and the fence shipped together on purpose.
 
 It is a **tri-state** (`pathFence`, or `--path-fence`/`--no-path-fence`): default
-**auto** = on only in the autonomous postures (`--auto` / auto-approve), where
-there is no human in the loop to catch a stray path; force it on for every mode,
+**auto** = on in the autonomous postures (`--auto` / auto-approve) and, since M848,
+for any delegate that runs without asking (`spawn_subagent`, a parallel child)
+even in chat mode -- wherever there is no human in the loop to catch a stray path; force it on for every mode,
 or off when you deliberately want the agent to read sibling repos / `~/.config`.
 Unlike edit-scope it also covers **reads**, and it applies to the ACP fs delegate
 too. Companion resource bounds landed alongside it: a 64 MB cap on a single file
@@ -552,18 +554,38 @@ Under `--auto`, before the verify gate, a **self-review** pass runs first
 before the verifier runs. See [GIT.md](GIT.md); disable with `--no-self-review`.
 
 `--verify <cmd>` runs `cmd` (via `/bin/sh -c` in the workspace) when the agent
-produces a final answer **and** the run changed files. Then:
+produces a final answer. **Since M1048 (G18) it does not wait for a changed
+file or a checkpoint:** the gate is armed + final answer, so a run whose tools
+changed nothing still gets judged, and a run that took no pre-edit snapshot
+(see below) still runs its check. Then:
 
-- **Exit 0** — a new `green:` checkpoint is taken and the run succeeds (exit 0).
+- **Exit 0** — the run succeeds (exit 0), and **when snapshots are on** a new
+  `green:` checkpoint is banked. A passing verify with no snapshot still ends
+  green — the check ran and said the tree is where the task wanted it; there is
+  simply nothing to bank.
 - **Non-zero, retries remain** — the verifier output is **parsed** (JUnit-XML /
   TAP / generic `file:line` scan; see [TESTING.md](TESTING.md)) and the agent is
   fed a focused summary — which tests failed and where — ahead of a short raw
   tail, then tries again (*fix-forward*: the agent's progress is preserved). When
   nothing parses, it falls back to the raw output tail. `--verify-retries <n>`
   sets the budget (default 3; `0` disables fix-forward — roll back on the first
-  failure).
-- **Non-zero, retries exhausted** — the workspace is rolled back to the green
-  checkpoint and the run exits 1.
+  failure). Since **M892** the message says it comes from jichi's end-of-run check,
+  not from the operator, and ends with a way out: if the agent's changes did not cause
+  the failure, it says so and makes no further edits. An answer after which nothing
+  changed — the worktree's content where git can fingerprint it, otherwise any executed
+  call but a read — ends the run on the check's verdict, as running out of retries
+  does, without re-running the check on the same tree. Since **M893**, a failure on the
+  very line that already failed before the run's first change -- in the run-start
+  verify (`--verify-baseline`, or a declared `verifyKind`), or in a batch's worktree
+  verify of the same command on the starting tree -- is said to predate the run's
+  changes, with where it was seen, and that round spends no retry. Once per run.
+- **Non-zero, retries exhausted** — the run exits 1. **When a green checkpoint
+  was banked** (snapshots on, and something to bank), the workspace is rolled
+  back to it; the red verify is `verify_failed` either way. **Without a
+  checkpoint the work is kept as it is** — the check cannot roll back a tree it
+  never snapshotted — and the footer says "kept", not "rolled back", and the
+  run is still red: **since M1048 (G18) the failure is not skipped for want of
+  a snapshot.** A snapshot is needed to roll back, not to check.
 
 A verifier that runs longer than **`--verify-timeout <dur>`** (e.g. `5m`) is
 killed (`SIGKILL`) and counts as a failure, so a hung build/test can't stall the
@@ -578,14 +600,20 @@ it feeds the parsed failures back to the agent so it fixes them before making mo
 changes (no mid-turn rollback). This keeps the loop green incrementally and
 composes with mid-turn compaction and the M80 budget rule.
 
-**It requires snapshots**, and says nothing when it doesn't have them. Banking a
-green checkpoint is half of what the flag does, so the gate is `env_active &&
-depth 0 && snapshotted && verify_cmd` — with `snapshots: false` (or no `git`, or
-the huge-un-managed-workspace guard) `--verify-every` is accepted and then never
-fires. Discovered writing the M422 driver, whose first version set
-`"snapshots": false` and reported a periodic verifier that had simply never run.
+**It needs snapshots only to bank, not to check** (M1048, G18). The gate is
+`env_active && depth 0 && verify_cmd` — snapshots no longer decide whether it
+fires. On **pass** it banks a fresh green checkpoint, but banking is the part
+that wants a snapshot: with `snapshots: false` (or no `git`, or the
+huge-un-managed-workspace guard) the check still runs and still feeds its verdict
+back, it just banks nothing. On **fail** with no checkpoint there is nothing to
+roll back to mid-turn (the periodic site never rolled back anyway — it feeds the
+failure forward), so the work is kept and the run continues. This was discovered
+writing the M422 driver, whose first version set `"snapshots": false` and
+reported a periodic verifier that had simply never run; since M1048 it runs.
 If you pass `--verify-every` and see no mid-turn `verify` events in the journal,
-check snapshots before suspecting the count.
+the count has not been reached (it fires every `n` *tool calls* — a run that
+makes fewer than `n` tool calls before its final answer gets only the completion
+verify), not the snapshots.
 
 **Hollow-gate sanity check (M86).** A gate can *pass while running nothing* — a
 green exit 0 over a test suite that never compiled the code under change (the
@@ -845,6 +873,16 @@ starts every count again, and a shell command starts every count but its own;
 surfaced as `same=N` in `runs`. It notes and never stops: the stop half is not
 fitted, and its exit code is [DEFERRED](DEFERRED.md) item 7's question.
 
+**A silent success says so, since M895.** A shell command that exits 0 and prints
+nothing reads *"(no output: the command succeeded and printed nothing)"*. "(no output)"
+alone read as something missing: the demos drive's workers re-ran a passing
+`zig build test` looking for output, six of them in two days. Silent successes are
+counted per turn by the normalised command, so `cmd`, `cmd | tail` and `cmd 2>&1`
+count as one. From the third, the result says the command has succeeded silently N
+times, that exit 0 with no output means it passed, and that running it again on an
+unchanged tree will not show more. Advisory, at any depth; a command that fails
+silently still reads "(no output)" and its exit status.
+
 ### 3z. Before you spend a run: `brief-check`
 
 ```sh
@@ -918,7 +956,7 @@ and compare from the journal and telemetry rather than by impression:
 ```sh
 for arm in off on; do
   [ "$arm" = on ] && P=--budget-panel || P=
-  jichi -p "$(cat brief.md)" --auto $P         --budget-tokens 1.5M --max-tool-calls 60         --journal "runs/$arm.jsonl" --output jsonl > "runs/$arm.log"
+  jichi -p "$(cat brief.md)" --auto $P         --budget-tokens 1.5M --max-tool-calls 60         --journal "runs/$arm.jsonl" --output jsonl > "runs/$arm.log" < /dev/null
 done
 jichi runs --output json          # outcome, tokens_used, tool_calls per arm
 ```
@@ -937,10 +975,14 @@ edits, or *your* mid-run merge, from an out-of-scope write by the model it polic
 So a second run can make the first revert work nobody asked it to touch.
 
 When an envelope arms, jichi writes an advisory lease to
-`~/.jichi.d/leases/<workspace-key>.json` (pid, run id, start time, mode; 0600, keyed
-by the same derivation as the checkpoint repo, so one project is one number in both
-stores) and drops it when the run ends. It re-reads the file first and unlinks
-**only** its own, so a run that proceeded past someone else's lease cannot delete it.
+`~/.jichi.d/leases/<workspace-key>.<run-id>.json` — one record **per holder** (pid, run id,
+start time, mode; 0600, keyed by the same derivation as the checkpoint repo, so one
+project is one number in both stores) — and drops its own when the run ends: the record
+is named after the run that wrote it, so a run that warned past someone else's lease can
+delete nothing but its own (M1101: the lease was one file, and a warn-take **overwrote**
+the live holder's record, so the holder's exit then erased it and `--lease fail` let a
+third run in over a still-working one). Records from builds before M1101 (the single
+`<workspace-key>.json`) are still read.
 
 | `--lease` | On finding a **live** holder |
 |---|---|
@@ -949,7 +991,8 @@ stores) and drops it when the run ends. It re-reads the file first and unlinks
 | `off` | neither take nor consult a lease |
 
 A **stale** lease — one whose pid no longer exists — is taken quietly in every mode,
-including `fail`. A crashed run must not wedge the workspace forever, which is the
+including `fail`, and is counted (and left on disk) by `jichi ps` rather than cleaned.
+A crashed run must not wedge the workspace forever, which is the
 classic lockfile failure, and you cannot tell a stale file from a live holder by
 looking.
 
@@ -1016,7 +1059,15 @@ Example trace of a run that couldn't pass and was reverted:
 ## Modes and exit codes
 
 In headless mode, envelope flags **imply `--auto`** (a bounded unsupervised run
-must act without prompts) unless you pin a mode with `--plan`/`--auto`.
+must act without prompts) unless you pin a mode with `--plan`/`--auto`, or ask for
+`--readonly`. An ACP session is not headless, though its stdin is a pipe: the
+editor answers its permission requests, so there the envelope arms without
+changing the session's mode (M850; before it, an editor session was switched to
+auto with no sign). A read-only run has nothing to approve: chat mode already runs a tool
+that only reads without asking. So it stays in chat mode, and since M840 no later
+mode change can clear `--readonly`. Before M840 two did: this promotion, and
+resuming a session saved in auto mode. Both made `--readonly --deadline 60s` write
+files, without a word under `-q` (`tests/smoke/readonly_pinned.sh`).
 
 | Outcome | Exit |
 | --- | --- |
@@ -1049,6 +1100,14 @@ Budgets, retries, rollback and the journal path are CLI-only (per-invocation).
 
 - CLI: the flags above; the audit journal.
 - TUI: `/verify` runs the configured verifier on demand and prints the result.
+- TUI: `/fences` shows what bounds the next turn on one screen: the mode, read-only, the path
+  fence, the edit scope, the constraints, the privilege policies, the approvals remembered, the
+  budgets, and whether the shell is fenced. It is not, unless strict scope or read-only takes
+  it away (M757).
+- TUI: `/why` says which rule decided the last tool call: the gate that refused it (a
+  constraint, the edit scope, the path fence, a hook, your answer at the prompt) or what let
+  it run (the mode, your allow list, your approval), and what the model was told. The gates
+  write that record themselves, so it does not depend on the model's account (M762).
 
 ## Implementation
 

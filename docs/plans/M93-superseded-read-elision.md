@@ -1,6 +1,6 @@
 # M93 — superseded-read elision in mid-turn compaction
 
-**Status:** planned (committed before implementation, per the loop).
+**Status:** shipped as **M93** (ROADMAP). Committed before implementation, per the loop; the "planned" header is superseded now that the milestone has landed. The design below is the record of *how* it was built.
 **Grounded in:** the telemetry-optimization pass over `zigodot-full.jsonl`
 (2048 model calls, 112.3M input tokens, cacheless HRZ backend).
 

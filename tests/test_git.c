@@ -199,6 +199,31 @@ static void test_mutate(void)
     cJSON_AddBoolToObject(args, "create", 1);
     JC_CHECK(run_git_tool(jc_tool_git_branch(), &app, args, NULL) == 0);
 
+    /* git_branch with a name beginning with '-' is refused before running git.
+     * --detach is the real tooth: with the guard ABSENT, `git checkout --detach`
+     * SUCCEEDS (rc 0) and detaches HEAD, so both assertions below go red --
+     * the return-code check (==1 wants the refusal) and the branch check (HEAD
+     * must still be on feature). A name git would itself reject (e.g. --force
+     * with -b) makes the check vacuous: git fails whether or not the guard is
+     * there, so it never proves the guard is what stopped it. */
+    args = cJSON_CreateObject();
+    cJSON_AddStringToObject(args, "name", "--detach");
+    JC_CHECK(run_git_tool(jc_tool_git_branch(), &app, args, NULL) == 1);
+    /* Verify the repo is untouched: current branch is still "feature". */
+    {
+        char cmd[256];
+        jc_snprintf(cmd, sizeof(cmd), "cd %s && git rev-parse --abbrev-ref HEAD 2>/dev/null | grep -q '^feature$'", dir);
+        if (system(cmd) != 0) {
+            JC_CHECK(0 == 1);  /* force failure if HEAD is not on feature */
+        }
+    }
+
+    /* A normal branch name with a hyphen in the middle (not leading) still works. */
+    args = cJSON_CreateObject();
+    cJSON_AddStringToObject(args, "name", "feature-two");
+    cJSON_AddBoolToObject(args, "create", 1);
+    JC_CHECK(run_git_tool(jc_tool_git_branch(), &app, args, NULL) == 0);
+
     /* Modify, stash, pop -- both succeed. */
     f = fopen(jc_test_tmp("jichi_git_m39/x.txt"), "wb");
     if (f != NULL) { fputs("changed\n", f); fclose(f); }

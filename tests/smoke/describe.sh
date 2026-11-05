@@ -6,7 +6,7 @@
 # flags. (Port of tests/e2e/describe.py, M210.)
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 10
+t_plan 13
 smoke_home
 tmp=$(smoke_tmp)
 JQ="$SMOKE_TOOLS/jsonq"
@@ -99,6 +99,25 @@ else
     t_fail "readonly flags wrong: read=$ro_read write=$ro_write"
 fi
 
+# M744: a conditional tool's row carries its flag too. It had none, so the
+# no-progress replay (tests/measure/noprogress_replay.py) read git_diff as a write
+# and missed the one note the 2026-09-24 drive's build told on a repeated git_diff.
+ro_diff=""; ro_commit=""
+i=0
+while [ $i -lt 64 ]; do
+    name=$("$JQ" ".conditional_tools[$i].name" "$D" 2>/dev/null) || break
+    case "$name" in
+        git_diff)   ro_diff=$("$JQ" ".conditional_tools[$i].readonly" "$D" 2>/dev/null) ;;
+        git_commit) ro_commit=$("$JQ" ".conditional_tools[$i].readonly" "$D" 2>/dev/null) ;;
+    esac
+    i=$((i + 1))
+done
+if [ "$ro_diff" = "true" ] && [ "$ro_commit" = "false" ]; then
+    t_ok "conditional tool flags: git_diff=true, git_commit=false"
+else
+    t_fail "conditional readonly flags: git_diff=[$ro_diff] git_commit=[$ro_commit]"
+fi
+
 JC_CONFIG=/nonexistent/there/config.json "$BIN" describe \
     < /dev/null > "$tmp/text" 2>/dev/null; rc=$?
 if [ $rc -eq 0 ] && grep -q "interface contract" "$tmp/text"; then
@@ -155,6 +174,41 @@ if grep -q '"stability"' "$D" && grep -q "EMBEDDING.md" "$D"; then
     t_ok "the contract names its stability policy and where to read it"
 else
     t_fail "no stability statement in describe --output json"
+fi
+
+# M752: THE CONTROL SOCKET'S VERBS ARE THE CODEC'S. The contract described the
+# daemon's protocol and not the supervisor's: the only trace of the control socket
+# was the `control` subcommand's summary, which listed five verbs by hand, and
+# `mode` (M304) never reached it. The second route is the codec's own parse table
+# (jc_control_type_parse in src/util/jc_control_proto.c), read from the source, so
+# a verb the socket accepts and the contract omits turns this red.
+want=$(sed -n 's/.*strcmp(s, "\([a-z]*\)") == 0) *return JC_CTL_.*/\1/p' \
+    "$SMOKE_ROOT/src/util/jc_control_proto.c" | sort | tr '\n' ' ')
+got=""
+i=0
+while v=$("$JQ" ".control.requests[$i].type" "$D" 2>/dev/null); do
+    got="$got$v
+"
+    i=$((i + 1))
+done
+got=$(printf '%s' "$got" | sort | tr '\n' ' ')
+nwant=$(printf '%s' "$want" | wc -w | tr -d ' ')
+if [ "$nwant" -ge 6 ] && [ "$got" = "$want" ]; then
+    t_ok "describe's control section lists the verbs the codec parses ($want)"
+else
+    t_fail "control verbs: describe has '$got', the codec parses '$want' ($nwant)"
+fi
+
+# ...and the human-readable summary says the same, with a summary for each verb.
+sum=$("$JQ" '.subcommands' "$D" 2>/dev/null | tr ',' '\n' | grep 'steer a running' | head -1)
+miss=""
+for v in $want; do
+    case "$sum" in *"$v"*) ;; *) miss="$miss $v" ;; esac
+done
+if [ -n "$sum" ] && [ -z "$miss" ] && ! grep -q '(undocumented)' "$D"; then
+    t_ok "the control subcommand's summary names every verb, and none is undocumented"
+else
+    t_fail "control summary misses:$miss (summary: $sum)"
 fi
 
 t_done

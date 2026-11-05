@@ -10,7 +10,42 @@
 #include "jc_perm.h"
 #include "cJSON.h"
 
+#include <limits.h>
 #include <string.h>
+
+jc_status jc_cli_parse_nonneg_int(const char *s, long *out)
+{
+    long val = 0;
+    if (s == NULL || *s == '\0') {
+        return JC_ERR_INVALID;
+    }
+    for (; *s != '\0'; s++) {
+        int d;
+        if (*s < '0' || *s > '9') {
+            return JC_ERR_INVALID;    /* a sign, suffix, space: not a whole number */
+        }
+        d = *s - '0';
+        if (val > (LONG_MAX - (long)d) / 10L) {
+            return JC_ERR_INVALID;    /* would overflow a long */
+        }
+        val = val * 10L + (long)d;
+    }
+    *out = val;
+    return JC_OK;
+}
+
+jc_status jc_cli_parse_bounded_int(const char *s, int bound, int *out)
+{
+    long v;
+    if (jc_cli_parse_nonneg_int(s, &v) != JC_OK) {
+        return JC_ERR_INVALID;
+    }
+    if (v > (long)bound) {
+        return JC_ERR_INVALID;    /* would truncate in the int cast */
+    }
+    *out = (int)v;
+    return JC_OK;
+}
 
 int jc_output_format_parse(const char *s, int *out_json)
 {

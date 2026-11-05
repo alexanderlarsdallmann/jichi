@@ -30,6 +30,8 @@
 # accidentally reporting zeros.
 . "$(dirname "$0")/_smoke.sh"
 
+command -v git >/dev/null 2>&1 || t_skip "needs git -- jichi snapshots shell out to it"
+
 t_plan 5
 smoke_home
 tmp=$(smoke_tmp)

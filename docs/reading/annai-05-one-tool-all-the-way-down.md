@@ -110,7 +110,7 @@ The guards, live:
 mkdir /tmp/annai5 && cd /tmp/annai5
 printf 'alpha\nbeta\nalpha\n' > twice.txt
 jichi --auto --no-session --output jsonl -p \
-  "in twice.txt change alpha to gamma"
+  "in twice.txt change alpha to gamma" < /dev/null
 ```
 
 Read the first `edit_file` result: the ambiguity error with both line

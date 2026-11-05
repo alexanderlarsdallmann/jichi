@@ -166,6 +166,15 @@ static void tt_mm_script(void)
     JC_CHECK(mm_script_parse("rule\n larger 0\n text A\n",
                              &s, err, sizeof(err)) == -1);
 
+    /* the drip modifier (M897): parsed per rule, rejected when < 1ms */
+    JC_CHECK(mm_script_parse("rule\n drip 1000\n sse-file /x\nrule\n text B\n",
+                             &s, err, sizeof(err)) == 0);
+    JC_CHECK(s.rules[0].drip_ms == 1000);
+    JC_CHECK(s.rules[1].drip_ms == 0);
+    mm_script_free(&s);
+    JC_CHECK(mm_script_parse("rule\n drip 0\n sse-file /x\n",
+                             &s, err, sizeof(err)) == -1);
+
     /* the delay modifier (M211): parsed per rule, rejected when < 1ms */
     JC_CHECK(mm_script_parse("rule\n delay 800\n text A\nrule\n text B\n",
                              &s, err, sizeof(err)) == 0);
@@ -174,6 +183,32 @@ static void tt_mm_script(void)
     mm_script_free(&s);
     JC_CHECK(mm_script_parse("rule\n delay 0\n text A\n",
                              &s, err, sizeof(err)) == -1);
+
+    /* M951: `usage grow BASE STEP` -- a prompt that grows per request, so a
+     * long run can MEASURE the growth (the relay's leg-budget controller).
+     * Fixed `usage IN OUT` and grow are mutually exclusive per rule; grow
+     * must be parsed BEFORE the fixed form (which would read "grow" as a
+     * negative IN). */
+    JC_CHECK(mm_script_parse(
+        "rule\n usage grow 100 50\n text GROWN\n",
+        &s, err, sizeof(err)) == 0);
+    JC_CHECK(s.rules[0].usage_grow == 1);
+    JC_CHECK(s.rules[0].usage_grow_base == 100);
+    JC_CHECK(s.rules[0].usage_grow_step == 50);
+    JC_CHECK(s.rules[0].usage_in == -1);
+    JC_CHECK(s.rules[0].usage_out == -1);
+    mm_script_free(&s);
+    /* a grow with a single number takes step 0 (a constant) -- consistent
+     * with the fixed `usage IN OUT` treating a missing OUT as 0. */
+    JC_CHECK(mm_script_parse("rule\n usage grow 100\n text A\n",
+                             &s, err, sizeof(err)) == 0);
+    JC_CHECK(s.rules[0].usage_grow == 1);
+    JC_CHECK(s.rules[0].usage_grow_base == 100);
+    JC_CHECK(s.rules[0].usage_grow_step == 0);
+    mm_script_free(&s);
+    JC_CHECK(mm_script_parse("rule\n usage grow -3 5\n text A\n",
+                             &s, err, sizeof(err)) == -1);
+    JC_CHECK(strstr(err, "usage grow") != NULL);
 
     /* errors carry line numbers */
     JC_CHECK(mm_script_parse("rule\n bogus x\n text A\n",
@@ -234,7 +269,7 @@ static void tt_mm_render(void)
 
     /* text: role/content delta, stop chunk with usage, [DONE], and a
      * JSON-escaped payload -- the exact Python-mock shape. */
-    JC_CHECK(mm_render_response(&s.rules[0], &resp, &rlen) == 0);
+    JC_CHECK(mm_render_response(&s.rules[0], &resp, &rlen, 1) == 0);
     JC_CHECK(strstr(resp, "HTTP/1.1 200 OK") == resp);
     JC_CHECK(strstr(resp, "Content-Type: text/event-stream") != NULL);
     JC_CHECK(strstr(resp, "\"content\":\"hi \\\"there\\\"\"") != NULL);
@@ -246,7 +281,7 @@ static void tt_mm_render(void)
     free(resp);
 
     /* tool: function name + arguments as an escaped JSON string */
-    JC_CHECK(mm_render_response(&s.rules[1], &resp, &rlen) == 0);
+    JC_CHECK(mm_render_response(&s.rules[1], &resp, &rlen, 1) == 0);
     JC_CHECK(strstr(resp, "\"name\":\"read_file\"") != NULL);
     JC_CHECK(strstr(resp,
         "\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"") != NULL);
@@ -255,20 +290,20 @@ static void tt_mm_render(void)
     free(resp);
 
     /* status: plain reply, correct code + body */
-    JC_CHECK(mm_render_response(&s.rules[2], &resp, &rlen) == 0);
+    JC_CHECK(mm_render_response(&s.rules[2], &resp, &rlen, 1) == 0);
     JC_CHECK(strstr(resp, "HTTP/1.1 400") == resp);
     JC_CHECK(strstr(resp, "{\"e\":1}") != NULL);
     tt_check_content_length(resp, rlen);
     free(resp);
 
     /* stall header: SSE head, NO Content-Length (the peer must wait) */
-    JC_CHECK(mm_render_response(&s.rules[3], &resp, &rlen) == 0);
+    JC_CHECK(mm_render_response(&s.rules[3], &resp, &rlen, 1) == 0);
     JC_CHECK(strstr(resp, "Content-Length") == NULL);
     JC_CHECK(strstr(resp, "text/event-stream") != NULL);
     free(resp);
 
     /* stall mid: head + one delta, then the shell holds */
-    JC_CHECK(mm_render_response(&s.rules[4], &resp, &rlen) == 0);
+    JC_CHECK(mm_render_response(&s.rules[4], &resp, &rlen, 1) == 0);
     JC_CHECK(strstr(resp, "Content-Length") == NULL);
     JC_CHECK(strstr(resp, "\"content\":\"partial\"") != NULL);
     JC_CHECK(strstr(resp, "[DONE]") == NULL);

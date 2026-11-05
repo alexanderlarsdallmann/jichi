@@ -133,7 +133,6 @@ kept as the reasoning for each case, no longer as the mechanism.
 | `local/` (git-ignored already) | Real endpoints, real key-env names, machine-specific sizing. |
 | Generated artifacts: `jichi`, `jichi-convert`, `*.o`, `run_tests`, `docs/presentations/out/`, `tests/bench/results/`, `.v6-results/`, and the three assignment binaries untracked at M484 | Distribution is **source-only** by the checklist's own decision (no binaries, no bundled curl). |
 | `~/.jichi*` state (never in the tree) | Sessions, telemetry, checkpoints, calibration — user data by design (M132 keeps them outside any workspace). |
-| The operator's email drafts (`../emails/`) | Outside the repository already; correspondence with a third party. |
 | Anything naming a person other than the author | Check before publishing: the dialogues and analysis notes are written to and about the operator, which is fine — but a third party's name or address is not the author's to publish. |
 
 ## 5. How to execute it, once unblocked

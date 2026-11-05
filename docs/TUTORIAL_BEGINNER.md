@@ -74,19 +74,26 @@ Answer the prompts:
    test command tuned for it. **If you are unsure, accept the default** — jichi
    detects it from the files already in the folder, and nothing here is
    permanent.
-3. **Provider / model / key env-var** — e.g. `openai`, `gpt-4o`, and the key
-   env-var (default `JICHI_API_KEY`). The wizard stores only the *name* of the
-   env-var, never your key.
+3. **Provider / model / endpoint** — the simplest free choice is a **local
+   OpenAI-compatible server** (LM Studio, llama.cpp): pick `openai` as the
+   provider, give its address (usually `http://localhost:1234/v1`) as the API
+   base, and the model name your server reports. A local server needs **no API
+   key**. For a hosted model instead, name the provider and the env-var that holds
+   your key (the wizard stores only the *name*, never the key) — and note a hosted
+   model may be **paid**.
 4. **Where to write the config** — accept the default (`./local/config.json`).
 5. **Accept the role's defaults?** — say **yes** for now.
 
 It scaffolds `.jichi/` assets, writes `local/config.json`, and creates an
-executable `run.sh`. (Prefer one command? `setup --preset developer --provider
-openai --model gpt-4o --key-env OPENAI_API_KEY` does the same without prompts.)
+executable `run.sh` — a start-script that launches jichi with this config, so
+`./run.sh` opens a session without retyping any flags. (Prefer one command?
+`setup --preset developer --provider openai --api-base http://localhost:1234/v1
+--model local-model` does the same without prompts.)
 
-## 2. Set your API key
+## 2. Set your API key (hosted models only)
 
-The config references an env-var; export the real key into your shell:
+**A local server needs no key — skip this step.** For a hosted model, the config
+references an env-var; export the real key into your shell:
 
 ```sh
 export JICHI_API_KEY=sk-...       # the name you gave the wizard
@@ -109,6 +116,18 @@ jichi doctor
 Read every line — understanding your own setup is the first real developer
 habit. You want mostly ✓. A ✓ on the API key means it's exported correctly; a
 `!` there just means you haven't exported it in *this* terminal yet.
+
+A healthy run is all ticks and ends `N ok, 0 warnings, 0 problems`, e.g.:
+
+```
+✓ configuration loaded
+    active: your-model
+✓ API key present for the active model
+✓ model server reachable
+```
+
+(A local server needs no key, so a `!` on the API-key line is expected there — not a
+failure. The full reference is [DOCTOR.md](DOCTOR.md).)
 
 ## 4. Start chatting
 
@@ -188,7 +207,10 @@ model better suited to the job.
 
 Two more, worth knowing early: **Ctrl-R** searches your history (useful when you
 want yesterday's phrasing), and ending a line with **`\`** continues it on the
-next, so you can write a multi-line request. Pasting several lines works too —
+next, so you can write a multi-line request. Your history is kept from one session
+to the next, in a file only you can read (`~/.jichi.d/input_history`). A line that
+holds a key jichi knows, or looks like a password or a token, is not saved.
+`"inputHistory": false` in your config turns this off. Pasting several lines works too —
 jichi keeps a pasted block as one message rather than sending each line.
 
 Press **`/help`** any time: the last section lists every key.
@@ -236,11 +258,12 @@ Alt-B/Alt-F word moves work as usual):
 | **Ctrl-L** | clear the screen and redraw the input line |
 | **Ctrl-D** | delete the character under the cursor; on an empty line, exit |
 | **Ctrl-C** | clear the line; on an empty line, cancel / interrupt |
+| **Esc** | while jichi is working: stop the turn, as Ctrl-C does (M753) |
 
 Outside the chat you can also run one-shot prompts:
 
 ```sh
-jichi -p "explain src/main.c"     # from your project dir; auto-loads local/config.json
+jichi -p "explain src/main.c" < /dev/null     # from your project dir; auto-loads local/config.json
 ```
 
 ## 6b. Measure your runs

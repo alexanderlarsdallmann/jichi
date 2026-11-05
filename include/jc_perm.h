@@ -41,6 +41,13 @@ enum jc_agent_mode {
  * flag; `in_allow`/`in_deny` are membership in the config allow/deny lists;
  * `mcp_policy` is the per-server MCP verdict (JC_APPROVAL_ASK for non-MCP
  * tools). Deny dominates; see the truth table in docs/AGENT_MODES.md. */
+/* M762: the same verdict, and in *why (when non-NULL) the rule that decided it,
+ * in words, for /why. One function decides; jc_perm_for_tool is this with a
+ * NULL why, so the explanation cannot drift from the decision. Pure. */
+enum jc_approval jc_perm_for_tool_why(enum jc_agent_mode mode, int tool_readonly,
+                                      int in_allow, int in_deny,
+                                      enum jc_approval mcp_policy,
+                                      const char **why);
 enum jc_approval jc_perm_for_tool(enum jc_agent_mode mode, int tool_readonly,
                                   int in_allow, int in_deny,
                                   enum jc_approval mcp_policy);
@@ -69,6 +76,26 @@ int jc_perm_mode_rank(enum jc_agent_mode mode);
  * wearing a convenience hat. A run you can only tighten is safe to expose. Pure;
  * unit-tested. */
 int jc_perm_mode_narrows(enum jc_agent_mode from, enum jc_agent_mode to);
+
+/* M845 (D5): what a SAVED session's mode does to the process's mode, on an ACP
+ * load or a resume. One rule, the one the control channel follows (M304): a
+ * saved mode may NARROW the process's mode, never widen it, and an explicit
+ * --plan or --auto (`pinned`) keeps the process's mode when the saved one is
+ * stricter. Returns the mode to run in; *outcome says why. A saved mode looser
+ * than the process's is KEPT_WIDER even when pinned -- that is the reason worth
+ * reporting. Pure; tests/test_perm.c checks all 18 combinations. Before M845,
+ * ACP's session/load applied the saved mode unconditionally (a `--plan`
+ * process that loaded a session saved in auto wrote without asking, measured
+ * with a real model), and a resume without a flag widened chat to auto. */
+enum jc_saved_mode_outcome {
+    JC_SAVED_MODE_SAME = 0,    /* the session's mode is the process's       */
+    JC_SAVED_MODE_NARROWED,    /* stricter than the process's: applied      */
+    JC_SAVED_MODE_KEPT_PINNED, /* stricter, but --plan/--auto was given     */
+    JC_SAVED_MODE_KEPT_WIDER   /* looser than the process's: never applied  */
+};
+enum jc_agent_mode jc_perm_saved_mode(enum jc_agent_mode current, int pinned,
+                                      enum jc_agent_mode saved,
+                                      enum jc_saved_mode_outcome *outcome);
 
 /* Parse "chat"/"plan"/"auto" into *out. Returns 1 on success, 0 if unknown. */
 int jc_agent_mode_parse(const char *name, enum jc_agent_mode *out);

@@ -18,6 +18,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h> /* remove() for jc_session_delete */
+#include <sys/types.h> /* M1083 (D-08): pid_t for the tmp sweep's kill(pid,0) */
+#include <signal.h> /* M1083 (D-08): kill(pid,0) liveness in the tmp sweep */
+#include <errno.h>  /* M1083 (D-08): EPERM means "alive, not ours" */
 
 /* Compute the sessions directory path: ~/.jichi.d/sessions
  *
@@ -44,6 +47,10 @@ static void session_path(const char *id, char *buf, jc_size cap)
     jc_snprintf(buf, cap, "%s/.jichi.d/sessions/%s.json", jc_home_dir(), id);
 }
 
+/* M1139 (D-07): forward declaration -- the definition stays where it is
+ * (below jc_session_delete), beside the CLI path's gate. */
+static int id_is_plain(const char *id);
+
 jc_status jc_session_new(struct jc_session *s, const char *workspace,
                          struct jc_arena *a)
 {
@@ -55,6 +62,11 @@ jc_status jc_session_new(struct jc_session *s, const char *workspace,
     s->alias = NULL;
     s->workspace = jc_arena_strdup(a, workspace != NULL ? workspace : ".");
     s->mode = JC_MODE_CHAT;
+    /* M954 (store v3): a fresh session is not a relay leg. */
+    s->relay_id = NULL;
+    s->leg = 0;
+    s->prev_session = NULL;
+    s->notes_path = NULL;
     jc_history_init(&s->history);
     jc_todo_init(&s->todos);
     s->saved_gen = 0;
@@ -98,6 +110,15 @@ jc_status jc_session_fork(struct jc_session *src, struct jc_session *dst,
     if (jc_todo_copy(&dst->todos, &src->todos) != JC_OK) {
         return JC_ERR_OOM;
     }
+    /* M954 (store v3): a fork is a NEW session (a fresh uuid), not a relay leg
+     * and not the continuation of one -- it starts from the fork source's
+     * history, not from a baton. Clear the chain fields so the forked file
+     * does not inherit a relay_id/prev_session that pointed at the source's
+     * relay dir. */
+    dst->relay_id = NULL;
+    dst->leg = 0;
+    dst->prev_session = NULL;
+    dst->notes_path = NULL;
     dst->saved_gen = 0;
     dst->saved_todos_gen = 0;
     dst->saved_mode = dst->mode;
@@ -255,6 +276,25 @@ static cJSON *message_to_json(struct jc_message *m)
     if (m->truncated) {
         cJSON_AddBoolToObject(jm, "truncated", 1);
     }
+    /* saw_reasoning (M937) is turn-ephemeral: the provider recomputes it from
+     * the wire every call (both dialects funnel through jc_prov_flush), and the
+     * only consumer -- the reasoning-only delegate child's one nudge -- fires
+     * within the SAME run. It therefore is NOT persisted (no save, no load): a
+     * resumed session re-derives it from its own reply, and carrying a stale
+     * flag across a resume would let it nudge a reply that never emitted
+     * reasoning. Unlike truncated, which a reload must still see, this is the
+     * field that is safe to forget on disk. */
+    /* truncated_by_cap (A-07 / M1090) is turn-ephemeral for the same reason
+     * saw_reasoning is: the provider recomputes it from the wire every call
+     * (jc_prov_flush sets it only when jichi's own per-stream accumulation cap
+     * clipped the reply and the model's output limit did NOT also fire), and
+     * its only consumer -- the M334/M859 cause-correct prose -- fires within
+     * the same run. It is therefore NOT persisted (no save, no load): it is
+     * re-derived from the persisted `truncated` flag plus the cause, so a
+     * resumed session re-derives it from its own reply, and carrying a stale
+     * cause across a resume would blame the wrong limit -- worse than dropping
+     * it. The fork copy loop (M367) deliberately leaves it 0 for the same
+     * reason: the fork re-derives it from its own next reply. */
     if (jc_msg_tool_call_count(m) > 0) {
         cJSON *arr = cJSON_CreateArray();
         jc_size k;
@@ -334,6 +374,22 @@ char *jc_session_serialize(struct jc_session *s)
                             s->workspace ? s->workspace : ".");
     cJSON_AddStringToObject(env, "mode",
                             jc_agent_mode_name((enum jc_agent_mode)s->mode));
+    /* M954 (store v3): the relay's chain fields. Omitted when the session
+     * never handed over (leg 0 / relay_id NULL) so a v3 file for an ordinary
+     * session is identical to its v2 shape plus the version bump; a reader of
+     * an older file simply lacks the keys, as it lacks "todos" pre-v2. */
+    if (s->relay_id != NULL) {
+        cJSON_AddStringToObject(env, "relay_id", s->relay_id);
+    }
+    if (s->leg > 0) {
+        cJSON_AddNumberToObject(env, "leg", (double)s->leg);
+    }
+    if (s->prev_session != NULL) {
+        cJSON_AddStringToObject(env, "prev_session", s->prev_session);
+    }
+    if (s->notes_path != NULL) {
+        cJSON_AddStringToObject(env, "notes_path", s->notes_path);
+    }
     meta = cJSON_PrintUnformatted(env);
     cJSON_Delete(env);
     if (meta == NULL) {
@@ -429,11 +485,37 @@ jc_status jc_session_save(struct jc_session *s)
     if (text == NULL) {
         return JC_ERR_OOM;
     }
+    /* M802: the session stores tool results, tool-call arguments and todos, any of
+     * which can hold a registered secret a command printed. Redact before it lands
+     * on disk. A resumed session replays *** to the model, which already saw the
+     * value, so nothing it needs is lost. The redactor never lengthens the text,
+     * so strlen(text)+1 always fits the redacted copy. M1137 (C-19): via the
+     * shared helper, failing CLOSED -- a scrub that cannot allocate joins
+     * jc_session_serialize's own NULL-on-OOM arm: free the unredacted buffer and
+     * return JC_ERR_OOM, writing NOTHING (every caller already reports a failed
+     * save, M1082). */
+    if (jc_redact_active()) {
+        char *red = jc_redact_scrub(text, (jc_size)strlen(text));
+        if (red == NULL) {
+            free(text);
+            return JC_ERR_OOM;
+        }
+        free(text);
+        text = red;
+    }
     /* M146: atomic replace -- an every-turn write that external readers (a
      * second jichi, a supervisor, a backup job) may race; they now see the old
      * session or the new one, never a torn file. mkstemp's 0600 carries over
      * (M132's owner-only requirement, guaranteed rather than patched after). */
-    st = jc_write_file_atomic(path, text, strlen(text));
+    /* M1083 (D-08): route the session save through the DURABLE writer, not the
+     * shared jc_write_file_atomic. The session is the one private sink the
+     * project's own code calls "not regenerable" (jc_session.c's load path
+     * prefers a newer-store session on that ground); the FILE_HANDLING "no
+     * fsync" decision still covers the recreatable sinks (telemetry,
+     * calibration, config) that keep the plain writer. fsync(fd) before the
+     * rename and fsync(dir) after make a mid-turn or end-of-turn save survive
+     * a power loss / OOM-kill instead of resting in the page cache. */
+    st = jc_write_file_atomic_durable(path, text, strlen(text));
     free(text);
     if (st == JC_OK) {
         jc_make_private(path); /* belt-and-suspenders; mkstemp already 0600 */
@@ -462,6 +544,19 @@ static jc_status load_from_text(const char *text, struct jc_session *s,
         return JC_ERR_PARSE;
     }
     s->arena = a;
+    /* Every field of *s is written by this function, so a caller that passes
+     * an UNINITIALIZED struct (ACP's session/load, the headless resume) still
+     * ends with a valid one. The relay's chain fields (M954) were the first
+     * exception: they were assigned only "when present" in the file, so a load
+     * of a file without them left whatever the caller's stack held, and the
+     * first save after a prompt ran strlen on the garbage relay_id and the
+     * process SIGSEGV'd (M954 gate: saved_mode_never_widens). Default them up
+     * front, where every other field is written, and let the block below
+     * overwrite them from the file. */
+    s->relay_id = NULL;
+    s->leg = 0;
+    s->prev_session = NULL;
+    s->notes_path = NULL;
     id = jc_json_get_str(root, "sessionId", NULL);
     title = jc_json_get_str(root, "title", NULL);
     ws = jc_json_get_str(root, "workspaceDirectory", ".");
@@ -485,6 +580,31 @@ static jc_status load_from_text(const char *text, struct jc_session *s,
                     "(store v%.0f, this build reads v%d): fields the newer "
                     "shape added are not restored", s->id, v,
                     JC_SESSION_STORE_V);
+        }
+    }
+    /* M954 (store v3): the relay's chain fields. Absent (a v1/v2 file, or a
+     * session that never handed over) leaves them at the defaults jc_session_
+     * new established. A field restored into memory is NOT marked dirty: the
+     * file already carries it, so a fresh load has memory equal to disk, and
+     * the next save re-writes it from memory (serialize emits the field when
+     * present). Marking dirty here would break the "no save is due after a
+     * plain load" invariant the round-trip test pins. */
+    {
+        const char *rid = jc_json_get_str(root, "relay_id", NULL);
+        double legv = jc_json_get_num_lenient(root, "leg", 0.0);
+        const char *prev = jc_json_get_str(root, "prev_session", NULL);
+        const char *notes = jc_json_get_str(root, "notes_path", NULL);
+        if (rid != NULL) {
+            s->relay_id = jc_arena_strdup(a, rid);
+        }
+        if (legv > 0.0) {
+            s->leg = (long)legv;
+        }
+        if (prev != NULL) {
+            s->prev_session = jc_arena_strdup(a, prev);
+        }
+        if (notes != NULL) {
+            s->notes_path = jc_arena_strdup(a, notes);
         }
     }
     jc_history_init(&s->history);
@@ -546,6 +666,14 @@ jc_status jc_session_load_by_id(const char *id, struct jc_session *s,
     jc_status st;
     struct jc_arena *ta;
 
+    /* M1139 (D-07): the id becomes a path. Validate it BEFORE any
+     * arena/file work so a traversal id (any character outside
+     * [A-Za-z0-9_-], or NULL) is refused without touching the disk --
+     * not only by the CLI gate, but by the store itself, so no caller
+     * (ACP session/load included) can forget. */
+    if (!id_is_plain(id)) {
+        return JC_ERR_INVALID;
+    }
     session_path(id, path, sizeof(path));
     /* M197: the file text is a transient the parser consumes -- load_from_text
      * copies the four scalars onto `a` and the history into malloc'd messages.
@@ -604,6 +732,94 @@ jc_status jc_session_list(struct jc_vec *out, struct jc_arena *a)
     return jc_session_list_ex(out, a, NULL);
 }
 
+/* M1083 (D-08): sweep crash-left `<id>.json.tmp<pid>` files whose pid is no
+ * longer alive, at listing time. jc_write_file_atomic writes the tmp then
+ * renames; a SIGKILL between the two leaves the tmp in the store forever, and
+ * because every listing filters on the `.json` suffix (below) those files were
+ * invisible to every removal path -- not `/sessions`, not `clear --all`.
+ *
+ * A file is swept only if it EXACTLY matches jichi's atomic-write shape:
+ * `<stem>.json.tmp<pid>` where `<stem>` is non-empty and id-shaped ([A-Za-z0-9_-]
+ * -- what id_is_plain allows) and `<pid>` is all digits to the end of the name.
+ * The LAST occurrence of ".json.tmp" is the boundary (a foreign stem that merely
+ * contains the string is not a jichi tmp). The liveness test is kill(pid, 0): it
+ * fails with ESRCH when the pid is gone (sweep it), but with EPERM when the pid
+ * is alive yet owned by another user -- that must be treated as ALIVE, never
+ * removed. Anything that does not parse to that shape is left alone. Best-effort:
+ * a failure to remove one file is not a failure of the whole listing. */
+static void jc_session_sweep_stale_tmps(const char *dir, struct jc_vec *names)
+{
+    jc_size i;
+    for (i = 0; i < names->len; i++) {
+        const char *name = *(char **)jc_vec_at(names, i);
+        const char *mark;
+        const char *p;
+        const char *c;
+        char path[1100];
+        long pid = 0;
+        int stem_ok = 1;
+        int stem_seen = 0;
+
+        /* Find the LAST ".json.tmp"; the boundary must be the final occurrence
+         * so the pid part cannot itself contain the marker. */
+        mark = NULL;
+        for (c = name; (c = strstr(c, ".json.tmp")) != NULL; ) {
+            mark = c;
+            c++;
+        }
+        if (mark == NULL || mark == name) {
+            continue; /* not the atomic-write shape (or empty stem) */
+        }
+        /* Stem = name..mark-1: must be non-empty and id-shaped. */
+        for (c = name; c != mark; c++) {
+            char ch = *c;
+            int ok = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
+                     (ch >= '0' && ch <= '9') || ch == '-' || ch == '_';
+            if (!ok) {
+                stem_ok = 0;
+                break;
+            }
+            stem_seen = 1;
+        }
+        if (!stem_ok || !stem_seen) {
+            continue; /* foreign stem, not a jichi session tmp */
+        }
+        p = mark + 9; /* the char after ".json.tmp" (9 chars) */
+        /* p must be all digits to the end of the name and non-empty. */
+        if (*p == '\0') {
+            continue;
+        }
+        while (*p != '\0') {
+            if (*p < '0' || *p > '9') {
+                p = NULL;
+                break;
+            }
+            pid = pid * 10 + (*p - '0');
+            if (pid > 0x7fffffffL) {
+                /* absurd pid -- treat as not-ours, leave it */
+                p = NULL;
+                break;
+            }
+            p++;
+        }
+        if (p == NULL || pid == 0) {
+            continue;
+        }
+        if (kill((pid_t)pid, 0) == 0 || errno == EPERM) {
+            continue; /* alive (ours, or another user's) -- keep the tmp */
+        }
+        if (errno != ESRCH) {
+            continue; /* not a liveness answer; be conservative */
+        }
+        jc_snprintf(path, sizeof(path), "%s/%s", dir, name);
+        if (remove(path) == 0) {
+            jc_logf(JC_LOG_INFO,
+                    "session store: swept crash-leftover %s (pid %ld gone)",
+                    name, pid);
+        }
+    }
+}
+
 jc_status jc_session_list_ex(struct jc_vec *out, struct jc_arena *a,
                              int *skipped)
 {
@@ -651,6 +867,15 @@ jc_status jc_session_list_ex(struct jc_vec *out, struct jc_arena *a,
         jc_arena_free(fa);
         return st;
     }
+    /* M1083 (D-08): at listing time, sweep crash-left `<id>.json.tmp<pid>` files
+     * whose pid is gone. This is the one path that sees every file in the store
+     * (the .json suffix filter below only runs AFTER this), so a tmp left by a
+     * kill between open(tmp) and rename is removed here rather than persisting
+     * invisibly. A fresh store (NOTFOUND) already returned above; an empty
+     * directory lists with no tmps to sweep. */
+    if (names.len > 0) {
+        jc_session_sweep_stale_tmps(dir, &names);
+    }
     for (i = 0; i < names.len; i++) {
         const char *name = *(char **)jc_vec_at(&names, i);
         char path[1100];
@@ -659,6 +884,10 @@ jc_status jc_session_list_ex(struct jc_vec *out, struct jc_arena *a,
         struct jc_session_meta meta;
         cJSON *root;
         cJSON *hist;
+        /* Every field is set below (v3's four chain fields included), so a
+         * partial init would leave a pointer that a later row reads as a
+         * "session" with garbage -- zero it for safety. */
+        memset(&meta, 0, sizeof(meta));
         if (nl < 6 || strcmp(name + nl - 5, ".json") != 0) {
             continue;
         }
@@ -701,6 +930,10 @@ jc_status jc_session_list_ex(struct jc_vec *out, struct jc_arena *a,
             const char *in_title = NULL;
             const char *in_alias = NULL;
             const char *in_ws = NULL;
+            const char *in_relay_id = NULL;
+            const char *in_prev = NULL;
+            const char *in_notes = NULL;
+            long in_leg = 0;
             int nmsgs = 0;
 
             if (sl >= sizeof(stem)) sl = sizeof(stem) - 1;
@@ -714,6 +947,10 @@ jc_status jc_session_list_ex(struct jc_vec *out, struct jc_arena *a,
                 in_alias = sm.has_alias ? sm.alias : NULL;
                 in_ws    = sm.has_workspace ? sm.workspace : NULL;
                 nmsgs    = sm.nmsgs;
+                in_relay_id    = sm.has_relay_id ? sm.relay_id : NULL;
+                in_prev        = sm.has_prev_session ? sm.prev_session : NULL;
+                in_notes       = sm.has_notes_path ? sm.notes_path : NULL;
+                in_leg         = sm.has_leg ? sm.leg : 0;
             } else {
                 root = jc_json_parse(text);
                 if (root == NULL) {
@@ -726,6 +963,10 @@ jc_status jc_session_list_ex(struct jc_vec *out, struct jc_arena *a,
                 in_ws    = jc_json_get_str(root, "workspaceDirectory", NULL);
                 hist = jc_json_get_obj(root, "history");
                 nmsgs = cJSON_IsArray(hist) ? cJSON_GetArraySize(hist) : 0;
+                in_relay_id    = jc_json_get_str(root, "relay_id", NULL);
+                in_prev        = jc_json_get_str(root, "prev_session", NULL);
+                in_notes       = jc_json_get_str(root, "notes_path", NULL);
+                in_leg         = jc_json_clamp_long(jc_json_get_num_lenient(root, "leg", 0.0));
             }
 
             /* M206: a .json file in the store that carries no sessionId is not
@@ -766,6 +1007,13 @@ jc_status jc_session_list_ex(struct jc_vec *out, struct jc_arena *a,
                 (in_ws != NULL) ? in_ws : ".");
             meta.nmsgs = nmsgs;
             meta.mtime = jc_file_mtime(path);
+            meta.relay_leg = in_leg;
+            meta.relay_id = (in_relay_id != NULL)
+                                 ? jc_arena_strdup(a, in_relay_id) : NULL;
+            meta.prev_session = (in_prev != NULL)
+                                    ? jc_arena_strdup(a, in_prev) : NULL;
+            meta.notes_path = (in_notes != NULL)
+                                  ? jc_arena_strdup(a, in_notes) : NULL;
             if (root != NULL) {
                 cJSON_Delete(root);
             }
@@ -1001,7 +1249,11 @@ void jc_session_store_stats(long *files_out, double *bytes_out)
 jc_status jc_session_delete(const char *id)
 {
     char path[1100];
-    if (id == NULL || id[0] == '\0') return JC_ERR_INVALID;
+    /* M1139 (D-07): a NULL or empty id is non-plain, so both arms of the old
+     * check join id_is_plain -- and a traversal id is refused too, before it
+     * becomes a path. The idempotent missing-file semantics below apply to
+     * PLAIN ids only, unchanged. */
+    if (!id_is_plain(id)) return JC_ERR_INVALID;
     session_path(id, path, sizeof(path));
     if (remove(path) != 0) {
         /* Missing is fine (idempotent); other errors are real. */

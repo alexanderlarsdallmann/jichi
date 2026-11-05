@@ -32,6 +32,15 @@ struct jc_sb;  /* jc_str.h  */
  * into the prompt, which should never be silent. */
 char *jc_memory_load(struct jc_app *app);
 
+/* M825 (N1): summarise the notes that fall OUTSIDE the load window, for the
+ * over-budget warning. `buf` is the dropped prefix (`n` bytes); writes into `out`
+ * (bounded to `cap`, always NUL-terminated) the markdown headings found there,
+ * joined with "; " -- or, if it has none, the first words of the dropped text. So a
+ * memory file ordered by importance shows WHICH important notes dropped, not merely
+ * that some did (the tail is kept, so the head is what falls out). `out` is "" for
+ * empty input. Pure; unit-tested. */
+void jc_memory_dropped_summary(const char *buf, jc_size n, char *out, jc_size cap);
+
 /* The memory file's on-disk size in bytes (0 when absent). M143: lets the
  * remember tool and doctor say when the file has outgrown the injection
  * budget instead of quietly dropping old notes from the prompt. */

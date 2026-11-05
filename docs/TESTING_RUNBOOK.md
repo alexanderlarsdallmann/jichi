@@ -52,6 +52,16 @@ Failures this catches, all real:
 | `find "$ws/.jichi.d"` | `.jichi.d` lives under `$HOME`; the path never existed |
 | "the report says `untracked`" | a created file is a *tracked* addition in the checkpoint's shadow repo, so the clause cannot fire in that fixture |
 
+**A perturbation has a direction, and an absence check's is the one that
+*produces* the forbidden thing.** A check that asserts "no `dirty_dispatch` event"
+is still green when the event-emitting code is *removed* -- that is the vacuous
+direction, and it cannot show the check is able to fail. The tooth makes the
+forbidden thing HAPPEN: M1060 (the hardening drive, run 0077, verified by the
+supervisor by effect on 2026-10-27) added one bare emission of the event, flow-
+neutral, and only then did the driver's absence checks go red *through their own
+grep*. Ask every red-first task on an absence check for that direction; a
+"suppress the writer" tooth proves the check is not broken, not that it works.
+
 ## 2. Prove the *instrument* can fail
 
 A perturbation proves the check notices a broken product. It does not prove your
@@ -117,6 +127,21 @@ command; the alternative is debugging the product for a defect in your editor.
 Pass `newline=''` to any Python that reads-then-writes a file with control bytes in it.
 `sed -i` and shell heredocs do not have this failure mode.
 
+## 3c. Make the fixture behave like the real peer
+
+**The incident (M882).** M880 kept a socket watch in the transfer's stack frame, and
+libcurl closes a connection the server keeps open after that frame has returned: the
+close wrote into it. Every real provider keeps its connection open. The smoke tier's
+mock answered `Connection: close` and closed every connection inside the transfer,
+while the watch was still valid. So 2,422 smoke checks and `make ci`'s sanitizer turn
+passed, and the first board that drove a real model crashed on both turns
+([ANECDOTES #120](ANECDOTES.md)).
+
+**The rule.** A mock answers the questions you thought to ask; the peer decides which
+code runs. Before you trust a green against a mock, name what the real peer does that
+the mock does not, and make the mock do it -- `mockmodel --keep-alive` exists since
+M882 -- or say in the driver's header that it does not.
+
 ## 4. Enumerate the universe a second way, by a different route
 
 `--help`'s command column and `grep 'strcmp(args.pos[0], …)'` should agree. They do
@@ -129,6 +154,8 @@ Where they disagree, one of them is your bug.**
 
 ```sh
 make smoke-mutant                # changed drivers, seconds
+MUTANT_BASE=<commit> make smoke-mutant   # also every driver changed since <commit>:
+                                         # a batch of commits gated by one make ci (M842)
 MUTANT_ALL=1 make smoke-mutant   # everything, ~9 minutes; run before a release
 ```
 
@@ -179,7 +206,7 @@ the repository is the worst possible place to test a checkpoint revert.
 |---|---|---|
 | Fences | **on** — `--readonly`, `pathFence`, `--edit-scope` | bound blast radius; these are real projects |
 | Caps | **off** — no `--deadline`, no `--budget-tokens`, raise `timeouts.stall` | a cap that fires does not hide the answer, it manufactures a different one |
-| `connect` timeout | keep | it can only fire when nothing is listening |
+| `connect` timeout | keep; raise it for a shared gateway | it bounds TCP and the TLS handshake, never an arriving answer (M877) |
 | `-q` / `--quiet` | **off** | see below |
 | Detach | `setsid` | a tool timeout SIGTERMs the process group and kills the work |
 
@@ -194,6 +221,14 @@ different direction: *"jichi does warn, and I did not read it."*
 84s with `stop_reason: timeout` — the default stall timeout, on a 9B model reading a
 large repo. Raised to 1800s the same run completed in 119s. Had I reported the first
 number, I would have published a property of my timeout as a property of the model.
+
+**And off means no wrapper, not a generous one.** Reproducing a crash, I ran each build
+as `timeout 120 jichi ...`. The cap never fired, and the same build crashed under it
+and answered without it: `timeout(1)` runs its command in a separate process group,
+and the defect was undefined behaviour, whose symptom follows the conditions. Reproduce
+a failure the way it ran, measure the operation before choosing any bound, and settle
+a symptom that comes and goes with an instrument -- here AddressSanitizer -- not with
+another run ([ANECDOTES #120](ANECDOTES.md)).
 
 ## 9. Do not report a defect you have not reproduced
 

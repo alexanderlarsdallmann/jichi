@@ -505,7 +505,7 @@ turn ([REFERENCES.md](REFERENCES.md)):
 
 <!-- fragment -->
 ```console
-$ jichi -p "@records/DECISIONS.md does the new cache contradict any of these?"
+$ jichi -p "@records/DECISIONS.md does the new cache contradict any of these?" < /dev/null
 ```
 
 That is the highest-value use of the register: an agent that can see what you

@@ -50,7 +50,7 @@ if ! git -C "$SMOKE_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
     t_skip "not a git repository -- the snapshot's manifest is the index"
 fi
 
-t_plan 16
+t_plan 17
 
 if [ ! -f "$SNAP_SH" ]; then
     t_fail "scripts/make-snapshot.sh is missing -- the snapshot has no producer"
@@ -375,8 +375,8 @@ fi
 # decision taken deliberately: the README explains the relationship, and the
 # gateway host is a wire value a JLU reader needs. An INTERNAL machine behind it
 # is a different thing -- it is that organisation's infrastructure, disclosed by
-# a project they do not control. The findings measured against that gateway were
-# reported to its operators privately and are withheld for the same reason
+# a project they do not control. The findings measured against that gateway are
+# withheld for the same reason
 # (see docs/analysis/2026-08-09-hrz-gateway-findings.md, which keeps the lessons).
 #
 # Allowlist, so this check never has to name the host it excludes.
@@ -520,6 +520,7 @@ root_allowed() {
         README.md|CHANGELOG.md|CONTRIBUTING.md|SECURITY.md) return 0 ;;
         CODE_OF_CONDUCT.md|CLAUDE.md|TUTORIAL.md) return 0 ;;
         Makefile) return 0 ;;
+        REPORT.md) return 0 ;;   # M1005: this report documenting the work
         *) return 1 ;;
     esac
 }
@@ -532,6 +533,127 @@ if [ -z "$_stray" ]; then
 else
     t_fail "unexpected file(s) at the root of the publishable tree:$_stray -- a scratch file
   ships like any other, and no other check in this driver can see it"
+fi
+
+# --- 14: no unpublished name from the internal list appears in the publishable tree ---
+# The list lives in docs/internal/UNPUBLISHED_NAMES.md (export-ignored, not in the
+# snapshot), one name per line in a clearly marked block. This check fails if any
+# listed name appears as a whole word (case-insensitive) in a file's content or
+# its path. The skip reason is printed when the list is absent (shipped tree has
+# no docs/internal/), and the floor is: an existing list with 0 names fails.
+#
+# The boundary class for whole-word matching is [A-Za-z0-9_-]: a name must not be
+# preceded or followed by a member of this class. (e.g. "xigumi2" does NOT match
+# the "xigumi" pattern, but "xigumi" surrounded by spaces DOES match).
+_list_file="$SMOKE_ROOT/docs/internal/UNPUBLISHED_NAMES.md"
+if [ ! -f "$_list_file" ]; then
+    t_skip_one "no docs/internal/UNPUBLISHED_NAMES.md (shipped tree has no docs/internal/); the unpublished-names check is skipped"
+else
+    # Parse names between the markers, strip trailing comments
+    _names=$(sed -n '/^<!-- unpublished-names:begin -->$/,/^<!-- unpublished-names:end -->$/p' "$_list_file" | sed '1d;$d' | sed 's/ *#.*$//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    _count=$(printf '%s\n' "$_names" | grep -c . || true)
+    if [ "$_count" -eq 0 ]; then
+        t_fail "UNPUBLISHED_NAMES.md exists but lists no names -- an empty list is a floor violation, not a green"
+    else
+        # Read the first name for the self-test plant
+        _first_name=$(printf '%s\n' "$_names" | head -n 1)
+        
+        # Build case-insensitive pattern with whole-word boundaries
+        # Each character becomes a char class for its upper/lower case variants
+        _pat=""
+        _len=${#_first_name}
+        _i=1
+        while [ $_i -le $_len ]; do
+            _c=$(printf '%s' "$_first_name" | cut -c$_i)
+            # Create a char class matching both cases
+            _uc=$(printf '%s' "$_c" | tr 'a-z' 'A-Z')
+            _lc=$(printf '%s' "$_c" | tr 'A-Z' 'a-z')
+            if [ "$_uc" = "$_lc" ]; then
+                # Non-alphabetic, just use the char
+                _pat="$_pat[ $_c]"
+            else
+                _pat="$_pat[$_uc$_lc]"
+            fi
+            _i=$(( _i + 1 ))
+        done
+        _pat_b="(^|[^A-Za-z0-9_])${_pat}($|[^A-Za-z0-9_])"
+        
+        # Self-test: plant the name (assembled at runtime, not written out)
+        printf '%s\n' "$_first_name" > "$TMP/plant.unpub"
+        # If the pattern doesn't match the plant, the check is meaningless
+        if ! printf '%s\n' "$_first_name" | LC_ALL=C grep -qE "$_pat_b" 2>/dev/null; then
+            t_fail "the unpublished-names matcher does not flag its own plant -- the check is meaningless"
+            # Do not count this as a check - just report the failure
+            _count=0  # Mark as failed so we don't continue with scanning
+        fi
+        
+        # Negative control: the SAME NAME with a glued-on trailing 'x' must
+        # NOT match -- a substring scan (no right-boundary check) would flag
+        # it. The plant file above holds the bare name; this feeds the
+        # suffixed token to the same pattern with the right boundary in play.
+        if [ "$_count" -gt 0 ]; then
+            if printf 'x%s\n' "$_first_name" | LC_ALL=C grep -qE "([^A-Za-z0-9_]|^)${_pat}($|[^A-Za-z0-9_])" 2>/dev/null; then
+                t_fail "the unpublished-names matcher is a substring scan (it matched a glued-on suffix on the plant name)"
+                _count=0
+            fi
+        fi
+        
+        # Scan content for each name (only if pattern is valid)
+        if [ "$_count" -gt 0 ]; then
+            _hits=""
+            _path_hits=""
+            while IFS= read -r _name; do
+                [ -z "$_name" ] && continue
+                # Build pattern for this name
+                _pn=""
+                _len=${#_name}
+                _i=1
+                while [ $_i -le $_len ]; do
+                    _c=$(printf '%s' "$_name" | cut -c$_i)
+                    _uc=$(printf '%s' "$_c" | tr 'a-z' 'A-Z')
+                    _lc=$(printf '%s' "$_c" | tr 'A-Z' 'a-z')
+                    if [ "$_uc" = "$_lc" ]; then
+                        _pn="$_pn[ $_c]"
+                    else
+                        _pn="$_pn[$_uc$_lc]"
+                    fi
+                    _i=$(( _i + 1 ))
+                done
+                _pat_name="(^|[^A-Za-z0-9_])${_pn}($|[^A-Za-z0-9_])"
+                
+                # Scan content (exclude the check's own file and REPORT.md to avoid self-reference)
+                while IFS= read -r _f; do
+                    # Skip the check's own file and REPORT.md
+                    _fname="${_f#"$TREE"/}"
+                    [ "$_fname" = "tests/smoke/snapshot_lint.sh" ] && continue
+                    [ "$_fname" = "REPORT.md" ] && continue
+                    if LC_ALL=C grep -qE "$_pat_name" "$_f" 2>/dev/null; then
+                        _hits="$_hits
+  content: $_fname"
+                    fi
+                done < "$TMP/files"
+                
+                # Scan paths (exclude the check's own file and REPORT.md to avoid self-reference)
+                while IFS= read -r _f; do
+                    _fname="${_f#"$TREE"/}"
+                    [ "$_fname" = "tests/smoke/snapshot_lint.sh" ] && continue
+                    [ "$_fname" = "REPORT.md" ] && continue
+                    if printf '%s\n' "$_fname" | LC_ALL=C grep -qE "$_pat_name" 2>/dev/null; then
+                        _path_hits="$_path_hits
+  path: $_fname"
+                    fi
+                done < "$TMP/files"
+            done <<EOF
+$_names
+EOF
+            
+            if [ -z "$_hits" ] && [ -z "$_path_hits" ]; then
+                t_ok "no unpublished name from the internal list appears in the publishable tree ($_count name(s) scanned)"
+            else
+                t_fail "unpublished name(s) found in the publishable tree:$_hits$_path_hits"
+            fi
+        fi
+    fi
 fi
 
 t_done

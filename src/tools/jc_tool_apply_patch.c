@@ -32,6 +32,7 @@
 #include "jc_envelope.h"
 #include "jc_eventlog.h"
 #include "jc_log.h"
+#include "jc_scopededit.h"  /* D6 (M975): the scoped edit check */
 
 #include <stdlib.h>
 #include <string.h>
@@ -119,6 +120,11 @@ static struct fileent *get_file(struct jc_vec *files, const char *path,
     if (jc_app_read_file(app, path, &text, &len,
                          jc_app_tool_scratch(app)) != JC_OK) {
         *err = "could not read file";
+        return NULL;
+    }
+    /* D-01/M978: refuse files whose buffer contains NUL bytes. */
+    if (len != strlen(text)) {
+        *err = "file contains NUL bytes; edit it with a script";
         return NULL;
     }
     ent.path = path;
@@ -263,10 +269,34 @@ static jc_status apply_run(const cJSON *args, struct jc_tool_result *out,
                          files.len == 1 ? "" : "s");
         for (i = 0; i < files.len; i++) {
             struct fileent *ent = (struct fileent *)jc_vec_at(&files, i);
-            jc_status wst = jc_app_write_file(app, ent->path,
-                              ent->buf.data != NULL ? ent->buf.data : "",
-                              ent->buf.len);
-            if (wst != JC_OK) {
+
+            /* D6 (M975): pre_write check for the trip. */
+            {
+                const char *pre = jc_scopededit_pre_write(app, ent->path);
+                if (pre != NULL) {
+                    tu_err(out, pre);
+                    /* Revert any already-written files and re-baseline their snapshots. */
+                    {
+                        jc_size k;
+                        for (k = 0; k < i; k++) {
+                            struct fileent *w = (struct fileent *)jc_vec_at(&files, k);
+                            if (w->orig != NULL) {
+                                jc_app_write_file(app, w->path, w->orig, w->orig_len);
+                                /* F3: re-baseline the snapshot after the trip-revert write. */
+                                jc_scopededit_post_write(app, w->path);
+                            }
+                        }
+                    }
+                    return JC_OK;
+                }
+            }
+
+            /* WERROR: move declaration to block top (C89). */
+            {
+                jc_status wst = jc_app_write_file(app, ent->path,
+                                  ent->buf.data != NULL ? ent->buf.data : "",
+                                  ent->buf.len);
+                if (wst != JC_OK) {
                 /* M138: revert-in-place. The originals are still in memory
                  * (ent->orig, held for the diff), so put them back in the
                  * files already written and report every file's state --
@@ -328,7 +358,12 @@ static jc_status apply_run(const cJSON *args, struct jc_tool_result *out,
                 jc_sb_free(&summary);
                 free_files(&files);
                 return JC_OK;
+                }
             }
+
+            /* D6 (M975): post_write to re-baseline the snapshot after a successful write. */
+            jc_scopededit_post_write(app, ent->path);
+
             jc_app_mark_read(app, ent->path);
             jc_sb_append_fmt(&summary, "\n  %s (%d replacement%s)%s", ent->path,
                              ent->reps, ent->reps == 1 ? "" : "s",

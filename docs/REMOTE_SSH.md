@@ -28,11 +28,11 @@ diagnostics; `-q` silences stderr. That clean split is what makes it scriptable.
 
 ```sh
 # ask about the remote repo (read-only):
-ssh user@host 'cd ~/project && jichi --plan -p "where is auth handled?"'
+ssh user@host 'cd ~/project && jichi --plan -p "where is auth handled?" < /dev/null'
 
 # do a bounded autonomous task:
 ssh user@host 'cd ~/project && jichi --auto \
-  --verify "make test" --budget-tokens 500k -p "fix the failing parser tests"'
+  --verify "make test" --budget-tokens 500k -p "fix the failing parser tests" < /dev/null'
 ```
 
 ### Feed a big prompt over stdin (no ARG_MAX limit)
@@ -60,7 +60,7 @@ CFG='{"models":[{"name":"m","provider":"openai","model":"gpt-4o-mini",
   "apiBase":"https://api.example.com","apiKeyEnv":"OPENAI_API_KEY"}]}'
 B64=$(printf '%s' "$CFG" | base64 -w0)
 ssh user@host "cd ~/project && jichi --config-json-b64 $B64 \
-  --no-session -p 'where is auth handled?'"
+  --no-session -p 'where is auth handled?' < /dev/null"
 
 # 2) stdin -- keeps the config OFF the remote argv, so it is NOT in `ps`:
 printf '%s' "$CFG" | ssh user@host \
@@ -104,7 +104,7 @@ An interactive SSH pipe dies with your connection. For anything long, run it
 ssh user@host
 tmux new -d -s task 'cd ~/project && jichi --auto \
   --verify "make test" --deadline 2h \
-  --journal ~/logs/task.jsonl -p "implement feature X" > ~/logs/task.out 2>&1'
+  --journal ~/logs/task.jsonl -p "implement feature X" > ~/logs/task.out 2>&1 < /dev/null'
 # disconnect freely; reattach later: tmux attach -t task
 ```
 
@@ -117,10 +117,10 @@ parses the result.
 
 ```sh
 # one JSON object with the answer, cost, stop_reason, session_id, error:
-ssh host 'cd ~/proj && jichi -q --output json -p "…"' | jq .
+ssh host 'cd ~/proj && jichi -q --output json -p "…" < /dev/null' | jq .
 
 # streaming: one JSON object per event (message_start/text/tool_call/…/done):
-ssh host 'cd ~/proj && jichi -q --output jsonl -p "…"' \
+ssh host 'cd ~/proj && jichi -q --output jsonl -p "…" < /dev/null' \
   | while read -r line; do echo "$line" | jq -r '.type'; done
 ```
 
@@ -142,7 +142,7 @@ jichi --config ~/proj/local/config.json daemon --socket ~/.jichi.sock
 # forward the UNIX socket to your machine:
 ssh -N -L /tmp/jichi.sock:/home/user/.jichi.sock user@host &
 # then connect locally, no per-request startup cost:
-jichi --connect /tmp/jichi.sock -p "what changed today?"
+jichi --connect /tmp/jichi.sock -p "what changed today?" < /dev/null
 ```
 
 The daemon's bounded worker pool serves concurrent `--connect` clients, so an

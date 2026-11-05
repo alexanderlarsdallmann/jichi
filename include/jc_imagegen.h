@@ -47,12 +47,25 @@ jc_status jc_imagegen_parse(const char *json, unsigned char **out_bytes,
  * (NULL/`n_ref`==0 for plain text-to-image) carries source references for an
  * editing model. On a url-only response, fetch it with a GET when `fetch_url`
  * is nonzero. JC_ERR_PROVIDER on an API/HTTP error; `abort` (may be NULL)
- * cancels in-flight transfers. */
+ * cancels in-flight transfers.
+ *
+ * `max_bytes` (C-06) is the response cap applied to BOTH legs: the
+ * /images/generations POST (the b64_json JSON reply) and the url-only GET (the
+ * fetched image). 0 means "no cap, use the library default ceiling"; a positive
+ * value is the caller's configured cap, applied to the TRANSFER so an
+ * over-long reply aborts before it fills memory (the caller's post-hoc check
+ * then only fires on the exact-cap rounding edge).
+ *
+ * `out_overflow` (may be NULL) receives 1 when the transfer (either leg) was
+ * cut at that ceiling -- the response exceeded max_bytes and the transport
+ * aborted -- so the caller can report "over the cap" rather than a generic
+ * failure. 0 otherwise (and 0 on any non-overflow failure). */
 jc_status jc_imagegen_run(const struct jc_model_cfg *m, const char *prompt,
                           const char *size, const char *out_format,
                           const char *const *ref_images, int n_ref,
                           int fetch_url, unsigned char **out_bytes,
-                          jc_size *out_len, volatile int *abort);
+                          jc_size *out_len, volatile int *abort,
+                          long max_bytes, int *out_overflow);
 
 #ifdef __cplusplus
 }

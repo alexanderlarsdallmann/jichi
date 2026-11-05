@@ -45,23 +45,8 @@ is a complete short course ("safe, productive agentic work").
 > then **leave** it and move freely (*Ri*). The stages below walk that arc,
 > after a short **仕度 *shitaku*** (preparation) to get a working bench.
 
-```mermaid
-flowchart TD
-  M0["M0 · A working bench (仕度 Shitaku)"]
-  M0 --> M1
-  subgraph SHU["守 Shu — follow the form (15-20h)"]
-    M1["M1 Reading before writing"] --> M2["M2 The smallest change"] --> M3["M3 Tests are the truth"] --> M4["M4 Debugging as science"]
-  end
-  subgraph HA["破 Ha — break the form (18-24h)"]
-    M5["M5 Write the check (required)"] --> M6["M6 Design first"] --> M7["M7 Review and refactor"] --> M8["M8 Bounded autonomy"]
-  end
-  subgraph RI["離 Ri — leave the form (12-16h + capstone)"]
-    M9["M9 The agent is sometimes wrong"] --> M10["M10 Teach it, teach with it"] --> M11["M11 The capstone"]
-  end
-  M4 -->|"gate: 14/17 pts + 2 record entries — short course ends here"| M5
-  M8 -->|"gate: 12/15 pts, incl. M5"| M9
-  M11 -->|"gate: floor + rubric"| DONE(["all four stages done"])
-```
+The stages, their modules, the time each takes and its status are the table below --
+readable at any width.
 
 *Stage 0+1 (仕度 + 守) is severable — a complete short course on its own. M5 is
 **required** and cannot be averaged away.*
@@ -176,9 +161,9 @@ real section, in the wrong file.
 
 **Reading outside this tree.** Everything above teaches from jichi's own source,
 which is the design and also a closed world.
-[BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) is the door out of it: 159 checked entries on
-the craft, C, C++, Zig, Rust, Python, Racket, Guile, Elixir, Haskell, Clojure and
-interfaces, each saying which question in *these* pages it answers, and **most of
+[BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) is the door out of it: 194 checked entries on
+the craft, C, C++, Zig, Rust, Python, Racket, Guile, Elixir, Haskell, Clojure,
+Ada/SPARK, interfaces and human–computer interaction, each saying which question in *these* pages it answers, and **most of
 them free to read** — complete books on C, Zig and Rust, SICP, *The Scheme
 Programming Language*, and every language standard that matters here in draft.
 **Every language with a graded course now has literature behind it** (M677
@@ -276,6 +261,7 @@ Counted from the 90 shipped specs, not estimated. **Zero** of them teach:
 | **Security** | 0 specs mention injection, privilege or a threat model |
 | **Persistence** — databases, schemas, migrations | 0 specs |
 | **User-interface work** | 0 specs. [`ACCESSIBILITY.md`](ACCESSIBILITY.md) and [`INTERFACE_TUTORIAL.md`](INTERFACE_TUTORIAL.md) describe how *jichi* was built; neither is graded |
+| **Algorithms**, as a subject | 0 specs use the word. Two (78, 80) weigh a hash table and a sorted array against a scan, which is choosing a data structure rather than designing an algorithm. [`ALGORITHMS.md`](ALGORITHMS.md) reads four of jichi's own algorithms and measures them on the tree, and it is not graded (M755) |
 
 **These are absences of scope, not oversights.** The subject, stated above, is
 software development as *craft and engineering* with the language as a
@@ -300,7 +286,7 @@ above scored zero on the first pass of the very search that produced this
 table, and both are taught.)*
 
 **Where to go instead.** [`BIBLIOGRAPHY.md`](BIBLIOGRAPHY.md) carries the
-reading for several of these — it is 159 entries across thirteen sections, and it
+reading for several of these — it is 194 entries across fourteen sections, and it
 names what it deliberately omits for the same reason this section exists. For
 concurrency and distributed work specifically, the honest answer is that this
 course does not cover them and a dedicated one should.
@@ -355,12 +341,8 @@ Three layers, and no layer pretends to do another's job (proposal §5):
 | **Feedback** | `/check`, `/tutor` — model, rubric-keyed | where does this fall short, and how to improve? |
 | **Judgment** | a human (instructor, peer) | quality, originality, credit |
 
-```mermaid
-flowchart TD
-  A["your work on an assignment"] --> F["Floor — jichi grade / the spec's verify<br/>is the required structure/behaviour there?"]
-  F --> Fb["Feedback — /check · /tutor · /hint<br/>where it falls short, how to improve — free, recorded"]
-  Fb --> J["Judgment — a human (instructor / peer)<br/>quality, originality, credit"]
-```
+The grading layers, their instruments and what each answers are the table above --
+readable at any width.
 
 *A self-learner gets **Floor + Feedback** — a complete formative loop on its
 own; Judgment is what an instructor or a live defense adds.*

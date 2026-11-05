@@ -47,15 +47,23 @@ cfg_body='{"models":[{"name":"projmodel","provider":"openai","model":"proj/x",
 # --- 1-2: config set lands in .jichi/config.json when that is the reader's file
 ws=$(smoke_tmp); mkdir -p "$ws/.jichi"
 printf '%s\n' "$cfg_body" > "$ws/.jichi/config.json"
-(cd "$ws" && unset JC_CONFIG && with_deadline 30 "$BIN" config set snapshots false) > "$ws/out" 2>&1
+(cd "$ws" && unset JC_CONFIG && with_deadline 30 "$BIN" --config-editable config set snapshots false) > "$ws/out" 2>&1
 if [ -f "$ws/local/config.json" ]; then
     t_fail "config set created local/config.json and orphaned .jichi/config.json,
  whose model and fences now do not apply: $(cat "$ws/local/config.json")"
 else
     t_ok "config set writes .jichi/config.json when that is what the loader reads"
 fi
+# M851 (CFG-1): the fixture's configEditable no longer applies from an
+# untrusted project file (it lets the MODEL rewrite the config), so the edits
+# above pass the user's own --config-editable; and the project's model applies
+# only once the file is trusted. Trusting it AFTER the edit also proves the
+# edit kept the file whole. The match is the ACTIVE model, not a bare name:
+# doctor now lists an untrusted file's model in a "not applied" line too, and a
+# bare grep passed on that line for the wrong reason.
+(cd "$ws" && unset JC_CONFIG && "$BIN" trust < /dev/null > /dev/null 2>&1)
 out=$(cd "$ws" && unset JC_CONFIG && with_deadline 30 "$BIN" doctor < /dev/null 2>&1)
-if printf '%s' "$out" | grep -q 'projmodel' &&
+if printf '%s' "$out" | grep -q 'active: projmodel' &&
    printf '%s' "$out" | grep -q 'path fence on'; then
     t_ok "and the project's model and fence still apply afterwards"
 else
@@ -66,7 +74,7 @@ fi
 # --- 3-4: the control -- a local/config.json project must still be written there
 ws2=$(smoke_tmp); mkdir -p "$ws2/local"
 printf '%s\n' "$cfg_body" > "$ws2/local/config.json"
-(cd "$ws2" && unset JC_CONFIG && with_deadline 30 "$BIN" config set snapshots false) > "$ws2/out" 2>&1
+(cd "$ws2" && unset JC_CONFIG && with_deadline 30 "$BIN" --config-editable config set snapshots false) > "$ws2/out" 2>&1
 if grep -q '"snapshots"' "$ws2/local/config.json"; then
     t_ok "control: a local/config.json project is still written there"
 else

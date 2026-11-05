@@ -2,6 +2,34 @@
 
 Guidance for working in this repository.
 
+## Before you act
+
+Each rule is keyed to the moment it applies. The sections below give the reasons and the incidents:
+check the line, and read its section when it fires.
+
+1. **Choosing a model** -- `jlu/*` on the HRZ gateway or a local LM Studio only. A priced model needs
+   the operator's grant for that one run, asked *before* the request. (Models)
+2. **Typing a cap** -- no `timeout`, `--deadline`, `--budget-tokens` or stall cap on a run that measures
+   or reproduces anything, not even a generous one: a reproduction is a measurement. (Caps versus fences)
+3. **Probing a command** -- classify it by its effect first. Never run what may write to learn what it
+   does, and never probe in this repository. (Classify an action by its EFFECT)
+4. **Publishing a command** -- run it first, in the published form, `< /dev/null` included. (Tests)
+5. **Writing a test** -- watch each check go red without its fix, prove the instrument can fire, and
+   make a fixture behave like the real peer. (Tests; `docs/TESTING_RUNBOOK.md`)
+6. **Reaching for a mock** -- if the binary, a local model or the service can run, run it. (Tests)
+7. **Believing a green** -- count what the gate reached, and check its pattern with the gate's own tool
+   (`/usr/bin/grep`, not a session's `grep`). (Tests)
+8. **Merging** -- only after `make ci` is green on the exact head. An agent's review is a second opinion.
+9. **Writing C** -- C89 at zero warnings under `-std=c89 -pedantic -Wall -Wextra`; `jc_snprintf`, never
+   `sprintf`; tool errors are values; the shortest arena that outlives the data. (Architecture)
+10. **Touching a platform, or claiming one** -- start from `docs/SESSION_RUNBOOK.md`; a row is not tested
+    until a model has been driven on it. (Platforms)
+11. **Adding a rules file** -- never an `AGENTS.md` here: jichi reads it first, and it shadows this file.
+12. **Sharing between machines** -- in `docs/internal/` (export-ignored); never a secret. (Repository)
+13. **Committing** -- author, committer and the `Co-Authored-By: jichi` trailer all carry the
+    maintainer's address (`docs/internal/COMMIT_IDENTITY.md`); never `noreply@jichi`, a placeholder or
+    a respelling. (Repository)
+
 ## What this is
 
 `jichi` ("just code") is a from-scratch reimplementation of the Continue CLI AI
@@ -36,16 +64,8 @@ permitted. An exception must be **granted explicitly by the operator, for a sing
 named run**; it does not carry to the next run, and it is not implied by:
 
 - a key being *able* to reach the model (capability is not licence);
-- a default in a test harness. `tests/bench/craft_ab/craft_ab.py` **used to**
-  default to `anthropic/claude-opus-4-5`, because one pre-registered experiment
-  used it with the operator grading by hand — a record of a past decision, not a
-  standing permission. This clause named that line as its example for many
-  milestones and the line stayed; **M544 changed the default to
-  `jlu/qwen3-coder-next` and added `tests/smoke/priced_model_lint.sh`**, because a
-  rule that is known, quotable and violated by the very line it cites is not a
-  control. The lint refuses a priced default anywhere in a harness, and refuses a
-  priced id in any file that also names the institutional gateway — which was the
-  combination that spent the money, since `--api-base` pointed there;
+- a default in a test harness: `tests/smoke/priced_model_lint.sh` refuses a priced
+  default in any harness, and a priced id in any file that names the gateway (M544);
 - the operator telling you where a key lives, in answer to a broken run;
 - **an id that starts working when you strip a prefix.** `jlu/tts-1-hd` answers
   HTTP 500 and bare `tts-1-hd` answers 200 — because the bare alias routes to
@@ -60,18 +80,11 @@ someone else and cannot be taken back, so consent comes **before** the request, 
 as a report afterwards. If a run is about to cost money, stop and ask — one
 sentence, naming the model, the key and the expected number of runs.
 
-**jichi does warn, and I did not read it.** `doctor` reports
-`! no pricing for the active model: every cost reads $0.00` whenever a config
-declares neither `inputCostPer1M` nor `outputCostPer1M` — the check is on the
-missing pricing, not on the model, so it fires for exactly the configs where spend
-is invisible. What jichi cannot do is show the cost *during* a run: with no pricing
-it records `cost_usd: 0` per call, so the running total stays at zero while the
-budget drains. This rule exists because ~$10 of a shared key went on
-`anthropic/claude-opus-4-5` for routine dogfooding the free `jlu/*` models then did
-better — and because `doctor --live` had been run on that very config and answered
-"29 ok, **3 warnings**, 0 problems", one of which was this one. Declare pricing for
-any priced model so the run's own numbers are real, and read the warnings.
-See docs/ANECDOTES.md #63.
+**jichi does warn: read it.** `doctor` reports
+`! no pricing for the active model: every cost reads $0.00` for any config that
+declares neither `inputCostPer1M` nor `outputCostPer1M`, and without pricing a run
+records `cost_usd: 0` while the budget drains. ~$10 of a shared key went that way,
+past that very warning (ANECDOTES #63). Declare pricing for any priced model.
 
 ## Build & test
 
@@ -83,8 +96,9 @@ make test         # build + run the unit suite (./run_tests)
 make smoke        # POSIX-sh smoke tier (M209): validates a build with NO
                   # python3 -- tests/smoke/*.sh + the test-only C89 helpers
                   # in tests/tools/ (mockmodel/ptydrive/jsonq/sockq, `smoke-tools`)
-make smoke-faults # the error-path tier: builds FAULT=1 and runs the three
-                  # fault-injection drivers (M482). They SKIP on a normal binary,
+make smoke-faults # the error-path tier: builds FAULT=1 and runs the five
+                  # FAULT-gated drivers (M482; the lease race M760, the board M761).
+                  # They SKIP on a normal binary,
                   # and until M482 no stage of `make ci` built one -- so they ran
                   # nowhere, including here. `make ci` now calls this; smoke_lint
                   # check 16 fails the build if a FAULT-gated driver is not named
@@ -255,36 +269,31 @@ tool, a different subject (M527) — and the doctrine in
   probe does: `JC_TOOLPROBE_UNKNOWN` for an empty reply, distinct from `none`.
 - **Run every command you publish**, in the form you publish it — including
   `< /dev/null` on a headless run, whose absence blocks forever (ANECDOTES #64).
+- **Never mock what you can run for real**: the binary, a free local model, the service.
+  Mock only what they cannot produce, and say so.
+  [Why](docs/TEST_INTEGRITY.md#run-the-real-thing).
 - **Classify an action by its EFFECT before choosing how to probe it.** An
-  existence question is never answered by execution. Checking whether a
-  subcommand exists, I ran `for c in export rewind undo; do ./jichi $c; done` —
-  three names treated as one homogeneous set when they differ in the only
-  dimension that matters: `export` prints, `rewind` reads, `undo` **writes**. It
-  reverted the working tree to an unrelated checkpoint: **768 files, 41,927
-  deletions**, announced as one line naming the checkpoint's label. Nothing was
-  lost only because the milestone had been pushed first. `--dry-run`, `--help`,
-  `jichi describe`, or the forty lines of `run_snapshot` already open in the same
-  file would each have answered it for free. **Probe in a workspace you are
-  willing to lose** — every driver in `tests/smoke/` uses `smoke_tmp` for exactly
-  this reason, and this repository is the worst possible place to test a
-  checkpoint revert. The milestone before this one (M535) fixed jichi's own
-  failure to categorise *tools* by effect; I fixed the product and not the habit.
-  ANECDOTES #66, and `docs/analysis/2026-08-22-learning-from-errors.md` for why
-  "be more careful" is not the fix.
-- **Perturb per CHECK, not per driver.** The red-before-green ritual is worthless
-  applied to a driver's total: the unit that can be vacuous is a single check.
-  Four times in one session a check of mine covered less than its header claimed
-  — an `awk` that extracted 2 names of 6, an assertion whose evidence was deleted
-  before it read it, a `find` over a path that never existed, a floor that counted
-  two comments as call sites. Every one passed while being wrong. Revert the thing
-  each check guards, watch **that** check go red, and read the extracted set, not
-  its size.
+  existence question is never answered by execution: `export` prints, `rewind`
+  reads, `undo` **writes**, and probing the three as one set reverted 768 files of
+  this tree. `--help`, `--dry-run`, `jichi describe` or the source answer it for
+  free. **Probe in a workspace you are willing to lose** (`smoke_tmp`), never in
+  this repository. ANECDOTES #66; `docs/analysis/2026-08-22-learning-from-errors.md`
+  for why "be more careful" is not the fix.
+- **Perturb per CHECK, not per driver.** The unit that can be vacuous is a single
+  check: four of mine once covered less than their headers claimed, and passed
+  while wrong (`docs/TESTING_RUNBOOK.md` §1 has the four). Revert the thing each
+  check guards, watch **that** check go red, and read the extracted set, not its size.
 - **Caps versus fences.** Fences (`--edit-scope`, `pathFence`, read-only agents,
   `--max-tool-calls`) bound blast radius and stay on. Caps (`--deadline`,
   `--budget-tokens`, `stall`/`request` timeouts) bound *duration* and stay **off
   for measurement runs** — a cap that fires does not merely hide the answer, it
-  manufactures a plausible different one. Keep `connect`: it can only fire when
-  nothing is listening.
+  manufactures a plausible different one. Off means no wrapper, and a
+  reproduction is a measurement: an unfired `timeout` flipped a crash
+  (ANECDOTES #120). Keep `connect`: it bounds TCP and the TLS handshake, so a
+  slow handshake trips it too (raise it; M877), never an arriving answer. **And
+  keep `timeouts.deadStream` (M-L2, default 900 s):** a fence, not a cap -- it
+  fires only when *nothing is arriving* on a connected stream, so it stays on
+  even at `stall 0`: a model call once ran 11,677 s after its stream died.
 - **Do not add an `AGENTS.md` to this repository.**
   `src/chat/jc_rules.c:add_dir_rules` tries `AGENTS.md` first and **returns** if
   it exists, so `CLAUDE.md` is only the fallback: an `AGENTS.md` here, even a
@@ -326,19 +335,13 @@ taught): [`docs/PLATFORMS.md`](docs/PLATFORMS.md); RAM tiers and hardware in
   not the six agreeing platforms; `portability_lint` check 24 enforces this one.
   ANECDOTES #97.
 - **A row is not tested until a MODEL has been driven on it.** Every gate a rig
-  runs — build, unit suite, smoke tier, `--version`/`doctor`/`describe`/`context`
-  — is **offline**, so all of them go green on a kernel where jichi has never
-  called a model. Drive at least one text turn and one **tool-calling** turn
-  whose result the model must use; record the task, the model and the seconds.
-  **Record it ON THE ROW.** The first count published with this rule said "3 of
-  19" and was wrong: it counted what `PLATFORMS.md` records, not what has run.
-  The M459 fleet push had driven a Pi, a tablet and a proot guest with a model
-  over ssh in 2026-08 — recorded in `AUTONOMOUS_LOOPS.md` and nowhere on the
-  matrix. Keep LM Studio
-  loopback-bound and reach a guest with `ssh -R 1234:127.0.0.1:1234`; pick a
-  model `doctor --live` calls **native**, since a `text` caller executes nothing
-  and looks exactly like a platform failure. `PLATFORMS.md` calls such a row
-  **Driven**.
+  runs is **offline**, so all of them go green on a kernel where jichi has never
+  called a model. Drive one text turn and one **tool-calling** turn whose result
+  the model must use, with a model `doctor --live` calls **native** (a `text`
+  caller executes nothing and looks like a platform failure); reach a guest with
+  `ssh -R 1234:127.0.0.1:1234`, LM Studio staying loopback-bound. Record the task,
+  the model and the seconds **on the row**: `PLATFORMS.md` calls it **Driven**. A
+  first count that read the matrix, not the runs, is told in `docs/DEFERRED.md`.
 - **A verdict is Verified / Partly verified / Never compiled, used strictly.**
   Never write a platform claim the matrix does not support; a non-Linux row is a
   defect detector, not compatibility work — two OpenBSD findings were bugs on
@@ -358,6 +361,18 @@ advisory; each milestone gets its own plan.
 Git with an `origin` remote (`gitlab.hrz.uni-giessen.de:journey/jichi`);
 history is linear on `master`. Build artifacts are gitignored; commit source,
 tests, docs, and `src/json/cJSON.{c,h}` (ours, despite the API-compatible name).
+
+**Every commit is the maintainer's**, author and committer, and jichi's trailer carries the same
+address, because agents copy the nearest commits (`docs/analysis/COMMIT-ATTRIBUTION.md`).
+
+**What the machines share and strangers do not goes in `docs/internal/`.** That
+covers handoffs, claimed milestone ranges, procedures that name the institution's
+hosts, and the small data a drive or an experiment starts from: task texts,
+lists, preambles, excerpts of evidence. The directory is `export-ignore`d
+(`.gitattributes`, M577), so no public snapshot carries it. Machine paths are
+allowed there. Secrets and bulk data are not. `docs/internal/README.md` states the
+rule and lists what is there. The drives' task texts live there because the only
+other copies were deleted with a drive's data (ANECDOTES #108).
 
 The project path was changed **in place** at M170c (`journey/jlu_continue` →
 `journey/jichi`), so the full history, issues and CI config came with it and GitLab

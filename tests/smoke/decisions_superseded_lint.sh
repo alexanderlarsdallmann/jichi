@@ -22,7 +22,7 @@
 # is visible.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 2
+t_plan 4
 D="$SMOKE_ROOT/docs/DECISIONS.md"
 R="$SMOKE_ROOT/docs/ROADMAP.md"
 tmp=$(smoke_tmp)
@@ -47,4 +47,26 @@ if [ -z "$missing" ]; then
 else
     t_fail "superseded-at names milestone(s) with no ROADMAP entry:$missing"
 fi
+# --- 3: every detail anchor is defined exactly once (the 2026-10-05 audit
+# found 14 ids defined twice; a same-milestone decision recorded in a second
+# section reused the first section's ordinal, and 14 of 28 index rows
+# silently resolved to the wrong row).
+grep -oE '<a id="[a-z0-9-]+">' "$D" | sed 's/<a id="\([^"]*\)">/\1/' | sort | uniq -d > "$tmp/dupids" || true
+if [ -s "$tmp/dupids" ]; then
+    t_fail "duplicate detail anchor ids (ambiguous index links): $(tr '\n' ' ' < "$tmp/dupids")"
+else
+    t_ok "every detail anchor id is defined exactly once"
+fi
+
+# --- 4: every in-register detail link resolves to a defined anchor.
+grep -oE '\]\(#dec-[a-z0-9-]+\)' "$D" | sed 's/^](#//; s/)$//' | sort -u > "$tmp/refs"
+grep -oE '<a id="[a-z0-9-]+">' "$D" | sed 's/<a id="\([^"]*\)">/\1/' | sort -u > "$tmp/defs"
+comm -23 "$tmp/refs" "$tmp/defs" > "$tmp/broken" || true
+if [ -s "$tmp/broken" ]; then
+    t_fail "in-register detail links to undefined anchors: $(tr '\n' ' ' < "$tmp/broken")"
+else
+    t_ok "every in-register detail link resolves to a defined anchor"
+fi
+
 t_done
+

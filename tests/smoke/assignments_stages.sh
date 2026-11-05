@@ -146,6 +146,7 @@ expect "total: 2/12 pts, 1/4 passed" 15
 delay 400
 send "/exit\r"
 waitexit 12
+assertexit 0
 EOF
 (cd "$ws" && "$SMOKE_TOOLS/ptydrive" --deadline 40 --cols 120 \
     --log "$tmp/t.log" "$tmp/t.pd" -- "$BIN" --no-route --no-lite); rc=$?

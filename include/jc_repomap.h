@@ -35,6 +35,14 @@ struct jc_app;
  * number of symbols appended (bounded by JC_REPOMAP_SCAN_CAP). */
 int jc_repomap_scan(const char *ext, const char *text, struct jc_vec *out);
 
+/* M1081 (F-01): test hook. The high-water mark, in bytes, of the arena that
+ * held the scanned-file TEXTS during the last jc_repomap_build / _render /
+ * _build_dir call. Exposed as an accessor because the arena is build-local and
+ * a test cannot otherwise observe its peak. F-01: before the fix this equals
+ * the sum of every file read before the 12 KiB rendered limit stops the loop;
+ * after, it equals one file (<= RM_MAX_FILE_BYTES). 0 if no build has run. */
+jc_size jc_repomap_last_arena_peak(void);
+
 /* Walk the workspace (`app->cwd`), scan recognised source files, and render a
  * bounded map section (with its own "## Repository map" header) into an
  * arena-owned string, or NULL when there are no source files. Honours the

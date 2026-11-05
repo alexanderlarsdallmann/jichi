@@ -548,7 +548,7 @@ static int read_exit_status(cJSON *es, int *code)
     }
     ec = cJSON_GetObjectItem(es, "exitCode");
     if (code != NULL) {
-        *code = cJSON_IsNumber(ec) ? (int)ec->valuedouble : -1;
+        *code = cJSON_IsNumber(ec) ? jc_json_clamp_int(ec->valuedouble) : -1;
     }
     return 1;
 }

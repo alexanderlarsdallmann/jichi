@@ -22,51 +22,104 @@ void test_toolloop(void)
      * denial as a missing file -- and "the file does not exist" is the wrong advice
      * for "you may not write there". A wrong cause is a loop AMPLIFIER (M342), so
      * these cases are the ones worth pinning. */
+    /* Non-shell tool results (edit_file): full result is jichi's message, so
+     * substring matching applies. policy_refusal=0 for existing behavior. */
     JC_CHECK(jc_fail_classify(
         "Path src/x.c is outside this run's --edit-scope; the edit was refused.",
-        -1) == JC_FAIL_DENIED);
+        -1, "edit_file", 0) == JC_FAIL_DENIED);
     JC_CHECK(jc_fail_classify(
-        "Tool requires approval, unavailable in headless mode", -1)
+        "Tool requires approval, unavailable in headless mode", -1, "write_file", 0)
         == JC_FAIL_DENIED);
     /* A kill that quotes a command containing a path is still a kill. */
     JC_CHECK(jc_fail_classify(
-        "\n[stopped: command timed out after 60s and was terminated]\n", 124)
-        == JC_FAIL_KILLED);
+        "\n[stopped: command timed out after 60s and was terminated]\n", 124,
+        "run_terminal_command", 0) == JC_FAIL_KILLED);
     JC_CHECK(jc_fail_classify(
         "[stopped: output exceeded the 65536-byte capture limit and the command "
-        "was killed]", 137) == JC_FAIL_KILLED);
+        "was killed]", 137, "run_terminal_command", 0) == JC_FAIL_KILLED);
 
-    JC_CHECK(jc_fail_classify("error: string not found in file", -1)
+    JC_CHECK(jc_fail_classify("error: string not found in file", -1, "read_file", 0)
              == JC_FAIL_NOT_FOUND);
-    JC_CHECK(jc_fail_classify("no such file or directory: build.zig", -1)
+    JC_CHECK(jc_fail_classify("no such file or directory: build.zig", -1, "read_file", 0)
              == JC_FAIL_NOT_FOUND);
     /* jichi's OWN missing-file wording, which the first cut of the classifier
      * missed -- so a plain missing file was filed OTHER and got generic advice. */
-    JC_CHECK(jc_fail_classify("error: could not open 'sub/missing.txt'", -1)
+    JC_CHECK(jc_fail_classify("error: could not open 'sub/missing.txt'", -1, "read_file", 0)
              == JC_FAIL_NOT_FOUND);
     /* ...but the fence denial, which M291 split OUT of that wording, stays DENIED. */
     JC_CHECK(jc_fail_classify(
         "error: refused by safety fence (path outside workspace and any "
-        "referenceRoots): 'nope/x'", -1) == JC_FAIL_DENIED);
-    JC_CHECK(jc_fail_classify("error: required parameter 'path' missing", -1)
+        "referenceRoots): 'nope/x'", -1, "write_file", 0) == JC_FAIL_DENIED);
+    JC_CHECK(jc_fail_classify("error: required parameter 'path' missing", -1, "write_file", 0)
              == JC_FAIL_BAD_ARGS);
-    JC_CHECK(jc_fail_classify("invalid JSON in arguments", -1)
+    JC_CHECK(jc_fail_classify("invalid JSON in arguments", -1, "write_file", 0)
              == JC_FAIL_BAD_ARGS);
 
     /* A command that simply returned non-zero, with nothing else to go on. */
-    JC_CHECK(jc_fail_classify("zig build\ncompilation aborted\n", 1)
+    JC_CHECK(jc_fail_classify("zig build\ncompilation aborted\n", 1, "run_terminal_command", 0)
              == JC_FAIL_NONZERO_EXIT);
     /* Nothing recognisable and no exit code: OTHER, so the note says less rather
      * than inventing a cause. */
-    JC_CHECK(jc_fail_classify("something went sideways", -1) == JC_FAIL_OTHER);
-    JC_CHECK(jc_fail_classify(NULL, -1) == JC_FAIL_OTHER);
-    JC_CHECK(jc_fail_classify("", 3) == JC_FAIL_NONZERO_EXIT);
+    JC_CHECK(jc_fail_classify("something went sideways", -1, "read_file", 0) == JC_FAIL_OTHER);
+    JC_CHECK(jc_fail_classify(NULL, -1, NULL, 0) == JC_FAIL_OTHER);
+    JC_CHECK(jc_fail_classify("", 3, NULL, 0) == JC_FAIL_NONZERO_EXIT);
     /* Case-insensitive: strcasestr is not C89, so the walk is hand-rolled and
      * deserves a check. */
-    JC_CHECK(jc_fail_classify("ERROR: No Such File", -1) == JC_FAIL_NOT_FOUND);
+    JC_CHECK(jc_fail_classify("ERROR: No Such File", -1, "read_file", 0) == JC_FAIL_NOT_FOUND);
 
     JC_CHECK(strcmp(jc_fail_class_name(JC_FAIL_DENIED), "denied") == 0);
     JC_CHECK(strcmp(jc_fail_class_name(JC_FAIL_OTHER), "other") == 0);
+
+    /* --- M1041-b: policy_refusal flag classification ---------------------
+     * The executor sets policy_refusal=1 for fence refusals (read-only, main-agent-only).
+     * If the flag is set, jc_fail_classify returns DENIED regardless of wording. */
+    /* The read-only refusal message with policy_refusal=1 must be DENIED. */
+    JC_CHECK(jc_fail_classify(
+        "error: tool disabled in read-only mode -- this run may only read and report; "
+        "put your findings in your final answer instead of editing",
+        -1, "run_terminal_command", 1) == JC_FAIL_DENIED);
+    /* The same message with policy_refusal=0 falls back to the wording rules.
+     * The result BEGINS with "error: tool disabled in read-only mode", which is
+     * in the strict shell tool DENIED list, so it still classifies DENIED.
+     * This preserves the old behavior for cases where the flag isn't set. */
+    JC_CHECK(jc_fail_classify(
+        "error: tool disabled in read-only mode -- this run may only read and report; "
+        "put your findings in your final answer instead of editing",
+        -1, "run_terminal_command", 0) == JC_FAIL_DENIED);
+    /* A message that matches NO wording rule but has policy_refusal=1 must be DENIED.
+     * This pins the flag path: "x" doesn't match any denial phrase. */
+    JC_CHECK(jc_fail_classify("x", 1, "run_terminal_command", 1) == JC_FAIL_DENIED);
+
+    /* --- the shell tool misclassification fix (card 75) --------------------
+     * A shell command whose OUTPUT contains "connection refused"/"denied"/
+     * "forbidden" etc. and exits nonzero is a failed command (NONZERO_EXIT),
+     * NOT a policy refusal. The substring match was firing anywhere in the
+     * result text. policy_refusal=0 for existing behavior. */
+    /* RED today: "connection refused" from the command output is misfiled as DENIED */
+    /* This must be NONZERO_EXIT, not DENIED: the command ran and failed, but
+     * it was not a policy refusal. */
+    JC_CHECK(jc_fail_classify("Connection refused by the server", 1,
+                              "run_terminal_command", 0) == JC_FAIL_NONZERO_EXIT);
+    /* "access denied" in command output should also be NONZERO_EXIT */
+    JC_CHECK(jc_fail_classify("Access denied: insufficient permissions", 1,
+                              "run_terminal_command", 0) == JC_FAIL_NONZERO_EXIT);
+    /* "forbidden" in command output should also be NONZERO_EXIT */
+    JC_CHECK(jc_fail_classify("403 Forbidden", 1, "run_terminal_command", 0)
+             == JC_FAIL_NONZERO_EXIT);
+
+    /* A fence refusal with the exact phrase at the START is still DENIED */
+    JC_CHECK(jc_fail_classify("error: refused by safety fence (path outside workspace)",
+                              -1, "run_terminal_command", 0) == JC_FAIL_DENIED);
+    /* The result is NOT the command output, it's jichi's refusal message */
+    JC_CHECK(jc_fail_classify("Path src/x.c is outside this run's --edit-scope; "
+                              "the edit was refused. Writable paths are: src/",
+                              -1, "run_terminal_command", 0) == JC_FAIL_DENIED);
+    /* "outside this run's" at the start (after "Path") is DENIED */
+    JC_CHECK(jc_fail_classify("Path /outside is outside this run's --edit-scope",
+                              -1, "run_terminal_command", 0) == JC_FAIL_DENIED);
+    /* "refused:" at the start (after trimming) is DENIED */
+    JC_CHECK(jc_fail_classify("refused: command is outside this run's scope",
+                              -1, "run_terminal_command", 0) == JC_FAIL_DENIED);
 
     /* --- the EXACT key, threshold 3 ---------------------------------------- */
     jc_toolloop_init(&w);
@@ -215,6 +268,173 @@ void test_toolloop(void)
     JC_CHECK(strstr(buf, "this tool") != NULL);
 }
 
+/* R6 (M806): a shell command cut off at its own time limit, repeatedly, is a loop
+ * even when a pipe masks the exit code -- and the same command spelled differently
+ * must collapse to one key while two DIFFERENT commands must not. */
+/* M870 (N21): the novelty window. Run 0012's worker rotated four checks with the
+ * same results for 28 minutes; each shell command restarted the others' counts, so
+ * M829 never fired. A call is stale when its triple appeared among the window's
+ * calls before it; a rotation of four is all stale from its fifth call, and reaches
+ * the window at call 28. One result that changes each time keeps it fresh. An edit
+ * (jc_noprogress_reset) starts it again. */
+void test_noprogress_rotation(void)
+{
+    struct jc_noprogress w;
+    static const char *const cmds[4] = {
+        "{\"command\":\"zig build test --summary all\"}",
+        "{\"command\":\"ls -la REPORT.md\"}",
+        "{\"command\":\"git status\"}",
+        "{\"command\":\"git log --oneline -2\"}"
+    };
+    static const char *const outs[4] = { "832/832 passed", "REPORT.md", "clean",
+                                         "abc1 def2" };
+    char out[32];
+    int i;
+
+    jc_noprogress_init(&w);
+    for (i = 0; i < 4 + JC_NOVELTY_WINDOW - 1; i++) {
+        (void)jc_noprogress_note(&w, "run_terminal_command", cmds[i % 4], outs[i % 4]);
+    }
+    JC_CHECK(w.stale == JC_NOVELTY_WINDOW - 1);
+    (void)jc_noprogress_note(&w, "run_terminal_command", cmds[0], outs[0]);
+    JC_CHECK(w.stale == JC_NOVELTY_WINDOW);
+
+    jc_noprogress_init(&w);
+    for (i = 0; i < 100; i++) {
+        jc_snprintf(out, sizeof out, "%d", i);
+        (void)jc_noprogress_note(&w, "run_terminal_command", cmds[i % 4],
+                                 (i % 4 == 2) ? out : outs[i % 4]);
+    }
+    JC_CHECK(w.stale < 4);
+
+    jc_noprogress_init(&w);
+    for (i = 0; i < 30; i++) {
+        (void)jc_noprogress_note(&w, "run_terminal_command", cmds[i % 4], outs[i % 4]);
+    }
+    JC_CHECK(w.stale >= JC_NOVELTY_WINDOW);
+    jc_noprogress_reset(&w);
+    JC_CHECK(w.stale == 0 && w.ring_n == 0);
+}
+
+/* M868 (LOOP-1): a failing call whose arguments run to 160 bytes or more is the
+ * same call the second and third time -- the exact note at its third repeat, as
+ * for a short one. M432 compared the stored key, cut at 159 bytes, with the whole
+ * incoming key, and a long one never matched. Two long calls that share their
+ * first 199 bytes stay two calls. */
+void test_toolloop_long_key(void)
+{
+    struct jc_toolloop w;
+    char a[260];
+    char b[260];
+    int n = 0;
+
+    memset(a, 'a', 200);
+    a[200] = '\0';
+    memcpy(b, a, 201);
+    b[199] = 'b';
+
+    jc_toolloop_init(&w);
+    JC_CHECK(jc_toolloop_note(&w, "run_terminal_command", a, JC_FAIL_NONZERO_EXIT, &n)
+             == JC_TOOLLOOP_NONE);
+    JC_CHECK(jc_toolloop_note(&w, "run_terminal_command", a, JC_FAIL_NONZERO_EXIT, &n)
+             == JC_TOOLLOOP_NONE);
+    JC_CHECK(jc_toolloop_note(&w, "run_terminal_command", a, JC_FAIL_NONZERO_EXIT, &n)
+             == JC_TOOLLOOP_EXACT && n == 3);
+
+    /* a, a, b, then a: a's third, with b counted apart (n is 3, not 4) */
+    jc_toolloop_init(&w);
+    (void)jc_toolloop_note(&w, "run_terminal_command", a, JC_FAIL_DENIED, &n);
+    (void)jc_toolloop_note(&w, "run_terminal_command", a, JC_FAIL_DENIED, &n);
+    (void)jc_toolloop_note(&w, "run_terminal_command", b, JC_FAIL_DENIED, &n);
+    JC_CHECK(jc_toolloop_note(&w, "run_terminal_command", a, JC_FAIL_DENIED, &n)
+             == JC_TOOLLOOP_EXACT && n == 3);
+}
+
+void test_toolloop_atbound(void)
+{
+    struct jc_toolloop w;
+    char out[JC_TOOLLOOP_KEY_MAX];
+    char buf[400];
+    int n;
+
+    /* --- key normalisation: all six spellings of one command collapse -------- */
+    jc_toolloop_shell_norm("timeout 2 sh -c \"sleep 10\"", out, sizeof out);
+    JC_CHECK(strcmp(out, "sh -c \"sleep 10\"") == 0);
+    jc_toolloop_shell_norm("cd . && timeout 2 sh -c \"sleep 10\"", out, sizeof out);
+    JC_CHECK(strcmp(out, "sh -c \"sleep 10\"") == 0);
+    jc_toolloop_shell_norm("timeout 3 sh -c \"sleep 10\"", out, sizeof out);
+    JC_CHECK(strcmp(out, "sh -c \"sleep 10\"") == 0);
+    jc_toolloop_shell_norm("timeout 2 sh -c \"sleep 10\" 2>&1", out, sizeof out);
+    JC_CHECK(strcmp(out, "sh -c \"sleep 10\"") == 0);
+    jc_toolloop_shell_norm("timeout 2 sh -c \"sleep 10\" | head -5", out, sizeof out);
+    JC_CHECK(strcmp(out, "sh -c \"sleep 10\"") == 0);
+    jc_toolloop_shell_norm("cd . && timeout 2 sh -c \"sleep 10\" | head -5",
+                           out, sizeof out);
+    JC_CHECK(strcmp(out, "sh -c \"sleep 10\"") == 0);
+    /* env assignments, a -k flag, a chained filter, /dev/null redirection. */
+    jc_toolloop_shell_norm("FOO=bar timeout -k 5 2 make test | grep -i fail",
+                           out, sizeof out);
+    JC_CHECK(strcmp(out, "make test") == 0);
+    jc_toolloop_shell_norm("timeout 2 make >/dev/null 2>&1", out, sizeof out);
+    JC_CHECK(strcmp(out, "make") == 0);
+
+    /* --- the over-normalisation guard: distinct commands stay distinct ------- */
+    jc_toolloop_shell_norm("timeout 2 sh -c \"sleep 10\"", buf, sizeof buf);
+    jc_toolloop_shell_norm("timeout 2 sh -c \"sleep 20\"", out, sizeof out);
+    JC_CHECK(strcmp(buf, out) != 0);   /* sleep 10 vs sleep 20 must NOT collapse */
+
+    /* --- inner timeout parse and the at-bound predicate --------------------- */
+    JC_CHECK(jc_toolloop_shell_timeout_secs("timeout 2 sh -c \"x\"") == 2);
+    JC_CHECK(jc_toolloop_shell_timeout_secs("cd . && timeout 3 x") == 3);
+    JC_CHECK(jc_toolloop_shell_timeout_secs("timeout 1m x") == 60);
+    JC_CHECK(jc_toolloop_shell_timeout_secs("just a command") == 0);
+    /* Reached its bound: 2 s limit, ~2 s wall. Under its bound: returned early. */
+    JC_CHECK(jc_toolloop_at_bound("timeout 2 x", 1950.0) == 1);
+    JC_CHECK(jc_toolloop_at_bound("timeout 2 x", 100.0) == 0);
+    JC_CHECK(jc_toolloop_at_bound("x with no timeout", 999999.0) == 0);
+
+    /* --- AT_BOUND uses the EXACT key only, and re-fires at the threshold ----- *
+     * Six identical (normalised) bound-ended runs: fire at 3 and again at 6, and
+     * NOT at 4 or 5. This is the pipe-masked-success case reaching the same
+     * counter as the exit-124 case. */
+    jc_toolloop_init(&w);
+    JC_CHECK(jc_toolloop_note(&w, "run_terminal_command", "sh -c \"sleep 10\"",
+                              JC_FAIL_AT_BOUND, &n) == JC_TOOLLOOP_NONE); /* 1 */
+    JC_CHECK(jc_toolloop_note(&w, "run_terminal_command", "sh -c \"sleep 10\"",
+                              JC_FAIL_AT_BOUND, &n) == JC_TOOLLOOP_NONE); /* 2 */
+    JC_CHECK(jc_toolloop_note(&w, "run_terminal_command", "sh -c \"sleep 10\"",
+                              JC_FAIL_AT_BOUND, &n) == JC_TOOLLOOP_EXACT && n == 3);
+    JC_CHECK(jc_toolloop_note(&w, "run_terminal_command", "sh -c \"sleep 10\"",
+                              JC_FAIL_AT_BOUND, &n) == JC_TOOLLOOP_NONE); /* 4 */
+    JC_CHECK(jc_toolloop_note(&w, "run_terminal_command", "sh -c \"sleep 10\"",
+                              JC_FAIL_AT_BOUND, &n) == JC_TOOLLOOP_NONE); /* 5 */
+    JC_CHECK(jc_toolloop_note(&w, "run_terminal_command", "sh -c \"sleep 10\"",
+                              JC_FAIL_AT_BOUND, &n) == JC_TOOLLOOP_EXACT && n == 6);
+
+    /* Two DIFFERENT bound-ended commands never trip: distinct exact keys, and
+     * AT_BOUND opens no shared class slot to accumulate them. Four calls total,
+     * which WOULD cross the class threshold if a class key were used. */
+    jc_toolloop_init(&w);
+    JC_CHECK(jc_toolloop_note(&w, "run_terminal_command", "cmd A",
+                              JC_FAIL_AT_BOUND, &n) == JC_TOOLLOOP_NONE);
+    JC_CHECK(jc_toolloop_note(&w, "run_terminal_command", "cmd B",
+                              JC_FAIL_AT_BOUND, &n) == JC_TOOLLOOP_NONE);
+    JC_CHECK(jc_toolloop_note(&w, "run_terminal_command", "cmd A",
+                              JC_FAIL_AT_BOUND, &n) == JC_TOOLLOOP_NONE);
+    JC_CHECK(jc_toolloop_note(&w, "run_terminal_command", "cmd B",
+                              JC_FAIL_AT_BOUND, &n) == JC_TOOLLOOP_NONE);
+
+    /* --- the AT_BOUND note names the true cause ----------------------------- */
+    jc_toolloop_render(JC_TOOLLOOP_EXACT, "run_terminal_command",
+                       JC_FAIL_AT_BOUND, 3, buf, sizeof buf);
+    JC_CHECK(strstr(buf, "run_terminal_command") != NULL);
+    JC_CHECK(strstr(buf, "time limit") != NULL);
+    JC_CHECK(strstr(buf, "keep timing out") != NULL);
+    /* not the generic "SAME arguments" failure wording */
+    JC_CHECK(strstr(buf, "SAME arguments") == NULL);
+    JC_CHECK(strcmp(jc_fail_class_name(JC_FAIL_AT_BOUND), "at_bound") == 0);
+}
+
 /* The success twin (plan D1, M733): the same call answered the same way. */
 void test_noprogress(void)
 {
@@ -243,7 +463,7 @@ void test_noprogress(void)
     JC_CHECK(jc_noprogress_role("todowrite", 1) == JC_NOPROGRESS_IGNORE);
     JC_CHECK(jc_noprogress_role(NULL, 1) == JC_NOPROGRESS_IGNORE);
 
-    /* --- at three, not before, and once ----------------------------------- */
+    /* --- at three, not before, then again at each multiple (M819) ---------- */
     jc_noprogress_init(&w);
     JC_CHECK(jc_noprogress_note(&w, "search_code", "{\"pattern\":\"x\"}",
                                 "(no matches)") == 0);
@@ -251,9 +471,15 @@ void test_noprogress(void)
                                 "(no matches)") == 0);
     JC_CHECK(jc_noprogress_note(&w, "search_code", "{\"pattern\":\"x\"}",
                                 "(no matches)") == 3);
-    /* Told once per turn: bonsai 19 made this call 35 times in a row. */
+    /* M819 (N4a): re-warn at 6, 9 ... -- a child ran one passing call 1,126 times
+     * in its single turn, and "once per turn" warned it once. The 4th and 5th are
+     * silent; the 6th fires again. */
     JC_CHECK(jc_noprogress_note(&w, "search_code", "{\"pattern\":\"x\"}",
                                 "(no matches)") == 0);
+    JC_CHECK(jc_noprogress_note(&w, "search_code", "{\"pattern\":\"x\"}",
+                                "(no matches)") == 0);
+    JC_CHECK(jc_noprogress_note(&w, "search_code", "{\"pattern\":\"x\"}",
+                                "(no matches)") == 6);
 
     /* --- the key is the RESULT too: the same question, a different answer -- */
     jc_noprogress_init(&w);
@@ -269,7 +495,7 @@ void test_noprogress(void)
         JC_CHECK(jc_noprogress_note(&w, "search_code", key, "(no matches)") == 0);
     }
 
-    /* --- a reset starts the count again, and keeps what was told ----------- */
+    /* --- a reset starts the count again; a fresh unbroken loop re-notes (M819) */
     jc_noprogress_init(&w);
     JC_CHECK(jc_noprogress_note(&w, "git_diff", "{}", "same") == 0);
     JC_CHECK(jc_noprogress_note(&w, "git_diff", "{}", "same") == 0);
@@ -277,10 +503,13 @@ void test_noprogress(void)
     JC_CHECK(jc_noprogress_note(&w, "git_diff", "{}", "same") == 0);
     JC_CHECK(jc_noprogress_note(&w, "git_diff", "{}", "same") == 0);
     JC_CHECK(jc_noprogress_note(&w, "git_diff", "{}", "same") == 3);
+    /* M819: after another reset (a real edit protects iterative work), the SAME
+     * call looping three more times with nothing between is a new loop, and is
+     * noted again at the 3rd -- what "once, ever" used to hide. */
     jc_noprogress_reset(&w);
-    for (i = 0; i < 3; i++) {
-        JC_CHECK(jc_noprogress_note(&w, "git_diff", "{}", "same") == 0);
-    }
+    JC_CHECK(jc_noprogress_note(&w, "git_diff", "{}", "same") == 0);
+    JC_CHECK(jc_noprogress_note(&w, "git_diff", "{}", "same") == 0);
+    JC_CHECK(jc_noprogress_note(&w, "git_diff", "{}", "same") == 3);
 
     /* --- a shell command resets every OTHER call, not itself --------------- */
     jc_noprogress_init(&w);

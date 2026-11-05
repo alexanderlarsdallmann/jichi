@@ -12,7 +12,8 @@ rule, replayed over telemetry: which turns the note would have been told in, at
 which call, for which tool.
 
 WHAT IT MIRRORS, BY HAND.  jc_noprogress_role and jc_noprogress_note at M733.
-The read-only flags come from the binary itself (`jichi describe --output json`),
+The read-only flags come from the binary itself (`jichi describe --output json`,
+its `tools` and, since M744, the `conditional_tools` rows that carry a flag),
 so a tool added later is classified as the build classifies it; the four name
 lists below are copied from jc_noprogress_role and are the part that can drift.
 Tonight's check on the copy: a drive run on the M733 build journals a
@@ -57,7 +58,12 @@ def readonly_flags(binary):
         out = subprocess.run([binary, "describe", "--output", "json"],
                              stdin=subprocess.DEVNULL, capture_output=True,
                              timeout=60, check=False).stdout
-        tools = json.loads(out).get("tools") or []
+        d = json.loads(out)
+        # M744: the conditional rows (git_*, the LSP tools, load_skill, ...) carry
+        # a flag too. Reading `tools` alone classified git_diff as a write, which
+        # resets the watch, and missed the note the build told on it.
+        tools = (d.get("tools") or []) + [
+            t for t in (d.get("conditional_tools") or []) if "readonly" in t]
     except (OSError, ValueError, subprocess.SubprocessError) as e:
         sys.exit("cannot read tool flags from %s describe: %s" % (binary, e))
     return {t.get("name"): bool(t.get("readonly")) for t in tools}

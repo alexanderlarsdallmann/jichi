@@ -8,8 +8,12 @@
 #include "jc_snprintf.h"
 #include <string.h>
 #include <stdio.h>
+#include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
+#include <signal.h>
 
 static const char *LOG =
     "{\"ts\":1,\"spec\":\"docs/assignments/00-hello.md\",\"passed\":false,"
@@ -200,6 +204,126 @@ static int link_full(const char *sub, const char *name, char *out, size_t cap)
     return symlink("/dev/full", out) == 0;
 }
 
+/* M997: the .jichi DIR check does not stop a symlinked LEAF. Here .jichi is a
+ * REAL directory, but .jichi/<name>.jsonl is a SYMLINK to an OUTSIDE file. The
+ * appenders must refuse (JC_ERR_DENIED) and the outside file must be left
+ * byte-for-byte untouched. A real dir + absent leaf is the control: JC_OK. */
+static int outside_unchanged(const char *a, const char *b)
+{
+    FILE *fa, *fb;
+    int c;
+    fa = fopen(a, "rb");
+    fb = fopen(b, "rb");
+    if (fa == NULL || fb == NULL) {
+        if (fa) fclose(fa);
+        if (fb) fclose(fb);
+        return 0;
+    }
+    while ((c = fgetc(fa)) != EOF) {
+        if (c != fgetc(fb)) {
+            fclose(fa);
+            fclose(fb);
+            return 0;
+        }
+    }
+    fclose(fa);
+    fclose(fb);
+    return 1;
+}
+
+static void seed_and_backup(const char *src, const char *bak)
+{
+    FILE *f;
+    f = fopen(src, "wb");
+    if (f != NULL) {
+        fputs("pristine outside line\n", f);
+        fclose(f);
+    }
+    f = fopen(bak, "wb");
+    if (f != NULL) {
+        fputs("pristine outside line\n", f);
+        fclose(f);
+    }
+}
+
+static void test_leaf_symlink_guard(void)
+{
+    const char *dir = jc_test_tmp("jichi_progress_leaf");
+    char sub[600];
+    char outP[700], outH[700], outX[700];
+    char bakP[750], bakH[750], bakX[750];
+    char l1[700], l2[700], l3[700];
+    int linked;
+    FILE *f;
+    int n;
+    int c;
+    jc_status st;
+
+    (void)remove(dir);
+    if (!JC_REQUIRE(mkdir(dir, 0700) == 0)) {
+        return;
+    }
+    jc_snprintf(sub, sizeof sub, "%s/.jichi", dir);
+    if (!JC_REQUIRE(mkdir(sub, 0700) == 0)) {
+        return;
+    }
+    /* Outside files (seeded, with pristine backups) that the links point to:
+     * plain siblings of .jichi. A write through the symlink would append to
+     * THESE, not to the .jichi/ leaf -- exactly the escape the appenders must
+     * refuse. */
+    jc_snprintf(outP, sizeof outP, "%s/outside_progress.txt", dir);
+    jc_snprintf(outH, sizeof outH, "%s/outside_hints.txt", dir);
+    jc_snprintf(outX, sizeof outX, "%s/outside_predict.txt", dir);
+    jc_snprintf(bakP, sizeof bakP, "%s.bak", outP);
+    jc_snprintf(bakH, sizeof bakH, "%s.bak", outH);
+    jc_snprintf(bakX, sizeof bakX, "%s.bak", outX);
+    seed_and_backup(outP, bakP);
+    seed_and_backup(outH, bakH);
+    seed_and_backup(outX, bakX);
+
+    /* .jichi/progress.jsonl -> outside file, and the same for the other two. */
+    jc_snprintf(l1, sizeof l1, "%s/progress.jsonl", sub);
+    jc_snprintf(l2, sizeof l2, "%s/hints.jsonl", sub);
+    jc_snprintf(l3, sizeof l3, "%s/predictions.jsonl", sub);
+    (void)remove(l1); (void)remove(l2); (void)remove(l3);
+    linked = (symlink(outP, l1) == 0) && (symlink(outH, l2) == 0) &&
+             (symlink(outX, l3) == 0);
+    if (linked) {
+        st = jc_progress_append(dir, "01-x.md", 1, 100, 1, 0, -1);
+        JC_CHECK(st == JC_ERR_DENIED);
+        JC_CHECK(outside_unchanged(outP, bakP));
+        st = jc_progress_hint_append(dir, "01-x.md", 1);
+        JC_CHECK(st == JC_ERR_DENIED);
+        JC_CHECK(outside_unchanged(outH, bakH));
+        st = jc_progress_predict_append(dir, "it will pass");
+        JC_CHECK(st == JC_ERR_DENIED);
+        JC_CHECK(outside_unchanged(outX, bakX));
+        (void)remove(l1); (void)remove(l2); (void)remove(l3);
+    }
+
+    /* Control: real dir + ABSENT leaf -> JC_OK, and the leaf holds one line. */
+    st = jc_progress_append(dir, "02-c.md", 0, 50, 0, 0, -1);
+    JC_CHECK(st == JC_OK);
+    st = jc_progress_hint_append(dir, "02-c.md", 2);
+    JC_CHECK(st == JC_OK);
+    st = jc_progress_predict_append(dir, "control");
+    JC_CHECK(st == JC_OK);
+    f = fopen(l1, "rb");
+    n = 0;
+    if (f != NULL) {
+        while ((c = fgetc(f)) != EOF) {
+            if (c == '\n') n++;
+        }
+        fclose(f);
+    }
+    JC_CHECK(n == 1);
+
+    (void)remove(l1); (void)remove(l2); (void)remove(l3);
+    (void)remove(outP); (void)remove(outH); (void)remove(outX);
+    (void)remove(bakP); (void)remove(bakH); (void)remove(bakX);
+    (void)rmdir(sub); (void)rmdir(dir);
+}
+
 static void test_write_failure(void)
 {
     const char *dir = jc_test_tmp("jichi_progress_full");
@@ -208,6 +332,7 @@ static void test_write_failure(void)
     FILE *f;
     int n;
     int c;
+    jc_status st;
 
     (void)mkdir(dir, 0700);
     jc_snprintf(sub, sizeof sub, "%s/.jichi", dir);
@@ -217,9 +342,16 @@ static void test_write_failure(void)
         !link_full(sub, "predictions.jsonl", l3, sizeof l3)) {
         return; /* no symlinks or no /dev/full here: skip silently */
     }
-    JC_CHECK(jc_progress_append(dir, "01-x.md", 1, 100, 1, 0, -1) == JC_ERR_IO);
-    JC_CHECK(jc_progress_hint_append(dir, "01-x.md", 1) == JC_ERR_IO);
-    JC_CHECK(jc_progress_predict_append(dir, "it will pass") == JC_ERR_IO);
+    /* D-15/M997: a symlinked leaf is refused before the write. M997's leaf
+     * guard lstats the leaf and answers JC_ERR_DENIED for a link (the M642
+     * /dev/full write-failure, JC_ERR_IO, is the fallback when the link is
+     * absent). Either way the write never happens. */
+    st = jc_progress_append(dir, "01-x.md", 1, 100, 1, 0, -1);
+    JC_CHECK(st == JC_ERR_DENIED || st == JC_ERR_INVALID || st == JC_ERR_IO);
+    st = jc_progress_hint_append(dir, "01-x.md", 1);
+    JC_CHECK(st == JC_ERR_DENIED || st == JC_ERR_INVALID || st == JC_ERR_IO);
+    st = jc_progress_predict_append(dir, "it will pass");
+    JC_CHECK(st == JC_ERR_DENIED || st == JC_ERR_INVALID || st == JC_ERR_IO);
 
     /* Control: the same calls against real files succeed and land one line. */
     (void)remove(l1); (void)remove(l2); (void)remove(l3);
@@ -237,9 +369,283 @@ static void test_write_failure(void)
     (void)rmdir(sub); (void)rmdir(dir);
 }
 
+/* M642: a real regular file whose write fails at fclose (disk full / file too
+ * large). The mechanism is fork+setrlimit(RLIMIT_FSIZE, ...) in the child so
+ * fprintf succeeds but fclose fails, returning JC_ERR_IO exactly. This exercises
+ * the production write path that the symlink tests skip (they hit JC_ERR_DENIED
+ * before any write). If setrlimit is unavailable or the child cannot create the
+ * file, skip silently (a skip is honest, a fake green is not). */
+
+/* M996: write helper for fork children. Writes the int st to fd; if the write
+ * does not return (int)sizeof(st), the result is recorded and the child exits
+ * with 0xFF so the parent's read(...) != sizeof(st) path treats this as skipped.
+ * C89: declarations at block top, no %zu. */
+static void child_send(int fd, int st)
+{
+    int result;
+
+    result = write(fd, &st, sizeof(st));
+    if (result != (int)sizeof(st)) {
+        /* Record the failure by returning a negative value that the parent
+         * can detect. The child exits with 0xFF so the parent's read fails. */
+        (void)result; /* suppress unused-result warning for the call above */
+        _exit(0xFF);
+    }
+}
+
+static void test_write_failure_regular(void)
+{
+    const char *dir = jc_test_tmp("jichi_progress_regular");
+    char sub[600];
+    char path[700];
+    int pipefd[2];
+    pid_t pid;
+    int st;
+    int child_status;
+    struct rlimit rlim;
+    int child_st; /* plain int: the -999 setrlimit marker and the child's jc_status travel as a C int; C++ will not convert int to the jc_status enum implicitly (supervisor 15:17) */
+
+    (void)jc_test_rm_rf(dir);
+    (void)mkdir(dir, 0700);
+    jc_snprintf(sub, sizeof sub, "%s/.jichi", dir);
+    if (!JC_REQUIRE(mkdir(sub, 0700) == 0)) {
+        goto cleanup;
+    }
+
+    /* Create a pipe to communicate the child's status back to the parent. */
+    if (pipe(pipefd) != 0) {
+        goto cleanup;
+    }
+
+    pid = fork();
+    if (pid == -1) {
+        /* Fork failed: skip silently. */
+        (void)close(pipefd[0]);
+        (void)close(pipefd[1]);
+        goto cleanup;
+    }
+
+    if (pid == 0) {
+        /* Child: set RLIMIT_FSIZE to 0 so fclose fails after fprintf succeeds. */
+        (void)close(pipefd[0]); /* close read end in child */
+
+        /* Ignore SIGXFSZ BEFORE setting the limit so the write doesn't kill us. */
+        signal(SIGXFSZ, SIG_IGN);
+
+        rlim.rlim_cur = 0;
+        rlim.rlim_max = 0;
+        if (setrlimit(RLIMIT_FSIZE, &rlim) != 0) {
+            /* setrlimit failed: skip this case by sending a special marker. */
+            child_st = -999;  /* distinct from JC_OK (0) and JC_ERR_IO (2) */
+            child_send(pipefd[1], child_st);
+            _exit(0);
+        }
+
+        /* Create a REAL regular file (no symlink) under .jichi. */
+        jc_snprintf(path, sizeof path, "%s/progress.jsonl", sub);
+        (void)remove(path);
+
+        /* Attempt to append: fprintf will succeed (buffered) but fclose will fail. */
+        child_st = jc_progress_append(dir, "01-x.md", 1, 100, 1, 0, -1);
+
+        /* Signal to parent that we completed and write our status. */
+        child_send(pipefd[1], child_st);
+        _exit(0);
+    } else {
+        /* Parent: read the child's status from the pipe. */
+        (void)close(pipefd[1]); /* close write end in parent */
+        if (read(pipefd[0], &st, sizeof(st)) != sizeof(st)) {
+            (void)close(pipefd[0]);
+            goto cleanup;
+        }
+        (void)close(pipefd[0]);
+
+        /* Wait for the child to exit and check its exit code. */
+        if (waitpid(pid, &child_status, 0) == -1) {
+            goto cleanup;
+        }
+
+        /* If setrlimit failed, the test is skipped. The child wrote -999
+         * when it couldn't set the limit, so skip silently. */
+        if (st == -999) {
+            goto cleanup;
+        }
+
+        /* The child must have seen a write failure at fclose: assert JC_ERR_IO.
+         * If the appender returns JC_OK, the perturbation is in place (the test
+         * goes RED because the assertion fails). */
+        JC_CHECK(st == JC_ERR_IO);
+        (void)rmdir(sub);
+        (void)rmdir(dir);
+        return;
+    }
+
+cleanup:
+    /* Skip silently on any failure to set up the test. */
+    (void)rmdir(dir);
+}
+
+/* M642: a fork+setrlimit test for the hint and predict appenders too. */
+static void test_write_failure_hints_regular(void)
+{
+    const char *dir = jc_test_tmp("jichi_progress_hints_reg");
+    char sub[600];
+    char path[700];
+    int pipefd[2];
+    pid_t pid;
+    int st;
+    int child_status;
+    struct rlimit rlim;
+    int child_st; /* plain int: the -999 setrlimit marker and the child's jc_status travel as a C int; C++ will not convert int to the jc_status enum implicitly (supervisor 15:17) */
+
+    (void)jc_test_rm_rf(dir);
+    (void)mkdir(dir, 0700);
+    jc_snprintf(sub, sizeof sub, "%s/.jichi", dir);
+    if (!JC_REQUIRE(mkdir(sub, 0700) == 0)) {
+        goto cleanup;
+    }
+
+    if (pipe(pipefd) != 0) {
+        goto cleanup;
+    }
+
+    pid = fork();
+    if (pid == -1) {
+        (void)close(pipefd[0]);
+        (void)close(pipefd[1]);
+        goto cleanup;
+    }
+
+    if (pid == 0) {
+        (void)close(pipefd[0]);
+
+        signal(SIGXFSZ, SIG_IGN);
+
+        rlim.rlim_cur = 0;
+        rlim.rlim_max = 0;
+        if (setrlimit(RLIMIT_FSIZE, &rlim) != 0) {
+            child_st = -999;
+            child_send(pipefd[1], child_st);
+            _exit(0);
+        }
+
+        jc_snprintf(path, sizeof path, "%s/hints.jsonl", sub);
+        (void)remove(path);
+
+        child_st = jc_progress_hint_append(dir, "01-x.md", 1);
+
+        child_send(pipefd[1], child_st);
+        _exit(0);
+    } else {
+        (void)close(pipefd[1]);
+        if (read(pipefd[0], &st, sizeof(st)) != sizeof(st)) {
+            (void)close(pipefd[0]);
+            goto cleanup;
+        }
+        (void)close(pipefd[0]);
+
+        if (waitpid(pid, &child_status, 0) == -1) {
+            goto cleanup;
+        }
+
+        if (st == -999) {
+            goto cleanup;
+        }
+
+        JC_CHECK(st == JC_ERR_IO);
+        (void)rmdir(sub);
+        (void)rmdir(dir);
+        return;
+    }
+
+cleanup:
+    (void)rmdir(dir);
+}
+
+/* M642: predict appender variant. */
+static void test_write_failure_predict_regular(void)
+{
+    const char *dir = jc_test_tmp("jichi_progress_predict_reg");
+    char sub[600];
+    char path[700];
+    int pipefd[2];
+    pid_t pid;
+    int st;
+    int child_status;
+    struct rlimit rlim;
+    int child_st; /* plain int: the -999 setrlimit marker and the child's jc_status travel as a C int; C++ will not convert int to the jc_status enum implicitly (supervisor 15:17) */
+
+    (void)jc_test_rm_rf(dir);
+    (void)mkdir(dir, 0700);
+    jc_snprintf(sub, sizeof sub, "%s/.jichi", dir);
+    if (!JC_REQUIRE(mkdir(sub, 0700) == 0)) {
+        goto cleanup;
+    }
+
+    if (pipe(pipefd) != 0) {
+        goto cleanup;
+    }
+
+    pid = fork();
+    if (pid == -1) {
+        (void)close(pipefd[0]);
+        (void)close(pipefd[1]);
+        goto cleanup;
+    }
+
+    if (pid == 0) {
+        (void)close(pipefd[0]);
+
+        signal(SIGXFSZ, SIG_IGN);
+
+        rlim.rlim_cur = 0;
+        rlim.rlim_max = 0;
+        if (setrlimit(RLIMIT_FSIZE, &rlim) != 0) {
+            child_st = -999;
+            child_send(pipefd[1], child_st);
+            _exit(0);
+        }
+
+        jc_snprintf(path, sizeof path, "%s/predictions.jsonl", sub);
+        (void)remove(path);
+
+        child_st = jc_progress_predict_append(dir, "it will pass");
+
+        child_send(pipefd[1], child_st);
+        _exit(0);
+    } else {
+        (void)close(pipefd[1]);
+        if (read(pipefd[0], &st, sizeof(st)) != sizeof(st)) {
+            (void)close(pipefd[0]);
+            goto cleanup;
+        }
+        (void)close(pipefd[0]);
+
+        if (waitpid(pid, &child_status, 0) == -1) {
+            goto cleanup;
+        }
+
+        if (st == -999) {
+            goto cleanup;
+        }
+
+        JC_CHECK(st == JC_ERR_IO);
+        (void)rmdir(sub);
+        (void)rmdir(dir);
+        return;
+    }
+
+cleanup:
+    (void)rmdir(dir);
+}
+
 void test_progress(void)
 {
     test_write_failure();
+    test_leaf_symlink_guard(); /* M997 */
+    test_write_failure_regular();
+    test_write_failure_hints_regular();
+    test_write_failure_predict_regular();
     test_hints_scan();
     test_predict_scan(); /* M635 */
     test_base();

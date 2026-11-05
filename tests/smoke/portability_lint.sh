@@ -20,7 +20,7 @@
 # Compiles nothing and runs no jichi (hence *_lint.sh).
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 36
+t_plan 39
 
 mk="$SMOKE_ROOT/Makefile"
 plat="$SMOKE_ROOT/src/platform/jc_platform_posix.c"
@@ -71,24 +71,73 @@ else
     t_fail "INSTALL.md states no minimum versions (curl='$min_curl' glibc='$min_glibc')"
 fi
 
+# --- shared by checks 5 and 39 (M1068): the libcurl guard extraction --------
+# curl_version_guards FILE
+#   Writes two lines to stdout:
+#   line 1: space-separated DECODED versions (MM.mm.pp), one per guard in FILE
+#           whose hex part after 0x is EXACTLY 6 digits, upper or lower case
+#   line 2: space-separated guard tokens that were NOT decoded: hex parts that
+#           are not exactly 6 digits (0, 1-5 or more than 6)
+#
+# WHY THE CLASS AND THE LENGTH. LIBCURL_VERSION_NUM is 0xMMmmpp. The token class
+# must take BOTH cases -- `0x[0-9a-f]*` (the original) stops at the first
+# uppercase hex digit, so `0x073B00` was read as `0x073` and decoded to the FAKE
+# version 7.3.0 (M1068). But a broadened class alone would still decode
+# anything: a 3-digit token is a truncated guard, an 8-digit one is not a
+# 0xMMmmpp value. So exactly-6 is the ONLY length that is decoded; everything
+# else is emitted on line 2 as the token, never as a version. A malformed
+# token is UNKNOWN -- it is flagged, not decoded -- and a spurious version
+# is the defect this card kills.
+#
+# One pipeline, two callers: check 5 runs it on src/net/jc_http.c and check
+# 39 runs it on its own fixture, so the tooth exercises the production
+# extraction, not a copy of it.
+curl_version_guards() {
+    cvg_dec=""
+    cvg_mal=""
+    for hex in $(grep -o 'LIBCURL_VERSION_NUM >= 0x[0-9a-fA-F]*' "$1" | sed 's/.*0x//'); do
+        case "$hex" in
+            [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F])
+                v=$(printf '%d.%d.%d' \
+                    "0x$(printf '%s' "$hex" | cut -c1-2)" \
+                    "0x$(printf '%s' "$hex" | cut -c3-4)" \
+                    "0x$(printf '%s' "$hex" | cut -c5-6)")
+                if [ -z "$cvg_dec" ]; then cvg_dec="$v"; else cvg_dec="$cvg_dec $v"; fi
+                ;;
+            *)
+                if [ -z "$cvg_mal" ]; then cvg_mal="$hex"; else cvg_mal="$cvg_mal $hex"; fi
+                ;;
+        esac
+    done
+    printf '%s\n' "$cvg_dec"
+    printf '%s\n' "$cvg_mal"
+}
+
 # --- 5: the doc's libcurl versions are the ones the source guards on --------
 # LIBCURL_VERSION_NUM is 0xMMmmpp. Decoding it here rather than trusting a
 # hand-written dotted form is the point: the guards are the ground truth, and a
-# doc that names a different version is worse than one naming none.
+# doc that names a different version is worse than one naming none. Extraction
+# and validation live in curl_version_guards (shared with the check 39 tooth):
+# line 1 of its output is the decoded versions, line 2 the tokens it refused.
+# A guard whose hex part is not exactly 6 digits is UNKNOWN -- it is flagged,
+# never decoded (the original class read an uppercase guard as a shorter token
+# and invented a version from it; M1068).
 tmp=$(smoke_tmp)
+_g5v=$(curl_version_guards "$http")
+_g5dec=$(printf '%s\n' "$_g5v" | sed -n '1p')
+_g5mal=$(printf '%s\n' "$_g5v" | sed -n '2p')
 : > "$tmp/want"
-for hex in $(grep -o 'LIBCURL_VERSION_NUM >= 0x[0-9a-f]*' "$http" | sed 's/.*0x//'); do
-    printf '%d.%d.%d\n' \
-        "0x$(echo "$hex" | cut -c1-2)" \
-        "0x$(echo "$hex" | cut -c3-4)" \
-        "0x$(echo "$hex" | cut -c5-6)" >> "$tmp/want"
+for v in $_g5dec; do
+    printf '%s\n' "$v" >> "$tmp/want"
 done
 nwant=$(grep -c . "$tmp/want" || true)
 missing=""
 for v in $(cat "$tmp/want"); do
     grep -q "$v" "$inst" || missing="$missing $v"
 done
-if [ "$nwant" -ge 2 ] && [ -z "$missing" ]; then
+if [ -n "$_g5mal" ]; then
+    t_fail "check 5 extraction: $(printf '%s' "$_g5mal" | wc -w | tr -d ' ') malformed libcurl guard token(s) ($_g5mal) -- unknown, not decoded"
+elif [ "$nwant" -ge 2 ] && [ -z "$missing" ]; then
     t_ok "INSTALL.md names every guarded libcurl version ($(tr '\n' ' ' < "$tmp/want"))"
 else
     t_fail "guarded but undocumented libcurl versions:$missing (found $nwant guards)"
@@ -244,7 +293,7 @@ contradicts() {
     # list item whose LABEL is the verdict
     awk -v tok="$2" -v v="$VERDICT" '
         /^[-*] / { inblk = (tolower($0) ~ v) ? 1 : 0 }
-        /^[[:space:]]*$/ { inblk = 0 }
+        /^[ \t]*$/ { inblk = 0 }
         inblk && index($0, tok) { hit = 1 }
         END { exit hit ? 0 : 1 }
     ' "$1" && return 0
@@ -1008,13 +1057,20 @@ fi
 # forbidden-tool rule matches (curl)([ \t]|$), and inside a POSIX bracket
 # expression \t is the two characters backslash and t -- so a BACKSLASH after
 # `curl` reads to that rule as an invocation. Caught by the tier, on this file.
+# Only SOURCE files count. An in-place build leaves a `.d` dependency file that
+# lists `curl/curl.h` among its prerequisites -- measured on OpenBSD (M796):
+# `src/net/jc_http.d` matched here and made the count 2, though the host's `.d`
+# did not, so the check passed on Linux and failed on the BSD row for a build
+# artifact, not a real includer. Restrict to `.c`/`.h` (ERE `-E`, portable to
+# BSD grep); a `.o`/`.d`/`.beam` in the tree is never a first-party includer.
 _curl_includers=$(grep -rl 'curl/curl[.]h' "$SMOKE_ROOT/src" "$SMOKE_ROOT/include" 2>/dev/null \
+                  | grep -E '[.](c|h)$' \
                   | sed "s#^$SMOKE_ROOT/##" | sort)
 _ncurl=$(printf '%s\n' "$_curl_includers" | grep -c . | tr -d ' ')
 [ -n "$_curl_includers" ] || _ncurl=0
 _mk_probe=0; _mk_consumer=0
 grep -q 'CURL_HDR_CLEAN' "$mk" && _mk_probe=1
-grep -q '^src/net/jc_http\.o: CFLAGS' "$mk" && _mk_consumer=1
+grep -q '^src/net/jc_http\.o: JC_CFLAGS' "$mk" && _mk_consumer=1
 if [ "$_ncurl" -eq 1 ] && [ "$_curl_includers" = "src/net/jc_http.c" ] \
    && [ "$_mk_probe" -eq 1 ] && [ "$_mk_consumer" -eq 1 ]; then
     t_ok "curl's header is included by src/net/jc_http.c alone, and the Makefile carries both the probe and its one consumer"
@@ -1022,7 +1078,7 @@ else
     t_fail "the scoped curl-header relaxation is not intact.
   first-party files including <curl/curl.h>: $_ncurl [$(printf '%s' "$_curl_includers" | tr '\n' ' ')]
   Makefile has the probe (CURL_HDR_CLEAN): $_mk_probe
-  Makefile has the consumer (src/net/jc_http.o: CFLAGS): $_mk_consumer
+  Makefile has the consumer (src/net/jc_http.o: JC_CFLAGS): $_mk_consumer
 All three must hold together. The probe decides whether curl's header is clean
 under this build's dialect and warning set; the consumer applies -Wno-long-long
 to the ONE object that reads that header; and the count is what keeps the
@@ -1313,18 +1369,29 @@ fi
 # (CURLcode, a type the table does not list, is entered as 7.1); an identifier
 # missing from it fails, so a new one is a decision rather than an accident. THE RULE, for one newer than 7.19.4:
 # the file defines a fallback for it (#ifndef ID / #define ID), or every use sits
-# inside an #if that names LIBCURL_VERSION_NUM. Floor: today's 53 identifiers.
+# inside an #if that names LIBCURL_VERSION_NUM. Floor: 60 identifiers (M1062-c/e
+# added three to the table; the floors sit below the real counts so a broken
+# extraction fails).
 cat > "$tmp/curlv" <<'CURLV'
 CURLE_ABORTED_BY_CALLBACK 7.1
 CURLE_OK 7.1
 CURLE_OPERATION_TIMEDOUT 7.10.2
+CURLE_SSL_CACERT 7.10
 CURLE_WRITE_ERROR 7.1
+CURLINFO_APPCONNECT_TIME 7.19.0
+CURLINFO_CAINFO 7.84.0
 CURLINFO_CONNECT_TIME 7.4.1
 CURLINFO_REDIRECT_URL 7.18.2
+CURLINFO_REQUEST_SIZE 7.4.1
 CURLINFO_RESPONSE_CODE 7.10.8
+CURLOPT_CAINFO 7.4.2
+CURLOPT_CLOSESOCKETDATA 7.21.7
+CURLOPT_CLOSESOCKETFUNCTION 7.21.7
 CURLOPT_CONNECTTIMEOUT 7.7
 CURLOPT_EXPECT_100_TIMEOUT_MS 7.36.0
 CURLOPT_FOLLOWLOCATION 7.1
+CURLOPT_FRESH_CONNECT 7.7
+CURLOPT_FORBID_REUSE 7.7
 CURLOPT_HEADERDATA 7.10
 CURLOPT_HEADERFUNCTION 7.7.2
 CURLOPT_HTTPHEADER 7.1
@@ -1341,10 +1408,13 @@ CURLOPT_PROGRESSDATA 7.1
 CURLOPT_PROGRESSFUNCTION 7.1
 CURLOPT_PROTOCOLS 7.19.4
 CURLOPT_PROTOCOLS_STR 7.85.0
+CURLOPT_PROXY 7.1
 CURLOPT_READDATA 7.9.7
 CURLOPT_READFUNCTION 7.1
 CURLOPT_REDIR_PROTOCOLS 7.19.4
 CURLOPT_REDIR_PROTOCOLS_STR 7.85.0
+CURLOPT_RESOLVER_START_DATA 7.59.0
+CURLOPT_RESOLVER_START_FUNCTION 7.59.0
 CURLOPT_SEEKDATA 7.18.0
 CURLOPT_SEEKFUNCTION 7.18.0
 CURLOPT_SOCKOPTDATA 7.16.0
@@ -1369,6 +1439,7 @@ CURL_SOCKOPT_OK 7.21.5
 CURL_SSLVERSION_TLSv1 7.9.2
 CURL_SSLVERSION_TLSv1_2 7.34.0
 CURLcode 7.1
+CURLVERSION_NOW 7.10
 CURLV
 _cv=$(cd "$ROOT" && find src include -name '*.[ch]' | sort | while read -r f; do
     awk -v F="$f" -v T="$tmp/curlv" '
@@ -1399,7 +1470,10 @@ _cv=$(cd "$ROOT" && find src include -name '*.[ch]' | sort | while read -r f; do
                 else if (out ~ /^[ \t]*#[ \t]*elif/) { cond[depth] = out }
                 else if (out ~ /^[ \t]*#[ \t]*endif/) { if (depth > 0) depth-- }
                 if (out ~ /^[ \t]*#[ \t]*ifndef[ \t]+CURL/) {
-                    split(out, w, /[ \t]+/); fb[w[length(w)]] = 1
+                    # split returns the field count; length(array) needs mawk
+                    # 1.3.4, which Debian 9 (1.3.3) lacks (V2f). No apostrophe:
+                    # this line sits inside a single-quoted awk program.
+                    w_n = split(out, w, /[ \t]+/); fb[w[w_n]] = 1
                 }
                 code[i] = out; d[i] = depth
                 for (k = 1; k <= depth; k++) g[i, k] = cond[k]
@@ -1427,11 +1501,11 @@ _cv_bad=$(printf '%s\n' "$_cv" | grep -e '^UNKNOWN' -e '^BARE' | sort -u)
 _cv_guarded=$(printf '%s\n' "$_cv" | grep -c '^GUARDED' || true)
 _cv_ids=$(cd "$ROOT" && find src include -name '*.[ch]' -exec cat {} + 2>/dev/null \
     | grep -o -E '(^|[^A-Za-z0-9_])CURL[A-Za-z0-9_]*' | sed 's/^[^C]*//' | sort -u | grep -c .)
-if [ -z "$_cv_bad" ] && [ "$_cv_ids" -ge 53 ] && [ "$_cv_guarded" -ge 5 ]; then
+if [ -z "$_cv_bad" ] && [ "$_cv_ids" -ge 60 ] && [ "$_cv_guarded" -ge 10 ]; then
     t_ok "every libcurl identifier newer than 7.19.4 is guarded or has a fallback ($_cv_guarded uses; $_cv_ids identifiers in the table's universe)"
 else
     t_fail "libcurl identifier(s) the documented floor lacks, used bare or missing from the table: \
-$(printf '%s ' $_cv_bad) (identifiers $_cv_ids, floor 53; guarded uses $_cv_guarded, floor 5) -- \
+$(printf '%s ' $_cv_bad) (identifiers $_cv_ids, floor 60; guarded uses $_cv_guarded, floor 10) -- \
 guard with LIBCURL_VERSION_NUM or define a fallback, and add a new identifier to the table \
 with its version from curl's symbols-in-versions (the userland ladder, 2026-09-24)"
 fi
@@ -1463,9 +1537,9 @@ fi
 _ubg=$(cd "$ROOT" && for f in tests/smoke/*.sh; do
     [ "$f" = tests/smoke/portability_lint.sh ] && continue
     awk -v F="$f" '
-        /^[[:space:]]*#/ { prev = $0; next }
+        /^[ \t]*#/ { prev = $0; next }
         index($0, "/usr/bin/grep") {
-            if ($0 ~ /^[[:space:]]*G=\/usr\/bin\/grep[[:space:]]*$/) { want = NR + 1; next }
+            if ($0 ~ /^[ \t]*G=\/usr\/bin\/grep[ \t]*$/) { want = NR + 1; next }
             print F ":" NR
         }
         NR == want && $0 !~ /\[ -x "\$G" \] [|][|] G=grep/ { print F ":" NR " (no fallback after G=)" }
@@ -1477,6 +1551,141 @@ if [ -z "$_ubg" ] && [ "$_ubg_n" -ge 26 ]; then
 else
     t_fail "/usr/bin/grep without its fallback (a system without the merged /usr has no such file): \
 $(printf '%s ' $_ubg) (guarded drivers $_ubg_n, floor 26)"
+fi
+
+# --- 37-38 (M837): every file is opened BINARY -------------------------------
+# THE DEFECT (M836's FreeDOS rig, 2026-09-29). DJGPP -- like Windows' C libraries --
+# opens a file in TEXT mode unless told otherwise: a write turns "\n" into "\r\n",
+# and a read turns it back and stops at the first Ctrl-Z. POSIX has no text mode,
+# so every Linux, BSD, illumos and macOS run was blind to it. jc_inhist appended
+# with fopen(path, "a") and read the file back through the binary jc_read_file, so
+# on DOS every history line kept a "\r": 3 unit failures, the first sign of a class
+# of 27 text-mode opens. jichi's files are data -- JSON, logs, the index's floats,
+# files a model edits -- so the rule is total: every fopen/fdopen/freopen mode has
+# a "b" (standard C, a no-op on POSIX), and every open() of a file carries
+# JC_O_BINARY (include/jc_fcntl.h: O_BINARY where it exists, else 0).
+# THE UNIVERSE: the product's sources and the unit tests, as for posix_utils_lint
+# 6a/6d (tests/tools/ are host-only helpers, never cross-built). The scanner reads
+# each call's argument list across lines, skipping string and character literals
+# and comment lines, and takes the mode from the call's LAST argument, so
+# fopen(jc_path(x, "sub"), "rb") reads "rb", and a non-literal mode is a finding
+# (it cannot be checked). EXEMPT from 38, by what the call opens: /dev/null (a
+# device) and O_PATH (a Linux handle that does no I/O). FLOORED at today's exact
+# counts -- 78 stream opens, 6 open() calls -- because a scanner that matches
+# nothing reports "no text-mode open" over an empty set.
+_bin_awk='
+function lit_scan(i, p,   depth, st, esc, c, lit, line, k, extra) {
+    depth = 1; st = 0; esc = 0; lit = ""; LAST = ""; TEXT = ""; extra = 0
+    line = L[i]; k = p
+    while (1) {
+        if (k > length(line)) {
+            extra++
+            if (extra > 12 || i + extra > n) { LAST = "?unterminated"; return }
+            line = L[i + extra]; k = 1; TEXT = TEXT " "; continue
+        }
+        c = substr(line, k, 1); k++
+        TEXT = TEXT c
+        if (st == 1) {
+            if (esc) { esc = 0; lit = lit c }
+            else if (c == "\\") { esc = 1; lit = lit c }
+            else if (c == "\"") { st = 0; if (depth == 1) LAST = lit; lit = "" }
+            else lit = lit c
+            continue
+        }
+        if (st == 2) {
+            if (esc) esc = 0; else if (c == "\\") esc = 1; else if (c == "\047") st = 0
+            continue
+        }
+        if (c == "\"") { st = 1; lit = ""; continue }
+        if (c == "\047") { st = 2; continue }
+        if (c == "(") depth++
+        else if (c == ")") { depth--; if (depth == 0) { if (LAST == "") LAST = "?non-literal"; return } }
+        else if (c == "," && depth == 1) LAST = ""
+    }
+}
+function in_string(s, upto,   k, c, st, esc) {
+    st = 0; esc = 0
+    for (k = 1; k < upto; k++) {
+        c = substr(s, k, 1)
+        if (st == 1) { if (esc) esc = 0; else if (c == "\\") esc = 1; else if (c == "\"") st = 0 }
+        else if (st == 2) { if (esc) esc = 0; else if (c == "\\") esc = 1; else if (c == "\047") st = 0 }
+        else if (c == "\"") st = 1
+        else if (c == "\047") st = 2
+    }
+    return st == 1
+}
+function scan_file(   i, line, rest, off, e, name) {
+    for (i = 1; i <= n; i++) {
+        line = L[i]
+        if (line ~ /^[ \t]*(\/\*|\*)/) continue
+        off = 0; rest = line
+        while (match(rest, WANT)) {
+            e = off + RSTART + RLENGTH - 1
+            name = substr(rest, RSTART, RLENGTH)
+            sub(/^[^A-Za-z]*/, "", name); sub(/[ \t]*[(]$/, "", name)
+            if (!in_string(line, e)) {
+                lit_scan(i, e + 1)
+                printf "%s:%d\t%s\t%s\t%s\n", FN[i], i, name, LAST, TEXT
+            }
+            off = e; rest = substr(line, e + 1)
+        }
+    }
+    n = 0
+}
+FNR == 1 && NR > 1 { scan_file() }
+{ L[++n] = $0; FN[n] = FILENAME }
+END { scan_file() }'
+_bin_files=$(cd "$ROOT" && ls src/*.c src/*/*.c include/*.h tests/*.c 2>/dev/null)
+_bf=$(cd "$ROOT" && awk -v WANT='(^|[^A-Za-z0-9_>.])(fopen|fdopen|freopen)[ \t]*[(]' "$_bin_awk" $_bin_files </dev/null)
+_bf_n=$(printf '%s\n' "$_bf" | grep -c .)
+_bf_bad=$(printf '%s\n' "$_bf" | awk -F'\t' 'NF >= 3 && $3 !~ /b/ { print $1 " " $2 "(\"" $3 "\")" }')
+if [ -z "$_bf_bad" ] && [ "$_bf_n" -ge 78 ]; then
+    t_ok "every fopen/fdopen/freopen mode is binary ($_bf_n calls in src/, include/ and tests/)"
+else
+    t_fail "text-mode stream opens -- on DOS (DJGPP) a text-mode write turns \\n into \\r\\n; add \"b\" \
+(found $_bf_n calls, floor 78):
+$_bf_bad"
+fi
+
+_bo=$(cd "$ROOT" && awk -v WANT='(^|[^A-Za-z0-9_>.])open[ \t]*[(]' "$_bin_awk" $_bin_files </dev/null)
+_bo_n=$(printf '%s\n' "$_bo" | grep -c .)
+_bo_bad=$(printf '%s\n' "$_bo" | awk -F'\t' 'NF >= 4 && index($4, "JC_O_BINARY") == 0 &&
+    index($4, "/dev/null") == 0 && index($4, "O_PATH") == 0 { print $1 }')
+if [ -z "$_bo_bad" ] && [ "$_bo_n" -ge 6 ]; then
+    t_ok "every open() of a file carries JC_O_BINARY ($_bo_n calls; /dev/null and O_PATH exempt)"
+else
+    t_fail "open() of a file without JC_O_BINARY -- DJGPP opens it in TEXT mode; include \"jc_fcntl.h\" \
+(found $_bo_n calls, floor 6): $(printf '%s ' $_bo_bad)"
+fi
+
+# --- 39: a tooth for check 5's extraction itself (M1068) ---------------------
+# THE DEFECT THIS EXISTS FOR. Check 5's original class, `0x[0-9a-f]*`, stops at
+# the first character OUTSIDE the class: an uppercase guard `0x073B00` was read
+# as `0x073`, and the decoder turned `073` into the FAKE version 7.3.0 -- so
+# check 5 failed with "guarded but undocumented libcurl versions: 7.3.0": a
+# malformed token reported as a VERSION instead of refused. A token whose hex
+# part is not exactly 6 digits is UNKNOWN: it is flagged, never decoded.
+#
+# THE FIXTURE, not the tree. This check writes its own 3-guard file -- one
+# lowercase 6-digit guard, one uppercase 6-digit guard, one 3-digit truncated
+# guard -- and runs the SAME extraction pipeline (curl_version_guards) on it.
+# Both 6-digit guards must decode (upper AND lower case -> 7.59.0 each); the
+# truncated one must be flagged on line 2. The driver must not copy
+# src/net/jc_http.c: the teeth would then depend on the tree's guard set and
+# could go vacuous if a guard were ever added or removed.
+_g39tmp=$(smoke_tmp)
+cat > "$_g39tmp/guards" <<'EOF39'
+#if LIBCURL_VERSION_NUM >= 0x073b00
+#if LIBCURL_VERSION_NUM >= 0x073B00
+#if LIBCURL_VERSION_NUM >= 0x073
+EOF39
+_g39v=$(curl_version_guards "$_g39tmp/guards")
+_g39dec=$(printf '%s\n' "$_g39v" | sed -n '1p')
+_g39mal=$(printf '%s\n' "$_g39v" | sed -n '2p')
+if [ "$_g39dec" = "7.59.0 7.59.0" ] && [ "$_g39mal" = "073" ]; then
+    t_ok "check 5's extraction decodes both 6-digit guards (upper and lower case) to 7.59.0 and flags the truncated one (073) as unknown"
+else
+    t_fail "guard extraction wrong (want decoded='7.59.0 7.59.0' malformed='073'; got decoded='$_g39dec' malformed='$_g39mal') -- an uppercase guard was read as a shorter token, or a truncated guard was decoded instead of refused"
 fi
 
 t_done

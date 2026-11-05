@@ -59,8 +59,8 @@ An **array** of entries, each with a `name`. Two transports:
 | `type` | `stdio` (jichi spawns `command` and speaks newline-framed JSON-RPC over its pipes) or `http` (streamable HTTP to `url`). **Optional:** omit it and jichi infers `http` when `url` is set, `stdio` otherwise — so the second entry above needs no `type`. |
 | `command`, `args`, `env` | For `stdio`. `args` is an **array of strings**; `env` is an **object** of `NAME: value` pairs, added to the child's environment. |
 | `url`, `headers` | For `http`. `headers` is an **array of whole header lines** (`"Authorization: Bearer …"`), *not* an object of name→value — a shape worth checking twice, since a wrong one is simply ignored. |
-| `autoApprove` | Tool names from this server that run **without** an approval prompt. Also accepts `"*"` or `true` for *every* tool this server offers — a real decision, not a convenience: you are pre-approving whatever the server happens to expose today **and** after its next update. |
-| `deny` | Tool names that are **never** offered to the model and refused if asked for anyway. Accepts `"*"` / `true` too, which is a useful way to keep a server's resources and prompts while offering none of its tools. |
+| `autoApprove` | Tool names from this server that run **without** an approval prompt. Also accepts `"*"` or `true` (or `1`, `"true"`, `"on"`, `"yes"`, since M843) for *every* tool this server offers — a real decision, not a convenience: you are pre-approving whatever the server happens to expose today **and** after its next update. |
+| `deny` | Tool names that are **never** offered to the model and refused if asked for anyway. Accepts `"*"` / `true` too (in the same spellings), which is a useful way to keep a server's resources and prompts while offering none of its tools. |
 | `kinetic` | `true` marks this server's tools as actuating hardware, so they pass the kinetic gate — see [ROBOTICS.md](ROBOTICS.md). |
 
 > **The shape trap, once more.** `"mcpServers": { "fs": { … } }` — an object — is

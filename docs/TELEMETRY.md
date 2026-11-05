@@ -20,11 +20,11 @@ of your code. The `full` tier, which does, stays opt-in.
 Per run, on the command line:
 
 ```sh
-jichi --log-level metrics -p "..."     # structured metrics, no content
-jichi --log-level full    -p "..."     # also prompts/responses/tool I/O
-jichi --log /path/to/run.jsonl -p ...  # explicit path (implies metrics)
-jichi --log -            -p "..."      # force-disable
-jichi --log-level off    -p "..."      # the same, by tier
+jichi --log-level metrics -p "..." < /dev/null     # structured metrics, no content
+jichi --log-level full    -p "..." < /dev/null     # also prompts/responses/tool I/O
+jichi --log /path/to/run.jsonl -p ... < /dev/null  # explicit path (implies metrics)
+jichi --log -            -p "..." < /dev/null      # force-disable
+jichi --log-level off    -p "..." < /dev/null      # the same, by tier
 ```
 
 Or in config (a project's `local/config.json` or `~/.jichi`):
@@ -71,7 +71,9 @@ a `...[+N B]` marker.
 
 ## Event schema
 
-One JSON object per line. **Common fields on every event:**
+One JSON object per line, and every line is valid UTF-8: since **M889** the sink repairs a byte a
+producer cut mid-character (U+FFFD in its place), so a strict reader can trust each line.
+**Common fields on every event:**
 
 > **"Every" became true at M583.** This table has said *every event* since M420,
 > and it was **wrong**: `depth`, `turn` and `run` were stamped by a `static`
@@ -97,6 +99,17 @@ One JSON object per line. **Common fields on every event:**
 | `turn` | top-level turn index |
 | `run` | **M420** — the envelope's run id, **present only during a bounded run** (`--auto`/budgeted). It is the join key into that run's journal (`~/.jichi.d/runs/<run>.jsonl`), so *behaviour* (tokens, latency, tool ok-rates, cache) can finally be correlated with *outcome* (budget, verify, rollback, goalposts). Absent means "not a bounded run", which is itself information — an empty string would be a lie every reader had to special-case. Before M420 the two sinks shared no key and had to be matched by mtime by hand; see [the seams proposal](proposals/2026-08-observability-seams.md) S1. |
 | `event` | the event type (below) |
+| `task`, `task_run` | **M800** — only on a `spawn_parallel` child's events: its index in its batch, and `<batch>-t<task>` (M860: the batch id is `<sid>-b<k>`) |
+
+**A batch's id, a child's `task_run`, and its `seq` (M860, the demos drive's N26).** Every
+`spawn_parallel` batch has its own id, `<sid>-b<k>` (`k` counts the process's batches; a batch
+started inside a child is `<that child's task_run>-b<k>`, where `k` goes on from the count the child
+inherited, so the first batch that a child of `-b1` starts is `-b2`), and a child's `task_run` is
+`<batch id>-t<task>`. A child's `seq` starts at its band × 1,000,000, and the bands of a
+process's batches are numbered on, so two batches never repeat a `seq`. Before M860 every batch
+of a session used the bare session id: two batches gave their children the same `task_run` and
+the same `seq` band, and a reader keyed on `task_run` merged two children into one. Logs written
+before M860 carry `<sid>-t<task>`; split them where a child's `seq` starts again.
 
 > **What the reader prints, and what it deliberately does not (M584, seams D6).**
 > Until M584 the summariser read **10** of the emitted event types and silently
@@ -135,11 +148,12 @@ One JSON object per line. **Common fields on every event:**
 | --- | --- |
 | `turn_start` | `mode`, `model`; *(full)* `prompt` |
 | `turn_end` | `result` (ok/aborted/error); `rss_kb` (the process's resident set, M180 — the session's memory curve lives in the log); under `--auto`: `outcome`, `tokens_used`, `tool_calls` |
-| `model_call` | `model` (config name), `model_id` (the **wire** model id, M289 — the summarizer groups by this so a config rename does not split a model's history), `attempt`, `status` (HTTP), `latency_ms`, `ok`; on success `in_tok`, `out_tok`, `cache_read_in`, `cache_write_in`, `cost_usd`; *(full)* `response`; on failure `result` (`aborted` / `timeout` / `error` — `timeout` is a stalled/frozen model, M22c). `cache_read_in` is the input tokens served from a prompt-cache hit, `cache_write_in` the tokens written to the cache — Anthropic reports both, OpenAI-compatible backends only `cache_read_in` (M31a). On success also `sys_tok`, `tools_tok`, `hist_tok` (M192) — the **estimated** composition of this call's prompt: system prompt, serialized tool schemas, and history. They use the same byte/4 heuristic as the compaction trigger, so attribution and compaction decisions can never disagree; against the real `in_tok` their sum gives the M77 calibration ratio per call. See "Where did the input go" below |
+| `model_call` | `model` (config name), `model_id` (the **wire** model id, M289 — the summarizer groups by this so a config rename does not split a model's history), `attempt`, `status` (HTTP), `latency_ms`, `ttft_ms` (M897, see "First-token time" below), `ok`; on success `in_tok`, `out_tok`, `cache_read_in`, `cache_write_in`, `cost_usd`; *(full)* `response`; on failure `result` (`aborted` / `timeout` / `error` — `timeout` is a stalled/frozen model, M22c), `fail_class` (a stable token naming the failure class, see "The failure class" below, M1039), and `stream_error` when the server sent its error inside a 200 stream (M909). `cache_read_in` is the input tokens served from a prompt-cache hit, `cache_write_in` the tokens written to the cache — Anthropic reports both, OpenAI-compatible backends only `cache_read_in` (M31a). On success also `sys_tok`, `tools_tok`, `hist_tok` (M192) — the **estimated** composition of this call's prompt: system prompt, serialized tool schemas, and history. They use the same byte/4 heuristic as the compaction trigger, so attribution and compaction decisions can never disagree; against the real `in_tok` their sum gives the M77 calibration ratio per call. See "Where did the input go" below; `truncated` (M858, see below) |
 | `model_retry` | `attempt`, `status`, `backoff_ms`, `reason` (`timeout` / `transient`) |
 | `test_edit` | `tool` (`edit_file`/`apply_patch`) and `path` — M88's moved-goalpost heuristic fired: a **test assertion was modified** during an autonomous run. Mirrored here (M417) from the envelope's `test_assertion_edit` journal event so the *offline* readers see it: `telemetry` renders a loud `Goalposts:` line, and `learn analyze` raises a `test_edit` insight at threshold **one** — a single gate edit is the difference between a grade and a gamed grade. The measured case that earned it: ten warnings on one run, verdict PASS, evidence deleted (see [GATE_INTEGRITY.md](GATE_INTEGRITY.md) §10 and `attempt`'s TAINTED verdict). |
 | `args_repair` | `tool`, `ok`, and `kind` — `"json"` for an M148 syntax repair (trailing comma, unclosed brace, Python literal), `"unwrap"` for an M172 self-named argument wrapper (`{"edit_file": {…}}` instead of `{…}`), or `"elided_placeholder"` (M289) when the model sent back jichi's own argument-elision marker as arguments. The last is always `ok:false` — it is **unrepairable by design**, since the real arguments were dropped from context on purpose — and is counted so the rate stays visible instead of hiding among generic shape failures; see [COMPACTION.md](COMPACTION.md). Both are argument repairs, so both count toward the `Self-correction` totals; the `kind` field is there so you can disaggregate a *syntax* problem from a *shape* one — they call for different fixes. Since M353 a **successful** repair is also announced to the *model* on the repaired call's own result (one bracketed note asking for strictly valid JSON) — before that, only this event and an INFO log ever knew, so the model ran on silently fixed arguments and kept the habit |
-| `tool_call` | `name`, `ok`, `duration_ms`, `output_bytes`, `args` (summary); `exit` — the command's own exit status, present **only** for tools that run one (`run_terminal_command`, `run_tests`), M168; `offset`, `limit` — the line range a read **executed** (1-based first line; `limit` 0 = to the end), present **only** for `read_file`, reported by the tool after argument repair and unwrapping, M715 — so paging through a file and reading it twice are different events, where the path-only `args` summary made them one; *(full)* `args_full`, `output` |
+| `undeclared_args` | `tool`, `count` — a tool call carried top-level argument key(s) the schema does not declare; `count` is the number ignored (M1067; detail below) |
+| `tool_call` | `name`, `ok`, `recovered` (`"text"` when M949 recovered it from the reply's markdown), `duration_ms`, `output_bytes`, `args` (summary); `exit` — the command's own exit status, present **only** for tools that run one (`run_terminal_command`, `run_tests`), M168; `offset`, `limit` — the line range a read **executed** (1-based first line; `limit` 0 = to the end), present **only** for `read_file`, reported by the tool after argument repair and unwrapping, M715 — so paging through a file and reading it twice are different events, where the path-only `args` summary made them one; `disk_free_mb`, `disk_free_files` — free space and free inodes on the workspace filesystem the instant the call finished (M805, P4a), a **measurement** with no guard attached; **omitted entirely** when the filesystem could not be sampled, so a missing pair means *unknown*, never *zero free* — the corpus reads them to find where a real disk floor sits before P4b turns one into a fence; *(full)* `args_full`, `output` |
 | `route` | `to` (model), `reason` (`turn-start` / `verify_fail` / `tool_error` / `stall` / `context`) |
 | `compact` | (history was summarized this turn); mid-turn: `phase:"midturn"`, `elided`, and the M192 split `dup` / `age` — `dup` counts elisions from the **zero-loss** superseded-read pass (M93/M94), `age` from the lossy age-based fallback. `dup + age == elided`. Before the split, one merged count could not say which mechanism was doing the work, so the dedup's effectiveness was unmeasurable |
 | `args_truncated` | `tool` — the call's arguments were cut off at the model's output-token ceiling (M334); the paired error result names the ceiling rather than blaming the JSON |
@@ -148,10 +162,66 @@ One JSON object per line. **Common fields on every event:**
 | `hook` | `hook`, `tool`, `outcome`, `timeout_s`, `code` — a lifecycle hook **failed** (M25/M326v). `outcome` is a bounded classifier: `start_failed` (the process never started) · `timeout` (killed at its limit) · **`not_runnable`** (exit 126/127 — the command was missing or not executable, so *the check did not run*, M584) · `nonzero_exit` (it ran and complained). `code` carries the exit status when there was one. A clean hook, a deliberate `exit 2` block, and a hook answering with the JSON contract write **nothing**: this is a failure log, not a trace |
 | `kinetic` | `subject`, `decision` — the kinetic gate ruled on a hardware-actuating call (M163) |
 | `nudge` | `phase` (`fired`/`recovered`) — the prose-narrated-tool-call nudge (M147): fired when a call was narrated instead of invoked, recovered when the retry produced a native call |
+| `md_tool_call_recovered` | `count`, `failed` — the M949 recovery pass: markdown tool calls a `textToolCalls` model wrote, executed not nudged |
+| `cut_continue` | (no fields) — a reply cut at the output ceiling, with no tool call, was asked once to continue (M859, `continueCutReply`) |
+| `empty_reasoning` | `phase` (`fired`/`recovered`) — a **delegate** child that ended on its own with reasoning but no answer text was asked once for its final answer (M937) |
+| `relay` | `phase` (`budget`, `leg_start`, `leg_end`), `p0`, `g`, `w`, `old`, `new`, `leg`, `reason` — the next-leg budget (M951) or a leg start/end (M954); the journal carries the same |
+| `finish_alias` | `name`, `message_bytes` — a delegate ended its turn by calling an unregistered tool named like `finish` with a `message`, which became its answer (M853) |
+| `task_budget` | `phase` (`note`, `stop`), `used`, `max` — a `spawn_parallel` task's `max_tool_calls` (M861): its one note at four-fifths (`max`: the budget it names), or its stop |
+| `pre_discard` | `sub`, `kept` (`yes`, `nothing to lose`, `failed`) — a write child's git command that discards work or moves HEAD, and whether jichi kept its worktree first (M863) |
+| `no_merge_kept` | `task` — a write task set `"merge": false` was kept, not merged; `jichi telemetry` counts them (M890) |
+| `new_dir_hold` | `task`, `dirs`, `files`, `bytes` — a write child's new directories over 1 MB or 100 files, held out of the merge (`parallel-new-dir`); `jichi telemetry` sums them (M888) |
+| `dirty_dispatch` | `mode` (`warn`/`refuse`), `dirty` (`yes`/`no`/`unknown`), `npaths`, `outcome` — a WRITE dispatch checked the live tree (M1006); read-only and `off` emit none; story below |
+| `test_edit_hold` | `task`, `files` — a write child changed an existing test assertion, and its merge was held: kept as `parallel-test-edit` (M865) |
+| `metric_gate` | `task`, `verdict` (`merged`, `held`, `unknown`), `base`, `value` — the metric gate measured a child that moved a pin (M875) |
+| `loop_stop` | `kind` (`same_result`, `refused`, `placeholder`, `rotation`), `repeat` — a child ended for repeating itself (M829's stop, M869's two, M870's window) |
 | `privileged` | `launcher`, `decision` — the privileged-command gate ruled on a sudo-class launch (M152/M153); the always-on audit log holds the full record |
 | `retrieve` | `blocks`, `tokens` — auto-context retrieval attached passages to the user turn (M61) |
 | `history_check` | `violations`, `first` — the wire-shape validator found the history contract broken (M364); warned once per run |
 | `prefix_churn` | `streak` — the system prompt's hash changed on that many consecutive turns (M365): the cached prefix is being re-billed every call |
+| `shell_fence` | `state` (`applied` / `unavailable` / `error`: since M852 the task is refused), `abi`, `dirs` — a parallel write child's Landlock fence (M831); see below |
+| `scoped_edit` | `path`, `kind` (`trip`/`detected`), `task` (only `trip`) — the scoped edit check (M975, D6); story below. |
+
+**`undeclared_args` in detail (M1067).** A tool call whose arguments carried
+top-level key(s) the tool's schema does not declare (M1067; the fix that emits
+this lives in `jc_tool.c`). The call still ran on the declared arguments only,
+and the ignored keys are named on the call's own result — a per-call note, the
+M353 idiom — so the model can stop sending what is never read; `count` is the
+number of ignored top-level keys in that one call. The note is advisory: it
+leaves `is_error` untouched, so the run lands clean (the smoke driver
+`tool_undeclared_args` asserts all four). `jichi telemetry` counts the calls
+and the sum of the ignored keys under `Self-correction`.
+
+**`scoped_edit` in detail (M975, D6).** The scoped edit check (the lead's own edits to worker-owned paths) emitted a telemetry event when an edit was refused (`trip`, with `task` naming the follow-up form) or a shell edit to an owned path was detected (`detected`). The journal records the same event; `jichi telemetry` counts trips and detections separately.
+
+**`shell_fence` in detail (M831, O9).** The Landlock write fence on a `spawn_parallel` **write**
+child's shell. `state` is `applied` (the child's shell is confined to its worktree), `unavailable`
+(no Landlock on this kernel — the child ran **unfenced**), or `error` (a Landlock call failed on a
+kernel that has Landlock: since M852 the write task is **refused** and never runs; before M852 it ran
+unfenced). `abi` is the kernel's Landlock ABI (0 = unavailable) and `dirs` the number of directories
+granted. It is emitted once per fenced write child, so an `unavailable` on disk is the never-silent
+record that a write child's shell could escape its worktree, and an `error` that a write task was
+refused because its fence could not be applied.
+
+**`model_call`'s `truncated` (M858, the demos drive's N42).** Present, and `true`, when the
+reply hit the output ceiling: its `finish_reason` was `length`, or its `completion_tokens`
+reached the `max_tokens` the request sent. The second test exists because on the
+institution's gateway a tool-call reply cut at the ceiling ends `finish_reason: "tool_calls"`
+(measured 2026-10-02); before M858 such a cut showed only as `out_tok` equal to the ceiling.
+Absent means not cut.
+
+**`dirty_dispatch` in detail (M1006, M1006-a).** A WRITE `spawn_subagent` dispatch checks
+the LIVE workspace for uncommitted changes before forking a child's worktree; a read-only
+dispatch, and mode `off` (`strictness.dirtyDispatch`), emit no event. `dirty` is a STRING
+with three states, never `no` when the probe failed: a `git status` that fails inside a git
+workspace reads `unknown` (a non-git workspace stays `no`) — the classifier's else-branch says
+unknown, never the negation (M519/M628); the hand-proven case is a corrupt `.git/index`
+(status rc=128 while `rev-parse` still succeeds). `outcome` is `proceeded` (the guard checked
+and the dispatch ran, under `warn` or a clean/`unknown` tree), `refused` (a dirty tree under
+`refuse`: the batch stops before any fork, the refusal naming the dirty paths and the fix —
+"commit, then dispatch"), or `proceeded_unknown` (the probe failed and the dispatch
+nonetheless proceeded with an `[jichi]` note — an infra failure must not block work).
+`jichi telemetry` counts the checked dispatches and the refused + unknown shares.
 
 ### Reading a tool's ok-rate (M168)
 
@@ -387,6 +457,16 @@ single-call input). `peak_in` is the key line when the backend has no prompt cac
 to the context window and which runs therefore compacted. Use it to spot the
 expensive runs, the token ramp, and features that needed multiple passes.
 
+## First-token time (M897)
+
+`ttft_ms` is the time from sending the request to the first streamed event that carried output:
+answer text, reasoning, or a tool call. A chat visitor waits this long before anything appears;
+`latency_ms` is the whole call. A delta whose only content is `""` (LM Studio sends one at once)
+does not count. The field is absent when no output arrived, as on an HTTP error, and present on a
+failed call whose stream had begun, such as a stall after the first tokens. The summarizer prints
+`ttft_ms mean=… max=…` after `lat_ms` on a model's line, over the calls that carried it. The example
+above predates it; a log from before M897 still renders that way.
+
 ## A short mid-turn compaction says so (M323)
 
 `compact` events with `phase: "midturn"` now carry the whole decision — `before`, `after`,
@@ -431,6 +511,63 @@ tokens were spent — only time. Details:
 
 Older logs have no `transport` field and the line is simply omitted, so existing reports are
 unchanged.
+
+## The failure class (M1039)
+
+`transport` is the *prose* diagnosis, and the prose is libcurl's: it changes with the curl
+version and the exact timeout knob, so a `grep` over an outage's rows cannot match one stable
+token. (That is the same reason M321 had to exist in the first place — `Timeout was reached`
+read like a slow model, and it did not distinguish a connect timeout from a stall.) To make a
+failed call countable, every failed `model_call` now also carries **`fail_class`**, one of a
+fixed vocabulary:
+
+| `fail_class` | what it is |
+|---|---|
+| `connect` | never connected, and not a timeout |
+| `timeout-connect` | the connect timed out before TCP (raise `timeouts.connect`) |
+| `timeout-tls` | TCP connected, but the TLS handshake ran out the connect bound (M877) |
+| `timeout-stall` | connected, then the stream went dead/stalled (the `timeouts.stall` cap or the `timeouts.deadStream` fence) |
+| `dns` | the host could not be resolved |
+| `refused` | the connection was refused after DNS (nothing is listening) |
+| `http-status` | a status **≥ 400** was received — the server spoke |
+| `provider-error` | an error inside a stream that began with a 2xx status (M909) |
+| `aborted` | the call was aborted (jichi's own abort, a signal or the envelope) |
+
+Two properties make it safe to build greps on:
+
+- **It is classified from the same structured inputs that decide `result` and `transport`** —
+  the curl result code and the `timed_out` / `connected` / `handshaking` booleans — so the class
+  and the prose can never disagree about *which* failure happened. It is not derived by matching
+  the prose.
+- **`result` is unchanged** (`aborted` / `timeout` / `error`). `result` still drives the retry
+  decision and the stall-campaign datum; `fail_class` is a *second, more specific* axis for the
+  network cases only.
+
+`fail_class` appears **only on a failed row** (where `ok` is `false`); a successful `model_call`
+carries no `fail_class`. So a greppable `fail_class` always names a failed call, and you can count
+an outage by endpoint with one token:
+
+```
+grep -o '"fail_class":"[a-z-]*"' run.jsonl | sort | uniq -c
+```
+
+Older logs have no `fail_class` field and the token is simply absent, so existing reports are
+unchanged.
+
+## Errors inside a stream (M909)
+
+A server can report an error **after** it has answered `200 OK` and opened a stream. LM Studio
+does so for a request larger than the context the model was loaded with:
+
+```text
+event: error
+data: {"error":{"message":"Engine protocol predict request returned 400: {\"error\":{\"code\":400,\"message\":\"request (4020 tokens) exceeds the available context size (2048 tokens), try increasing it\", ..."}}
+```
+
+The same request without streaming is a plain HTTP 400. Such a call is now a failed `model_call`
+(`"result":"error"`, `"status":200`) carrying the server's message as **`stream_error`**, and the
+run fails as it would on the 400. Before M909 the message became the reply: the call was recorded
+as a success with 0 tokens, and a curriculum attempt failed on an "answer" that was an error.
 
 ## Joined to the tool registry: paid-for vs called (M314)
 

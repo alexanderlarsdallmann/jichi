@@ -15,7 +15,7 @@ solo developer, a balanced team, and a junior solo developer.
 
 > **Method & honesty note.** The actual build was **AI-assisted** — one human
 > directing an AI agent that implemented, tested, and documented under
-> supervision. So the *calendar* span below (**14 weeks, 59 active days**) reflects
+> supervision. So the *calendar* span below (**15 weeks, 69 active days**) reflects
 > that model, not human hand-effort. The other three estimates are
 > **human-equivalent**, derived bottom-up from the delivered scope; they are
 > ranges with stated assumptions (software estimation is uncertain — treat as
@@ -28,24 +28,151 @@ solo developer, a balanced team, and a junior solo developer.
 
 | Metric | Value |
 |---|---|
-| Calendar span | 2026-06-18 → 2026-09-22 (**97 days**, **59 active**) |
-| Commits | **1,303** |
-| Milestones | **M1 – M709** (701 `###` entries in `docs/ROADMAP.md`) |
-| First-party source (`src` + `include`) | **~110,600 lines** (326 tracked `.c`/`.h` files) |
-| Tests | **~100,000 lines** (130 unit files + 317 POSIX-sh smoke drivers + 9 e2e modules + **23** fuzz targets incl. the path-fence and jsonrepair property targets — see the note below), **13,470 unit checks**, smoke **1,854 checks** (one full green run on this machine; the tier reported 1,842–1,851 across tonight’s runs, because some drivers’ check counts depend on what the environment provides) |
-| Documentation | **~149,300 lines** across **513** English markdown pages (565 files incl. de/es/ja/ko/zh) — 45 design proposals, 89 dated analysis notes, 32 source-reading guides, **90 graded assignments** (75 trap cases). Translations are counted separately below, not folded in here; see the note. |
+| Calendar span | 2026-06-18 → 2026-11-04 (**139 days**, **101 active**) |
+| Commits | **3,194** |
+| Milestones | **M1 – M1129** (1,106 milestone-named `###` entries in `docs/ROADMAP.md`; all-`###` is 1,115 -- see the pin note) |
+| First-party source (`src` + `include`) | **~153,500 lines** (367 tracked `.c`/`.h` files) |
+| Tests | **~162,000 lines** (143 unit files + 538 POSIX-sh smoke drivers + 10 e2e modules + **24** fuzz targets incl. the path-fence and jsonrepair property targets — see the note below), **15,343 unit checks**, smoke **2,651 checks** (both carried at M950; the total moves by a few between runs, because some drivers' check counts depend on what the environment provides) |
+| Documentation | **~225,300 lines** across **673** English markdown pages (725 docs `*.md` files incl. the 52 translations -- the pinned count; the M907-published "758 files incl. translations" used a second, unreproducible convention, see the note; the export-ignored `docs/internal/` is not counted, see the note) — 50 design proposals, 183 dated analysis notes, 32 source-reading guides, **90 graded assignments** (75 trap cases, both figures re-verified on this tree). Translations are counted separately below, not folded in here; see the note. |
 | Subsystems | **20** (`src/*`) |
 | Third-party source | none — `src/json/cJSON.{c,h}` is original code (M171), ~1,100 lines |
-| Language / target | C89 / ANSI C; **four kernels** carry the full gate (Linux, FreeBSD, NetBSD, OpenBSD), 14 architectures in the named sweep and 20 `zig cc`+musl triples in the re-sweep — 19 runnable, and as of 2026-09-21 **all 19 driven** — five libcs; libcurl the only dependency |
+| Language / target | C89 / ANSI C; **four kernels** carry the full gate (Linux, FreeBSD, NetBSD, OpenBSD), 14 architectures in the named sweep and 20 `zig cc`+musl triples in the re-sweep — 19 runnable, and as of 2026-09-21 **all 19 driven** — five libcs; since M750 **illumos, GNU/Hurd, macOS and Haiku** are partly verified and driven; libcurl the only dependency |
 | Quality gates | `-Wall -Wextra -Werror` (gcc + clang), ASan/UBSan, valgrind, fuzz, smoke, e2e — plus two Windows emulation layers *partly* verified, each with what it does **not** cover written down |
 | Copyright / licence | **Apache-2.0** (decided 2026-08-27, M619); every tracked `.c`/`.h` (`src`, `include`, `tests`) carries `Copyright (c) 2026 Justus-Liebig-Universität Gießen` + `Author: Alexander-Lars Dallmann` over the SPDX line |
 
-Total **authored** lines (code + tests + English docs): **~359,900**, plus **~8,200**
+Total **authored** lines (code + tests + English docs): **~541,000**, plus **~8,300**
 lines of translation under `docs/i18n/` — the two figures are disjoint, which the
 M620 revision's were not.
 
-*Every figure in this table was **re-counted** on 2026-09-22 (twice — once at M704 and
-again at the v0.10.0 release, which is the column below), not incremented —
+*Every figure in this table was **re-counted at M907**, on 2026-10-07, not incremented — and the
+recount was lint-triggered a fifth time: since the M865 column, 26 drivers and 42 milestones
+(through M907, 890 entries) had landed, past `docs_counts_lint`'s 40/25 tolerance. Before counting, the universes were **pinned**
+against the published M865 column on the tree that committed it (`a9cc36f3`), and every count
+reproduces exactly: 1,587 commits before its own, 340 source files, 137 unit files, 398 drivers,
+10 e2e modules, 23 fuzz targets, 576 pages, 628 files, 48 proposals, 104 analysis notes, 32
+reading guides, 856 entries; the line totals reproduce to within 0.1% (122,748, 117,647 and
+181,975, against ~122,700, ~117,600 and ~181,900). The authored total moved from ~422,300 to
+~450,000. (The pin first failed on the smoke-driver count, 397 against the published 398 —
+my counting expression excluded `run.sh` by the pattern `run\.sh`, which also matched
+`grade_cannot_run.sh`; the M865 column's own figure was the 398 that includes it, and the
+corrected expression reproduces both pins. An off-by-one in the counter, caught by the pin.)
+
+*2026-10-13 (M949): the span, commit, milestone and driver figures re-measured on this tree (all four lint-enforced); the line totals, check counts, word count and bar chart stay carried at M907, per the doctrine below.*
+
+*2026-10-20 (M996, the 46-milestone drift the CI follower's 02:16 note caught): the span, commit, milestone, driver, source/test/doc line totals and page counts re-measured on this tree with `scripts/timeline-pin.sh` (HEAD: 2,201 commits, 966 milestone-named entries, 344/139 source/unit files, 473 drivers, 133,389/135,742/219,684 lines); the check counts (15,343 unit / 2,651 smoke) stay carried at M950 and the section-4 bar chart stays carried at M907, per the doctrine below.*
+
+*2026-10-22 (M1038, the 42-milestone drift `docs_counts_lint` checks 12/15 caught when the M1038 ROADMAP entry landed): the span, commit, milestone, driver, source/test/doc line totals and authored total re-measured on this tree with `scripts/timeline-pin.sh` (HEAD: 2,402 commits, 992 milestone-named / 1,000 all-`###` entries, 346/140 source/unit files, 482 drivers, 134,902/140,869/220,569 lines; the doc line figure is the English-only universe, pages 663 unchanged); the check counts (15,343 unit / 2,651 smoke) stay carried at M950 and the section-4 bar chart stays carried at M907, per the doctrine below.*
+
+*2026-11-03 (M1121-c, the milestone drift docs_counts_lint check 12 caught when the M1121 ROADMAP entry landed): the span, commit, milestone, driver, source/test/doc line totals and page counts re-measured on this tree with scripts/timeline-pin.sh (HEAD: 3,147 commits, 1,098 milestone-named / 1,107 all-### entries, 367/143 source/unit files, 537 drivers, 153,149/161,324/225,287 lines); the check counts (15,343 unit / 2,651 smoke) stay carried at M950 and the section-4 bar chart stays carried at M907, per the doctrine below.*
+
+*2026-11-03 (M1122, the 0.13.0 release re-count): the span, commit, milestone, driver, source/test/doc line totals and page counts re-measured on this tree with scripts/timeline-pin.sh (HEAD: 3,150 commits, 1,099 milestone-named / 1,108 all-### entries, 367/143 source/unit files, 537 drivers, 153,149/161,324/225,292 lines); the check counts (15,343 unit / 2,651 smoke) stay carried at M950 and the section-4 bar chart stays carried at M907, per the doctrine below.*
+
+*2026-11-04 (the 0.13.0 final release re-count, SV:2357): the span, commit, milestone, driver, source/test/doc line totals and page counts re-measured again on this tree with scripts/timeline-pin.sh, the M1122 re-measurement re-run on the final RC head (HEAD: 3,194 commits, 1,106 milestone-named / 1,115 all-### entries, 367/143 source/unit files, 538 drivers, 153,478/161,936/225,342 lines); the check counts (15,343 unit / 2,651 smoke) stay carried at M950, the section-4 bar chart stays carried at M907, and the active-day figure (101) stays carried from M1122 per the doctrine below (it is not derived from the pin); the 139-day span end is the 0.13.0 snapshot date, 2026-11-04 (SV:2359).*
+
+*2026-10-13 (M950, universe pin): the counting expressions are now written down --
+`scripts/timeline-pin.sh [commit]` (default HEAD; the pin-check flag re-runs the
+twelve M865 file-figure targets) reproduces the published file figures of a milestone column
+from its tracked tree, and passes them: 1587 commits / 340 source / 137 unit / 398
+driver / 10 e2e / 23 fuzz / 576 page / 628 docs-file / 48 proposal / 104 analysis /
+32 guide / 856 entries at `a9cc36f3`, plus the line totals 122,748/117,647/181,975.
+Run at `d23f90c8` it reproduces the M907 column's pages, drivers and line totals
+(634 pages, 424 drivers, 126,198/122,866/200,967) -- its docs-file count (686) is
+not the published "758 files incl. translations", which no tracked-tree rule
+reproduces; that is the carried figure named below. This table's re-count used the
+pre-commit tree of the M949 head (`570cd72f`), which the script reads as 342 source
+/ 138 unit / 452 driver / 10 e2e / 652 page / 704 docs-file / 50 proposal / 174
+analysis / 32 guide / 23 fuzz, line totals 130,089/129,096/211,512, 929
+milestone-named ROADMAP entries (937 all-`###`), and 1,888 commits; at this
+commit the ROADMAP holds 930 named entries (938 all-`###`). The at-a-glance and the
+section 4 tables above now carry those, with the **15,343** unit checks and
+**2,651** smoke checks measured on this tree (replacing the M907-carried 15,005
+and 2,433). **Still carried, with no single rule that yields them** (named, not
+hidden): the M907-era docs row's "**758 files** incl. translations" (replaced in
+the row by the pinned 704, kept here as the record of the old convention), the
+**commits** row (published 1,882 at M949; a bare commit-count expression reads
+1,888 at that same tree -- the convention is not reconstructed, so the row keeps
+1,882), the graded-assignment/trap-case pair, and the historical "exact counts"
+the section 4 bars used before M950 (200,948/126,198/122,857 -- none of them a
+tracked line total). Two counting traps, and a second convention finding, are
+named in the script header: (1) the driver exclusion must be the two files
+`run.sh`/`_smoke.sh` -- a pattern on `run.sh` alone also matches
+`grade_cannot_run.sh` (the M907 off-by-one); (2) the guide count must descend into
+`docs/reading/traces/` -- a flat listing reads 31, not 32; (3) the Milestones
+figure has **two conventions in its own history** -- the M865 column (856) counted
+ALL `###` headings, M907 onward counts milestone-named ones (890 then; 929 at the
+M949 head, 930 now, with this entry); the script prints both, and any re-count
+must say which it publishes.*
+
+*2026-10-12 (M948): a **partial** update, not a full re-count. The span, commit, milestone and driver figures above were re-measured on this tree (all four lint-enforced or trivially verifiable). The line totals, file breakdowns, check counts, the word count and the bar chart below are **carried at M907**: at re-count my counting universes did not reproduce the published M907 line figures (for instance, 200,948 English doc lines -- no single tracked-tree rule yields that number), so per this page's own doctrine they are carried, not re-guessed, until their counting expressions are written down.*
+
+***The pin also confirmed the one carried figure is still not reproducible.*** *"90 graded
+assignments (75 trap cases)" stays as published: the tree holds 87 numbered assignment dirs at
+M865 (183 now) and 81 with a `test.sh` both then and now; the definition that produced 90 is
+still not written down, so it is re-measured when someone writes it down, not re-guessed now.
+The 75 trap cases reproduce (2026-10-07, `curriculum_graders.py`).*
+
+*Every figure in this table was **re-counted at M865**, on 2026-10-02, not incremented — and the
+recount was lint-triggered a fourth time: M865's driver was the 398th, 26 more than the 372 this
+page claimed, and `docs_counts_lint` check 13 allows 25. Before counting, the universes were
+**pinned** against the published M832 column on M832's own tree (`git archive 63ef86b8`, which
+leaves out the export-ignored `docs/internal/`), and every count in it reproduces exactly: 1,460
+commits before its own, 334 source files, 134 unit files, 372 drivers, 10 e2e modules, 23 fuzz
+targets, 564 pages, 616 files, 45 proposals, 103 analysis notes, 32 reading guides, 823 entries,
+65 active days; the line totals reproduce to within 0.1% (117,850, 111,135 and 173,224, against
+~117,900, ~111,100 and ~173,200). The authored total moved from ~402,200 to ~422,300.*
+
+***One figure was carried, not measured, and is marked here instead of redefined.*** *"90 graded
+assignments (75 trap cases)" stands as published: `docs/assignments` holds 92 numbered pages, the
+same tree at M832 and at M865, and the definition that produced 90 is not written down. It is
+re-measured when someone writes it down, not re-guessed now.*
+
+*The M832 recount, of 2026-09-28, follows.*
+
+*Every figure in this table was **re-counted at M832**, on 2026-09-28, not incremented — and the
+recount was lint-triggered again: M832's own ROADMAP entry put this page 41 milestones behind, and
+`docs_counts_lint` check 12 fired. Before counting, the universes were **pinned** against the
+published M750 column, and every count in it reproduces exactly (326 source files, 131 unit files,
+331 drivers, 10 e2e modules, 528 pages, 580 files, 45 proposals, 96 analysis notes, 739 entries, 62
+active days); the line totals reproduce to within 0.3%, because M750 measured a mid-edit branch.*
+
+***The pin found two defects, and both are the kind this page exists against.*** *First, the
+documentation universe had moved without a word. It is `docs/` minus `docs/i18n/` **and minus the
+export-ignored `docs/internal/`**: M750's 528 pages reproduce only with that exclusion, while the
+v0.10.0 column M750 said it matched (149,258 lines over 513 pages) reproduces only *with*
+`docs/internal/`, which then held one page of 117 lines. Small for v0.10.0, growing with every
+handoff note, and now stated: a published retrospective counts what its readers can see. Second,
+figures had been **incremented**. The M750 column's smoke-driver count read **372**, not its
+measured **331**, because each later milestone that added a driver bumped it, M831 included; the
+column had become a live number wearing a dated label. And the Tests row said 132 unit files where
+the tree holds **134**. The M750 column is restored to 331, and M832's counts stand in a column of
+their own. The platform row is again carried from [`PLATFORMS.md`](PLATFORMS.md) as it stands.*
+
+*The **milestone figure was re-counted at M791**, on 2026-09-26 (781 `###` entries), when
+`docs_counts_lint` check 12 crossed 40 milestones of drift during the docs-structure S4 work
+— the same lint-triggered recount this page records happening before. The other rows below
+stand from the M750 recount; they are re-measured, not incremented, when the next figure
+drifts.*
+
+*Every figure in this table was **re-counted at M750**, on 2026-09-25, not incremented,
+on the same universes as the v0.10.0, M686 and M646 recounts: `src` + `include` for
+source, everything tracked under `tests/` for tests, and **`docs/` minus `docs/i18n/`**
+for English documentation. The platform row is the exception: it is carried from
+[`PLATFORMS.md`](PLATFORMS.md) as it stood, and was not re-checked here. Before counting,
+the universes were pinned the way M646 pinned them, by running today's commands at the
+v0.10.0 commit (`4f283602`). They reproduce that column's source (110,628 lines),
+tests (99,981), documentation (149,258 over 513 pages), smoke drivers (317), unit files
+(130) and analysis notes (89). The commit count reads 1,304 there, one more than
+published, because the published figure was taken before the release commit itself.*
+
+***This recount was lint-triggered, by a number rather than by work.*** *`docs_counts_lint`
+check 12 fired at 41 milestones of drift. But M746–M749 were never used: the two
+machines' handoff reserved them for threadwork, which released them. So **38**
+milestone entries had landed since M709: M710–M745, M735b and M750. The gate counts milestone numbers, the one proxy that
+works in a tree without git, and here that proxy fired a few milestones early. That is
+the direction a drift gate should err in.*
+
+*The previous recount, of 2026-09-22, follows. It was measured twice, once at M704 and
+again at the v0.10.0 release, not incremented —
 same universes as the M686 and M646 recounts, so all three are comparable:
 `src` + `include` for source, everything tracked under `tests/` for tests, and
 **`docs/` minus `docs/i18n/`** for English documentation — `docs/` only, **not**
@@ -56,19 +183,48 @@ to be reviewed, and it found no universe defect — which is worth stating plain
 because the two recounts that did find one are the reason the universes are named
 in this paragraph instead of assumed.*
 
-*What ten milestones moved:*
+*What ten milestones moved, then thirty-seven, then eighty-two, then thirty-three:*
 
-| | M686 (2026-09-20) | M704 (2026-09-22) | v0.10.0 (2026-09-22) |
-|---|---:|---:|---:|
-| commits | 1,221 | 1,264 | **1,303** |
-| first-party source | ~109,500 | ~110,500 | **~110,600** |
-| tests | ~97,800 | ~99,700 | **~100,000** |
-| documentation (English only) | ~141,400 | ~145,100 | **~149,300** |
-| smoke drivers | 312 | 317 | **317** |
-| unit checks | 13,329 | 13,461 | **13,470** |
-| smoke checks | 1,736 | 1,851 | **1,854** |
-| dated analysis notes | 81 | 86 | **89** |
-| English doc pages | 489 | 499 | **513** |
+| | M686 (2026-09-20) | M704 (2026-09-22) | v0.10.0 (2026-09-22) | M750 (2026-09-25) | M832 (2026-09-28) | M865 (2026-10-02) |
+|---|---:|---:|---:|---:|---:|---:|
+| commits | 1,221 | 1,264 | 1,303 | 1,353 | 1,460 | **1,587** |
+| first-party source | ~109,500 | ~110,500 | ~110,600 | ~112,600 | ~117,900 | **~122,700** |
+| tests | ~97,800 | ~99,700 | ~100,000 | ~105,700 | ~111,100 | **~117,600** |
+| documentation (English only) | ~141,400 | ~145,100 | ~149,300 | ~158,900 | ~173,200 | **~181,900** |
+| smoke drivers | 312 | 317 | 317 | 331 | 372 | **398** |
+| unit checks | 13,329 | 13,461 | 13,470 | 13,943 | 14,153 | **14,655** |
+| smoke checks | 1,736 | 1,851 | 1,854 | 1,961 | 2,170 | **2,374** |
+| dated analysis notes | 81 | 86 | 89 | 96 | 103 | **104** |
+| English doc pages | 489 | 499 | 513 | 528 | 564 | **576** |
+
+*The sixth column is the batch branch `fix/2026-10-02-batch2` -- `master` at M859 (`520f3aa8`) plus
+M860 to M864 and the demos drive's notes -- measured on M865's staged tree before its own commit.
+Thirty-three milestone numbers and 127 commits landed since that recount, in the rest of Sep 28
+and four more days: the FreeDOS + DJGPP row
+(M833–M839), the chatbot guide and the read-only fix (M840–M842), the branch review's first batch
+(M843–M851: the fences, the trust step for a project's own config) and the demos drive's findings
+(M852–M865: a fenced child's temp dir, `finish`, how a stopped child ends and merges, the shared
+stash, cut replies, batch ids, task budgets, a red verify's lines, keeping work before a discarding
+git command, a child's log ids, a moved test assertion held). Source grew **+4.2%**, tests **+5.9%**
+and documentation **+5.0%**; in every step of this table tests grew faster than source.*
+
+*The fifth column is `master` at M831 plus M832, measured on M832's staged tree before its own
+commit. Eighty-two milestone numbers and 107 commits landed in those three days, on two machines:
+the TUI's control surface (`/fences`, `/why`, `jichi ps`, Esc to stop a turn), the GNU/Hurd row and
+the fork-free measurement (M767–M769), the API-key protection swept across five kernels
+(M770–M799), the documentation-structure plan (M772–M795), the preserve-agent-work line
+(M800–M816), macOS and Haiku (M817, M830), the weekend drive's sixteen findings (M818–M829), the
+Landlock shell fence (M831) and the fork-free spawn backend (M832). Source grew **+4.6%**, tests
+**+5.1%** and documentation **+9.0%**, 36 English pages among it: the structure plan was the
+largest documentation wave any column records.*
+
+*The fourth column is the branch `twelve-questions`: `master` at M745, plus the
+operator's decisions on the twelve questions and M750. Over those three days source
+grew **+1.8%**, tests **+5.8%** and documentation **+6.5%**, and 50 commits landed: a
+platform wave (FreeMiNT and Guix driven, the oldest-toolchain ladder), two releases
+(v0.10.1 and v0.12.0), two drives measured (M731, M744), and the constraint scanner
+measured twice (M730, M743). Tests grew three times faster than source, which is this
+project's signature again.*
 
 *The third column is `master` at the **v0.10.0** release — no branch, nothing
 un-merged. The M704 column was measured on an un-merged branch and said so; that
@@ -106,11 +262,12 @@ written.*
 > therefore overstated by ~8,000 lines for 25 milestones, in the one table the
 > whole page rests on. Fixed by stating the two disjointly.
 >
-> **2. There are 23 fuzz targets.** `JC_FUZZ_TARGETS[]` in
-> `tests/fuzz/jc_fuzz_targets.c` has 23 entries, nameable one by one: json, sse,
+> **2. There are 24 fuzz targets.** `JC_FUZZ_TARGETS[]` in
+> `tests/fuzz/jc_fuzz_targets.c` has 24 entries, nameable one by one: json, sse,
 > testparse, html, rss, base64, constraint, lsp_framer, glob, output_fmt, yaml,
 > patch, utf8, mcp, prop_base64, prop_configedit, prop_setup, prop_constraint,
-> prop_pathfence, prop_jsonrepair, embed, prov_openai, prov_anthropic. *(The page said
+> prop_pathfence, prop_jsonrepair, embed, prov_openai, prov_anthropic,
+> toolcall_recover. *(The page said
 > **21** for 25 milestones while the table held **19**, and it had 19 at the M620
 > commit too — carried forward rather than counted, in the revision that said it
 > had counted everything. `docs_counts_lint` check 17 has held the figure to the
@@ -572,6 +729,9 @@ licence deliberately left undecided" — as the current state. That sentence was
 true for one milestone and wrong for the next 148. This revision carries it from
 M645 to **M696** for the same reason, and the honest caveat is the same one the
 front table carries: the tree it was written against is a branch, not `master`.
+**The figures have moved on and the story has not.** The tables were re-counted at
+M865, but this narrative still ends at M696. M697–M865 are told only in the
+[ROADMAP](ROADMAP.md), so read this section's last sentence as P20's, not as today's.
 
 ---
 
@@ -581,8 +741,8 @@ front table carries: the tree it was written against is a branch, not `master`.
 %%{init: {'themeVariables':{'xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#0d47a1','titleColor':'#111111','xAxisLabelColor':'#111111','xAxisTitleColor':'#111111','xAxisLineColor':'#111111','xAxisTickColor':'#111111','yAxisLabelColor':'#111111','yAxisTitleColor':'#111111','yAxisLineColor':'#111111','yAxisTickColor':'#111111'}}}}%%
 xychart-beta
     title "Commits per active day"
-    x-axis [Jun18, Jun19, Jun22, Jun23, Jun24, Jun25, Jun26, Jun30, Jul01, Jul02, Jul06, Jul07, Jul08, Jul09, Jul10, Jul13, Jul14, Jul23, Jul24, Jul27, Jul28, Jul29, Jul30, Jul31, Aug01, Aug02, Aug03, Aug04, Aug05, Aug06, Aug07, Aug08, Aug09, Aug10, Aug11, Aug12, Aug13, Aug14, Aug15, Aug16, Aug17, Aug18, Aug19, Aug20, Aug21, Aug22, Aug23, Aug24, Aug25, Aug26, Aug27, Sep15, Sep16, Sep17, Sep18, Sep19, Sep20, Sep21, Sep22]
-    bar [6, 20, 20, 36, 31, 36, 16, 24, 8, 12, 12, 9, 33, 33, 10, 36, 8, 20, 14, 28, 27, 13, 6, 10, 47, 56, 7, 16, 18, 40, 19, 20, 30, 34, 18, 23, 27, 20, 27, 19, 36, 16, 25, 16, 19, 20, 15, 20, 12, 1, 36, 3, 20, 22, 23, 29, 23, 42, 36]
+    x-axis [Jun18, Jun19, Jun22, Jun23, Jun24, Jun25, Jun26, Jun30, Jul01, Jul02, Jul06, Jul07, Jul08, Jul09, Jul10, Jul13, Jul14, Jul23, Jul24, Jul27, Jul28, Jul29, Jul30, Jul31, Aug01, Aug02, Aug03, Aug04, Aug05, Aug06, Aug07, Aug08, Aug09, Aug10, Aug11, Aug12, Aug13, Aug14, Aug15, Aug16, Aug17, Aug18, Aug19, Aug20, Aug21, Aug22, Aug23, Aug24, Aug25, Aug26, Aug27, Sep15, Sep16, Sep17, Sep18, Sep19, Sep20, Sep21, Sep22, Sep23, Sep24, Sep25, Sep26, Sep27, Sep28, Sep29, Sep30, Oct01, Oct02]
+    bar [6, 20, 20, 36, 31, 36, 16, 24, 8, 12, 12, 9, 33, 33, 10, 36, 8, 20, 14, 28, 27, 13, 6, 10, 47, 56, 7, 16, 18, 40, 19, 20, 30, 34, 18, 23, 27, 20, 27, 19, 36, 16, 25, 16, 19, 20, 15, 20, 12, 1, 36, 3, 20, 22, 23, 29, 23, 42, 39, 15, 27, 36, 22, 23, 33, 50, 19, 24, 32]
 ```
 
 Robust fallback (renders anywhere) — commits/day and the cumulative total:
@@ -647,7 +807,17 @@ Robust fallback (renders anywhere) — commits/day and the cumulative total:
 | Sep 19 | 29 | `█████████▋` | 1202 |
 | Sep 20 | 23 | `███████▋` | 1225 |
 | Sep 21 | 42 | `██████████████` | 1267 |
-| Sep 22 | 36 | `████████████` | 1303 |
+| Sep 22 | 39 | `█████████████` | 1306 |
+| Sep 23 | 15 | `█████` | 1321 |
+| Sep 24 | 27 | `█████████` | 1348 |
+| Sep 25 | 36 | `████████████` | 1384 |
+| Sep 26 | 22 | `███████▍` | 1406 |
+| Sep 27 | 23 | `███████▋` | 1429 |
+| Sep 28 | 33 | `███████████` | 1462 |
+| Sep 29 | 50 | `████████████████▋` | 1512 |
+| Sep 30 | 19 | `██████▍` | 1531 |
+| Oct 01 | 24 | `████████` | 1555 |
+| Oct 02 | 32 | `██████████▋` | 1587 |
 
 The **shape of the work changed** halfway through, and the chart is where it shows.
 The first seven weeks are bursts separated by gaps: the **foundation sprint** (Jun
@@ -673,18 +843,25 @@ milestones that followed it out the door.
 Then a **nineteen-day gap (Aug 28 – Sep 14)**, the longest in the project and more
 than twice the July one, and the chart should not be read as saying nothing
 happened: it says nothing was *committed here*. What resumed on Sep 15 is P18,
-which is about how an answer knows what it knows — and **eight active days
-produced 198 commits**, ~25/day, above the twenty-two-day August stretch and the
-densest sustained run in the project.
+which is about how an answer knows what it knows — and by M865 **eighteen consecutive
+active days had produced 482 commits**, ~27/day, above the twenty-two-day August stretch
+(493 commits, ~22/day), on two machines instead of one. That rate has been quoted four
+times and has moved each time: ~25/day over the first eight days, ~22.5/day over eleven at
+M750 — when this page said the rate had "settled back to August's" — ~25/day again over
+fourteen at M832 (355 commits then), and ~27/day over eighteen. A running rate describes an
+unfinished stretch, and the sentence that called it settled was not true three days later.
 
 **The September bars mean something different from the rest of the chart, and it
 would be dishonest to leave that unsaid.** By this recount the work was running on
 **two machines in parallel** against the same `master`, so those bars are the
 project's cadence and no longer one workstation's. This recount did **not** measure
 the split: the `Co-Authored-By` trailer names the model, not the machine, and every
-commit from Sep 18 on carries the same one. The final bar (**Sep 22, 36**) was a partial day when this chart was first drawn
-and said so; it is the v0.10.0 release day, and it is the second densest in the
-project after Aug 2's 56.
+commit from Sep 18 on carries the same one. Sep 22, the v0.10.0 release day, was a partial day when the chart was first drawn
+and read 36; it closed at **39**. The earlier text called it the second densest day
+after Aug 2's 56, which the table beside it never supported: Aug 1 (47), Sep 21 (42)
+and Aug 6 (40) are all higher, so it is fifth. Sep 25 was partial at M750 too, read
+at 5; it closed at **36**. Sep 28 was partial at M832, read at 31; it closed at **33**. The final
+bar (**Oct 02, 32**) is partial again: this recount was taken before M865's own commit.
 
 The early dips (Jul 1–7) are the hardening/analysis stretch — fewer commits, deeper
 work per commit — and the same caution applies to P5's low count: whole capability
@@ -696,53 +873,60 @@ a measure of cadence, which is the only thing this chart claims.
 
 ## 4. Codebase composition
 
-Where the first-party **source** lives (src `.c` lines; the CLI shell `main.c`
-≈ 16.0 KLOC sits at the `src/` root; headers in `include/` add 15.2 KLOC, bringing
-the src+include total to ~110.5 KLOC — the slices below sum to exactly that):
+Where the first-party **source** lives (every tracked `.c` and `.h` line under `src/`,
+by subsystem; the CLI shell `main.c` ≈ 17.8 KLOC sits at the `src/` root; headers in
+`include/` add 17.2 KLOC, bringing the src+include total to ~126.2 KLOC — the slices
+below sum to exactly that, 126,198 at M907):
 
-```mermaid
-%%{init: {'theme':'base','themeVariables':{'pie1':'#0d47a1','pie2':'#1b5e20','pie3':'#b71c1c','pie4':'#4a148c','pie5':'#e65100','pie6':'#006064','pie7':'#880e4f','pie8':'#311b92','pie9':'#33691e','pie10':'#bf360c','pie11':'#004d40','pie12':'#1a237e','pie13':'#3e2723','pie14':'#263238','pie15':'#4e342e','pie16':'#01579b','pie17':'#37474f','pieStrokeColor':'#ffffff','pieStrokeWidth':'2px','pieOuterStrokeWidth':'2px','pieSectionTextColor':'#ffffff','pieSectionTextSize':'14px','pieTitleTextColor':'#111111','pieLegendTextColor':'#111111'}}}%%
-pie showData
-    title First-party source by subsystem (src .c lines)
-    "util (helpers, pure cores)" : 16498
-    "main.c (CLI shell)" : 16048
-    "include (public headers)" : 15238
-    "chat (agent/app/envelope/control)" : 14276
-    "tools (17 core + 23 conditional)" : 9579
-    "scaffold + setup" : 7075
-    "tui (line editor + render)" : 6551
-    "snapshot + session" : 3117
-    "index (RAG)" : 3082
-    "convert (importers)" : 2984
-    "net" : 2455
-    "config" : 2351
-    "platform + json" : 2286
-    "lsp" : 2112
-    "mcp" : 2043
-    "acp" : 1696
-    "command + skill" : 1602
-    "provider" : 1471
-```
+First-party source by subsystem (`src` + `include` lines, M907):
+
+| Subsystem | Lines |
+|---|---:|
+| util (helpers, pure cores) | 18,848 |
+| main.c (CLI shell) | 17,793 |
+| include (public headers) | 17,191 |
+| chat (agent/app/envelope/control) | 17,906 |
+| tools (17 core + 23 conditional) | 12,612 |
+| scaffold + setup | 7,113 |
+| tui (line editor + render) | 6,877 |
+| snapshot + session | 3,738 |
+| config | 3,643 |
+| index (RAG) | 3,099 |
+| convert (importers) | 3,078 |
+| net | 2,758 |
+| platform + json | 2,574 |
+| lsp | 2,107 |
+| mcp | 2,024 |
+| acp | 1,706 |
+| command + skill | 1,605 |
+| provider | 1,526 |
 
 Authored-lines split across the three deliverable kinds:
 
 | Kind | Lines | Share | |
 |------|------:|------:|--|
-| Documentation (English) | ~149,300 | 41% | `█████████████████████████▉` |
-| Source (`src`+`include`) | ~110,600 | 31% | `███████████████████▋` |
-| Tests | ~100,000 | 28% | `█████████████████▊` |
+| Documentation (English) | ~211,500 | 45% | `████████████████████████████▏` |
+| Source (`src`+`include`) | ~130,100 | 28% | `███████████████████▎` |
+| Tests | ~129,100 | 27% | `██████████████████▏` |
 
-A **~1 : 0.90 : 1.35** code : test : docs ratio — and the ordering is the finding:
+*(Bars at one block per 1.6 points of share, in eighths, redrawn at M950 from the tracked
+line totals `scripts/timeline-pin.sh` prints: 211,531, 130,089 and 129,096. The "exact
+counts" M907 carried here (200,948, 126,198 and 122,857) matched no tracked-tree rule --
+that is why M948 carried them rather than re-guessed; M950 pins the rule, so the bars now
+come from the reproducible totals. Historical: at M865 181,975/122,748/117,647; at M832,
+173,224/117,850/111,135; at M750, 158,916/112,634/105,737.)*
+
+A **~1 : 0.99 : 1.63** code : test : docs ratio — and the ordering is the finding:
 **documentation now outweighs source.** That was not a target, it is what
 measurement-driven work produces. Compare the same table at M296 (~1 : 0.44 : 0.56):
 every phase since then has been auditing, porting and measuring rather than adding
 subsystems, and each of those produces prose — a dated analysis note, a platform row
 with its numbers, a register entry saying what was *not* checked — while adding
-comparatively little C. The **89 dated analysis notes** and the platform matrix are
+comparatively little C. The **174 dated analysis notes** and the platform matrix are
 most of the difference.
 
-Two honest caveats on that ratio. First, `docs/ROADMAP.md` alone is **41,125 lines —
-28% of all documentation**: it is the per-milestone engineering record, so it grows
+Two honest caveats on that ratio. First, `docs/ROADMAP.md` alone is **50,614 lines —
+25% of all documentation**: it is the per-milestone engineering record, so it grows
 with every milestone by construction. Second, "documentation" here counts the
 teaching artifact too — 90 graded assignments, 32 source-reading guides, the
 curriculum — which a normal C project would not carry at all.
@@ -855,6 +1039,9 @@ the end exact):
 | Platforms + release (P12, M505) | **12,557** | `████████████████████████▉` | **217** |
 | Learning loop + teaching (P13, M645) | **13,323** | `██████████████████████████▋` | **297** |
 | Review + platform truth (2026-09-22) | **13,461** | `██████████████████████████▉` | **317** |
+| Two machines, twelve questions (M750, 2026-09-25) | **13,943** | `███████████████████████████▉` | **331** |
+| Spawn backend, fork-free rows (M832, 2026-09-28) | **14,153** | `████████████████████████████▎` | **372** |
+| Demos-drive findings, held merges (M865, 2026-10-02) | **14,655** | `█████████████████████████████▎` | **398** |
 
 The four M296–M458 rows and the driver counts are **measured, not interpolated** —
 each was obtained by checking that commit out into a throwaway `git worktree`,
@@ -869,12 +1056,16 @@ M486 stamp (M645), in a table whose whole point is that its numbers are dated. T
 original estimates and stay marked approximate; they predate the practice of
 recording the number.
 
-The pattern worth noticing: **unit checks grew 33% across 400 milestones while smoke
-drivers tripled.** That is not testing slowing down, it is a shift in
+The M750 row is the gate's own last line on the branch `twelve-questions` (M745 plus
+M750), read on 2026-09-25. The M832 row is `make test` and the smoke tier on M832's staged
+tree, read on 2026-09-28; the M865 row the same on M865's, read on 2026-10-02.
+
+The pattern worth noticing: **unit checks grew 45% across some 569 milestones (M296 to
+M865) while smoke drivers nearly quadrupled.** That is not testing slowing down, it is a shift in
 *kind* — everything after P9 was about behaviour a unit test cannot reach (what the
 operator sees, what the model is told, what a foreign `/bin/sh` does, what happens
 when a directory cannot be read, whether a model has ever run on this kernel), and
-that is the smoke tier's job. **214 new drivers**, most of them a lint or a
+that is the smoke tier's job. **269 new drivers**, most of them a lint or a
 two-sided proof of one specific defect.
 
 Layered strategy: **pure-core unit tests** (the bulk — parsers, planners,
@@ -1002,21 +1193,21 @@ xychart-beta
     title "Human effort by delivery model (person-months, midpoint)"
     x-axis ["AI-assisted (1 dev + AI)", "Expert solo", "Junior solo (learning)", "Team of ~6"]
     y-axis "Person-months" 0 --> 200
-    bar [3.1, 67, 113, 124]
+    bar [3.6, 67, 113, 124]
 ```
 
 Robust fallback (renders anywhere):
 
 | Model | Person-months | | Calendar |
 |---|--:|--|---|
-| **AI-assisted (1 dev + AI)** — actual | **~3.1** | `█▌`                   | **14 weeks** (59 active days) |
+| **AI-assisted (1 dev + AI)** — actual | **~3.6** | `█▊`                   | **15 weeks** (69 active days) |
 | Expert solo, all hats | ~67 | `█████████████████████████████████▌`  | ~5–7 years |
 | Junior → senior solo, all hats | ~113 | `████████████████████████████████████████████████████████▌` | **~9–11.5 years** |
 | Balanced team (~6) | ~124 | `██████████████████████████████████████████████████████████████` | ~16–21 months |
 
 | Scenario | Speed / structure assumption | Human effort | Calendar |
 |---|---|--:|---|
-| **AI-assisted (1 dev + AI)** | one human directing an AI agent; human time concentrated in design, review, and supervision; the AI compresses implementation + tests + docs | **~3.1 person-months** of human supervision (the ~1.3 figure derived at M259 for 25 active days, i.e. ~0.052/active-day, × **59** active days — the method's own basis, shown so it is checkable rather than re-guessed). **This figure is low and the method cannot say by how much:** for the last five active days two machines were supervised in parallel against the same `master`, and a per-active-day rate counts such a day once | **14 weeks** |
+| **AI-assisted (1 dev + AI)** | one human directing an AI agent; human time concentrated in design, review, and supervision; the AI compresses implementation + tests + docs | **~3.6 person-months** of human supervision (the ~1.3 figure derived at M259 for 25 active days, i.e. ~0.052/active-day, × **69** active days — the method's own basis, shown so it is checkable rather than re-guessed). **This figure is low and the method cannot say by how much:** for the last fifteen active days two machines were supervised in parallel against the same `master`, and a per-active-day rate counts such a day once | **14 weeks** |
 | **Expert solo**, all hats | ~1,170 ideal eng-days × ~1.2 solo-friction ≈ 1,400 eng-days | **~47–93** (mid ~67) | ~5–7 years (not fully focused) |
 | **Balanced team (~6)** | 1 lead/architect, 3 devs, 1 QA, 1 writer, ~0.3 PM; +~30% coordination tax, ~4 parallel streams — the same structure as before, on 3.3× the scope | **~105–142** total (mid ~124) | ~16–21 months |
 | **Junior → senior solo**, all hats | starts ~3.3× slower on hard C89/systems + protocol work, but **the multiplier decays as they learn** — see the note below; more rework, weaker at architecture/PM early | **~108–133** (mid ~113) | **~9–11.5 years** |
@@ -1125,7 +1316,7 @@ band, approving a design, catching a wrong assumption in review, and pausing or
 redirecting a run. The disciplines that let a *team* scale — tight milestones, a
 design note before code, pure-core testability, a hard quality gate, a doc +
 commit per unit of work — are exactly what let the AI stay productive across
-**1,264 commits**, and, just as importantly, what made its mistakes *findable*:
+**1,587 commits**, and, just as importantly, what made its mistakes *findable*:
 nearly every defect this page names was caught by one of the project's own gates,
 not by a user. That is the transferable lesson: **AI assistance rewards the same
 engineering hygiene that good teams already practise.**

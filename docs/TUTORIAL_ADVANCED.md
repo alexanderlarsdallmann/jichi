@@ -43,17 +43,16 @@ tools. Permissions are resolved per call by your **mode** (see
 The wizard's "accept defaults?" prompt → **no** opens the full optional chain.
 Or pass nothing and answer every toggle. The subsystems:
 
-```mermaid
-flowchart TD
-  C["config.json"] --> M["models[] + roles\n(chat / edit / apply / embed / rerank / ...)"]
-  C --> R["routing\n(fast → strong escalation)"]
-  C --> L["lspServers\n(diagnostics + nav + refactor)"]
-  C --> P["mcpServers\n(external tools / resources / prompts)"]
-  C --> D["docs[]\n(retrieval over external docs)"]
-  C --> S["search\n(web_search backend)"]
-  C --> H["hooks\n(lifecycle shell commands)"]
-  C --> V["verify + editScope\n(autonomy envelope)"]
-```
+`config.json` drives each subsystem:
+
+- **models[] + roles** — chat / edit / apply / embed / rerank / …
+- **routing** — fast → strong escalation
+- **lspServers** — diagnostics + navigation + refactor
+- **mcpServers** — external tools / resources / prompts
+- **docs[]** — retrieval over external docs
+- **search** — the web_search backend
+- **hooks** — lifecycle shell commands
+- **verify + editScope** — the autonomy envelope
 
 You can always edit `local/config.json` by hand afterward; the wizard's
 single-entry prompts cover the common case, and multi-server setups (several
@@ -132,7 +131,7 @@ edit-scope fence.
 
 ```sh
 jichi -p "fix the failing tests" --auto \
-  --verify "make test" --max-tool-calls 40 --edit-scope 'src/**'
+  --verify "make test" --max-tool-calls 40 --edit-scope 'src/**' < /dev/null
 ```
 
 See [AUTONOMY.md](AUTONOMY.md).

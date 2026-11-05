@@ -10,6 +10,7 @@
 #include "jc_snprintf.h"
 #include "jc_lineno.h"
 #include "jc_envelope.h"   /* jc_glob_match: one definition of "pattern" */
+#include "jc_walk.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -81,9 +82,17 @@ static void ls_emit(struct ls_walk *w, const char *rel, int is_dir)
 
 /* Recursive pattern walk. `dir` is the filesystem path to read; `rel` is the
  * path relative to the listing root, which is what the pattern matches -- so a
- * pattern behaves the same wherever the workspace happens to live on disk. */
+ * pattern behaves the same wherever the workspace happens to live on disk.
+ *
+ * This walker now uses jc_walk_classify() (D-27/D-28/D-29/D-30) to:
+ *   - lstat each entry instead of following symlinks (jc_is_dir uses stat)
+ *   - never walk into a link that resolves outside the workspace root
+ *   - track (dev,ino) of directories to avoid hardlink loops (D-29)
+ *   - respect entry and depth bounds
+ *
+ * The context is passed via ctx. */
 static void ls_walk_dir(struct ls_walk *w, const char *dir, const char *rel,
-                        int depth)
+                        int depth, struct jc_walk_ctx *ctx)
 {
     struct jc_vec names;
     jc_size i;
@@ -108,7 +117,7 @@ static void ls_walk_dir(struct ls_walk *w, const char *dir, const char *rel,
         const char *name = *(char **)jc_vec_at(&names, i);
         char child[2048];
         char childrel[2048];
-        int isdir;
+        int isdir = 0;
 
         if (w->nresults >= LS_MAX_RESULTS) {
             w->truncated = 1;
@@ -134,12 +143,25 @@ static void ls_walk_dir(struct ls_walk *w, const char *dir, const char *rel,
         } else {
             jc_snprintf(childrel, sizeof(childrel), "%s/%s", rel, name);
         }
-        isdir = jc_is_dir(child);
+
+        switch (jc_walk_classify(ctx, child, depth)) {
+        case JC_WALK_SKIP:
+            /* DEFECT B: a refused/escaped entry must not be surfaced at all.
+             * Skip the emit AND the recursion. */
+            continue;
+        case JC_WALK_DIR:
+            isdir = 1;
+            break;
+        case JC_WALK_FILE:
+            isdir = 0;
+            break;
+        }
+
         if (jc_glob_match(w->pattern, childrel)) {
             ls_emit(w, childrel, isdir);
         }
         if (isdir) {
-            ls_walk_dir(w, child, childrel, depth + 1);
+            ls_walk_dir(w, child, childrel, depth + 1, ctx);
         }
     }
     jc_vec_free(&names);
@@ -174,7 +196,18 @@ static jc_status ls_run(const cJSON *args, struct jc_tool_result *out,
         w.out = &sb;
         w.pattern = pattern;
         w.app = app;
-        ls_walk_dir(&w, path, "", 0);
+        {
+            struct jc_walk_ctx walk_ctx;
+            if (jc_walk_ctx_init(&walk_ctx, path, LS_MAX_DEPTH, LS_MAX_ENTRIES) == 0) {
+                ls_walk_dir(&w, path, "", 0, &walk_ctx);
+                jc_walk_ctx_free(&walk_ctx);
+            } else {
+                /* root doesn't exist or isn't a directory */
+                jc_sb_free(&sb);
+                tu_err(out, "error: could not list directory");
+                return JC_OK;
+            }
+        }
         if (w.root_failed) {
             /* The flat branch below has always said this; the pattern branch
              * returned an empty match list instead (M493). */

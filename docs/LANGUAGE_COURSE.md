@@ -156,7 +156,7 @@ Now ask jichi, and require it to use the documents:
 $ jichi --config jichi.json --auto -q -p \
   "Use the search_docs tool on the py-tutorial source to find what the tutorial
    says about the 'else' clause on a for loop. Quote the tutorial and give the
-   file it came from. Do not answer from memory."
+   file it came from. Do not answer from memory." < /dev/null
 ```
 
 Measured: **27 seconds**, and it quoted `controlflow.txt` on `for … else`.

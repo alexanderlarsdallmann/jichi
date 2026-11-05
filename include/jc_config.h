@@ -95,6 +95,23 @@ struct jc_timeouts_cfg {
     long request;
 };
 
+/* Strictness dials (M1006): the block a fence-style behaviour lives in, named
+ * `strictness` so later strictness knobs (editScope, pathFence, the B1
+ * concurrent-wave refusal) can JOIN the same top-level object rather than each
+ * minting a second key. One dial now:
+ *   dirtyDispatch -- the dirty-tree dispatch guard's mode (below). The default
+ * is PROVISIONAL `warn`: it makes a dirty base visible in every write dispatch
+ * without changing what a healthy lead does; the drive runs `refuse`. */
+enum jc_dirty_dispatch_mode {
+    JC_DIRTYDISPATCH_OFF = 0,    /* no check, no event, no cost (the escape) */
+    JC_DIRTYDISPATCH_WARN = 1,   /* proceed; the result carries the warning   */
+    JC_DIRTYDISPATCH_REFUSE = 2  /* refuse; no fork, the error names the fix  */
+};
+
+struct jc_strictness_cfg {
+    int dirty_dispatch; /* enum jc_dirty_dispatch_mode (default WARN) */
+};
+
 /* Role flags (a bitmask in jc_model_cfg.roles). A model may serve several
  * roles. Unknown role strings in the config are ignored. */
 #define JC_ROLE_CHAT         0x01u
@@ -150,9 +167,12 @@ struct jc_model_cfg {
     int      vision;      /* model accepts image input (config "vision", M29) */
     int      tool_calling;/* config "toolCalling" (M149): 0 = "native"
                            * (default), 1 = "none" (tools are not advertised;
-                           * degraded Q&A/plan agent). "text" is a RESERVED
-                           * value for a future prompt-based fallback --
-                           * parsed as native with a warning today.           */
+                           * degraded Q&A/plan agent). "text" (M949) selects
+                           * the prompt-based fallback: tools ARE advertised
+                           * and the textToolCalls recovery pass is on.       */
+    int      text_tool_calls; /* M949: config "textToolCalls" (model-written
+                               * JSON blocks are recovered as tool calls).
+                               * Off by default; toolCalling:"text" sets it. */
     int      prompt_cache; /* EFFECTIVE prompt caching (M31b): emit Anthropic
                             * cache_control breakpoints + OpenAI prompt_cache_key.
                             * Resolved by jc_config_resolve_prompt_cache from the
@@ -365,9 +385,19 @@ struct jc_retrieval_cfg {
 /* Source set for automatic context injection (config "autoContextSources"). */
 enum jc_autoctx_src { JC_ACTX_BOTH = 0, JC_ACTX_CODEBASE = 1, JC_ACTX_DOCS = 2 };
 
+/* M859 (N42 (d)): who is asked once to continue a reply cut at the output
+ * ceiling (config `continueCutReply`). 0 is the default when nothing is set
+ * and headless_run is false; in a headless top-level run, the default when
+ * nothing is set is JC_CUTCONT_HEADLESS (M965). */
+enum jc_cut_continue { JC_CUTCONT_DELEGATES = 0, JC_CUTCONT_HEADLESS = 1,
+                       JC_CUTCONT_OFF = 2 };
+
 /* Model-issued privileged-command policy (M153, config `privilegedCommands`). */
 enum jc_priv_policy { JC_PRIVPOL_ASK = 0, JC_PRIVPOL_DENY = 1,
                       JC_PRIVPOL_ALLOW = 2 };
+
+#define JC_TESTEDITS_HOLD   0   /* M875: a moved assertion keeps the work (M865) */
+#define JC_TESTEDITS_METRIC 1   /* M875: the declared metric decides pin files   */
 
 struct jc_config {
     struct jc_vec models;      /* of struct jc_model_cfg: all configured      */
@@ -375,6 +405,18 @@ struct jc_config {
     int   active;              /* index of the active model                   */
     int   from_defaults;       /* 1 => no config file found; built-in defaults */
     char  config_sources[512]; /* human summary of file(s) loaded (for doctor) */
+    /* M851 (CFG-1): the project-config trust step (jc_config_trust.h). A
+     * project file (local/config.json, else .jichi/config.json) merged by the
+     * implicit global+project discovery is TRUSTED when its absolute path is
+     * recorded in ~/.jichi.d/trusted-configs.json with this exact content
+     * hash; otherwise it is UNTRUSTED and applied only in the safe direction,
+     * one line per key it could not apply in project_ignored. NONE when no
+     * project file was merged -- including every explicit --config,
+     * $JC_CONFIG and --config-json, which are the user's own choice. */
+    int   project_trust;               /* JC_PROJ_TRUST_*                 */
+    char  project_config_path[1024];  /* absolute path of that file, or "" */
+    char  project_config_sha256[65];  /* its content hash, or ""          */
+    struct jc_vec project_ignored;    /* char*: "key: what it would do"   */
     char *system_prompt_extra; /* appended to the system message; may be NULL */
     int   max_tool_iters;      /* agent-loop safety cap (def 25; lite 12)    */
     int   max_retries;         /* transient-HTTP retries (def 4; lite 2)     */
@@ -392,6 +434,10 @@ struct jc_config {
     long  run_timeout;         /* config "runTimeout" seconds (default 0=off):   */
                                /*   wall-clock cap on a model-issued command     */
     long  run_timeout_cli;     /* --run-timeout seconds (0=unset; wins over cfg) */
+
+    /* D6 scoped edit check (M975): the Nth edit by the top-level agent of a
+     * worker-owned path is refused; default 2, 0 = off. */
+    int   scoped_edit_max;
     int   accessible;          /* config "accessible" (default 0; M118):        */
                                /*   reduce motion (no spinner) + screen-reader   */
                                /*   friendly, linear TUI output                  */
@@ -405,6 +451,32 @@ struct jc_config {
     int   default_mode;        /* startup mode (enum jc_agent_mode value)      */
     struct jc_vec instructions; /* of char*: extra instruction-file paths      */
     int   auto_compact;        /* summarize old history when it grows large    */
+    int   relay_in_process;    /* M952 (topology B): continue the relay's next
+                                leg IN THIS PROCESS at a handover (the
+                                in-process leg loop) instead of ending the run
+                                for a supervisor to restart it (topology A).
+                                Off by default -- the proposal's "one-line
+                                config switch, default off"; turning it on
+                                without a topology selector is safe only for
+                                the plain -p run that has no supervisor.
+                                (Slice 5 adds the A-vs-B selector flag once a
+                                supervisor is in the picture.)              */
+    int   relay;               /* M920: end an exhausted session at the round
+                                boundary with stop_reason handover; the baton
+                                and the next leg are the follow-up. Off by
+                                default.                                  */
+    long  relay_notes_bytes;   /* M921: the baton's byte budget (6.4, default
+                                8192; the account's room is derived from it,
+                                the header's formula in jc_relay.h). Only
+                                read when a handover writes notes.         */
+    long  relay_max_legs;      /* M952 (topology B): the in-process leg ceiling
+                                for a single headless run. A relay that hands
+                                over keeps going in the SAME process up to this
+                                many legs; the last one hands over to a
+                                supervisor (topology A) instead. Bounds the
+                                process, not the task. Default 5, clamped
+                                [1,32]. Only read in a top-level -p run with
+                                relay on.                                 */
     long  context_limit;       /* compaction budget (def 0 = per-model; lite
                                 16384)                                  */
     int   snapshots;           /* checkpoints + /undo (def 1; lite 0 -- so a
@@ -448,6 +520,22 @@ struct jc_config {
                                 * risk differs; two keys could contradict.
                                 * Measured: 5 KB per preserved state once packed,
                                 * bounded by `checkpoints gc`'s retention. */
+    /* M875 (the demos drive's §9 (b); the operator's decision of 2026-10-02): what
+     * a write child's moved test assertion does to its merge. HOLD (the default)
+     * keeps it, as M865 decided; METRIC lets a moved assertion in a declared pin
+     * file merge when the declared metric, measured in the child's worktree, is
+     * not worse than the base's run of the same command. See
+     * docs/proposals/2026-10-metric-gate.md. */
+    int   parallel_test_edits;      /* JC_TESTEDITS_HOLD | JC_TESTEDITS_METRIC  */
+    char *parallel_metric_cmd;      /* parallelMetric.command; NULL: none        */
+    char *parallel_metric_label;    /* .label; NULL: the last number printed     */
+    int   parallel_metric_higher;   /* .better: 1 "higher" (default), 0 "lower"  */
+    struct jc_vec parallel_metric_pins; /* .pins: char*, paths or globs          */
+    long  parallel_metric_timeout;  /* .timeoutSecs; 0: the verify's limit       */
+    int   constraints_auto_adopt; /* M874 (N45 (c)): in --auto, read rules out of the
+                                * request (M110; advisory since M734). Default 1.
+                                * NARROW from a project config: only a config the
+                                * operator chose may turn it off. */
     int   strict_green;        /* M332: refuse a passing verify when the run
                                 * changed a file outside the edit scope. Off by
                                 * default -- it turns a zero exit code non-zero,
@@ -467,6 +555,17 @@ struct jc_config {
                                 * --design forced a choice between them. */
     struct jc_vec reference_roots; /* of char*: read-allowed roots outside the
                                 * workspace (M54); writes stay workspace-only   */
+    struct jc_vec secret_env;    /* of char*: "secretEnv" (M1043-a) -- env-var
+                                * NAMES each removed from every child jichi
+                                * forks, registered with the M130 scrub. The
+                                * strings are arena-owned; the vec is freed by
+                                * jc_config_free. Default: empty (off).       */
+    int   continue_cut_reply;  /* M859: JC_CUTCONT_* -- "delegates" (default
+                                * when nothing is set and headless_run is true),
+                                * "headless" (and a headless top level), "off" */
+    int   has_continue_cut_reply;  /* 1 when the config explicitly set the key,
+                                * 0 when it was absent and the behavior defaults
+                                * to headless semantics in a headless top-level run */
     int   privileged_commands; /* M153: JC_PRIVPOL_* -- model-issued sudo/doas/
                                 * pkexec/su policy (ask default / deny / allow) */
     struct jc_vec privileged_allow; /* of char*: operator prefix-allowlist of
@@ -497,6 +596,7 @@ struct jc_config {
                                 * opt-in: M257, see docs/TYPE_AHEAD.md)         */
     int   wisdom;              /* show idle proverbs from wisdom.json (def 1)   */
     int   board;               /* kanban board tool + focus injection (def 0)   */
+    int   input_history;       /* M763: keep typed TUI input across runs (def 1) */
     int   fuzzy_edit;          /* edit_file/apply_patch fuzzy fallback (M38, def 1)*/
     int   assignments;         /* SDLC assignment-authoring nudge (def 0/off)   */
     int   voice;               /* M303: speak replies, approval prompts and
@@ -511,6 +611,13 @@ struct jc_config {
     int   self_review;         /* -1 auto (AUTO mode only) / 0 off / 1 on       */
     int   path_fence;          /* workspace containment fence (M24):
                                 * -1 auto (autonomous postures only) /0 off /1 on*/
+    int   shell_fence;         /* Landlock write fence on a parallel WRITE child's
+                                * shell (M831, O9): -1 auto (=on where Landlock is
+                                * available) /0 off /1 on. path_fence bounds the FILE
+                                * tools; this bounds the SHELL, which they cannot. */
+    struct jc_vec shell_fence_allow; /* of char*: extra directories a fenced child's
+                                * shell may write to (a build cache, say), beyond the
+                                * worktree/tmp/devnull/shadow-repo the fence grants. */
     int   prompt_cache;        /* prompt caching (M31d): -1 auto (=on) /0 off /1 on;
                                 * the global default for each model's effective
                                 * jc_model_cfg.prompt_cache (per-model key wins) */
@@ -525,6 +632,14 @@ struct jc_config {
                                 * applies to every byte; with a cached prefix the
                                 * same prose is billed once and buys little. */
     int   low_resource;        /* lite mode (--lite / "lowResource"): 1 when on */
+    /* C-15 (M1133): the CA bundle a https transfer should trust (config
+     * "caBundle", optional; NULL when absent, an empty value treated as
+     * absent). An arena string -- like output_style/language, NOT freed in
+     * jc_config_free (it is memset-zeroed on load and the arena owns it).
+     * main.c hands it to jc_net_curl_ca_bundle_set at startup, and apply_common
+     * sets CURLOPT_CAINFO from it, so a build whose library-default CA path is
+     * absent can pin the root set an operator carries. */
+    char *ca_bundle;
     int   log_level;           /* event-log tier (jc_eventlog_level): metrics
                                 * unless config/CLI say otherwise (M599); 0 off */
     char *log_path;            /* event-log file path; NULL => built-in default */
@@ -550,6 +665,22 @@ struct jc_config {
                                 * -1 auto (core when small/lite) / 0 full / 1 core */
     struct jc_timeouts_cfg timeouts;     /* global "timeouts" block (-1 unset)  */
     struct jc_timeouts_cfg timeouts_cli; /* --timeout-* CLI overrides (-1 unset)*/
+    struct jc_strictness_cfg strictness; /* M1006: strictness dials (dirtyDispatch) */
+    /* M-L2: the dead-stream FENCE (timeouts.deadStream), seconds. A model call
+     * whose stream goes dead -- nothing arriving -- is aborted after this long,
+     * default 900 (above the 540 s healthy max the drive measured). Unlike stall
+     * (a cap, off in measurement runs) this stays ON even at `stall 0`, because it
+     * can only fire when NOTHING is arriving -- the property the caps rule already
+     * grants `connect`. 0 disables it (discouraged). curl has ONE low-speed window
+     * per handle, so this and stall are combined into one setting in jc_http. */
+    long dead_stream_secs;
+    /* M813 (P4b): the disk-space FENCE floors (config `diskFloorMb`/`diskFloorFiles`).
+     * jichi stops a run when free space/inodes on the workspace filesystem fall
+     * below these, so a filling disk cannot corrupt the records. A fence, on by
+     * default (diskFloorMb 10). UNKNOWN never stops. 0 disables a dimension. The
+     * default is provisional until P4a's telemetry corpus sets a measured floor. */
+    double disk_floor_mb;
+    double disk_floor_files;
 };
 
 /* Release resources owned by the config (the models vector). The model
@@ -736,6 +867,10 @@ double jc_config_cost(const struct jc_model_cfg *m, double in_tok,
  * while any explicitly-set config key still wins. All strings are allocated from
  * `a`. Always succeeds with sensible defaults unless an explicitly named file is
  * malformed. */
+#define JC_PROJ_TRUST_NONE      0
+#define JC_PROJ_TRUST_TRUSTED   1
+#define JC_PROJ_TRUST_UNTRUSTED 2
+
 jc_status jc_config_load(const char *path_or_null, int low_resource,
                          struct jc_config *out, struct jc_arena *a);
 
@@ -818,6 +953,9 @@ int jc_config_provider_problem(const struct jc_model_cfg *m, char *buf,
  * "no model is configured", a refused turn, and `config validate` (M709, M718,
  * M719). Static; never NULL. */
 const char *jc_config_no_model_advice(void);
+/* M851: the same advice, but when the project config is untrusted and its
+ * models were withheld, the fix is `jichi trust`, not `jichi setup` -- say so. */
+const char *jc_config_no_model_advice_cfg(const struct jc_config *c);
 
 #ifdef __cplusplus
 }

@@ -88,7 +88,7 @@ the subsystem's least glamorous, most-scarred part
 
 Nested fan-out is forbidden — a subagent may not `spawn_parallel` — and
 recursion depth is bounded by one pure predicate,
-`src/tools/jc_tool_subagent.c:jc_subagent_can_spawn` (`agent_depth <
+`src/chat/jc_agent.c:jc_subagent_can_spawn` (`agent_depth <
 max_depth`), which drives both the tool advertisement (a capped agent
 does not see the tool) and a backstop refusal if it calls anyway. The
 per-subagent iteration budget also *tapers by depth*, so raising the
@@ -107,7 +107,7 @@ Fan out and watch the pipe discipline:
 # is that machinery. NB the shell can still write outside a scope (M83).
 jichi --auto --edit-scope 'no-writes-in-this-exercise' \
       -p "in parallel, summarize each of src/util/jc_str.c and \
-src/util/jc_vec.c in one sentence" --output jsonl
+src/util/jc_vec.c in one sentence" --output jsonl < /dev/null
 ```
 
 Read the merged result on stdout, then note what you did *not* see: the

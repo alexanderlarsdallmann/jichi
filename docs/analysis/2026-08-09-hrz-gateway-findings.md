@@ -2,12 +2,9 @@
 
 > **The report this file used to contain is not published, and that is deliberate.**
 > On 2026-08-09 jichi was measured against the OpenAI-compatible gateway this project
-> develops on, and the findings were written up **as a report to that gateway's
-> administrators** — an operator's configuration, their upstreams, their auth and their
-> quotas. That document is correspondence with a third party. It is theirs to publish or
-> not, the matters it raises are still being worked through with them (2026-08-19), and
-> naming another organisation's operational posture in a public repository is not
-> something this project gets to decide on their behalf.
+> develops on. The findings are withheld: they describe another organisation's
+> configuration — its upstreams, its auth and its quotas — and this project does not
+> publish them on that organisation's behalf.
 >
 > **What the measurement taught *jichi* is a different thing, and all of it is below.**
 > Not a summary — the reasoning, the numbers, and what each one changed in the code. The

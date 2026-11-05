@@ -46,7 +46,11 @@ else
     t_fail "run rc=$rc: $(head_bytes 200 "$tmp/err1")"
 fi
 n=$(ls "$tdir" 2>/dev/null | grep -c '\.jsonl$')
-named=$(ls "$tdir" 2>/dev/null | grep -c "^$wsbase-[0-9][0-9]*\.jsonl$")
+# M1097: the per-workspace telemetry key is the 64-hex SHA-256 of the raw path
+# (one derivation with the checkpoint dir + lease), so the log name is
+# "$wsbase-<64 hex>.jsonl", not the old decimal djb2. Match 64 lowercase hex
+# with a BRE interval ([0-9a-f]\{64\}) -- the portable form.
+named=$(ls "$tdir" 2>/dev/null | grep -c "^$wsbase-[0-9a-f]\{64\}\.jsonl$")
 if [ "$n" -eq 1 ] && [ "$named" -eq 1 ]; then
     t_ok "exactly one telemetry log, named after the workspace ($wsbase-<key>.jsonl)"
 else

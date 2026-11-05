@@ -49,7 +49,7 @@ transport layer, consistent with jichi treating all content as opaque UTF-8 byte
 
 ```sh
 # base64 IN (quoting-safe config), plain UTF-8 answer, base64 OUT (your pipe):
-jichi --config-json-b64 "$B64" -q -p "…" | base64 -w0
+jichi --config-json-b64 "$B64" -q -p "…" < /dev/null | base64 -w0
 ```
 
 ## Interactive line editing (M127)

@@ -5,7 +5,7 @@
 {"v":1,"type":"message_start","model":"mock","mode":"auto"}
 {"v":1,"type":"usage","input":20,"output":5,"cost":0}
 {"v":1,"type":"tool_call","name":"edit_file","args":"{\"path\":\"notes.txt\",\"old\":\"milk\",\"new\":\"oat milk\"}","id":"c1"}
-{"v":1,"type":"tool_result","name":"edit_file","is_error":true,"id":"c1","preview":"error: 'path', 'old_string', and 'new_string' are required"}
+{"v":1,"type":"tool_result","name":"edit_file","is_error":true,"id":"c1","preview":"error: 'path', 'old_string', and 'new_string' are required\n[note: this call ran with the declared arguments only; the argument key(s) `old`, `new` are not declared by this tool's schema and were ignored, not applied.]"}
 {"v":1,"type":"message_start","model":"mock","mode":"auto"}
 {"v":1,"type":"text","delta":"Done -- notes.txt now says oat milk."}
 {"v":1,"type":"usage","input":20,"output":5,"cost":0}

@@ -6,6 +6,7 @@
 #include "jc_tool.h"
 #include "jc_app.h"
 #include "jc_config.h"
+#include "jc_message.h"
 #include "jc_skill.h"
 #include "jc_sound.h"
 #include "jc_perm.h"
@@ -16,6 +17,7 @@
 #include "jc_log.h"
 #include "jc_str.h"
 #include "jc_snprintf.h"
+#include "jc_path.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -30,9 +32,53 @@ void jc_tool_registry_free(struct jc_tool_registry *r)
     jc_vec_free(&r->tools);
 }
 
+/* M965 (O1): append-only registration with warn on duplicate. This prevents
+ * a one-tool fix (replace for spawn_subagent) from becoming a rule for every
+ * registration. A future duplicate (e.g. two MCP servers with colliding names)
+ * would vanish without a word if we kept silent replace. Instead, register()
+ * warns (naming the existing tool) and ignores the duplicate, keeping the FIRST.
+ * Only spawn_subagent's dynamic form uses replace() which intentionally replaces
+ * the static one. */
 void jc_tool_registry_register(struct jc_tool_registry *r,
                                const struct jc_tool *t)
 {
+    jc_size i;
+    const char *name = t->name;
+
+    /* Check if a tool with this name already exists; if so, warn and ignore. */
+    for (i = 0; i < r->tools.len; i++) {
+        const struct jc_tool *existing =
+            *(const struct jc_tool **)jc_vec_at((struct jc_vec *)&r->tools, i);
+        if (strcmp(existing->name, name) == 0) {
+            jc_logf(JC_LOG_WARN, "tool registry: ignoring duplicate registration of '%s' "
+                    "(already registered as '%s')", name, existing->name);
+            return;
+        }
+    }
+    /* No existing entry: append as usual. */
+    jc_vec_push(&r->tools, &t);
+}
+
+/* M965 (O1): replace the same-name entry in place if present, else append.
+ * Used ONLY where spawn_subagent's dynamic form intentionally replaces the
+ * static one. */
+void jc_tool_registry_replace(struct jc_tool_registry *r,
+                              const struct jc_tool *t)
+{
+    jc_size i;
+    const char *name = t->name;
+
+    /* Check if a tool with this name already exists; if so, replace it. */
+    for (i = 0; i < r->tools.len; i++) {
+        const struct jc_tool *existing =
+            *(const struct jc_tool **)jc_vec_at((struct jc_vec *)&r->tools, i);
+        if (strcmp(existing->name, name) == 0) {
+            /* Replace in place: keep position, update pointer. */
+            *(const struct jc_tool **)jc_vec_at((struct jc_vec *)&r->tools, i) = t;
+            return;
+        }
+    }
+    /* No existing entry: append as usual. */
     jc_vec_push(&r->tools, &t);
 }
 
@@ -156,6 +202,213 @@ const char *jc_tool_semantic_alias(const char *name)
         return "fetch_url";
     }
     return NULL;
+}
+
+/* M853 (N32): see jc_tool.h. The other side of jc_tool_semantic_alias: a name
+ * from another agent's toolset whose jichi equivalent is not a tool at all but a
+ * plain reply. */
+int jc_tool_is_finish_alias(const char *name)
+{
+    static const char *const names[] = {
+        "finish", "done", "complete", "submit", "task_complete",
+        "final_answer"
+    };
+    jc_size i;
+
+    if (name == NULL) {
+        return 0;
+    }
+    for (i = 0; i < sizeof names / sizeof names[0]; i++) {
+        if (strcmp(name, names[i]) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* M855/M863: the git subcommand of the `git` at `g` (a word of `cmd`): options
+ * are skipped (-C and -c take the next word), and the first other word is the
+ * subcommand. Returns 1 with *sub and *sublen set, *rest just after it, 0 when `g`
+ * does not start a `git` command word or has no subcommand. */
+static int git_subcommand(const char *cmd, const char *g, const char **sub,
+                          jc_size *sublen, const char **rest)
+{
+    const char *q = g + 3;
+    int skip_next = 0;
+
+    if (g != cmd && strchr(" \t\n;&|(", g[-1]) == NULL) {
+        return 0;
+    }
+    if (*q != ' ' && *q != '\t') {
+        return 0;
+    }
+    for (;;) {
+        const char *w;
+        jc_size wl;
+        while (*q == ' ' || *q == '\t') {
+            q++;
+        }
+        w = q;
+        while (*q != '\0' && strchr(" \t\n;&|)", *q) == NULL) {
+            q++;
+        }
+        wl = (jc_size)(q - w);
+        if (wl == 0) {
+            return 0;
+        }
+        if (skip_next) {
+            skip_next = 0;
+            continue;
+        }
+        if (w[0] == '-') {
+            if (wl == 2 && (w[1] == 'C' || w[1] == 'c')) {
+                skip_next = 1;
+            }
+            continue;
+        }
+        *sub = w;
+        *sublen = wl;
+        *rest = q;
+        return 1;
+    }
+}
+
+int jc_cmd_runs_git_stash(const char *cmd)
+{
+    const char *g;
+
+    if (cmd == NULL) {
+        return 0;
+    }
+    for (g = strstr(cmd, "git"); g != NULL; g = strstr(g + 3, "git")) {
+        const char *sub;
+        const char *rest;
+        jc_size sl;
+        if (git_subcommand(cmd, g, &sub, &sl, &rest) &&
+            sl == 5 && strncmp(sub, "stash", 5) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* M863: does the rest of this simple command (up to ; & | newline or `)`) carry
+ * one of `words` as a whole word? A short-option cluster ("-fdn") matches a
+ * one-letter option ("-n") it contains when `cluster` is set. */
+static int args_have(const char *rest, const char *const *words, int cluster)
+{
+    const char *q = rest;
+    for (;;) {
+        const char *w;
+        jc_size wl;
+        int k;
+        while (*q == ' ' || *q == '\t') {
+            q++;
+        }
+        if (*q == '\0' || strchr(";&|\n)", *q) != NULL) {
+            return 0;
+        }
+        w = q;
+        while (*q != '\0' && strchr(" \t\n;&|)", *q) == NULL) {
+            q++;
+        }
+        wl = (jc_size)(q - w);
+        for (k = 0; words[k] != NULL; k++) {
+            jc_size kl = strlen(words[k]);
+            if (wl == kl && strncmp(w, words[k], kl) == 0) {
+                return 1;
+            }
+            if (cluster && kl == 2 && words[k][0] == '-' && words[k][1] != '-' &&
+                wl > 2 && w[0] == '-' && w[1] != '-' &&
+                memchr(w + 1, words[k][1], wl - 1) != NULL) {
+                return 1;
+            }
+        }
+    }
+}
+
+/* M863: does the rest of this simple command carry any word at all? */
+static int args_any(const char *rest)
+{
+    const char *q = rest;
+    while (*q == ' ' || *q == '\t') {
+        q++;
+    }
+    return *q != '\0' && strchr(";&|\n)", *q) == NULL;
+}
+
+int jc_cmd_git_discards(const char *cmd, char *what, jc_size cap)
+{
+    static const char *const help[] = { "-h", "--help", NULL };
+    static const char *const new_branch[] = {
+        "-b", "-B", "-c", "-C", "--create", "--force-create", "--orphan", NULL
+    };
+    static const char *const staged[] = { "--staged", "-S", NULL };
+    static const char *const worktree[] = { "--worktree", "-W", NULL };
+    static const char *const dry[] = { "-n", "--dry-run", NULL };
+    const char *g;
+
+    if (what != NULL && cap > 0) {
+        what[0] = '\0';
+    }
+    if (cmd == NULL) {
+        return 0;
+    }
+    for (g = strstr(cmd, "git"); g != NULL; g = strstr(g + 3, "git")) {
+        const char *sub;
+        const char *rest;
+        jc_size sl;
+        int hit = 0;
+        if (!git_subcommand(cmd, g, &sub, &sl, &rest) || args_have(rest, help, 0)) {
+            continue;
+        }
+        if ((sl == 8 && strncmp(sub, "checkout", 8) == 0) ||
+            (sl == 6 && strncmp(sub, "switch", 6) == 0)) {
+            hit = !args_have(rest, new_branch, 0);   /* a new branch where HEAD is */
+        } else if (sl == 7 && strncmp(sub, "restore", 7) == 0) {
+            hit = !args_have(rest, staged, 0) || args_have(rest, worktree, 0);
+        } else if (sl == 5 && strncmp(sub, "reset", 5) == 0) {
+            hit = args_any(rest);                    /* a bare reset unstages */
+        } else if (sl == 5 && strncmp(sub, "clean", 5) == 0) {
+            hit = !args_have(rest, dry, 1);
+        } else if (sl == 6 && strncmp(sub, "rebase", 6) == 0) {
+            hit = 1;
+        }
+        if (hit) {
+            if (what != NULL && cap > 0) {
+                jc_size k = (sl < cap - 1) ? sl : cap - 1;
+                memcpy(what, sub, k);
+                what[k] = '\0';
+            }
+            return 1;
+        }
+    }
+    return 0;
+}
+
+char *jc_tool_finish_alias_message(const char *arguments_json)
+{
+    cJSON *aj;
+    const char *m;
+    const char *p;
+    char *out = NULL;
+
+    aj = jc_json_parse(arguments_json);
+    if (aj == NULL) {
+        return NULL;
+    }
+    m = cJSON_IsObject(aj) ? jc_json_get_str(aj, "message", NULL) : NULL;
+    if (m != NULL) {
+        p = m;
+        while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') {
+            p++;
+        }
+        if (*p != '\0') {
+            out = jc_strdup(m);
+        }
+    }
+    cJSON_Delete(aj);
+    return out;
 }
 
 /* True if a tool with this exact name is registered. */
@@ -319,6 +572,136 @@ int jc_tool_unstring_args(cJSON *args, const cJSON *schema)
         m = next;
     }
     return fixed;
+}
+
+/* M981 (B-04 + A-01): normalise the raw arguments exactly as the executor does.
+ * The fence and the executor MUST read the same tree, or an argument shape
+ * bypass opens (face two: self-named wrapper, stringified edits).
+ * This is ONE PLACE both readers can call, ensuring they see the same bytes.
+ *
+ * Returns a newly allocated cJSON tree (caller owns, must delete), or NULL if
+ * the executor would reject the call (parse failed, truncated, etc.).
+ *
+ * The executor's sequence (from jc_tool_execute, line 1693-1871):
+ *   1. parse raw JSON (cJSON_Parse); on NULL and not truncated, repair + re-parse
+ *   2. M334: if response truncated, refuse (not repairable)
+ *   3. M289: elided_placeholder check (cannot repair)
+ *   4. M172: unwrap self-named wrapper
+ *   5. M193: unstring array/object args
+ * This helper reproduces that EXACT sequence so a path it sees is a path the
+ * tool will act on. The caller provides the tool name (and schema if unstring
+ * is needed) so the helper can perform the same unwrapping and unstringing. */
+cJSON *jc_tool_normalize_args(const char *name, const cJSON *schema,
+                              const char *arguments_json, struct jc_app *app,
+                              int *repaired_out)
+{
+    cJSON *args;
+    int repaired = 0;
+    int unwrapped = 0;
+    int unstr_fixed = 0;
+
+    if (arguments_json == NULL) {
+        arguments_json = "";
+    }
+
+    /* Step 1: parse the raw arguments. */
+    args = (arguments_json[0] != '\0') ? cJSON_Parse(arguments_json)
+                                        : cJSON_CreateObject();
+    if (args == NULL && app != NULL && app->last_response_truncated) {
+        /* M334: truncated response -> reject, not repairable. */
+        if (repaired_out) *repaired_out = 0;
+        return NULL;
+    }
+    if (args == NULL) {
+        /* M148: conservative repair only after a real parse failure. */
+        char *fixed = jc_jsonrepair(arguments_json);
+        if (app != NULL) {
+            cJSON *o = jc_app_telem_begin(app, "args_repair");
+            if (o != NULL) {
+                cJSON_AddStringToObject(o, "tool", name ? name : "");
+                cJSON_AddStringToObject(o, "kind", "json");
+                cJSON_AddBoolToObject(o, "ok", fixed != NULL);
+            }
+            jc_app_telem_end(app, o);
+        }
+        if (fixed != NULL) {
+            args = cJSON_Parse(fixed);
+            repaired = (args != NULL);
+            free(fixed);
+        }
+    }
+    if (args == NULL) {
+        /* Unrepairable JSON -> NULL. */
+        if (repaired_out) *repaired_out = 0;
+        return NULL;
+    }
+
+    /* M289: elided_placeholder -> unrepairable, emit telemetry, return NULL. */
+    if (app != NULL) {
+        cJSON *el = cJSON_GetObjectItem(args, JC_COMPACT_ELIDED_KEY);
+        if (cJSON_IsString(el)) {
+            cJSON_Delete(args);
+            {
+                /* Emit the same telemetry the inline code did. */
+                cJSON *o = jc_app_telem_begin(app, "args_repair");
+                if (o != NULL) {
+                    cJSON_AddStringToObject(o, "tool", name ? name : "");
+                    cJSON_AddStringToObject(o, "kind", "elided_placeholder");
+                    cJSON_AddBoolToObject(o, "ok", 0); /* unrepairable by design */
+                }
+                jc_app_telem_end(app, o);
+            }
+            if (repaired_out) *repaired_out = 0;
+            return NULL;
+        }
+    }
+
+    /* Step 4: unwrap self-named wrapper (if any). */
+    if (name != NULL && name[0] != '\0') {
+        cJSON *inner = jc_tool_unwrap_self_named(args, name);
+        if (inner != NULL) {
+            cJSON_Delete(args);
+            args = inner;
+            unwrapped = 1;
+        }
+    }
+
+    /* Step 5: unstring array/object args (if schema provided). */
+    if (schema != NULL) {
+        unstr_fixed = jc_tool_unstring_args(args, schema);
+    }
+
+    /* Track repairs for telemetry: one args_repair event per transformation
+     * that actually fired (unwrap, unstring). The M148 JSON syntax repair
+     * event is emitted above in the repair branch. The executor is the sole
+     * emitter of every kind. */
+    if (app != NULL) {
+        if (unwrapped) {
+            cJSON *o = jc_app_telem_begin(app, "args_repair");
+            if (o != NULL) {
+                cJSON_AddStringToObject(o, "tool", name ? name : "");
+                cJSON_AddStringToObject(o, "kind", "unwrap");
+                cJSON_AddBoolToObject(o, "ok", 1);
+            }
+            jc_app_telem_end(app, o);
+        }
+        if (unstr_fixed > 0) {
+            cJSON *o = jc_app_telem_begin(app, "args_repair");
+            if (o != NULL) {
+                cJSON_AddStringToObject(o, "tool", name ? name : "");
+                cJSON_AddStringToObject(o, "kind", "unstring");
+                cJSON_AddNumberToObject(o, "fields", (double)unstr_fixed);
+                cJSON_AddBoolToObject(o, "ok", 1);
+            }
+            jc_app_telem_end(app, o);
+            jc_logf(JC_LOG_INFO,
+                    "tools: parsed %d stringified argument(s) for %s",
+                    unstr_fixed, name ? name : "");
+        }
+    }
+
+    if (repaired_out) *repaired_out = repaired;
+    return args;
 }
 
 /* ---- prose-tool-call scanner (M147) -------------------------------------- */
@@ -494,6 +877,338 @@ int jc_toolcall_scan(const char *text, const struct jc_tool_registry *r,
     return 0;
 }
 
+/* ---- text-tool-call recovery (M949) ---------------------------------------- */
+
+#define TC_RECOVER_MAX 16 /* hard bound on calls per reply */
+
+/* Push one recovered call onto `out`, synthesising its id from `name`.
+ * `args_json` ownership transfers to the vector on success. Returns 1 on
+ * success, 0 when the bound is hit or memory fails (args_json stays with the
+ * caller on failure). */
+static int tcr_push(struct jc_vec *out, const char *name, char *args_json)
+{
+    struct jc_tool_call *tc;
+    size_t id_cap;
+    if (out->len >= TC_RECOVER_MAX) {
+        free(args_json);
+        return 0;
+    }
+    if (args_json == NULL || name == NULL) {
+        return 0;
+    }
+    tc = (struct jc_tool_call *)jc_vec_push_slot(out);
+    if (tc == NULL) {
+        return 0;
+    }
+    id_cap = strlen(name) + 32;
+    tc->id = (char *)malloc(id_cap);
+    tc->name = (char *)malloc(strlen(name) + 1);
+    if (tc->id == NULL || tc->name == NULL) {
+        free(tc->id);
+        free(tc->name);
+        return 0;
+    }
+    jc_snprintf(tc->id, id_cap, "rec-%s-%lu", name,
+                (unsigned long)(out->len + 1));
+    memcpy(tc->name, name, strlen(name) + 1);
+    tc->arguments_json = args_json; /* transferred */
+    return 1;
+}
+
+/* One recovery candidate: a balanced JSON object at `p` (within `max` bytes)
+ * that is exactly {"name"|"tool": <registered tool>,
+ * "arguments"|"args"|"parameters": <object>}. On success it pushes the call
+ * onto `out` and returns 1. On failure it appends a short note to `reason`
+ * and returns 0. */
+static int tcr_try_candidate(const char *p, jc_size max,
+                             const struct jc_tool_registry *r,
+                             struct jc_vec *out, struct jc_sb *reason)
+{
+    jc_size len;
+    char *slice;
+    cJSON *o;
+    const char *nm;
+    cJSON *args;
+    char *args_json;
+    const struct jc_tool *t;
+
+    len = tc_object_len(p, max);
+    if (len == 0 || len > 65536) {
+        jc_sb_append(reason, "a JSON object never closes; ");
+        return 0;
+    }
+    slice = (char *)malloc(len + 1);
+    if (slice == NULL) {
+        return 0;
+    }
+    memcpy(slice, p, len);
+    slice[len] = '\0';
+    o = cJSON_Parse(slice);
+    free(slice);
+    if (o == NULL || !cJSON_IsObject(o)) {
+        jc_sb_append(reason, "a block is not parseable JSON; ");
+        return 0;
+    }
+    nm = jc_json_get_str(o, "name", NULL);
+    if (nm == NULL) {
+        nm = jc_json_get_str(o, "tool", NULL);
+    }
+    t = (nm != NULL) ? jc_tool_registry_find(r, nm) : NULL;
+    if (t == NULL) {
+        if (nm != NULL) {
+            jc_sb_append_fmt(reason, "block names unregistered tool \"%s\"; ",
+                             nm);
+        } else {
+            jc_sb_append(reason, "a block has no \"name\" key; ");
+        }
+        cJSON_Delete(o);
+        return 0;
+    }
+    args = jc_json_get_obj(o, "arguments");
+    if (args == NULL) {
+        args = jc_json_get_obj(o, "args");
+    }
+    if (args == NULL) {
+        args = jc_json_get_obj(o, "parameters");
+    }
+    if (args == NULL || !cJSON_IsObject(args)) {
+        jc_sb_append(reason, "a block's arguments are not an object; ");
+        cJSON_Delete(o);
+        return 0;
+    }
+    args_json = cJSON_PrintUnformatted(args);
+    cJSON_Delete(o);
+    if (args_json == NULL) {
+        return 0;
+    }
+    { int rv = tcr_push(out, t->name, args_json); return rv; }
+}
+
+/* Shape 1: a fence whose LANGUAGE TAG is a registered tool name; the body
+ * must be exactly one JSON object (the arguments). Pushes the call; returns
+ * 1 on success. */
+static int tcr_try_tagged_fence(const char *tag, const char *body,
+                                jc_size body_len,
+                                const struct jc_tool_registry *r,
+                                struct jc_vec *out, struct jc_sb *reason)
+{
+    const struct jc_tool *t;
+    const char *p;
+    jc_size i;
+    jc_size len;
+    jc_size j;
+
+    t = jc_tool_registry_find(r, tag);
+    if (t == NULL) {
+        return 0; /* not a registered tool: a prose example, skip silently */
+    }
+    for (i = 0; i < body_len; i++) {
+        char c = body[i];
+        if (c != ' ' && c != '\t' && c != '\r' && c != '\n') {
+            break;
+        }
+    }
+    if (i >= body_len || body[i] != '{') {
+        jc_sb_append_fmt(reason, "the %s block has no JSON object; ", tag);
+        return 0;
+    }
+    p = body + i;
+    len = tc_object_len(p, body_len - i);
+    if (len == 0) {
+        jc_sb_append_fmt(reason, "the %s block's object never closes; ", tag);
+        return 0;
+    }
+    {
+        char *slice = (char *)malloc(len + 1);
+        if (slice == NULL) {
+            return 0;
+        }
+        memcpy(slice, p, len);
+        slice[len] = '\0';
+        {
+            cJSON *o = cJSON_Parse(slice);
+            if (o == NULL || !cJSON_IsObject(o)) {
+                jc_sb_append_fmt(reason,
+                                 "the %s block's object does not parse; ",
+                                 tag);
+                free(slice);
+                return 0;
+            }
+            {
+                char *args_json = cJSON_PrintUnformatted(o);
+                cJSON_Delete(o);
+                free(slice);
+                if (args_json == NULL) {
+                    return 0;
+                }
+                for (j = i + len; j < body_len; j++) {
+                    char c = body[j];
+                    if (c != ' ' && c != '\t' && c != '\r' && c != '\n') {
+                        break;
+                    }
+                }
+                if (j < body_len) {
+                    free(args_json);
+                    jc_sb_append_fmt(reason,
+                                     "the %s block has text after its "
+                                     "object; ", tag);
+                    return 0;
+                }
+                return tcr_push(out, t->name, args_json);
+            }
+        }
+    }
+}
+
+int jc_toolcall_recover(const char *text, const struct jc_tool_registry *r,
+                        struct jc_vec *out, struct jc_sb *reason)
+{
+    jc_size n;
+    jc_size i = 0;
+    int recovered = 0;
+
+    if (text == NULL || r == NULL || out == NULL) {
+        return 0;
+    }
+    n = strlen(text);
+    while (i < n) {
+        const char *ls;
+        jc_size line_end;
+        ls = text + i;
+        while ((jc_size)(ls - text) < n && (*ls == ' ' || *ls == '\t')) {
+            ls++;
+        }
+        line_end = i;
+        while (line_end < n && text[line_end] != '\n') {
+            line_end++;
+        }
+        if ((jc_size)(ls - text) < n && *ls == '`') {
+            jc_size tick = 0;
+            while (tick < n - (ls - text) && ls[tick] == '`') {
+                tick++;
+            }
+            if (tick >= 3 && tick <= 5) {
+                const char *after = ls + tick;
+                const char *tag_end = after;
+                char tag[96];
+                jc_size tag_len;
+                while ((jc_size)(tag_end - text) < line_end &&
+                       (*tag_end != ' ' && *tag_end != '\t')) {
+                    tag_end++;
+                }
+                tag_len = tag_end - after;
+                if (tag_len >= sizeof(tag)) {
+                    tag_len = sizeof(tag) - 1;
+                }
+                if (tag_len == 0) {
+                    /* an empty-tag fence is a closing (or a bare) fence --
+                     * never a recovery candidate: the opening fence was
+                     * either consumed above or is not one of the accepted
+                     * shapes. Skip the line. */
+                    i = line_end < n ? line_end + 1 : n;
+                    continue;
+                }
+                memcpy(tag, after, tag_len);
+                tag[tag_len] = '\0';
+                {
+                    jc_size close_off = n;
+                    int closed = 0;
+                    char fc = (char)ls[0];
+                    jc_size line = (line_end < n && text[line_end] == '\n')
+                                       ? line_end + 1
+                                       : line_end;
+                    jc_size start;
+                    const char *body;
+                    jc_size body_len;
+                    const struct jc_tool *t;
+                    while (line < n) {
+                        jc_size le2 = line;
+                        const char *cl;
+                        jc_size ck = 0;
+                        jc_size lind = 0;
+                        while (le2 < n && text[le2] != '\n') {
+                            le2++;
+                        }
+                        cl = text + line;
+                        while (line + ck < n && ck < 10 &&
+                               cl[ck] == fc) {
+                            ck++;
+                        }
+                        if (ck >= 3) {
+                            const char *aft2 = cl + ck;
+                            while ((jc_size)(aft2 - text) < le2 &&
+                                   *aft2 != '\0') {
+                                lind++;
+                                aft2++;
+                            }
+                            if (lind == 0) {
+                                close_off = line;
+                                closed = 1;
+                                break;
+                            }
+                        }
+                        line = (le2 < n) ? le2 + 1 : n;
+                    }
+                    if (!closed) {
+                        jc_sb_append(reason, "a code block is not closed; ");
+                    }
+                    {
+                        /* Treat a fence with no following line as an empty body. */
+                        start = line_end + 1;
+                        if (start > n) start = n;
+                        body = text + start;
+                        body_len = (close_off > start) ? (close_off - start) : 0;
+                        t = jc_tool_registry_find(r, tag);
+                        if (t != NULL) {
+                            if (tcr_try_tagged_fence(tag, body, body_len, r,
+                                                     out, reason)) {
+                                recovered++;
+                            }
+                        } else if (tag_len == 4 &&
+                                   (tag[0] == 'j' || tag[0] == 'J') &&
+                                   (tag[1] == 's' || tag[1] == 'S') &&
+                                   (tag[2] == 'o' || tag[2] == 'O') &&
+                                   (tag[3] == 'n' || tag[3] == 'N')) {
+                            jc_size w = 0;
+                            while (w < body_len &&
+                                   (body[w] == ' ' || body[w] == '\t' ||
+                                    body[w] == '\r' || body[w] == '\n')) {
+                                w++;
+                            }
+                            if (w < body_len && body[w] == '{') {
+                                if (tcr_try_candidate(body + w, body_len - w,
+                                                      r, out, reason)) {
+                                    recovered++;
+                                }
+                            } else {
+                                jc_sb_append(reason,
+                                             "the json block has no JSON "
+                                             "object; ");
+                            }
+                        }
+i = closed ? close_off : n;
+                        continue;
+                    }
+                }
+            }
+        }
+        if ((jc_size)(ls - text) < n && *ls == '{') {
+            if (tcr_try_candidate(ls, n - (ls - text), r, out, reason)) {
+                recovered++;
+            }
+        }
+        i = line_end < n ? line_end + 1 : n;
+    }
+    if (reason != NULL && reason->len > 512) {
+        /* a pathological reply: keep the tail (the newest notes). */
+        jc_size keep = 512;
+        jc_size skip = reason->len - keep;
+        memmove(reason->data, reason->data + skip, keep + 1);
+        reason->len = keep;
+    }
+    return recovered;
+}
+
 /* See jc_tool.h. Order mirrors main()'s registration so the advertised array is
  * byte-identical between a report and a real turn. */
 void jc_tool_register_configured(struct jc_tool_registry *r, struct jc_app *app)
@@ -574,6 +1289,11 @@ void jc_tool_register_configured(struct jc_tool_registry *r, struct jc_app *app)
         jc_tool_registry_register(r, jc_tool_git_branch());
         jc_tool_registry_register(r, jc_tool_git_stash());
     }
+    /* M965: spawn_subagent is dynamic to include the configured models in its
+     * schema description. The static tool is kept in builtins for backward
+     * compatibility (e.g. tests). Use replace() so the dynamic one replaces the
+     * static one, producing exactly one spawn_subagent entry in the registry. */
+    jc_tool_registry_replace(r, jc_tool_subagent_with_app(app));
 }
 
 void jc_tool_register_builtins(struct jc_tool_registry *r)
@@ -586,10 +1306,12 @@ void jc_tool_register_builtins(struct jc_tool_registry *r)
     jc_tool_registry_register(r, jc_tool_write());
     jc_tool_registry_register(r, jc_tool_edit());
     jc_tool_registry_register(r, jc_tool_apply_patch());
-    jc_tool_registry_register(r, jc_tool_run());
-    jc_tool_registry_register(r, jc_tool_run_tests());
-    jc_tool_registry_register(r, jc_tool_subagent());
-    jc_tool_registry_register(r, jc_tool_parallel());
+     jc_tool_registry_register(r, jc_tool_run());
+     jc_tool_registry_register(r, jc_tool_run_tests());
+     /* spawn_subagent is now dynamic (M965) for production use (includes model list
+      * in schema). Keep static version in builtins for backward compatibility. */
+     jc_tool_registry_register(r, jc_tool_subagent());
+     jc_tool_registry_register(r, jc_tool_parallel());
     jc_tool_registry_register(r, jc_tool_todowrite());
     jc_tool_registry_register(r, jc_tool_todoread());
     jc_tool_registry_register(r, jc_tool_remember());
@@ -696,6 +1418,18 @@ int jc_tool_allow_intersect(const struct jc_vec *a_list,
                 jc_vec_push(out, &c);
             }
         }
+    }
+    /* M848: two fences that share NO tool admit nothing. An empty list reads as
+     * "no fence" to jc_tool_allowed, so leaving `out` empty here made the
+     * strictest outcome the widest one: a profile and a restrict-tools skill
+     * with nothing in common ran their subagent with every tool. Push the
+     * sentinel, which matches no tool name, and return 0 so the caller can say
+     * so. A static string, not an arena copy, so it cannot fail to land. */
+    if (other != NULL && out->len == 0) {
+        static char none[] = JC_TOOL_ALLOW_NONE;
+        char *np = none;
+        jc_vec_push(out, &np);
+        return 0;
     }
     return (int)out->len;
 }
@@ -820,6 +1554,27 @@ int jc_tool_is_core(const char *name)
         }
     }
     return 0;
+}
+
+/* M846 (PAR-2): the ONE place that decides a built-in tool carries a shell
+ * command the user wrote. `run_tests` runs its `command` argument through the
+ * shell exactly as `run_terminal_command` does (M501), so every gate that means
+ * "a shell command is about to run" -- the privileged/sudo gate, the kinetic
+ * gate, the --strict-scope refusal, and the shell_ran signal -- must treat the
+ * two alike. They did not: --strict-scope matched the name
+ * `run_terminal_command` only, so `run_tests {"command": ...}` wrote outside an
+ * edit scope and the envelope still reported the run verified. A predicate here
+ * keeps the five gate sites from each carrying their own list, which is how they
+ * drifted apart. NOT the model's own `run_in_background` tool handle, and NOT a
+ * user-defined or MCP tool (those carry no free-form shell string the user
+ * wrote; the config fixes their command line). */
+int jc_tool_name_runs_shell(const char *name)
+{
+    if (name == NULL) {
+        return 0;
+    }
+    return strcmp(name, "run_terminal_command") == 0 ||
+           strcmp(name, "run_tests") == 0;
 }
 
 void jc_tool_core_allow(struct jc_vec *out)
@@ -952,6 +1707,114 @@ static void args_schema_hint(const struct jc_tool *t, struct jc_sb *es)
     cJSON_Delete(schema);
 }
 
+/* M1067: capture the top-level property NAMES the tool's schema declares
+ * (schema()["properties"] keys), into a fresh vector of malloc'd copies.
+ *
+ * The executor builds the schema (jc_tool_normalize_args's caller) and DELETES
+ * it right after normalising the args, so the names must be captured BEFORE
+ * that delete -- this is what jc_tool_execute's schema block calls it for.
+ * Returns NULL when there is no schema or no "properties" (a tool that
+ * declares nothing: every key it receives is then undeclared, which is the
+ * right answer, since there is no declared set to belong to).
+ * OOM during a push leaves the vector partially filled and it is returned
+ * (a missing name can only make a valid key read as undeclared; the note
+ * stays advisory and the run is unaffected). */
+static struct jc_vec *declared_arg_names(const cJSON *schema)
+{
+    struct jc_vec *v;
+    cJSON *props;
+    cJSON *p;
+
+    v = (struct jc_vec *)malloc(sizeof(struct jc_vec));
+    if (v == NULL) {
+        return NULL;
+    }
+    jc_vec_init(v, sizeof(char *));
+    if (schema == NULL) {
+        return v;
+    }
+    props = cJSON_GetObjectItem((cJSON *)schema, "properties");
+    if (!cJSON_IsObject(props)) {
+        return v;
+    }
+    cJSON_ArrayForEach(p, props) {
+        if (p->string != NULL) {
+            char *dup = jc_strdup(p->string);
+            if (dup != NULL) {
+                if (jc_vec_push(v, &dup) != JC_OK) {
+                    free(dup);
+                }
+            }
+        }
+    }
+    return v;
+}
+
+/* M1067: the top-level keys of the NORMALISED args that are not among the
+ * schema's declared property names -- the ones a tool's tu_arg_* lookup will
+ * silently ignore. Returned as a fresh vector of malloc'd copies in args
+ * order (cJSON preserves insertion order), so the note can name them in the
+ * order the model sent them.
+ *
+ * ONLY the top level is compared: keys inside a nested object are the tool's
+ * own business (tu_arg_* reads the declared key and hands the value through),
+ * never an undeclared argument. */
+static struct jc_vec *undeclared_arg_keys(const cJSON *args,
+                                          struct jc_vec *declared)
+{
+    struct jc_vec *u;
+    cJSON *a;
+
+    u = (struct jc_vec *)malloc(sizeof(struct jc_vec));
+    if (u == NULL) {
+        return NULL;
+    }
+    jc_vec_init(u, sizeof(char *));
+    if (args == NULL || !cJSON_IsObject(args)) {
+        return u;
+    }
+    cJSON_ArrayForEach(a, args) {
+        const char *k;
+        char *dup;
+        jc_size i;
+        int found = 0;
+
+        if (a->string == NULL) {
+            continue;
+        }
+        k = a->string;
+        for (i = 0; declared->len > i; i++) {
+            if (strcmp(*(char **)jc_vec_at(declared, i), k) == 0) {
+                found = 1;
+                break;
+            }
+        }
+        if (!found) {
+            dup = jc_strdup(k);
+            if (dup != NULL) {
+                if (jc_vec_push(u, &dup) != JC_OK) {
+                    free(dup);
+                }
+            }
+        }
+    }
+    return u;
+}
+
+/* M1067: free a declared/undeclared vector and its malloc'd string slots. */
+static void arg_names_free(struct jc_vec *v)
+{
+    jc_size i;
+    if (v == NULL) {
+        return;
+    }
+    for (i = 0; v->len > i; i++) {
+        free(*(char **)jc_vec_at(v, i));
+    }
+    jc_vec_free(v);
+    free(v);
+}
+
 jc_status jc_tool_execute(const struct jc_tool_registry *r,
                           const char *name, const char *arguments_json,
                           struct jc_tool_result *out, struct jc_app *app)
@@ -960,6 +1823,11 @@ jc_status jc_tool_execute(const struct jc_tool_registry *r,
     cJSON *args;
     jc_status st;
     int repaired = 0; /* M353: the M148 repair ran and produced the args used */
+    /* M1067: the schema's declared property names, captured before the schema
+     * is deleted; the undeclared top-level arg keys, filled before the args
+     * are deleted. Both NULL on the paths where the call never normalised. */
+    struct jc_vec *declared = NULL;
+    struct jc_vec *undeclared = NULL;
 
     out->content = NULL;
     out->is_error = 0;
@@ -998,8 +1866,24 @@ jc_status jc_tool_execute(const struct jc_tool_registry *r,
 
     t = jc_tool_registry_find(r, name);
     if (t == NULL) {
-        const char *sug = jc_tool_suggest_name(r, name);
+        const char *sug;
         char buf[160];
+        /* M853 (N32): a name a model calls to END its turn. Told only "unknown
+         * tool 'finish'", the demos drive's workers called it again, then ran
+         * `echo "Done"` for hundreds of calls until stopped. So say how a turn
+         * ends -- M342/M360's rule, name what to do instead. Whether this wording
+         * ends such a loop is not measured. In a delegate, a call that carries a
+         * `message` never reaches here: the agent loop ends the turn with it. */
+        if (jc_tool_is_finish_alias(name)) {
+            char fb[320];
+            jc_snprintf(fb, sizeof fb,
+                        "error: unknown tool '%s'. There is no '%s' tool: to "
+                        "end your turn, reply with your final message as plain "
+                        "text and make no tool call.", name, name);
+            set_error(out, fb);
+            return JC_OK;
+        }
+        sug = jc_tool_suggest_name(r, name);
         if (sug != NULL) {
             jc_snprintf(buf, sizeof buf,
                         "error: unknown tool '%s' (did you mean '%s'?)",
@@ -1020,7 +1904,13 @@ jc_status jc_tool_execute(const struct jc_tool_registry *r,
      * places consult one field, which is the point of a field. */
     if (!t->readonly && app->readonly &&
         !(t->plan_allowed && app->mode == JC_MODE_PLAN)) {
+        out->policy_refusal = 1;
         app->tool_refusals++; /* M638 */
+        jc_app_why_note(app, name, arguments_json, 1,
+            app->mode == JC_MODE_PLAN
+                ? "plan mode runs no tool that changes anything"
+                : "this run is read-only: it may read and report, not change",
+            "error: tool disabled in read-only mode");
         set_error(out, "error: tool disabled in read-only mode -- this run "
                        "may only read and report; put your findings in your "
                        "final answer instead of editing");
@@ -1045,187 +1935,147 @@ jc_status jc_tool_execute(const struct jc_tool_registry *r,
                     (name != NULL) ? name : "this tool");
         out->policy_refusal = 1;
         app->tool_refusals++; /* M638 */
+        jc_app_why_note(app, name, arguments_json, 1,
+            "it belongs to the main agent, and a delegated task called it", buf);
         set_error(out, buf);
         return JC_OK;
     }
 
-    args = (arguments_json != NULL && arguments_json[0] != '\0')
-           ? cJSON_Parse(arguments_json) : cJSON_CreateObject();
-    if (args == NULL && app != NULL && app->last_response_truncated) {
-        /* M334: the response was cut off at the model's output-token ceiling,
-         * so these arguments are INCOMPLETE rather than malformed. M148's
-         * repair would "succeed" here -- closing the braces yields a valid
-         * object with no fields -- and the model would then be told its
-         * argument SHAPE was wrong, which is a problem it does not have.
-         * Measured: 197 such calls in one run at 6,977,850 tokens, and 9 more
-         * in the re-drive, every one identical.
-         *
-         * Refuse the repair and name the cause instead. This is the M38
-         * philosophy applied to a truncation: tell the model what actually
-         * happened, not a verdict it cannot act on. */
-        struct jc_sb ts;
-        jc_sb_init(&ts);
-        jc_sb_append_fmt(&ts,
-            "error: your response was cut off at the model's output-token "
-            "limit, so the arguments to `%s` are incomplete -- this is NOT a "
-            "problem with their shape. Produce less output in one call: write "
-            "the file in several smaller pieces (a first write_file, then "
-            "edit_file to append), or split the work across turns.", t->name);
-        set_error(out, ts.data != NULL ? ts.data
-                       : "error: response truncated at the output-token limit");
-        jc_sb_free(&ts);
-        {
-            cJSON *o = jc_app_telem_begin(app, "args_truncated");
-            if (o != NULL) {
-                cJSON_AddStringToObject(o, "tool", t->name);
-            }
-            jc_app_telem_end(app, o);
-        }
-        return JC_OK;
-    }
-    if (args == NULL) {
-        /* M148: conservative repair, only after a real parse failure --
-         * trailing commas, missing closers, Python literals, unambiguous
-         * quote swaps. A repaired string is validated before use and the
-         * attempt is counted either way (`args_repair` telemetry). */
-        char *fixed = jc_jsonrepair(arguments_json);
-        {
-            cJSON *o = jc_app_telem_begin(app, "args_repair");
-            if (o != NULL) {
-                cJSON_AddStringToObject(o, "tool", t->name);
-                cJSON_AddBoolToObject(o, "ok", fixed != NULL);
-            }
-            jc_app_telem_end(app, o);
-        }
-        if (fixed != NULL) {
-            jc_logf(JC_LOG_INFO, "tools: repaired malformed arguments for %s",
-                    t->name);
-            args = cJSON_Parse(fixed);
-            free(fixed);
-            repaired = (args != NULL);
-        }
-    }
-    if (args == NULL) {
-        /* M148: echo the expected shape from the tool's own schema -- the
-         * M38 philosophy applied to arguments: give the model the exact
-         * bytes it should have produced, not just a verdict. */
-        struct jc_sb es;
-        jc_sb_init(&es);
-        jc_sb_append(&es, "error: could not parse tool arguments as JSON");
-        args_schema_hint(t, &es);
-        set_error(out, es.data != NULL ? es.data
-                       : "error: could not parse tool arguments as JSON");
-        jc_sb_free(&es);
-        return JC_OK;
-    }
-
-    /* M289: the model echoed back jichi's OWN argument-elision placeholder.
+    /* M981: normalise arguments exactly as the fence does (face two:
+     * self-named wrapper and stringified edits). The helper returns NULL
+     * when the executor would reject (parse failed, truncated, etc.), so we
+     * handle those cases by returning the same error the executor would.
      *
-     * M218 replaces an oversized `arguments_json` in history with a small valid
-     * JSON object; that object sits in the arguments slot, which the model reads
-     * as an example of what a call to this tool looks like -- and it copied the
-     * shape back. On one measured run 18 of 19 argument-shape failures were this,
-     * across edit_file/write_file/todo_write/run_terminal_command, each costing a
-     * full uncached round-trip and answered with a generic "'path', 'old_string'
-     * and 'new_string' are required" that explained nothing.
-     *
-     * There is nothing to repair -- the real arguments are gone by construction --
-     * so the fix is an answer the model can act on, and a counted event so the
-     * rate stays visible. Detected before the shape checks below so the specific
-     * diagnosis wins over the generic one. */
+     * Note: the elided_placeholder case requires special handling before
+     * calling the helper because the helper emits telemetry but doesn't
+     * generate the specific error message with path and "re-send" text. */
     {
-        cJSON *el = cJSON_GetObjectItem(args, JC_COMPACT_ELIDED_KEY);
-        if (cJSON_IsString(el)) {
-            const char *path = jc_json_get_str(args, "path", NULL);
-            struct jc_sb es;
-            cJSON *o = jc_app_telem_begin(app, "args_repair");
-            if (o != NULL) {
-                cJSON_AddStringToObject(o, "tool", t->name);
-                cJSON_AddStringToObject(o, "kind", "elided_placeholder");
-                cJSON_AddBoolToObject(o, "ok", 0); /* unrepairable by design */
+        int norm_repaired = 0;
+        cJSON *sch = (t->schema_ctx != NULL) ? t->schema_ctx(t->ctx)
+                   : (t->schema != NULL) ? t->schema() : NULL;
+        /* Check for elided_placeholder before normalising. If present,
+         * emit the same error message the original inline code did. */
+        if (app != NULL && arguments_json != NULL && arguments_json[0] != '\0') {
+            cJSON *tmp_args = cJSON_Parse(arguments_json);
+            if (tmp_args != NULL) {
+                cJSON *el = cJSON_GetObjectItem(tmp_args, JC_COMPACT_ELIDED_KEY);
+                if (cJSON_IsString(el)) {
+                    const char *path = jc_json_get_str(tmp_args, "path", NULL);
+                    struct jc_sb es;
+                    /* Emit the same telemetry the helper would emit. */
+                    {
+                        cJSON *o = jc_app_telem_begin(app, "args_repair");
+                        if (o != NULL) {
+                            cJSON_AddStringToObject(o, "tool", t->name);
+                            cJSON_AddStringToObject(o, "kind", "elided_placeholder");
+                            cJSON_AddBoolToObject(o, "ok", 0); /* unrepairable */
+                        }
+                        jc_app_telem_end(app, o);
+                    }
+                    jc_sb_init(&es);
+                    jc_sb_append(&es,
+                        "error: those are not arguments -- you copied a placeholder "
+                        "jichi put in your history after dropping this call's real "
+                        "arguments to save context. They cannot be recovered.");
+                    if (path != NULL && path[0] != '\0') {
+                        jc_sb_append(&es, " Re-send the full arguments for '");
+                        jc_sb_append(&es, path);
+                        jc_sb_append(&es, "'.");
+                    } else {
+                        jc_sb_append(&es, " Re-send the full arguments.");
+                    }
+                    args_schema_hint(t, &es);
+                    set_error(out, es.data != NULL ? es.data
+                                   : "error: those are not arguments (elided "
+                                     "placeholder); re-send the real ones");
+                    jc_sb_free(&es);
+                    cJSON_Delete(tmp_args);
+                    if (sch != NULL) cJSON_Delete(sch);
+                    return JC_OK;
+                }
+                cJSON_Delete(tmp_args);
             }
-            jc_app_telem_end(app, o);
-            jc_sb_init(&es);
-            jc_sb_append(&es,
-                "error: those are not arguments -- you copied a placeholder "
-                "jichi put in your history after dropping this call's real "
-                "arguments to save context. They cannot be recovered.");
-            if (path != NULL && path[0] != '\0') {
-                jc_sb_append(&es, " Re-send the full arguments for '");
-                jc_sb_append(&es, path);
-                jc_sb_append(&es, "'.");
-            } else {
-                jc_sb_append(&es, " Re-send the full arguments.");
+        }
+        args = jc_tool_normalize_args(t->name, sch, arguments_json, app,
+                                      &norm_repaired);
+        /* M1067: capture the schema's declared property names BEFORE sch is
+         * deleted: the undeclared-args note needs them after the run. */
+        if (sch != NULL) {
+            declared = declared_arg_names(sch);
+            cJSON_Delete(sch);
+        }
+        /* norm_repaired tracks JSON syntax repair (kind:"json") only.
+         * The M353 note must only fire when JSON syntax repair occurred. */
+        repaired = norm_repaired;
+        if (args == NULL) {
+            /* The helper returns NULL when the response was truncated or
+             * when the arguments could not be parsed and repaired.
+             * Emit the same errors the inline code did. */
+            if (app != NULL && app->last_response_truncated) {
+                /* M334: truncated response. A-07 / M1090: name the cause. When
+                 * jichi's own per-stream cap clipped the arguments, say so --
+                 * the model never hit its token ceiling, so blaming the limit
+                 * is false and misdirects the repair. The "less output per
+                 * call" advice is still right (a smaller single call clears
+                 * the cap), but the framing differs. */
+                int by_cap = app->last_response_truncated_by_cap;
+                struct jc_sb ts;
+                jc_sb_init(&ts);
+                if (by_cap) {
+                    jc_sb_append_fmt(&ts,
+                        "error: the arguments to `%s` were cut at jichi's "
+                        "per-call size limit, so they are incomplete -- this is "
+                        "NOT a problem with their shape and NOT the model's "
+                        "output limit. Produce less output in one call: write "
+                        "the file in several smaller pieces (a first write_file, "
+                        "then edit_file to append), or split the work across "
+                        "turns.", t->name);
+                } else {
+                    jc_sb_append_fmt(&ts,
+                        "error: your response was cut off at the model's "
+                        "output-token limit, so the arguments to `%s` are "
+                        "incomplete -- this is NOT a problem with their shape. "
+                        "Produce less output in one call: write the file in "
+                        "several smaller pieces (a first write_file, then "
+                        "edit_file to append), or split the work across turns.",
+                        t->name);
+                }
+                set_error(out, ts.data != NULL ? ts.data
+                               : "error: response truncated at the output-token limit");
+                jc_sb_free(&ts);
+                {
+                    cJSON *o = jc_app_telem_begin(app, "args_truncated");
+                    if (o != NULL) {
+                        cJSON_AddStringToObject(o, "tool", t->name);
+                        cJSON_AddStringToObject(o, "cause",
+                                                by_cap ? "cap" : "model");
+                    }
+                    jc_app_telem_end(app, o);
+                }
+                arg_names_free(declared);  /* M1067: no run, no note, no leak */
+                return JC_OK;
             }
-            args_schema_hint(t, &es);
-            set_error(out, es.data != NULL ? es.data
-                           : "error: those are not arguments (elided "
-                             "placeholder); re-send the real ones");
-            jc_sb_free(&es);
-            cJSON_Delete(args);
+            /* Unrepairable JSON -> error with schema hint. */
+            {
+                struct jc_sb es;
+                jc_sb_init(&es);
+                jc_sb_append(&es, "error: could not parse tool arguments as JSON");
+                args_schema_hint(t, &es);
+                set_error(out, es.data != NULL ? es.data
+                               : "error: could not parse tool arguments as JSON");
+                jc_sb_free(&es);
+            }
+            arg_names_free(declared);  /* M1067: no run, no note, no leak */
             return JC_OK;
         }
     }
 
-    /* M172: unwrap a self-named argument wrapper. A model sometimes nests the
-     * arguments under the tool's own name --
-     *   {"edit_file": {"path": ..., "old_string": ...}}
-     * instead of {"path": ..., "old_string": ...}. That is VALID JSON, so the
-     * M148 repair above never sees it: the parse succeeds, and the tool then
-     * finds every required argument missing. Observed live on the zigodot
-     * program (docs/analysis/2026-07-27-zigodot-telemetry.md, finding F8).
-     *
-     * Safe because the key must equal the tool's OWN name, and no tool has a
-     * parameter named after itself -- parameters are short generics (path,
-     * content, command, query), tool names are verb_noun compounds. Counted as
-     * an args_repair with kind:"unwrap", so it shows up in telemetry and stays
-     * distinguishable from a JSON-syntax repair. */
-    {
-        cJSON *inner = jc_tool_unwrap_self_named(args, t->name);
-        if (inner != NULL) {
-            cJSON *o = jc_app_telem_begin(app, "args_repair");
-            if (o != NULL) {
-                cJSON_AddStringToObject(o, "tool", t->name);
-                cJSON_AddStringToObject(o, "kind", "unwrap");
-                cJSON_AddBoolToObject(o, "ok", 1);
-            }
-            jc_app_telem_end(app, o);
-            jc_logf(JC_LOG_INFO, "tools: unwrapped self-named arguments for %s",
-                    t->name);
-            cJSON_Delete(args);
-            args = inner;
-        }
+    /* M1067: compute the undeclared keys on the args the tool ran on, before
+     * they are deleted -- this is the last thing that reads args. Both
+     * vectors are freed at the end of the function. */
+    if (declared != NULL) {
+        undeclared = undeclared_arg_keys(args, declared);
     }
-
-    /* M193: coerce a stringified nested structure back to the declared shape.
-     * The sibling of the unwrap above, in the same slot and for the same reason:
-     * the JSON parses cleanly, so M148's repair never sees it, and the tool then
-     * rejects a semantically wrong shape. 28 of 36 todo_write calls in the
-     * zigodot log failed exactly this way, all with `'todos' must be an array`.
-     * Fires only on a declared array/object parameter whose value is a string
-     * that parses as that type; the tool's own validation still runs after. */
-    {
-        cJSON *sch = (t->schema_ctx != NULL) ? t->schema_ctx(t->ctx)
-                   : (t->schema != NULL) ? t->schema() : NULL;
-        int nfix = jc_tool_unstring_args(args, sch);
-        if (nfix > 0) {
-            cJSON *o = jc_app_telem_begin(app, "args_repair");
-            if (o != NULL) {
-                cJSON_AddStringToObject(o, "tool", t->name);
-                cJSON_AddStringToObject(o, "kind", "unstring");
-                cJSON_AddNumberToObject(o, "fields", (double)nfix);
-                cJSON_AddBoolToObject(o, "ok", 1);
-            }
-            jc_app_telem_end(app, o);
-            jc_logf(JC_LOG_INFO,
-                    "tools: parsed %d stringified argument(s) for %s",
-                    nfix, t->name);
-        }
-        if (sch != NULL) {
-            cJSON_Delete(sch);
-        }
-    }
-
     st = t->run_ctx != NULL ? t->run_ctx(t->ctx, args, out, app)
                             : t->run(args, out, app);
     cJSON_Delete(args);
@@ -1263,5 +2113,53 @@ jc_status jc_tool_execute(const struct jc_tool_registry *r,
             jc_sb_free(&ns);
         }
     }
+    /* M1067: an undeclared top-level argument key -- one the tool's schema does
+     * not declare and a tu_arg_* lookup therefore never reads -- used to be
+     * dropped silently. The tool ran fine on the declared arguments, so the
+     * model saw a clean result and concluded its extra key had been honoured.
+     * The run-0078 incident: git_commit's schema declares only message/all, so
+     * the `trailer` block the agent sent was dropped and never reached the
+     * commit. Like the M353 repair, a per-call fact rides its own result: name
+     * each ignored key so the model can stop sending what is not read.
+     *
+     * Only the NORMALISED top level is compared (keys inside a nested object
+     * are the tool's own business), and ONLY when out->content is present (a
+     * successful, or at least content-bearing, run -- the extras are ignored,
+     * not an error). The note is advisory: is_error is left untouched. */
+    if (undeclared != NULL && undeclared->len > 0 && out->content != NULL) {
+        struct jc_sb ns;
+        jc_size i;
+        jc_sb_init(&ns);
+        jc_sb_append(&ns, out->content);
+        jc_sb_append(&ns,
+            "\n[note: this call ran with the declared arguments only; the "
+            "argument key(s)");
+        for (i = 0; undeclared->len > i; i++) {
+            jc_sb_append(&ns, i > 0 ? ", " : " ");
+            jc_sb_append(&ns, "`");
+            jc_sb_append(&ns, *(char **)jc_vec_at(undeclared, i));
+            jc_sb_append(&ns, "`");
+        }
+        jc_sb_append(&ns, " are not declared by this tool's schema and were "
+            "ignored, not applied.]");
+        if (ns.data != NULL) {
+            free(out->content);
+            out->content = jc_sb_finish(&ns);
+        } else {
+            jc_sb_free(&ns);
+        }
+        /* Telemetry: one event per call, like the unstring event (tool + a
+         * count of the ignored keys). Advisory only. */
+        if (app != NULL) {
+            cJSON *o = jc_app_telem_begin(app, "undeclared_args");
+            if (o != NULL) {
+                cJSON_AddStringToObject(o, "tool", t->name);
+                cJSON_AddNumberToObject(o, "count", (double)undeclared->len);
+            }
+            jc_app_telem_end(app, o);
+        }
+    }
+    arg_names_free(undeclared);
+    arg_names_free(declared);
     return JC_OK;
 }

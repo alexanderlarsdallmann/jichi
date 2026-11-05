@@ -27,6 +27,7 @@ send "\x1b"
 delay 300
 send "/exit\r"
 waitexit 12
+assertexit 0
 EOF
 
 (cd "$ws" && "$SMOKE_TOOLS/ptydrive" --deadline 40 --cols 80 \

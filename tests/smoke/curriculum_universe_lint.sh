@@ -29,10 +29,13 @@ done
 # this check would report a floor it was not enforcing (found at M674, while
 # raising it). A message that states a different number than the check uses is
 # worse than no message -- it is a green line telling you something untrue.
-if [ "$n" -ge 89 ]; then
-    t_ok "enumerated $n shipped specs (floor 89 -- today's exact count)"
+# M898 (plan 6.0): 89 -> 90. The plan found the floor one behind while it called
+# itself today's exact count; the glob and `find -maxdepth 1` both count 90, and
+# stage_index_lint requires 90 rows.
+if [ "$n" -ge 90 ]; then
+    t_ok "enumerated $n shipped specs (floor 90 -- today's exact count)"
 else
-    t_fail "enumerated only $n specs (floor 89) -- the glob or the layout broke"
+    t_fail "enumerated only $n specs (floor 90) -- the glob or the layout broke"
 fi
 
 # --- 2: every spec is named in the two-sided proof --------------------------------

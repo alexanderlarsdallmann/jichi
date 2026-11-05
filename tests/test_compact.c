@@ -15,6 +15,10 @@
 #include "jc_mem.h"
 #include "jc_snprintf.h"
 #include "jc_utf8.h"
+#include "jc_platform.h"  /* jc_read_file, jc_mkdir_p, jc_file_exists */
+#include "jc_path.h"      /* jc_path_resolve */
+#include <sys/stat.h>     /* stat: the 0600 check */
+#include <unistd.h>       /* getpid */
 
 #include <stdlib.h>
 #include <string.h>
@@ -754,6 +758,239 @@ static void test_midturn_trim_args_patch(void)
     jc_history_free(&h);
 }
 
+/* def-317 R1: the M348 claim ticket on the ARGS side, exercised with the same
+ * stub pattern as test_elide_claim_ticket. The FULL arguments_json reaches the
+ * store, the marker gains a `ticket` field naming the path, and the note no
+ * longer claims the content is unrecoverable. A declining spiller leaves the
+ * marker byte-identical to the ticketless text (D3: never name a path that is
+ * not there), and `preserved` counts only accepted offers. */
+static void test_args_claim_ticket(void)
+{
+    struct jc_history h;
+    char big[5000];
+    char args[5200];
+    jc_size preserved = 0;
+    jc_size seen_len = 0;
+
+    fill(big, 4096);
+    jc_history_init(&h);
+    jc_history_add(&h, JC_ROLE_USER, "write the files");        /* 0 */
+    {
+        struct jc_message *a;
+        jc_snprintf(args, sizeof(args),
+                    "{\"path\":\"src/foo.c\",\"content\":\"%s\"}", big);
+        a = jc_history_add(&h, JC_ROLE_ASSISTANT, NULL);        /* 1 */
+        jc_msg_add_tool_call(a, "w1", "write_file", args);
+        jc_history_add_tool_result(&h, "w1", "wrote src/foo.c", 0);
+        jc_history_add(&h, JC_ROLE_ASSISTANT, "done");          /* 3 */
+    }
+
+    /* Stub accepted: the FULL arguments (not the marker) are offered, and the
+     * marker names the ticket. */
+    JC_CHECK(jc_compact_trim_tool_args_ex(NULL, &h, 1, 1, stub_spill_ok,
+                                          &seen_len, &preserved) == 1);
+    JC_CHECK(preserved == 1);
+    JC_CHECK(seen_len == strlen(args));
+    {
+        struct jc_tool_call *tc =
+            jc_msg_tool_call_at(jc_history_get(&h, 1), 0);
+        cJSON *o = cJSON_Parse(tc->arguments_json);
+        const char *n;
+        const char *tk;
+        JC_REQUIRE(o != NULL && cJSON_IsObject(o));
+        n = jc_json_get_str(o, JC_COMPACT_ELIDED_KEY, "");
+        JC_CHECK(strstr(n, "not arguments") != NULL);
+        /* The note must not keep claiming the content is gone -- it is in the
+         * file the marker points at. */
+        JC_CHECK(strstr(n, "cannot be recovered") == NULL);
+        JC_CHECK(strstr(n, "preserved") != NULL);
+        /* The path the ticket NAMES (not the file path the marker keeps). */
+        tk = jc_json_get_str(o, "ticket", NULL);
+        JC_CHECK(tk != NULL && strstr(tk, "ticket-7.txt") != NULL);
+        JC_CHECK(strcmp(jc_json_get_str(o, "path", ""), "src/foo.c") == 0);
+        cJSON_Delete(o);
+    }
+    jc_history_free(&h);
+
+    /* Stub declining: the ticketless marker, byte-identical to the base form. */
+    jc_history_init(&h);
+    {
+        struct jc_message *a;
+        jc_snprintf(args, sizeof(args),
+                    "{\"path\":\"src/foo.c\",\"content\":\"%s\"}", big);
+        jc_history_add(&h, JC_ROLE_USER, "write the files");        /* 0 */
+        a = jc_history_add(&h, JC_ROLE_ASSISTANT, NULL);        /* 1 */
+        jc_msg_add_tool_call(a, "w1", "write_file", args);
+        jc_history_add_tool_result(&h, "w1", "wrote src/foo.c", 0);
+        jc_history_add(&h, JC_ROLE_ASSISTANT, "done");          /* 3 */
+    }
+    preserved = 99;
+    JC_CHECK(jc_compact_trim_tool_args_ex(NULL, &h, 1, 1, stub_spill_fail,
+                                          NULL, &preserved) == 1);
+    JC_CHECK(preserved == 0);
+    {
+        struct jc_tool_call *tc =
+            jc_msg_tool_call_at(jc_history_get(&h, 1), 0);
+        struct jc_tool_call *tc2;
+        cJSON *o = cJSON_Parse(tc->arguments_json);
+        char *want;
+        struct jc_history h2;
+        struct jc_message *a;
+        jc_history_init(&h2);
+        jc_history_add(&h2, JC_ROLE_USER, "x");
+        a = jc_history_add(&h2, JC_ROLE_ASSISTANT, NULL);
+        jc_snprintf(args, sizeof(args),
+                    "{\"path\":\"src/foo.c\",\"content\":\"%s\"}", big);
+        jc_msg_add_tool_call(a, "w1", "write_file", args);
+        jc_history_add_tool_result(&h2, "w1", "ok", 0);
+        jc_history_add(&h2, JC_ROLE_ASSISTANT, "done");
+        /* The base form (no spiller) on the identical history is the
+         * reference: the declining-stub marker must equal it byte for byte. */
+        JC_CHECK(jc_compact_trim_tool_args(&h2, 1, 1) == 1);
+        tc2 = jc_msg_tool_call_at(jc_history_get(&h2, 1), 0);
+        want = (char *)tc2->arguments_json;
+        JC_CHECK(o != NULL && cJSON_IsObject(o));
+        JC_CHECK(cJSON_GetObjectItem(o, "ticket") == NULL);
+        JC_CHECK(strstr(jc_json_get_str(o, JC_COMPACT_ELIDED_KEY, ""),
+                        "cannot be recovered") != NULL);
+        JC_CHECK(strcmp(tc->arguments_json, want) == 0);
+        cJSON_Delete(o);
+        jc_history_free(&h2);
+    }
+    jc_history_free(&h);
+}
+
+/* def-317 R1+R6, end to end through jc_compact_midturn with a REAL store:
+ * when the result-side trims leave the estimate above target, the args trims
+ * must write a 0600 claim ticket into the preservation store, name it in the
+ * marker, and count it in `rep->preserved` (the report side R6 measured as the
+ * missing half). Hermetic in the way the M348 tests are hermetic: HOME is
+ * redirected to a temp dir (restored at the end), so the shared tool-output
+ * store is never touched and test_snapshot keeps its run-1.txt. */
+static void test_midturn_args_ticket(void)
+{
+    struct jc_app app;
+    struct jc_arena *arena = jc_arena_new(0);
+    struct jc_history h;
+    struct jc_midturn_report rep;
+    char pressure[30100];
+    char big[4100];
+    char doc[4200];            /* stable copy of the elided arguments */
+    char tmp[256];
+    char saved_home[1024];
+    const char *home = getenv("HOME");
+    char *content = NULL;      /* arena-allocated; freed with arena */
+    struct stat st;
+    jc_size len = 0;
+    jc_size doc_len = 0;
+    int elided = 0;
+    cJSON *o;
+    const char *tk;
+
+    saved_home[0] = '\0';
+    if (home != NULL) {
+        jc_snprintf(saved_home, sizeof(saved_home), "%s", home);
+    }
+    if (!JC_REQUIRE(jc_snprintf(tmp, sizeof(tmp),
+                                "%s/jichi_args_ticket_%ld",
+                                jc_test_tmpdir(), (long)getpid())
+                    < (int)sizeof(tmp))) {
+        jc_arena_free(arena);
+        return;
+    }
+    jc_mkdir_p(tmp);
+    setenv("HOME", tmp, 1);
+
+    memset(&app, 0, sizeof(app));
+    app.arena = arena;
+    app.config.context_limit = 8000; /* high water 6400, target 4800 */
+
+    fill(pressure, 30000);           /* ~7500 tok: over the 6400 high water */
+    fill(big, 4096);
+    jc_history_init(&h);
+    jc_history_add(&h, JC_ROLE_USER, pressure);       /* 0: never elidable */
+    {
+        struct jc_message *a = jc_history_add(&h, JC_ROLE_ASSISTANT, NULL);
+        jc_msg_add_tool_call(a, "w1", "write_file",
+            "{\"path\":\"src/foo.c\",\"content\":\"aaaaaaaa\"}");
+        jc_history_add_tool_result(&h, "w1", "ok", 0); /* 2: small result */
+        a = jc_history_add(&h, JC_ROLE_ASSISTANT, NULL);
+        jc_msg_add_tool_call(a, "w2", "write_file",
+            "{\"path\":\"src/bar.c\",\"content\":\"bbbbbbbb\"}");
+        jc_history_add_tool_result(&h, "w2", "ok", 0); /* 4 */
+        a = jc_history_add(&h, JC_ROLE_ASSISTANT, NULL);
+        jc_msg_add_tool_call(a, "w3", "write_file",
+            "{\"path\":\"src/baz.c\",\"content\":\"cccccccc\"}");
+        jc_history_add_tool_result(&h, "w3", "ok", 0); /* 6 */
+        a = jc_history_add(&h, JC_ROLE_ASSISTANT, NULL);
+        jc_msg_add_tool_call(a, "w4", "write_file",
+            "{\"path\":\"src/qux.c\",\"content\":\"dddddddd\"}");
+        jc_history_add_tool_result(&h, "w4", "ok", 0); /* 8 */
+    }
+    /* The call whose arguments are the document: index 1..8, the last 6 are
+     * keep-recent protected, so the w1 call at index 1 is eligible. Rebuild it
+     * LARGE so the args pass (not the result pass) is what fires. Capture a
+     * stable copy in `doc` -- the marker's set_args frees the buffer the
+     * arguments_json pointer referred to, so a pointer would dangle. */
+    {
+        struct jc_message *a = jc_history_get(&h, 1);
+        if (a != NULL) {
+            struct jc_tool_call *tc = jc_msg_tool_call_at(a, 0);
+            if (tc != NULL) {
+                elided = (jc_snprintf(doc, sizeof(doc),
+                            "{\"path\":\"src/foo.c\",\"content\":\"%s\"}",
+                            big) < (int)sizeof(doc));
+                doc_len = (jc_size)strlen(doc);
+                JC_CHECK(jc_msg_tool_call_set_args(tc, doc) == JC_OK);
+            }
+        }
+    }
+    if (!elided) {
+        jc_history_free(&h);
+        if (saved_home[0] != '\0') { setenv("HOME", saved_home, 1); }
+        (void)jc_test_rm_rf(tmp);
+        return;
+    }
+
+    jc_compact_midturn(&app, &h, NULL, &rep, 0, NULL);
+    JC_CHECK(rep.pressed == 1);
+    JC_CHECK(rep.args >= 1);
+    /* R6: the args ticket is COUNTED in preserved, not just elided. */
+    JC_CHECK(rep.preserved >= 1);
+
+    {
+        struct jc_tool_call *tc =
+            jc_msg_tool_call_at(jc_history_get(&h, 1), 0);
+        JC_REQUIRE(tc != NULL);
+        o = cJSON_Parse(tc->arguments_json);
+        JC_REQUIRE(o != NULL && cJSON_IsObject(o));
+        tk = jc_json_get_str(o, "ticket", NULL);
+        /* The marker names a ticket that is a REAL file in the redirected
+         * store, carrying the full original arguments byte for byte. */
+        JC_REQUIRE(tk != NULL && strstr(tk, tmp) != NULL);
+        JC_REQUIRE(jc_file_exists(tk));
+        JC_CHECK(stat(tk, &st) == 0 && (st.st_mode & 07777) == 0600);
+        JC_CHECK(jc_read_file(tk, &content, &len, arena) == JC_OK);
+        JC_CHECK(len == doc_len);
+        if (content != NULL && len == doc_len) {
+            JC_CHECK(memcmp(content, doc, len) == 0);
+        }
+        JC_CHECK(strstr(jc_json_get_str(o, JC_COMPACT_ELIDED_KEY, ""),
+                        "preserved") != NULL);
+        /* The path survives, so the model still knows what it wrote. */
+        JC_CHECK(strcmp(jc_json_get_str(o, "path", ""), "src/foo.c") == 0);
+        cJSON_Delete(o);
+    }
+
+    jc_history_free(&h);
+    /* content is arena-allocated; freed when `arena` is freed below. */
+    if (saved_home[0] != '\0') {
+        setenv("HOME", saved_home, 1);
+    }
+    (void)jc_test_rm_rf(tmp);
+    jc_arena_free(arena);
+}
+
 /* M218: the eager dedup is gated on the caller's hint. A round that appended
  * no read_file result cannot have created a new superseded pair, so hint=0
  * must skip the pass entirely (bit-identical outcome, none of the cost);
@@ -917,7 +1154,27 @@ static void test_midturn_latch(void)
     struct jc_midturn_latch latch;
     char big[9000];
     char huge[20500];
+    char tmp[256];
+    char saved_home[1024];
+    const char *home = getenv("HOME");
     jc_size i;
+
+    /* The lifecycle half below calls jc_compact_midturn with a REAL app, and
+     * (def-317 R1) its args trims now write claim tickets through
+     * midturn_spill -- into the process-global preservation store and its
+     * global `seq`. Redirect HOME to a temp dir for that half so this test does
+     * not drop tickets into the developer's real store or shift
+     * test_snapshot's run-N numbering. The pure re-arm math above is HOME-free. */
+    saved_home[0] = '\0';
+    if (home != NULL) {
+        jc_snprintf(saved_home, sizeof(saved_home), "%s", home);
+    }
+    if (JC_REQUIRE(jc_snprintf(tmp, sizeof(tmp), "%s/jichi_latch_%ld",
+                                jc_test_tmpdir(), (long)getpid())
+                   < (int)sizeof(tmp))) {
+        jc_mkdir_p(tmp);
+        setenv("HOME", tmp, 1);
+    }
 
     /* --- the pure re-arm math ------------------------------------------- */
     fill(big, 8192);
@@ -1020,12 +1277,15 @@ static void test_midturn_latch(void)
 
     /* And it must still RELEASE when a real candidate leaves the window --
      * the half that makes the extension safe rather than a permanent mute.
-     * The candidate is a large tool-call ARGUMENT rather than a large tool
-     * RESULT, on purpose: `jc_compact_trim_tool_args` takes no spill callback,
-     * so this stays hermetic the way the block above says it is. Eliding a
-     * result here would write a claim ticket into the shared tool-output
-     * store and cost `test_snapshot` its `run-1.txt` -- which is exactly what
-     * the first draft of this test did. */
+     * The candidate is a large tool-call ARGUMENT: it is a valid M361 candidate
+     * (the latch re-arm math counts args over ELIDE_MIN_BYTES), so releasing on
+     * it proves the arg side, not just the result side. (def-317 R1) this
+     * elision now writes a claim ticket through midturn_spill -- the args path
+     * used to take no spill callback, which is why this test could once call
+     * itself hermetic without a HOME redirect. It is hermetic now because the
+     * HOME is redirected above: the ticket lands in the temp store, and
+     * test_snapshot's run-N numbering reads the path its preview names rather
+     * than assuming the global `seq` is untouched. */
     a = jc_history_add(&h, JC_ROLE_ASSISTANT, "r");      /* 17: candidate */
     jc_msg_add_tool_call(a, "w9", "write_file", huge);
     jc_history_add_tool_result(&h, "w9", "ok", 0);       /* 18 */
@@ -1052,6 +1312,10 @@ static void test_midturn_latch(void)
     JC_CHECK(rep.latched == 0);
 
     jc_history_free(&h);
+    if (saved_home[0] != '\0') {
+        setenv("HOME", saved_home, 1);
+    }
+    (void)jc_test_rm_rf(tmp);
     jc_arena_free(arena);
 }
 
@@ -1114,6 +1378,259 @@ static void test_midturn_latch_dry_loop(void)
     jc_arena_free(arena);
 }
 
+/* M910: the idempotence guard on the ARGS side. M348/M354 set the result-side
+ * rule: a claim-ticket marker carries a path, and a long ticket name pushes
+ * the marker back over the size floor -- and a second pass would then elide
+ * the marker and preserve a ticket pointing at a ticket. The args-side ticket
+ * (M909) embeds the same path, so it needs the same guard. */
+static int stub_spill_longticket(void *ctx, const char *text, jc_size len,
+                                 char *path_out, jc_size cap)
+{
+    jc_size i;
+    (void)ctx; (void)text; (void)len;
+    for (i = 0; i + 1 < cap && i < 600; i++) {
+        path_out[i] = 't';
+    }
+    path_out[i] = '\0';
+    return 1;
+}
+
+static void test_args_marker_idempotence(void)
+{
+    struct jc_history h;
+    struct jc_message *a;
+    char big[5000];
+    char args[5200];
+    jc_size first, second;
+    struct jc_tool_call *tc;
+    cJSON *o;
+    const char *tk1;
+    char saved1[700];
+
+    fill(big, 4096);
+    jc_history_init(&h);
+    jc_history_add(&h, JC_ROLE_USER, "write the files");        /* 0 */
+    jc_snprintf(args, sizeof(args),
+                "{\"path\":\"src/foo.c\",\"content\":\"%s\"}", big);
+    a = jc_history_add(&h, JC_ROLE_ASSISTANT, NULL);            /* 1 */
+    jc_msg_add_tool_call(a, "w1", "write_file", args);
+    jc_history_add_tool_result(&h, "w1", "wrote src/foo.c", 0); /* 2 */
+    jc_history_add(&h, JC_ROLE_ASSISTANT, "done");              /* 3 */
+
+    first = jc_compact_trim_tool_args_ex(NULL, &h, 1, 1, stub_spill_longticket,
+                                         NULL, NULL);
+    JC_CHECK(first == 1);
+    tc = jc_msg_tool_call_at(jc_history_get(&h, 1), 0);
+    JC_REQUIRE(tc != NULL);
+    o = cJSON_Parse(tc->arguments_json);
+    JC_REQUIRE(o != NULL);
+    tk1 = jc_json_get_str(o, "ticket", NULL);
+    JC_REQUIRE(tk1 != NULL);
+    jc_snprintf(saved1, sizeof(saved1), "%s", tk1);
+    cJSON_Delete(o);
+    /* Premise: the ticket name pushed the MARKER itself back over the
+     * size floor, so the floor alone cannot be the second pass's guard. */
+    JC_CHECK(strlen(tc->arguments_json) > 800);
+
+    second = jc_compact_trim_tool_args_ex(NULL, &h, 1, 1, stub_spill_longticket,
+                                          NULL, NULL);
+    JC_CHECK(second == 0);
+    /* The marker is byte-stable: still names the FIRST ticket, never a
+     * ticket-of-ticket. */
+    o = cJSON_Parse(tc->arguments_json);
+    JC_REQUIRE(o != NULL);
+    JC_CHECK(strcmp(jc_json_get_str(o, "ticket", ""), saved1) == 0);
+    JC_CHECK(jc_json_get_str(o, "path", NULL) != NULL);
+    cJSON_Delete(o);
+    jc_history_free(&h);
+}
+
+/* M912 (def-317 skip policy, option b): a whole-file write_file whose body
+ * still equals the file on disk is elided to a compact POINTER -- the file
+ * IS the preserved artifact, so a ticket naming a copy of it is redundant.
+ * Every non-identity case (file changed / missing / not a whole-file write)
+ * FALLS BACK to the M909 ticket. The check needs the app's cwd. */
+static void test_write_file_on_disk_pointer(void)
+{
+    struct jc_app app;
+    struct jc_arena *a = jc_arena_new(0);
+    struct jc_history h;
+    struct jc_message *am;
+    char content[4000];
+    char args[4300];
+    char *rd = NULL;
+    jc_size rl = 0;
+    jc_size seen = 0;
+    char filep[500];
+    char diffc[4300];
+
+    if (!JC_REQUIRE(jc_snprintf(filep, sizeof(filep), "%s/disk_same.c",
+                                jc_test_tmpdir()) < (int)sizeof(filep))) {
+        jc_arena_free(a);
+        return;
+    }
+    fill(content, 3000);
+    jc_snprintf(content + 3000, sizeof(content) - 3000, "END");
+    JC_REQUIRE(jc_write_file(filep, content, (jc_size)strlen(content)) == JC_OK);
+    memset(&app, 0, sizeof(app));
+    app.arena = a;
+    jc_snprintf(app.cwd, sizeof(app.cwd), "%s", jc_test_tmpdir());
+
+    /* 1: file on disk == the write_file body -> compact pointer, NO ticket. */
+    jc_history_init(&h);
+    jc_history_add(&h, JC_ROLE_USER, "write the file");
+    jc_snprintf(args, sizeof(args),
+                "{\"path\":\"%s\",\"content\":\"%s\"}", filep, content);
+    am = jc_history_add(&h, JC_ROLE_ASSISTANT, NULL);
+    jc_msg_add_tool_call(am, "w1", "write_file", args);
+    jc_history_add_tool_result(&h, "w1", "wrote the file", 0);
+    JC_CHECK(jc_compact_trim_tool_args_ex(&app, &h, 1, 1, NULL, NULL, NULL)
+             == 1);
+    {
+        cJSON *o = cJSON_Parse(
+            jc_msg_tool_call_at(jc_history_get(&h, 1), 0)->arguments_json);
+        JC_REQUIRE(o != NULL);
+        JC_CHECK(jc_json_get_str(o, "ticket", NULL) == NULL);
+        JC_CHECK(jc_json_get_str(o, "path", NULL) != NULL);
+        JC_CHECK(strstr(jc_json_get_str(o, JC_COMPACT_ELIDED_KEY, ""),
+                        "on disk") != NULL);
+        JC_CHECK(jc_read_file(filep, &rd, &rl, a) == JC_OK);
+        JC_CHECK(rd != NULL && rl == (jc_size)strlen(content)
+                 && strcmp(rd, content) == 0);
+        /* Idempotence: the pointer is under the floor; a second pass is a
+         * no-op and never re-tickets the marker. */
+        JC_CHECK(jc_compact_trim_tool_args_ex(&app, &h, 1, 1, NULL, NULL, NULL)
+                 == 0);
+        cJSON_Delete(o);
+    }
+    jc_history_free(&h);
+
+    /* 2: file DIFFERS from the body -> FALLBACK ticket (stale body must not
+     * be elided to a pointer that falsely claims it is on disk). */
+    jc_snprintf(diffc, sizeof(diffc), "STALE-%s", content);
+    JC_REQUIRE(jc_write_file(filep, diffc, (jc_size)strlen(diffc)) == JC_OK);
+    jc_history_init(&h);
+    jc_history_add(&h, JC_ROLE_USER, "write the file");
+    jc_snprintf(args, sizeof(args),
+                "{\"path\":\"%s\",\"content\":\"%s\"}", filep, content);
+    am = jc_history_add(&h, JC_ROLE_ASSISTANT, NULL);
+    jc_msg_add_tool_call(am, "w2", "write_file", args);
+    jc_history_add_tool_result(&h, "w2", "wrote the file", 0);
+    JC_CHECK(jc_compact_trim_tool_args_ex(&app, &h, 1, 1, stub_spill_ok, &seen, NULL)
+             == 1);
+    {
+        cJSON *o = cJSON_Parse(
+            jc_msg_tool_call_at(jc_history_get(&h, 1), 0)->arguments_json);
+        JC_REQUIRE(o != NULL);
+        JC_CHECK(jc_json_get_str(o, "ticket", NULL) != NULL);
+        cJSON_Delete(o);
+    }
+    jc_history_free(&h);
+
+    /* 3: file MISSING -> FALLBACK ticket. */
+    jc_history_init(&h);
+    jc_history_add(&h, JC_ROLE_USER, "write the file");
+    jc_snprintf(args, sizeof(args),
+                "{\"path\":\"%s/gone.c\",\"content\":\"%s\"}",
+                jc_test_tmpdir(), content);
+    am = jc_history_add(&h, JC_ROLE_ASSISTANT, NULL);
+    jc_msg_add_tool_call(am, "w3", "write_file", args);
+    jc_history_add_tool_result(&h, "w3", "wrote the file", 0);
+    JC_CHECK(jc_compact_trim_tool_args_ex(&app, &h, 1, 1, stub_spill_ok, &seen, NULL)
+             == 1);
+    {
+        cJSON *o = cJSON_Parse(
+            jc_msg_tool_call_at(jc_history_get(&h, 1), 0)->arguments_json);
+        JC_REQUIRE(o != NULL);
+        JC_CHECK(jc_json_get_str(o, "ticket", NULL) != NULL);
+        cJSON_Delete(o);
+    }
+    jc_history_free(&h);
+
+    jc_arena_free(a);
+}
+
+/* def-323 (M913): the on-disk identity check must open no file the path
+ * fence's READ intent would refuse -- exact parity with read_file, which
+ * consults jc_app_path_denied_ex(app, path, 0) before it opens. The M912
+ * identity read (jc_read_file) predated that guard: with the fence on and
+ * a matching file OUTSIDE the root, the elision would still write the
+ * compact pointer. The pointer itself discloses nothing the model could
+ * not read_file (the fence closes both at once), so the defect is parity
+ * and explicitness, not a leak -- but a read the tool layer refuses must
+ * not be made by the compaction layer either. Teeth: a matching file
+ * outside the root must fall back to the M909 ticket. */
+static void test_on_disk_pointer_respects_read_fence(void)
+{
+    struct jc_app app;
+    struct jc_arena *a = jc_arena_new(0);
+    struct jc_history h;
+    struct jc_message *am;
+    char content[4000];
+    char args[4300];
+    char root[JC_PATH_MAX];
+    char ws[JC_PATH_MAX];
+    char filep[JC_PATH_MAX];
+    jc_size seen = 0;
+
+    if (!JC_REQUIRE(jc_path_resolve(jc_test_tmpdir(), root, sizeof(root))
+                    == JC_OK)) {
+        jc_arena_free(a);
+        return; /* no writable TMPDIR: the guard holds, nothing to fence */
+    }
+    if (!JC_REQUIRE(jc_snprintf(ws, sizeof(ws), "%s/jc_fence323", root)
+                    < (int)sizeof(ws))
+        || jc_mkdir_p(ws) != JC_OK) {
+        jc_arena_free(a);
+        return;
+    }
+    /* The matching file lives OUTSIDE the workspace root -- the fence's
+     * read intent refuses it exactly as read_file would be refused. */
+    if (!JC_REQUIRE(jc_snprintf(filep, sizeof(filep), "%s/disk_outside.c",
+                                root) < (int)sizeof(filep))) {
+        jc_arena_free(a);
+        return;
+    }
+    fill(content, 3000);
+    JC_REQUIRE(jc_write_file(filep, content, (jc_size)strlen(content))
+               == JC_OK);
+
+    memset(&app, 0, sizeof(app));
+    app.arena = a;
+    jc_snprintf(app.cwd, sizeof(app.cwd), "%s", ws);
+    jc_snprintf(app.root, sizeof(app.root), "%s", ws);
+    app.config.path_fence = 1; /* force the fence on regardless of mode */
+    /* Premise: the fence really is in force for this file. */
+    JC_CHECK(jc_app_path_denied_ex(&app, filep, 0) == 1);
+    JC_CHECK(jc_app_path_denied_ex(&app, filep, 1) == 1);
+
+    jc_history_init(&h);
+    jc_history_add(&h, JC_ROLE_USER, "write the file");        /* 0 */
+    jc_snprintf(args, sizeof(args),
+                "{\"path\":\"%s\",\"content\":\"%s\"}", filep, content);
+    am = jc_history_add(&h, JC_ROLE_ASSISTANT, NULL);          /* 1 */
+    jc_msg_add_tool_call(am, "w1", "write_file", args);
+    jc_history_add_tool_result(&h, "w1", "wrote the file", 0); /* 2 */
+    JC_CHECK(jc_compact_trim_tool_args_ex(&app, &h, 1, 1, stub_spill_ok,
+                                          &seen, NULL) == 1);
+    {
+        cJSON *o = cJSON_Parse(
+            jc_msg_tool_call_at(jc_history_get(&h, 1), 0)->arguments_json);
+        JC_REQUIRE(o != NULL);
+        /* The fence-denied path must NOT elide to the on-disk pointer:
+         * it falls back to the M909 ticket, exactly as a missing file
+         * does -- and the FULL original arguments reached the store. */
+        JC_CHECK(strstr(jc_json_get_str(o, JC_COMPACT_ELIDED_KEY, ""),
+                        "on disk") == NULL);
+        JC_CHECK(jc_json_get_str(o, "ticket", NULL) != NULL);
+        JC_CHECK(seen == (jc_size)strlen(args));
+        cJSON_Delete(o);
+    }
+    jc_history_free(&h);
+    jc_arena_free(a);
+}
+
+
 void test_compact(void)
 {
     test_pressure_note();
@@ -1128,6 +1645,11 @@ void test_compact(void)
     test_midturn_trim();
     test_midturn_trim_args();
     test_midturn_trim_args_patch();
+    test_args_claim_ticket();
+    test_args_marker_idempotence();
+    test_write_file_on_disk_pointer();
+    test_on_disk_pointer_respects_read_fence();
+    test_midturn_args_ticket();
     test_superseded_reads();
     test_superseded_reads_paging();
     test_superseded_reads_spelling();

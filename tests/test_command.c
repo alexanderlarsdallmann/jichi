@@ -25,13 +25,13 @@ void test_command(void)
 
     /* $ARGUMENTS and positional substitution. */
     c.body = "Hi $ARGUMENTS | a=$1 b=$2 | end";
-    jc_command_expand(&c, "alpha beta", ".", a, &out);
+    jc_command_expand(&c, "alpha beta", ".", a, 0, NULL, &out);
     JC_CHECK(strstr(out, "Hi alpha beta") != NULL);
     JC_CHECK(strstr(out, "a=alpha b=beta") != NULL);
 
     /* Missing positional => empty. */
     c.body = "x=$3.";
-    jc_command_expand(&c, "only", ".", a, &out);
+    jc_command_expand(&c, "only", ".", a, 0, NULL, &out);
     JC_CHECK_STR(out, "x=.");
 
     /* @file inclusion, relative to the cwd the caller passes.
@@ -43,12 +43,12 @@ void test_command(void)
      * under $TMPDIR, so the check tests @-inclusion rather than the cwd. */
     {
         const char *fx = jc_test_tmp("jc_cmd_include.txt");
-        FILE *fh = fopen(fx, "w");
+        FILE *fh = fopen(fx, "wb");
         if (fh != NULL) {
             fputs("MARKER_JC_CMD_INCLUDE\n", fh);
             fclose(fh);
             c.body = "@jc_cmd_include.txt";
-            jc_command_expand(&c, "", jc_test_tmpdir(), a, &out);
+            jc_command_expand(&c, "", jc_test_tmpdir(), a, 0, NULL, &out);
             JC_CHECK(strstr(out, "MARKER_JC_CMD_INCLUDE") != NULL);
             remove(fx);
         }
@@ -56,7 +56,7 @@ void test_command(void)
 
     /* !`cmd` shell injection (echo is hermetic). */
     c.body = "out:!`echo hi`:done";
-    jc_command_expand(&c, "", ".", a, &out);
+    jc_command_expand(&c, "", ".", a, 0, NULL, &out);
     JC_CHECK(strstr(out, "out:hi") != NULL);
 
     /* Loader from a written project dir. */

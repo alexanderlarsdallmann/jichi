@@ -4,13 +4,17 @@
 /* jc_agent.c - the streaming agent loop (see jc_agent.h). */
 
 #include "jc_agent.h"
+#include "jc_scopededit.h"  /* D6 (M975): the scoped edit check */
+#include "jc_utf8.h"   /* M911: hand-back head cut on a char boundary */
 #include "jc_outcome.h"
 #include "jc_delegreport.h"
+#include "jc_parallel.h"   /* M861: the task budget's note */
 #include "jc_toolout.h"
 #include "jc_meminfo.h"
 #include "jc_memtrim.h"
 #include "jc_provider.h"
 #include "jc_tool.h"
+#include "jc_landlock.h"   /* M852: the fence hint */
 #include "jc_jsonrepair.h"
 #include "jc_mcp.h"
 #include "jc_perm.h"
@@ -27,9 +31,11 @@
 #include "jc_agentjson.h" /* M98: jc_agent_tool_category for the read budget */
 #include "jc_selfheal.h"
 #include "jc_toolloop.h"
+#include "jc_relay.h"    /* M920: the relay's decision core */
 #include "jc_msg.h"   /* M570: the denied-stop notice */
 #include "jc_json.h"
 #include "jc_priv.h"
+#include "jc_session.h"   /* M1083 (D-08): the mid-turn persist helper */
 #include "jc_argpath.h"
 #include "jc_kinetic.h"
 #include "jc_audit.h"
@@ -45,9 +51,13 @@
  * the safe direction. */
 #define JC_AGENT_MAX_ARG_PATHS 32
 
+/* M1038: model-count cap for the reachability cache (same as in jc_app.c). */
+#define JC_REACH_MAX 64
+
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <stddef.h>   /* M1083 (D-08): offsetof for the mid-turn persist helper */
 
 /* Bridges libcurl byte chunks -> SSE parser -> provider event handler. */
 struct stream_bridge {
@@ -62,6 +72,9 @@ struct stream_bridge {
      * instead of just the status code (M85). */
     char                  raw[2048];
     jc_size               raw_len;
+    /* M897: jc_now_millis() at the first SSE event after which the provider
+     * reports output (text, reasoning or a tool call); 0 until then. */
+    double                first_ms;
 };
 
 static void bridge_on_text(void *user, const char *delta, jc_size n)
@@ -87,6 +100,10 @@ static void bridge_sse_event(const struct jc_sse_event *ev, void *user)
 {
     struct stream_bridge *b = (struct stream_bridge *)user;
     b->prov->vt->on_event(b->prov, ev, b->out, &b->sink, &b->done);
+    if (b->first_ms == 0.0 && b->prov->vt->stream_started != NULL &&
+        b->prov->vt->stream_started(b->prov)) {
+        b->first_ms = jc_now_millis();
+    }
 }
 
 static int bridge_chunk(const char *buf, jc_size n, void *user)
@@ -117,6 +134,25 @@ static int is_transient(jc_status st, long http_status)
         return 1;
     }
     if (http_status >= 500 && http_status < 600) {
+        return 1;
+    }
+    /* M1125: a provider error that arrived as an in-stream engine error
+     * (M909) is transient. The reclassification at :377 leaves http_status at
+     * 200, so the arm is scoped to http_status == 200 exactly: the ONLY other
+     * path to JC_ERR_PROVIDER is a non-streamed st == JC_OK &&
+     * http_status >= 400 reply, whose status is >= 400, never 200, and is
+     * therefore excluded. The duplication guard (emitted) still stops a retry
+     * when real answer bytes were shown.
+     * M1142 (SV:0419) CORRECTION: the M1125 claim that the over-context case is
+     * excluded here was FALSE for the in-stream shape -- an in-stream
+     * over-context reply (the LM Studio fixture) reclassifies exactly like any
+     * other M909 error, so it hits this arm with http_status == 200 and WAS
+     * retried. The exclusion is now the ctx_overflow flag at the retry gate:
+     * !app->ctx_overflow. (The non-streamed over-context reply is an HTTP 400,
+     * and 400 is not one of this function's arms -- 429 and 5xx are, and are
+     * meant to be retried -- so the 400 never reaches the gate as transient,
+     * and the in-stream shape is the one the ctx_overflow flag excludes.) */
+    if (st == JC_ERR_PROVIDER && http_status == 200) {
         return 1;
     }
     return 0;
@@ -163,9 +199,56 @@ static void stamp_outcome(cJSON *o, int is_error, int exit_status)
  * four other files were reaching jc_eventlog_begin() directly and carried none of
  * depth/turn/run, so M420's join was partial by exactly those events. A static
  * helper cannot be shared, and that is the whole defect -- see jc_app.h. */
+/* M855: does this shell call's `command` argument run `git stash`? */
+static int args_runs_git_stash(const char *args_json)
+{
+    cJSON *aj = jc_json_parse(args_json);
+    int r = 0;
+    if (aj != NULL) {
+        r = jc_cmd_runs_git_stash(jc_json_get_str(aj, "command", NULL));
+        cJSON_Delete(aj);
+    }
+    return r;
+}
+
+/* M859 (N42 (d), M965: the default for a headless top-level run when nothing is
+ * set): may this turn be asked once to continue a reply cut at the output ceiling?
+ * A delegate, unless continueCutReply is "off": nobody else can say "continue" to
+ * it. The top level only with "headless" or the new default (a supervised headless
+ * lead gets the continuation by default since M965; set "delegates" to restore the
+ * old default, "off" to disable), and only in a headless run -- in chat a person
+ * can, and the editor is the person in ACP. */
+static int cut_continue_allowed(const struct jc_app *app)
+{
+    if (app->config.continue_cut_reply == JC_CUTCONT_OFF) {
+        return 0;
+    }
+    /* M965: when nothing was explicitly set, the default becomes headless
+     * semantics for a headless top-level run. Delegates are unaffected. */
+    if (!app->config.has_continue_cut_reply && app->headless_run &&
+        app->agent_depth == 0) {
+        return 1;
+    }
+    if (app->agent_depth >= 1) {
+        return 1;
+    }
+    return app->config.continue_cut_reply == JC_CUTCONT_HEADLESS &&
+           app->headless_run;
+}
+
 static cJSON *telem(struct jc_app *app, const char *event)
 {
     return jc_app_telem_begin(app, event);
+}
+
+/* M951: the median-growth sorter (a long is always a valid qsort key). */
+static int relay_diff_cmp(const void *a, const void *b)
+{
+    long x = *(const long *)a;
+    long y = *(const long *)b;
+    if (x < y) return -1;
+    if (x > y) return 1;
+    return 0;
 }
 
 /* Perform one streaming request, retrying transient failures with exponential
@@ -188,6 +271,8 @@ static jc_status stream_once(struct jc_app *app, struct jc_history *hist,
     jc_status st = JC_OK;
     int attempt;
     long backoff_ms = 500;
+    long fail_t0 = 0;     /* M876: the first failed attempt's wall clock */
+    char redacted[2048];  /* M1040: redaction buffer for bridge.raw */
 
     jc_http_headers_init(&headers);
     prov->vt->add_headers(prov, &headers);
@@ -198,6 +283,7 @@ static jc_status stream_once(struct jc_app *app, struct jc_history *hist,
         struct jc_http_request req;
         struct stream_bridge bridge;
         char transport_err[256];
+        char stream_err[512];             /* M909: an error inside the stream */
         long http_status = 0;
         double t0 = 0.0;
         double latency = 0.0;
@@ -224,11 +310,13 @@ static jc_status stream_once(struct jc_app *app, struct jc_history *hist,
         bridge.abort_flag = &app->abort_flag;
         bridge.raw_len = 0;
         bridge.raw[0] = '\0';
+        bridge.first_ms = 0.0;
         jc_sse_init(&bridge.sse, bridge_sse_event, &bridge);
 
         memset(&req, 0, sizeof(req));
 
         transport_err[0] = '\0';
+        stream_err[0] = '\0';
 
         req.err_out = transport_err;
 
@@ -265,6 +353,9 @@ static jc_status stream_once(struct jc_app *app, struct jc_history *hist,
             req.connect_timeout_secs = ct;
             req.stall_timeout_secs = st;
             req.timeout_secs = rt; /* hard cap; 0 => none */
+            /* M-L2: the dead-stream fence -- ON even when stall is 0 (a
+             * measurement run), because it can only fire when nothing arrives. */
+            req.dead_stream_secs = app->config.dead_stream_secs;
         }
         req.abort_flag = &app->abort_flag;
         if (cb != NULL && cb->on_progress != NULL) {
@@ -278,12 +369,59 @@ static jc_status stream_once(struct jc_app *app, struct jc_history *hist,
         /* body is now owned and freed by jc_http_stream; do not touch it. */
         jc_sse_free(&bridge.sse);
 
+        /* M1042: for aborted transfers, set fail_class via the classifier.
+         * The third branch of jc_http_fail_class returns "aborted", reached
+         * at runtime. */
+        if (st == JC_ERR_ABORTED && req.fail_class == NULL) {
+            req.fail_class = jc_http_fail_class(0, 0, 1, 0, 0, 0, 0);
+        }
+
+        /* M909: the server reported an error INSIDE a stream that began with
+         * HTTP 200 (LM Studio over its loaded context, Anthropic overloaded).
+         * The same request unstreamed is an HTTP 4xx/5xx, so it fails here the
+         * same way: no answer, no retry, the message logged and kept for the
+         * run's report. Before, the message became the answer and the call was
+         * recorded as a success with 0 tokens. */
+        stream_err[0] = '\0';
+        if (st == JC_OK && http_status < 400 && prov->vt->stream_error != NULL) {
+            const char *se = prov->vt->stream_error(prov);
+            if (se != NULL) {
+                jc_snprintf(stream_err, sizeof stream_err, "%s", se);
+                jc_logf(JC_LOG_ERROR, "provider reported an error inside the "
+                        "stream (HTTP %ld): %s", http_status, stream_err);
+                /* M1142 (SV:0419): mark overflow when EITHER classifier matches.
+                 * M854, as for an HTTP 400 -- and the jc_cli classifier too,
+                 * because the in-stream message can carry LM Studio's wording
+                 * ("exceeds the available context size", "n_ctx",
+                 * "exceed_context_size"), which only the jc_cli classifier knows.
+                 * Without it the retry gate (M1125) re-sent this deterministic
+                 * error maxRetries times. */
+                if (jc_http_body_ctx_overflow(stream_err,
+                                              (jc_size)strlen(stream_err)) ||
+                    jc_text_is_context_overflow(stream_err)) {
+                    app->ctx_overflow = 1;
+                }
+                st = JC_ERR_PROVIDER;
+            }
+        }
+        /* M1042: if a provider error was detected (st != JC_OK after M909 block),
+         * mark the failure class via the classifier. For M909 HTTP-200 status
+         * that reaches here, the classifier returns "provider-error". */
+        if (st != JC_OK && req.fail_class == NULL) {
+            req.fail_class = jc_http_fail_class(0, http_status, 0, 0, 1, 0, 0);
+        }
+        /* The stream OK path (jc_http.c:1230-1236) now covers the 4xx/5xx case
+         * via the classifier, so this block is deleted. */
+
         if (st == JC_OK && http_status < 400) {
             /* Success: report usage and finish. Usage is also metered into the
              * envelope (at every depth, so subagent tokens count toward the
              * run's budget). */
             double in_tok = 0.0, out_tok = 0.0;
             double cache_read = 0.0, cache_write = 0.0;
+            /* M876: a call that worked; an earlier failure did not end the run */
+            app->last_model_error[0] = '\0';
+            app->last_model_attempts = 0;
             /* M521: the stream ended cleanly at the HTTP level but the provider
              * never signalled completion -- no terminal event arrived (a cut
              * connection, a server that omits it, or a final SSE frame missing
@@ -310,6 +448,21 @@ static jc_status stream_once(struct jc_app *app, struct jc_history *hist,
                  * this many input tokens for a request it answered. */
                 if (app->last_prompt_tokens > app->max_prompt_tokens) {
                     app->max_prompt_tokens = app->last_prompt_tokens;
+                }
+                /* M951: the leg's growth series -- the SERVER's prompt count
+                 * at each depth-0 model call, relay on. Depth 0 only: a
+                 * delegate's calls grow a CHILD's prompt, and the account
+                 * call (relay_account_call) reuses this helper AFTER the
+                 * handover set the flag, so relay_handover gates it too.
+                 * OOM on the push is a leaf: the series is a measurement,
+                 * never a gate -- drop the sample, keep the run. */
+                if (app->config.relay && app->agent_depth == 0 &&
+                    !app->relay_handover) {
+                    long sample = app->last_prompt_tokens;
+                    if (jc_vec_push(&app->relay_prompt_series, &sample)
+                            == JC_OK) {
+                        app->relay_model_calls++;
+                    }
                 }
                 /* Learn the model's real tokens/estimate ratio (M77): the
                  * reported prompt size vs our byte estimate of the SAME request
@@ -353,22 +506,41 @@ static jc_status stream_once(struct jc_app *app, struct jc_history *hist,
             {
                 cJSON *o = telem(app, "model_call");
                 if (o != NULL) {
-                    cJSON_AddStringToObject(o, "model",
-                        app->config.model.name != NULL
+                    /* M800: name the model actually called. A spawn_parallel
+                     * child runs its own model via a private provider without
+                     * switching app->config.model, so that mirror still holds
+                     * the lead's -- prefer the child's override when set. */
+                    const char *tm_name = app->telem_model_name != NULL
+                        ? app->telem_model_name
+                        : (app->config.model.name != NULL
                             ? app->config.model.name
                             : (app->config.model.model != NULL
                                ? app->config.model.model : ""));
+                    const char *tm_id = app->telem_model_id != NULL
+                        ? app->telem_model_id : app->config.model.model;
+                    cJSON_AddStringToObject(o, "model", tm_name);
                     /* M289: the WIRE id alongside the config name, so the
                      * summarizer can group by the same key calibration.json
                      * uses. Without it a config rename split one model's
                      * history into two reader rows. */
-                    if (app->config.model.model != NULL) {
-                        cJSON_AddStringToObject(o, "model_id",
-                                                app->config.model.model);
+                    if (tm_id != NULL) {
+                        cJSON_AddStringToObject(o, "model_id", tm_id);
                     }
                     cJSON_AddNumberToObject(o, "attempt", (double)attempt);
                     cJSON_AddNumberToObject(o, "status", (double)http_status);
+                    /* M858 (N42): a cut reply is visible as such, not only as
+                     * out_tok equal to the ceiling. Present only when true. */
+                    if (assistant != NULL && assistant->truncated) {
+                        cJSON_AddBoolToObject(o, "truncated", 1);
+                    }
                     cJSON_AddNumberToObject(o, "latency_ms", latency);
+                    /* M897 (plan 1.1): the first-token time -- what a visitor
+                     * waits before anything appears. Absent when no output
+                     * arrived. */
+                    if (bridge.first_ms > 0.0) {
+                        cJSON_AddNumberToObject(o, "ttft_ms",
+                                                bridge.first_ms - t0);
+                    }
                     /* M536: both names on every telemetry row, not just the
                      * tool_call ones -- a reader filtering `.error` across the
                      * sink would otherwise silently skip every model call. */
@@ -411,6 +583,23 @@ static jc_status stream_once(struct jc_app *app, struct jc_history *hist,
                     }
                 }
                 jc_eventlog_end(app->telemetry, o);
+                /* M807: mirror this reply into a spawn_parallel child's own
+                 * transcript -- the reasoning record a successor reads (P3 builds
+                 * the end record from its tail). Born redacted: jc_eventlog_add_text
+                 * scrubs registered secrets. Only ever set in a forked child, so a
+                 * lead run writes nothing here. */
+                if (app->transcript != NULL) {
+                    cJSON *to = jc_eventlog_begin(app->transcript, "model_call");
+                    if (to != NULL) {
+                        cJSON_AddNumberToObject(to, "in_tok", in_tok);
+                        cJSON_AddNumberToObject(to, "out_tok", out_tok);
+                        if (assistant->content != NULL) {
+                            jc_eventlog_add_text(to, "response",
+                                assistant->content, JC_EVENTLOG_TEXT_MAX);
+                        }
+                    }
+                    jc_eventlog_end(app->transcript, to);
+                }
             }
             break;
         }
@@ -419,6 +608,22 @@ static jc_status stream_once(struct jc_app *app, struct jc_history *hist,
          * field distinguishes a stall ("timeout") from a generic transport
          * error ("error") so operators can tell a frozen model from a network
          * blip (M22c). */
+        if (st != JC_ERR_ABORTED && fail_t0 == 0) {
+            fail_t0 = (long)time(NULL);   /* M876 */
+        }
+        /* M1040: redact any registered secret that straddles the capture boundary
+         * BEFORE any sink reads bridge.raw. The cut must run once, independent of
+         * whether telemetry is on, before error_body telemetry, logf, and rerr.
+         * The gate on truncation (bridge.raw_len == sizeof(bridge.raw) - 1) ensures
+         * we only act when a registered secret might be cut at the boundary. */
+        if (jc_redact_active() && http_status >= 400 && bridge.raw_len > 0 &&
+            bridge.raw_len == sizeof(bridge.raw) - 1) {
+            jc_size new_len = bridge.raw_len;
+            if (jc_redact_capture_tail(bridge.raw, bridge.raw_len,
+                                       sizeof(bridge.raw), &new_len) > 0) {
+                bridge.raw_len = new_len;
+            }
+        }
         {
             const char *result = st == JC_ERR_ABORTED ? "aborted"
                                : st == JC_ERR_TIMEOUT ? "timeout" : "error";
@@ -430,18 +635,45 @@ static jc_status stream_once(struct jc_app *app, struct jc_history *hist,
                 cJSON_AddNumberToObject(o, "attempt", (double)attempt);
                 cJSON_AddNumberToObject(o, "status", (double)http_status);
                 cJSON_AddNumberToObject(o, "latency_ms", latency);
+                /* M897: a stream that began and then failed (a stall, a cut)
+                 * keeps its first-token time; it says the model answered. */
+                if (bridge.first_ms > 0.0) {
+                    cJSON_AddNumberToObject(o, "ttft_ms", bridge.first_ms - t0);
+                }
                 stamp_outcome(o, 1, -1);                        /* M536 */
                 cJSON_AddStringToObject(o, "result", result);
+                /* M1039: the stable failure class for telemetry greppability */
+                if (req.fail_class != NULL) {
+                    cJSON_AddStringToObject(o, "fail_class", req.fail_class);
+                }
                 cJSON_AddNumberToObject(o, "req_bytes", req_bytes);
                 /* M321: the TRANSPORT diagnosis, so an after-the-fact log says
                  * which timeout fired instead of only `status: 0`. A 34k-event
                  * workload lost 6.5 h to a connect timeout that was
                  * indistinguishable from network flakiness in the log. */
                 if (http_status == 0 && transport_err[0] != '\0') {
-                    cJSON_AddStringToObject(o, "transport", transport_err);
+                    jc_eventlog_add_text(o, "transport", transport_err, 0);
                 }
-                if (http_status >= 400 && bridge.raw_len > 0) {
-                    cJSON_AddStringToObject(o, "error_body", bridge.raw);
+                /* M909: the server's message from an error event in the stream */
+                if (stream_err[0] != '\0') {
+                    jc_eventlog_add_text(o, "stream_error", stream_err, 0);
+                }
+                /* error_body is bounded at 2047 bytes to keep the event
+                 * size reasonable. The cut already happened outside the
+                 * telemetry block, so bridge.raw is ready for use. */
+                jc_eventlog_add_text(o, "error_body", bridge.raw, 2047);
+                /* The stall-campaign datum the 30 s default needs (M22a): a cut
+                 * attempt where NOTHING arrived records req_bytes (prompt size)
+                 * but no ttft_ms, so it was censored out of the first-byte
+                 * distribution -- the cap that would be used to justify itself.
+                 * stall_ms is the time the stream sat before the low-speed cut;
+                 * with it, "cut at 30 s" can be correlated with "how big a
+                 * prompt", the exact failure mode (slow local prefill on a big
+                 * context) that the default must not paper over. Only on a
+                 * timeout with no bytes -- a call that began then failed keeps
+                 * ttft_ms (M897) and is a different shape. */
+                if (st == JC_ERR_TIMEOUT && bridge.first_ms == 0.0) {
+                    cJSON_AddNumberToObject(o, "stall_ms", latency);
                 }
             }
             jc_eventlog_end(app->telemetry, o);
@@ -475,7 +707,85 @@ static jc_status stream_once(struct jc_app *app, struct jc_history *hist,
         {
             int emitted = (assistant->content != NULL) ||
                           (jc_msg_tool_call_count(assistant) > 0);
-            if (is_transient(st, http_status) && !emitted &&
+
+            /* M1038: handle connect failures (no HTTP status) that indicate the
+             * model's endpoint is down. Re-probe reachability and walk the
+             * fallback chain if configured. This only applies when the active
+             * model has a fallback (so behavior is unchanged when no fallback). */
+            if (http_status == 0 && !emitted &&
+                (st == JC_ERR_HTTP || st == JC_ERR_TIMEOUT)) {
+                int active_idx = app->config.active;
+                struct jc_model_cfg *active_m =
+                    jc_config_model_at(&app->config, active_idx);
+                /* Only process if the active model has a fallback configured. */
+                if (active_m != NULL && active_m->fallback != NULL &&
+                    active_m->fallback[0] != '\0') {
+                    int n = jc_config_model_count(&app->config);
+                    int j;
+                    /* Invalidate reachability cache for this apiBase.
+                     * Every model sharing the same apiBase is marked unknown.
+                     * Guard on app->reach != NULL: if NULL, skip invalidation
+                     * entirely (there is no stale cache to clear -- jc_app_effective_model
+                     * will allocate and probe fresh). This prevents a NULL deref when
+                     * n > JC_REACH_MAX or when the cache was never allocated. */
+                    if (app->reach != NULL) {
+                        for (j = 0; j < n && j < JC_REACH_MAX; j++) {
+                            struct jc_model_cfg *mj =
+                                jc_config_model_at(&app->config, j);
+                            if (mj != NULL && mj->api_base != NULL &&
+                                active_m->api_base != NULL &&
+                                strcmp(mj->api_base, active_m->api_base) == 0) {
+                                app->reach[j] = 0;  /* unknown */
+                            }
+                        }
+                    }
+                    /* Re-probe and walk the fallback chain. */
+                    {
+                        int eff = jc_app_effective_model(app, active_idx);
+                        if (eff != active_idx) {
+                            jc_status route_st;
+                            route_st = jc_app_route_to(app, eff, "connect-fallback");
+                            if (route_st == JC_OK) {
+                                /* Emit telemetry event for the route. */
+                                {
+                                    cJSON *o = telem(app, "route");
+                                    if (o != NULL) {
+                                        cJSON_AddStringToObject(o, "to",
+                                            app->config.model.name != NULL
+                                                ? app->config.model.name : "");
+                                        cJSON_AddStringToObject(o, "reason",
+                                            "connect-fallback");
+                                    }
+                                    jc_eventlog_end(app->telemetry, o);
+                                }
+                                prov = app->provider;
+                                /* Restart the loop with the new provider. */
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+
+            /* M1142 (SV:0419): !app->ctx_overflow -- a context-overflow reply
+             * is DETERMINISTIC: the same request against the same window
+             * fails identically, so retrying it only spends budget and
+             * telemetry rows on a call that cannot succeed. M1125 made the
+             * in-stream shape (st == JC_ERR_PROVIDER, http_status 200) hit the
+             * gate; the in-stream over-context reply must be the one excluded.
+             * Stale-flag safety: ctx_overflow is reset to 0 at the start of
+             * every run (app->ctx_overflow = 0 in run's preamble); inside the
+             * model-call loop the only call that can SET it is the very call
+             * whose error we are judging here -- so no later model call in the
+             * same run ever sees a stale 1. (The other stream_once caller,
+             * relay_account_call, is terminal: it runs at the relay handover
+             * and the loop breaks right after, so no gate is evaluated after
+             * it -- and a real overflow there should indeed flag the run;
+             * M917's reset covers the next run.) Across runs the reset in the
+             * run preamble covers it.
+             * (A set inside this call means the run ends on this call; there
+             * is no path where a later call inherits it.) */
+            if (is_transient(st, http_status) && !app->ctx_overflow && !emitted &&
                 attempt < app->config.max_retries) {
                 jc_logf(JC_LOG_WARN,
                         "transient error (status %ld); retry %d/%d in %ldms",
@@ -513,15 +823,98 @@ static jc_status stream_once(struct jc_app *app, struct jc_history *hist,
             if (st == JC_OK && http_status >= 400) {
                 /* Surface the response body, not just the status: providers put
                  * the actionable reason there (e.g. ContextWindowExceededError).
-                 * jc_logf redacts any registered secret. M85. */
+                 * The capture cut ran earlier outside the telemetry block, so
+                 * bridge.raw is already redacted if needed. M85. */
                 if (bridge.raw_len > 0) {
                     jc_logf(JC_LOG_ERROR, "provider returned HTTP %ld: %.*s",
                             http_status, (int)bridge.raw_len, bridge.raw);
+                    /* M854 (N24c): a request over the model's window. A
+                     * parallel write child that ends this way answers with a
+                     * note, and its work merges after a green verify. */
+                    if (http_status == 400 &&
+                        jc_http_body_ctx_overflow(bridge.raw, bridge.raw_len)) {
+                        app->ctx_overflow = 1;
+                    }
                 } else {
                     jc_logf(JC_LOG_ERROR, "provider returned HTTP %ld",
                             http_status);
                 }
                 st = JC_ERR_PROVIDER;
+            }
+            /* M876 (N47 (a)): what ended this call, after its retries, for the
+             * run's delegate report -- the transport's own diagnosis, or the
+             * provider's status and the start of its body. Without it a parent
+             * saw only "run failed" and the run's last failing TOOL call. */
+            if (st != JC_OK && st != JC_ERR_ABORTED) {
+                if (http_status == 0 && transport_err[0] != '\0') {
+                    char redacted[sizeof app->last_model_error];
+                    if (jc_redact_secrets(transport_err, redacted,
+                                          sizeof redacted) > 0) {
+                        jc_snprintf(app->last_model_error,
+                                    sizeof app->last_model_error, "%s",
+                                    redacted);
+                    } else {
+                        jc_snprintf(app->last_model_error,
+                                    sizeof app->last_model_error, "%s",
+                                    transport_err);
+                    }
+                } else if (stream_err[0] != '\0') {
+                    /* M909: HTTP 200, then an error event -- say so, not "200" */
+                    char redacted[sizeof app->last_model_error];
+                    char fmt[64];
+                    if (jc_redact_secrets(stream_err, redacted,
+                                          sizeof redacted) > 0) {
+                        jc_snprintf(fmt, sizeof fmt,
+                                    "an error inside the provider's stream: %%s");
+                        jc_snprintf(app->last_model_error,
+                                    sizeof app->last_model_error, fmt,
+                                    redacted);
+                    } else {
+                        jc_snprintf(app->last_model_error,
+                                    sizeof app->last_model_error,
+                                    "an error inside the provider's stream: %s",
+                                    stream_err);
+                    }
+                } else if (http_status > 0) {
+                    /* M1036 F1/F2/F3: redact the FULL body window, then take the 120-byte
+                     * prefix of the REDACTED text (zero hits: bridge.raw is a verbatim source,
+                     * the head is byte-identical to the pre-M1036 else branch). This fixes the
+                     * 512-copy-boundary leak: a registered secret at body offset S < 120 with
+                     * S+L > 512 (hence L >= 394) had no full match in the old 512-byte window,
+                     * so the zero-hit branch copied its near half (bytes S..119) into
+                     * last_model_error. Cost: one 2048-byte stack local, on the failure path
+                     * only; this branch runs at most once per failed model call, and it joins
+                     * a frame that already holds bridge.raw (struct stream_bridge, char
+                     * raw[2048]) on the same stack; src/ creates no thread with a shrunk
+                     * stack (no pthread_attr_setstacksize, no RLIMIT_STACK). */
+                    if (jc_redact_secrets(bridge.raw, redacted, sizeof redacted) > 0) {
+                        char head[121];
+                        jc_size hl = (strlen(redacted) < 120) ? strlen(redacted) : 120;
+                        memcpy(head, redacted, hl);
+                        head[hl] = '\0';
+                        jc_snprintf(app->last_model_error,
+                                    sizeof app->last_model_error,
+                                    "HTTP %ld from the provider%s%s", http_status,
+                                    hl > 0 ? ": " : "", head);
+                    } else {
+                        /* Zero hits: verbatim copy, safe because secret is not present */
+                        char head[121];
+                        jc_size hl = (strlen(bridge.raw) < 120) ? strlen(bridge.raw) : 120;
+                        memcpy(head, bridge.raw, hl);
+                        head[hl] = '\0';
+                        jc_snprintf(app->last_model_error,
+                                    sizeof app->last_model_error,
+                                    "HTTP %ld from the provider%s%s", http_status,
+                                    hl > 0 ? ": " : "", head);
+                    }
+                } else {
+                    jc_snprintf(app->last_model_error,
+                                sizeof app->last_model_error,
+                                "the model call failed");
+                }
+                app->last_model_attempts = attempt + 1;
+                app->last_model_t0 = fail_t0;
+                app->last_model_t1 = (long)time(NULL);
             }
             break;
         }
@@ -547,9 +940,74 @@ struct jc_run_opts {
 };
 
 /* True when the autonomy envelope governs this run (top-level agent only). */
+/* M895 (N54 (b)): count one silent success of the normalised command `key` in this
+ * turn's table and return its count -- 0 when the table is full, which counts
+ * nothing rather than guess. */
+#define JC_SILENT_KEYS 16
+static int silent_count(unsigned long *hs, unsigned long *ns, int *cs, int *n,
+                        const char *key)
+{
+    unsigned long kn = (unsigned long)strlen(key);
+    unsigned long kh = jc_reread_hash(key, kn);
+    int i;
+
+    for (i = 0; i < *n; i++) {
+        if (hs[i] == kh && ns[i] == kn) {
+            return ++cs[i];
+        }
+    }
+    if (*n >= JC_SILENT_KEYS) {
+        return 0;
+    }
+    hs[*n] = kh;
+    ns[*n] = kn;
+    cs[*n] = 1;
+    (*n)++;
+    return 1;
+}
+
 static int env_active(const struct jc_app *app)
 {
     return app->env != NULL && app->agent_depth == 0;
+}
+
+/* M921 (sub-slice B): record this run's last verify verdict so the relay baton
+ * can name it in section 2 (6.4: "Last verify: red, 2 failures"). Called at
+ * both verify sites (the completion gate and the periodic cadence) immediately
+ * after jc_testparse has filled `rep` and `code` is the exit code. The names
+ * come from the parsed failing tests' source paths, top 5, comma-joined and
+ * cut to the field's width; a green or an unparseable red leaves it empty
+ * (the note still says green / red, N failures). */
+static void app_record_last_verify(struct jc_app *app, int code,
+                                   struct jc_test_report *rep)
+{
+    char names[200];
+    jc_size i;
+    int added = 0;
+
+    app->last_verify_code = code;
+    app->last_verify_fail = (rep != NULL) ? rep->failed : -1;
+    names[0] = '\0';
+    if (rep != NULL) {
+        for (i = 0; i < rep->failures.len && added < 5; i++) {
+            const struct jc_test_failure *f =
+                (const struct jc_test_failure *)jc_vec_at(&rep->failures, i);
+            const char *p = (f != NULL && f->file != NULL && f->file[0] != '\0')
+                             ? f->file : NULL;
+            if (p == NULL) {
+                continue;
+            }
+            if (names[0] != '\0') {
+                jc_snprintf(names + strlen(names),
+                            sizeof(names) - strlen(names), ", ");
+            }
+            jc_snprintf(names + strlen(names),
+                        sizeof(names) - strlen(names), "%s", p);
+            added++;
+        }
+    }
+    jc_snprintf(app->last_verify_failnames,
+                sizeof(app->last_verify_failnames), "%s", names);
 }
 
 /* M163a: is the tool named `name` kinetic? A user tool with kinetic:true, or
@@ -678,6 +1136,7 @@ static void block_message(struct jc_app *app, const char *tool,
                     "refused: %s is outside this run's edit scope",
                     (target != NULL) ? target : "that path");
         app->last_fail_cls = (int)JC_FAIL_DENIED;
+        app->last_fail_stopped = 0;   /* M885: a refusal, not a killed call */
     }
 
     if (rep < 2) {
@@ -710,13 +1169,18 @@ static void block_message(struct jc_app *app, const char *tool,
  * edit scope, or NULL if the call is entirely in scope / not a write tool.
  * Handles edit_file/write_file ("path") and apply_patch ("edits":[{"path"}]).
  * `args_json` is the raw arguments string. The returned pointer is owned by
- * `*hold` (a cJSON tree the caller must delete); NULL leaves *hold untouched. */
+ * `*hold` (a cJSON tree the caller must delete); NULL leaves *hold untouched.
+ *
+ * The fence MUST see the EXACT same tree the executor uses, or an argument-shape
+ * bypass opens (self-named wrapper, stringified edits). This function calls
+ * jc_tool_normalize_args (M981) to reproduce the executor's normalisation. */
 static const char *call_out_of_scope_path(struct jc_app *app,
                                           const char *name,
                                           const char *args_json,
                                           cJSON **hold)
 {
-    cJSON *aj;
+    const struct jc_tool *t;
+    cJSON *aj = NULL;
     const char *bad = NULL;
     /* M535: `format_file` belongs here. It takes a `path` and rewrites exactly
      * that file, and it was NOT in this list -- so `jc_agent_tool_category`
@@ -733,39 +1197,42 @@ static const char *call_out_of_scope_path(struct jc_app *app,
     if (!is_single && !is_patch) {
         return NULL;
     }
-    aj = jc_json_parse(args_json);
+    /* Get the tool to obtain its schema (for unstringing). */
+    t = jc_tool_registry_find(app->tools, name);
+    if (t == NULL) {
+        return NULL;  /* Unknown tool: let the executor handle it */
+    }
+    /* Normalise the arguments exactly as the executor does (M981).
+     * Pass the tool's schema so we can unstring nested array/object args.
+     * If normalization fails (e.g. unrepairable JSON, elided placeholder),
+     * the executor would reject this call, so we also reject it as OUT of scope.
+     * Pass NULL for app to suppress telemetry: the fence only checks scope,
+     * the executor is the sole emitter of all args_repair events (so a wrapped
+     * or repaired call under an armed scope does not log the repair twice). The
+     * transforms (unwrap/unstring) are app-independent, so the fence still sees
+     * exactly the tree the executor will act on. */
+    {
+        cJSON *fsch = t->schema ? t->schema() : NULL;
+        aj = jc_tool_normalize_args(name, fsch, args_json, NULL, NULL);
+        if (fsch != NULL) {
+            cJSON_Delete(fsch);
+        }
+    }
     if (aj == NULL) {
-        /* M532: the second half of the same root cause. jc_tool_execute repairs
-         * nearly-JSON arguments before running (M148: trailing commas, missing
-         * closers, Python literals), so a blob this parse rejects can still
-         * become a write -- and returning NULL here let it through UNFENCED.
-         * Reproduced with a trailing comma. So repair with the same function the
-         * executor will use, and decide on the result.
-         *
-         * If the repair also fails, NULL is safe rather than open: the executor
-         * validates the repaired string before use, so an unrepairable blob
-         * writes nothing. And M333's rule is untouched -- a blob that parses but
-         * carries no `path` still returns NULL, because a malformed call is not a
-         * scope violation and saying so sent one run 6,977,850 tokens after a
-         * fence that was never the obstacle. */
-        char *fixed = jc_jsonrepair(args_json);
-        if (fixed != NULL) {
-            aj = jc_json_parse(fixed);
-            free(fixed);
-        }
-        if (aj == NULL) {
-            return NULL;
-        }
+        /* The helper returns NULL when the executor would reject this call:
+         * unrepairable JSON, a truncated response (M334), or an elided
+         * placeholder (M289). None of those is a scope decision -- report it
+         * as one and the model chases the wrong fence (M333: a run emitted
+         * 197 pathless write_file calls, was told "out of edit-scope" 177
+         * times, and spent 6,977,850 tokens guessing at a fence that was never
+         * the obstacle). Return NULL and let the executor's own specific
+         * message (truncation / parse / placeholder) reach the model. */
+        return NULL;
     }
     if (is_single) {
         const char *path = jc_json_get_str(aj, "path", NULL);
         /* M333: a MISSING or empty `path` is a malformed call, not a scope
-         * violation. Reporting it as one sends the model to fix the wrong
-         * problem, and it has no way to discover that: measured, a run emitted
-         * 197 write_file calls with no `path`, was told "out of edit-scope" 177
-         * times, and spent 6,977,850 tokens guessing at a fence that was never
-         * the obstacle. Returning NULL here lets the tool's own validation say
-         * "'path' and 'content' are required", which is actionable. */
+         * violation. */
         if (path == NULL || path[0] == '\0') {
             cJSON_Delete(aj);
             return NULL;
@@ -777,6 +1244,8 @@ static const char *call_out_of_scope_path(struct jc_app *app,
     } else {
         cJSON *edits = cJSON_GetObjectItem(aj, "edits");
         cJSON *it;
+        /* The normalized tree should have 'edits' as a real array (unstring was applied).
+         * A stringified array was unstringed by the helper, so this should be an array. */
         if (edits != NULL && cJSON_IsArray(edits)) {
             for (it = edits->child; it != NULL; it = it->next) {
                 const char *path = jc_json_get_str(it, "path", NULL);
@@ -824,7 +1293,8 @@ static jc_status env_rollback_and_finish(struct jc_app *app)
         jc_sb_init(&disc_sum);
         if (jc_snapshot_changed_since(app->snapshots, e->green_commit,
                                       &disc_names) == JC_OK) {
-            disc_n = jc_env_summarize_paths(disc_names.data, 8, &disc_sum);
+            disc_n = jc_env_summarize_paths(disc_names.data, disc_names.len,
+                                            8, &disc_sum);
         }
         /* M336 PRESERVE-BEFORE-DESTROY: the lines above worked out the NAMES of
          * the files this restore is about to discard. Commit their CONTENT first,
@@ -892,7 +1362,8 @@ static jc_status env_rollback_and_finish(struct jc_app *app)
             if (e->baseline_commit[0] != '\0' &&
                 jc_snapshot_changed_since(app->snapshots, e->baseline_commit,
                                           &kept_names) == JC_OK) {
-                kept_n = jc_env_summarize_paths(kept_names.data, 8, &kept_sum);
+                kept_n = jc_env_summarize_paths(kept_names.data,
+                                                kept_names.len, 8, &kept_sum);
             }
             o = jc_env_journal_begin(e, "rollback");
             if (o != NULL) {
@@ -959,20 +1430,18 @@ static void env_report_out_of_scope(struct jc_app *app,
         jc_sb_free(&names);
         return;
     }
-    /* Split the newline-separated name list in place. */
+    /* M1095 (D-03): split the NUL-separated raw name list (one path per
+     * NUL-terminated segment, trailing NUL). The bounds guard keeps the walk
+     * safe even if the final segment lacks its NUL. */
     jc_vec_init(&paths, sizeof(char *));
     line = names.data;
-    for (s = names.data; *s != '\0'; s++) {
-        if (*s == '\n') {
-            *s = '\0';
-            if (line[0] != '\0') {
-                jc_vec_push(&paths, &line);
-            }
-            line = s + 1;
+    while (line != NULL && line < names.data + names.len && *line != '\0') {
+        s = line;
+        while (*s != '\0') {
+            s++;
         }
-    }
-    if (line[0] != '\0') {
         jc_vec_push(&paths, &line);
+        line = s + 1;
     }
     /* M689: the whole changed set, before the edit-scope filter below. The
      * footer needs "did ANYTHING change", not "did anything change outside the
@@ -1477,6 +1946,84 @@ static int env_budget_should_stop(struct jc_app *app, jc_status *st)
     return 1;
 }
 
+/* M861 (N28): a spawn_parallel task's own tool-call budget, the lead's
+ * `max_tool_calls` for it, binding in the forked child whether or not the run has
+ * an envelope. The demos drive's lead wrote "past about 150 calls, stop" into
+ * every task text, and workers went to 189, 302 and beyond: a worker cannot see
+ * its own count, so the number has to bind. It stops at any depth of the child's
+ * process, as a delegate's budget stop does -- the work kept, and the parent's
+ * merge waits for a green verify (M854's endings). Recorded once, at the task's
+ * own depth. */
+static int task_budget_should_stop(struct jc_app *app, jc_status *st)
+{
+    if (app->task_tool_max <= 0 || app->task_tool_used < app->task_tool_max) {
+        return 0;
+    }
+    jc_logf(JC_LOG_WARN, "task budget: %d of the %d tool calls this task allows "
+            "are used -- stopping at depth %d; the work is kept",
+            app->task_tool_used, app->task_tool_max, app->agent_depth);
+    if (app->agent_depth == app->task_tool_depth) {
+        cJSON *o = telem(app, "task_budget");
+        if (o != NULL) {
+            cJSON_AddStringToObject(o, "phase", "stop");
+            cJSON_AddNumberToObject(o, "used", (double)app->task_tool_used);
+            cJSON_AddNumberToObject(o, "max", (double)app->task_tool_max);
+        }
+        jc_eventlog_end(app->telemetry, o);
+        /* M807's child transcript: why this child stopped. */
+        if (app->transcript != NULL) {
+            cJSON *to = jc_eventlog_begin(app->transcript, "task_budget");
+            if (to != NULL) {
+                cJSON_AddStringToObject(to, "phase", "stop");
+                cJSON_AddNumberToObject(to, "used", (double)app->task_tool_used);
+                cJSON_AddNumberToObject(to, "max", (double)app->task_tool_max);
+            }
+            jc_eventlog_end(app->transcript, to);
+        }
+    }
+    app->last_run_budget_stopped = 2;
+    *st = JC_OK;
+    return 1;
+}
+
+/* M861: the task budget's one note, at four-fifths of the budget the task
+ * actually has -- its key, or the envelope's slice when that is smaller -- and
+ * only at the task's own depth: a nested delegate's history is its own (M347,
+ * which keeps the RUN's budget notice out of delegate histories; this budget is
+ * the task's, set for it by its lead). A user-role note at the tail, M358's
+ * shape, so the cached prefix stays byte-stable. */
+static void task_budget_note(struct jc_app *app, struct jc_history *hist)
+{
+    struct jc_sb nb;
+    int at;
+
+    if (app->task_tool_max <= 0 || app->task_budget_noted ||
+        app->agent_depth != app->task_tool_depth) {
+        return;
+    }
+    at = jc_parallel_budget_note_at(app->task_tool_eff);
+    if (at <= 0 || app->task_tool_used < at ||
+        app->task_tool_used >= app->task_tool_eff) {
+        return;
+    }
+    app->task_budget_noted = 1;
+    jc_sb_init(&nb);
+    jc_parallel_budget_note(app->task_tool_used, app->task_tool_eff, &nb);
+    if (nb.data != NULL) {
+        jc_history_add(hist, JC_ROLE_USER, nb.data);
+    }
+    jc_sb_free(&nb);
+    {
+        cJSON *o = telem(app, "task_budget");
+        if (o != NULL) {
+            cJSON_AddStringToObject(o, "phase", "note");
+            cJSON_AddNumberToObject(o, "used", (double)app->task_tool_used);
+            cJSON_AddNumberToObject(o, "max", (double)app->task_tool_eff);
+        }
+        jc_eventlog_end(app->telemetry, o);
+    }
+}
+
 /* Escalate the active model to the routing `strong` tier (top-level only).
  * Returns 1 if it actually switched, so the caller can re-point its provider. */
 static int route_escalate(struct jc_app *app, const char *reason)
@@ -1625,6 +2172,180 @@ static int route_off_context(struct jc_app *app, struct jc_history *hist,
     return 1;
 }
 
+/* M921 (sub-slice C): the relay's account call (proposal 6.5). At the
+ * round-boundary handover, one tagged user message asks the model -- which can
+ * still see its whole context, the whole point -- to write a five-heading
+ * handover note. The reply becomes the baton's section 3.
+ *
+ * HOW IT RUNS, and why it is a leaf:
+ *  - it appends the instruction to the REAL history (the model writes from its
+ *    whole context, not a rendered transcript -- 6.5's "why not 2");
+ *  - it streams the reply into a scratch assistant message with a NULL text
+ *    sink, so the account never reaches the UI or the headless `result` (which
+ *    is jc_agent_turn_answer from the END -- a real reply would be returned as
+ *    the run's answer if it were left in the history);
+ *  - it TRUNCATES the history back to where it started, so the saved session
+ *    and the result are wire-valid and unaffected. Only app->relay_account
+ *    carries the account, which the baton writer renders into the notes.
+ *  - any failure (st != JC_OK, an empty reply, a refusal) is a leaf: it falls
+ *    back to quoting the last real answer, labelled. It NEVER changes the stop
+ *    reason (the handover stands) or the return status of the loop.
+ * Returns the account text via *out (a malloc'd string, or NULL if there was
+ * nothing at all to say -- not even a last answer); *cut is set when the
+ * reply was truncated by the provider's length cap. */
+static void relay_account_call(struct jc_app *app, struct jc_history *hist,
+                               struct jc_provider *prov,
+                               const char *system_msg,
+                               char **out, int *cut)
+{
+    static const char *const INSTR =
+        "[relay] This session is ending because the context window is "
+        "exhausted. Before it is saved, write a handover note for the next "
+        "session that continues your work. Use exactly these five headings, "
+        "in order, and keep it under 300 words:\n"
+        "## Done\n## In progress\n## Next step\n## Decided\n## Dead ends\n"
+        "Be concrete: name the files, commits and commands. Do not narrate "
+        "the handover; just write the note.";
+    struct jc_agent_callbacks silent;
+    jc_size from;
+    jc_status st;
+    struct jc_message *acc;
+    const char *last;
+
+    *out = NULL;
+    *cut = 0;
+    from = jc_history_len(hist);
+    /* A zeroed callback: every sink is NULL, so the account's text and
+     * status never reach the UI or the headless output. (It is an
+     * all-pointer struct, so memset to zero is a valid full initialisation.) */
+    memset(&silent, 0, sizeof(silent));
+
+    if (jc_history_add(hist, JC_ROLE_USER, INSTR) == NULL) {
+        return;   /* OOM: no account; the handover stands */
+    }
+    /* The reply lands in a fresh, empty ASSISTANT message, exactly as the loop
+     * does it (jc_agent.c:2293) -- NOT in the instruction message above. */
+    acc = jc_history_add(hist, JC_ROLE_ASSISTANT, NULL);
+    if (acc == NULL) {
+        jc_history_truncate(hist, from);
+        return;
+    }
+    st = stream_once(app, hist, system_msg, NULL, acc, &silent, prov, 0, 0);
+    /* Re-fetch by index: the stream may have reallocated the message vector,
+     * so the `acc` pointer above is not guaranteed stable after stream_once. */
+    acc = jc_history_get(hist, jc_history_len(hist) - 1);
+    if (st == JC_OK && acc != NULL && acc->content != NULL &&
+        acc->content[0] != '\0') {
+        *cut = acc->truncated ? 1 : 0;
+        {
+            size_t L = strlen(acc->content);
+            *out = (char *)malloc(L + 1);
+            if (*out != NULL) {
+                memcpy(*out, acc->content, L + 1);
+            }
+        }
+    } else {
+        /* The leaf fallback (6.5): quote the last real answer, labelled. It
+         * is the assistant message just BEFORE our appended instruction. */
+        last = NULL;
+        {
+            jc_size i;
+            for (i = from; i > 0; i--) {
+                struct jc_message *m = jc_history_get(hist, i - 1);
+                if (m != NULL && m->role == JC_ROLE_ASSISTANT &&
+                    m->content != NULL && m->content[0] != '\0') {
+                    last = m->content;
+                    break;
+                }
+            }
+        }
+        if (last != NULL) {
+            struct jc_sb b;
+            jc_sb_init(&b);
+            (void)jc_sb_append_fmt(&b,
+                "(account call failed -- the previous leg's last answer is "
+                "quoted instead; it may be partial)\n%s\n", last);
+            if (b.data != NULL) {
+                *out = (char *)malloc(b.len + 1);
+                if (*out != NULL) {
+                    memcpy(*out, b.data, b.len);
+                    (*out)[b.len] = '\0';
+                }
+            }
+            jc_sb_free(&b);
+        }
+    }
+    /* Truncate back: the instruction and reply must not survive into the
+     * saved session or the turn's answer. */
+    jc_history_truncate(hist, from);
+}
+
+/* M1083 (D-08): persist the live session at a TOOL-ROUND BOUNDARY, where every
+ * call of the round has its `jc_history_add_tool_result` landed and the history
+ * is therefore a wire-consistent prefix. A SIGKILL or OOM-kill mid-turn then
+ * loses at most the in-flight round instead of the whole conversation: the
+ * finding's reproduction left NO session for an in-progress `--auto` turn
+ * (only the previous turn's file), so `--continue` could not resume the work.
+ *
+ * The agent loop owns neither the session object nor its save cadence -- the
+ * front-end (headless main.c, the TUI, ACP) holds `struct jc_session` and the
+ * loop only sees `hist`, which is that session's embedded history
+ * (`hist = &session.history`) at the top level. So the session is recovered the
+ * container_of way, anchored on `app->todos`, which every top-level caller wires
+ * to `&session.todos` (M606) and which the loop's own save throttling reads via
+ * the same struct. `offsetof` keeps it portable: the two anchors are stable
+ * fields of one non-packed struct, and only the offset is taken, never an
+ * absolute address.
+ *
+ * Gated to the TOP level (agent_depth == 0) and to a session that is actually
+ * persisted: a delegate/subtask runs on its OWN scratch history (M853's finish
+ * path, run_command_subtask's `struct jc_history sub`) with `app->todos` still
+ * pointing at the PARENT's list -- container_of would derive the parent session
+ * and write the child's scratch into it, corrupting the parent. depth 0 is the
+ * one place `hist` and `app->todos` belong to the same session.
+ *
+ * Throttled by `jc_session_needs_save` (R05's recommendation, M218's shape): it
+ * is 0 the round after a successful save (nothing new landed), so a stall on
+ * round N+1 re-saves at most once per changed round, not per call. The durable
+ * writer (D-08's fsync half) makes each such round-boundary write survive a
+ * power loss; F-resources measured one 200 KB fsync'd replace at 2.00 ms here,
+ * noise against a multi-second model call.
+ *
+ * Best-effort: a failure (full disk) is logged, not returned -- the turn keeps
+ * running, and the front-end's own end-of-turn save reports the same condition
+ * through jc_app_note_failed_session_save. */
+static void agent_loop_midturn_persist(struct jc_app *app,
+                                       struct jc_history *hist)
+{
+    struct jc_session *s;
+
+    if (app == NULL || app->agent_depth != 0 || hist == NULL) {
+        return;
+    }
+    if (app->no_session) {
+        return; /* told not to persist this run */
+    }
+    if (app->todos == NULL) {
+        return; /* no live session anchored to this run (defensive) */
+    }
+    /* Anchor on app->todos, the field every top-level caller sets to
+     * &session.todos; the loop's own throttling already depends on it. */
+    s = (struct jc_session *)((char *)app->todos -
+                              offsetof(struct jc_session, todos));
+    /* The caller persists mode at turn end; sync it here so the mid-turn file
+     * is mode-correct and needs_save (which compares mode) does not re-fire on
+     * every unchanged round for a resumed session saved under an older mode. */
+    s->mode = app->mode;
+    if (!jc_session_needs_save(s)) {
+        return;
+    }
+    if (jc_session_save(s) != JC_OK) {
+        jc_logf(JC_LOG_WARN,
+                "mid-turn session save failed; the end-of-turn save will retry"
+                " and report it");
+    }
+}
+
 /* The shared agent loop. The public turn and the subagent path both run here;
  * only `opts` differs. */
 static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
@@ -1635,15 +2356,35 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
     int snapshotted = 0; /* a pre-edit checkpoint taken this turn (top-level) */
     int self_reviewed = 0; /* the one-shot self-review pass has run this turn */
     int nudged = 0; /* M147 prose-call nudge: 0 unused, 1 fired, 2 recovered */
+    int md_recovered = 0; /* M949: this turn has used the text-call
+                           * recovery pass (0 unused, 1 fired) */
+    int cut_continued = 0; /* M859: the one continuation after a cut reply */
+    int empty_nudged = 0; /* M937 (D3): the one "give your answer" nudge after a
+                           * reasoning-only (no text, no tool call, NOT cut) reply
+                           * from a delegate child. 0 unused, 1 fired. A second
+                           * reasoning-only reply then falls through to M167 and
+                           * ends the turn -- the child is called at most twice. */
     int first_midturn = 1;
     int warned_short = 0;   /* M323: warn once per turn, not per round */
     int warned_underdecl = 0; /* M494: the under-declaration notice's OWN latch --
                                * see below; it must not share warned_short's */
-    int ctx_noticed = 0;    /* M358: the [context] note fires once per run */
+    /* M900 (C1): the [context] note is a STANDING gauge -- it re-fires each
+     * mid-turn round while the pass is over the high-water (mrep.pressed), not
+     * once per run. The once-per-run latch (M358) gave the model a single
+     * water-level reading and then silence, so the audit's complaint -- the
+     * note can arrive AFTER an argument is already elided, with no standing
+     * awareness -- held. It is still emitted only while pressed (not on every
+     * calm round): the static pool sits in the cached prefix (M358), and the
+     * dynamic percent rides the cache-stable message-tail vehicle (the M347
+     * shape), so the prefix the prompt-cache depends on never churns (the
+     * test_prefix_stable_across_turns guard). See the 2026-10-05 self-audit
+     * CLAUDECODE C1 and docs/plans/2026-10-gap-audit-development-plan.md §2. */
     int hist_warned = 0;    /* M364: wire-shape violations warn once per run */
-    struct jc_midturn_latch mlatch = { 0, 0 }; /* M361: per-(sub)turn */ /* M218: the first mid-turn compaction of a run
-                            * always runs the eager dedup (a resumed history
-                            * may carry pre-existing duplicate reads) */
+    /* M361: per-(sub)turn */
+    struct jc_midturn_latch mlatch = { 0, 0 };
+    /* M218: the first mid-turn compaction of a run
+     * always runs the eager dedup (a resumed history
+     * may carry pre-existing duplicate reads) */
     int round_read; /* M218: this round appended a read_file result, so a NEW
                      * superseded pair is possible -- the dedup hint */
     /* M105: per-run redo-loop guard (heap-free; no teardown needed). Tracks how
@@ -1651,6 +2392,26 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
     struct jc_editwatch editwatch;
     struct jc_toolloop toolloop;   /* M432: per-turn, heap-free */
     struct jc_noprogress noprog;   /* D1 (M733): its success twin, same shape */
+    struct relay_state relay_st;   /* M920: the unrelieved streak, per run */
+    int relay_stop = 0;            /* M920: the core said hand over; break at
+                                    * the round boundary, keep the history    */
+    int noprog_stop = 0;           /* M829 (N4b): a depth>=1 child looped -- end it;
+                                    * M869: which loop (app->last_run_looped's values) */
+    int placeholder_run = 0;       /* M869 (N27 (b)): copied placeholders in a row */
+    /* M869, amended: the same failing call since the last CHANGE -- its key's hash
+     * and length, and how many times. M432's per-turn counts are never reset, so a
+     * child that edits and re-runs the same failing test nine times would have been
+     * stopped mid-progress; an edit, or a successful shell command (which may have
+     * changed anything, as M829 assumes), starts this run again. */
+    unsigned long fail_key_h = 0;
+    unsigned long fail_key_n = 0;
+    int fail_run = 0;
+    /* M895 (N54 (b)): the silent successes of each shell command this turn, keyed by
+     * M806's normalised command, so `cmd`, `cmd | tail` and `cmd 2>&1` count as one. */
+    unsigned long silent_h[JC_SILENT_KEYS];
+    unsigned long silent_n[JC_SILENT_KEYS];
+    int silent_c[JC_SILENT_KEYS];
+    int nsilent = 0;
     /* M734: which INFERRED rules this turn has already told the model it went
      * against -- once each, since the rule is in the system prompt as well. */
     unsigned char advised[JC_CONSTRAINT_MAX];
@@ -1677,10 +2438,48 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
     jc_noprogress_init(&noprog);
     memset(advised, 0, sizeof advised);
     app->last_run_capped = 0; /* set only on the iteration-cap exit (M62 #5) */
+    app->relay_handover = 0;  /* M920: set only at the relay's round exit */
+    app->relay_reason_name[0] = '\0'; /* M921: no trigger until one fires */
+    /* M921 (sub-slice C): the account is per-run. The previous run's baton was
+     * already rendered (and freed) by the time this run starts, so a stale
+     * pointer is freed here and cleared, exactly like relay_handover. */
+    free(app->relay_account);
+    app->relay_account = NULL;
+    app->relay_account_cut = 0;
+    /* M951: the leg's measurement is per-run, like relay_handover. The
+     * previous run's prompt series is freed here (the baton writer consumed
+     * it at that run's handover); a relay-OFF run's is freed here too.
+     * relay_leg_calls_prev is NOT reset here: main clears it before the
+     * --handoff-in parse, which SETS it, and this run's E5 must use it. */
+    app->relay_leg_calls = 0;
+    app->relay_model_calls = 0;
+    app->relay_next_leg_calls = 0;
+    app->relay_measured = 0;
+    jc_vec_free(&app->relay_prompt_series);
+    jc_vec_init(&app->relay_prompt_series, sizeof(long));
+    /* M921 (sub-slice B): a verify this run never ran must not report a
+     * verdict from the previous run -- same read-right-after reset as
+     * relay_handover, so the baton's "Last verify" line omits stale data. */
+    app->last_verify_code = 0;
+    app->last_verify_fail = -1;
+    app->last_verify_failnames[0] = '\0';
+    memset(&relay_st, 0, sizeof relay_st); /* M920: no streak across runs */
     app->last_run_budget_stopped = 0; /* set only on a delegate's budget stop */
+    app->last_run_looped = 0;         /* M869: set only on a child's loop stop */
     app->last_fail_tool[0] = '\0';    /* M437: this run's last failing call */
     app->last_fail_msg[0] = '\0';
     app->last_fail_cls = (int)JC_FAIL_OTHER;
+    app->last_fail_stopped = 0;       /* M885 */
+    app->last_model_error[0] = '\0'; /* M876: this run's model failure, if any */
+    /* M917 (R04-F5): a context-window refusal ended the PREVIOUS run, not this
+     * one. The flag is set by the model call (stream_once), which runs after this
+     * reset, so a 400 this run still sets it -- but a later run in the process
+     * (or a forked parallel child, which starts its own loop) no longer inherits
+     * a stale one. Before, one 400 poisoned every later child: run_child reports
+     * it in the child's done line, and the merge decision read that. */
+    app->ctx_overflow = 0;
+    app->last_model_attempts = 0;
+    memset(app->fail_cls_count, 0, sizeof app->fail_cls_count);
     for (iter = 0; iter < opts->max_iters; iter++) {
         struct jc_message *assistant;
         cJSON *tools;
@@ -1690,6 +2489,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
         jc_size ncalls;
         jc_size k;
         jc_size assistant_index;
+        const char *finish_answer = NULL; /* M853: a delegate's finish message */
 
         if (app->abort_flag) {
             return JC_ERR_ABORTED;
@@ -1697,9 +2497,31 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
 
         {
             jc_status bst;
-            if (env_budget_should_stop(app, &bst)) {
+            if (env_budget_should_stop(app, &bst) ||
+                task_budget_should_stop(app, &bst)) {
                 return bst;
             }
+        }
+        task_budget_note(app, hist);   /* M861 (N28) */
+
+        /* M813 (P4b): the disk-space FENCE. Unlike the budget above it is NOT gated
+         * on an envelope -- it is a fence, on always, because a filling disk
+         * corrupts the very records a stop needs to leave behind. Throttled here
+         * (measured at most every 10 s), but the first iteration always measures,
+         * so it also guards run start. UNKNOWN never stops. A trip ends the turn
+         * with the records intact; the reason is logged so the operator knows it
+         * was the disk, not a Ctrl-C. Any depth: a child fills the same disk. */
+        if (jc_diskguard_check(&app->diskguard,
+                app->root[0] != '\0' ? app->root : app->cwd, 0,
+                jc_now_millis())) {
+            /* Straight to stderr, not jc_logf: a fence firing is a hard stop the
+             * operator must see, and `-q` sets the log level to NONE. The records
+             * (session, transcripts, any preserved trees) are already on disk. */
+            fprintf(stderr,
+                "[jichi] stopping: %s. Your work and records are preserved; "
+                "free disk space and run again.\n", app->diskguard.why);
+            app->abort_flag = 1;
+            return JC_ERR_ABORTED;
         }
 
         /* M288: before building the request, check whether this turn has grown
@@ -1835,10 +2657,17 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
 
         st = stream_once(app, hist, opts->system_msg, tools, assistant, cb,
                          prov, sys_est, tools_est);
+        /* Re-sync prov after stream_once in case it was re-routed (M1038). */
+        prov = app->provider;
         /* M334: carry the provider's truncation verdict to the tool layer,
          * which is where a cut-off tool call is about to be misdiagnosed. */
         app->last_response_truncated = (assistant != NULL) ? assistant->truncated
                                                            : 0;
+        /* A-07 / M1090: carry the CAUSE of that verdict to the tool layer
+         * alongside it. 0 means the model's output-token limit (M334); 1 means
+         * jichi's own per-stream accumulation cap clipped the reply. */
+        app->last_response_truncated_by_cap =
+            (assistant != NULL) ? assistant->truncated_by_cap : 0;
         if (tools != NULL) {
             /* M255: keep the COUNT, drop the pointer. Two diagnostics later in
              * this iteration -- the M147 prose-nudge gate and the M167
@@ -1900,7 +2729,156 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                 jc_eventlog_end(app->telemetry, o);
             }
         }
+        /* M937 (D3): the "give your answer" nudge below worked -- the reasoning-only
+         * child's retry now carries answer text. This is the cause that was asked
+         * again (the honesty rule's third arm), kept separate from M859's cut and
+         * M147's prose-call recovery. */
+        if (empty_nudged == 1 && ncalls == 0 &&
+            assistant->content != NULL && assistant->content[0] != '\0') {
+            empty_nudged = 2;
+            jc_logf(JC_LOG_INFO,
+                "[nudge] the reasoning-only reply was asked again; it now "
+                "carries an answer");
+            {
+                cJSON *o = telem(app, "empty_reasoning");
+                if (o != NULL) {
+                    cJSON_AddStringToObject(o, "phase", "recovered");
+                }
+                jc_eventlog_end(app->telemetry, o);
+            }
+        }
+        /* M949 (def-325): for a model whose textToolCalls flag is set, a
+         * well-formed call written as markdown is EXECUTED, not nudged --
+         * the nudge below asks for a native emission such a model cannot
+         * make (it would just re-emit markdown). The recovered calls are
+         * synthetic entries on this assistant message, so the round below
+         * runs them through the unchanged executor: the same budget meter,
+         * approval preview, path fence and telemetry as a native call.
+         * "A recovered call is a call." Extraction failures are recorded,
+         * not fatal (one bad block does not poison the others). Guarded on
+         * ncalls == 0: a reply with a native call must not have an example
+         * block in its prose executed a second time. */
+        if (ncalls == 0 && app->config.model.text_tool_calls &&
+            md_recovered == 0 && ntools_adv > 0 &&
+            assistant->content != NULL) {
+            struct jc_vec rc;
+            struct jc_sb rsn;
+            int nrec;
+            jc_vec_init(&rc, sizeof(struct jc_tool_call));
+            jc_sb_init(&rsn);
+            nrec = jc_toolcall_recover(assistant->content, app->tools,
+                                       &rc, &rsn);
+            if (nrec > 0) {
+                md_recovered = 1;
+                assistant = jc_history_get(hist, assistant_index);
+                for (k = 0; k < rc.len; k++) {
+                    struct jc_tool_call *rct =
+                        (struct jc_tool_call *)jc_vec_at(&rc, k);
+                    (void)jc_msg_add_tool_call(assistant, rct->id,
+                                               rct->name,
+                                               rct->arguments_json);
+                }
+                ncalls = jc_msg_tool_call_count(assistant);
+                jc_logf(JC_LOG_INFO,
+                        "recovered %d tool call(s) from the reply's text "
+                        "(textToolCalls)", nrec);
+                {
+                    cJSON *o = telem(app, "md_tool_call_recovered");
+                    if (o != NULL) {
+                        cJSON_AddNumberToObject(o, "count", nrec);
+                        if (rsn.data != NULL && rsn.len > 0) {
+                            cJSON_AddStringToObject(o, "failed", rsn.data);
+                        }
+                    }
+                    jc_eventlog_end(app->telemetry, o);
+                }
+            }
+            jc_vec_free(&rc);
+            jc_sb_free(&rsn);
+        }
         if (ncalls == 0) {
+            /* M859 (N42 (d), the operator's choice of 2026-10-02): a reply cut
+             * off at the output ceiling with no tool call is not an answer the
+             * model chose to give -- run 0090's worker ended mid-sentence after 331
+             * calls. Ask once to continue (cut_continue_allowed says who). A
+             * second cut ends the turn, and a parallel write child then gets
+             * M858's note: its work merges only after a green verify. */
+            if (assistant->truncated && !cut_continued &&
+                cut_continue_allowed(app)) {
+                char nudge[256];
+                cut_continued = 1;
+                /* A-07 / M1090: name the cause in the nudge. The two
+                 * truncation causes look identical to the model (a reply that
+                 * stopped short), but the fix differs: the model's own
+                 * output-token ceiling wants "keep each reply short"; jichi's
+                 * own per-reply accumulation cap wants the same advice framed
+                 * against the cap, not a token limit that never fired. */
+                if (assistant->truncated_by_cap) {
+                    jc_snprintf(nudge, sizeof(nudge),
+                        "[jichi] Your last reply was cut at jichi's per-reply "
+                        "size limit, part-way through. Continue from where it "
+                        "stopped, and keep each reply short: if the work is "
+                        "done, give your final answer in a few lines.");
+                    jc_logf(JC_LOG_INFO,
+                            "[cut] the reply hit jichi's per-reply size cap; "
+                            "asking the model to continue, once");
+                } else {
+                    jc_snprintf(nudge, sizeof(nudge),
+                        "[jichi] Your last reply was cut off at the output "
+                        "ceiling, part-way through. Continue from where it "
+                        "stopped, and keep each reply short: if the work is "
+                        "done, give your final answer in a few lines.");
+                    jc_logf(JC_LOG_INFO,
+                            "[cut] the reply hit the output ceiling; "
+                            "asking the model to continue, once");
+                }
+                jc_history_add(hist, JC_ROLE_USER, nudge);
+                {
+                    cJSON *o = telem(app, "cut_continue");
+                    jc_eventlog_end(app->telemetry, o);
+                }
+                prov = app->provider;
+                continue;
+            }
+            /* M937 (D3, the zigodot drive; widened by M965): a reply that ended
+             * on its own with reasoning and NO answer text, and was NOT cut at
+             * the ceiling, is not an answer the model chose to give either --
+             * the drive's reviewer did this three times and the run accepted an
+             * empty review, owing the next phase a review it never got. A
+             * delegate is asked once for the final answer. The honesty rule
+             * keeps the three arms distinct: ceiling hit (M859), ended-on-its-own
+             * empty answer (M937), and the one that was asked again (recovered
+             * above). The scope was widened from delegates only (agent_depth >= 1)
+             * to every delegate AND a headless top-level run:
+             * (agent_depth >= 1 || (agent_depth == 0 && headless_run)). An
+             * interactive top-level run is left alone (a person can say
+             * "continue"). The nudge text is deliberately general (no "reasoning"
+             * word): (c), the later wording refinement, only swaps the sentence
+             * when saw_reasoning is known, and stays structurally unchanged. */
+            if ((app->agent_depth >= 1 ||
+                 (app->agent_depth == 0 && app->headless_run)) &&
+                empty_nudged == 0 &&
+                !assistant->truncated && assistant->saw_reasoning &&
+                (assistant->content == NULL ||
+                 assistant->content[0] == '\0')) {
+                empty_nudged = 1;
+                jc_history_add(hist, JC_ROLE_USER,
+                    "[jichi] You ended your last reply with reasoning but gave "
+                    "no final answer. Do not restate your reasoning. Give your "
+                    "final answer in a few lines now.");
+                jc_logf(JC_LOG_INFO,
+                    "[nudge] the reply ended on reasoning with no answer; "
+                    "asking once for the final answer");
+                {
+                    cJSON *o = telem(app, "empty_reasoning");
+                    if (o != NULL) {
+                        cJSON_AddStringToObject(o, "phase", "fired");
+                    }
+                    jc_eventlog_end(app->telemetry, o);
+                }
+                prov = app->provider;
+                continue;
+            }
             /* M147: a tool call written as prose (a fenced JSON block, a bare
              * name+args object, an XML-ish tag) instead of invoked natively --
              * the classic small-model failure -- must not be silently accepted
@@ -1908,6 +2886,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
              * only; the scan is high-precision (the name must resolve in the
              * live registry), so a genuine final answer is unaffected. */
             if (app->agent_depth == 0 && ntools_adv > 0 && nudged == 0 &&
+                !app->config.model.text_tool_calls &&
                 assistant->content != NULL) {
                 char tname[64];
                 if (jc_toolcall_scan(assistant->content, app->tools, tname,
@@ -1961,14 +2940,31 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
              * so say so once per session, at any depth. */
             if (ntools_adv > 0 && !app->empty_warned &&
                 (assistant->content == NULL || assistant->content[0] == '\0')) {
+                /* D2 (zigodot drive 2026-10-11): order the causes before
+                 * asserting one. A reply cut at the output ceiling produces
+                 * exactly this shape -- no tool call, no text -- so saying
+                 * "the request was rejected or misread" for it names a cause
+                 * that did not happen; the ceiling warning already fired at
+                 * the source. Only fall through to the M167 text when the
+                 * previous reply was NOT cut. The M167 triple is still the
+                 * signature of a malformed request (M166: six silent runs),
+                 * and that text stays for the case it was written for. */
                 app->empty_warned = 1;
-                jc_logf(JC_LOG_WARN, "the model returned no tool call and no "
-                        "text while %d tools were advertised -- this usually "
-                        "means the request was rejected or misread, not that "
-                        "the model is idle; capture and replay the request "
-                        "(see docs/LOCAL_MODELS.md, \"When the model calls no "
-                        "tool at all\")",
-                        ntools_adv);
+                if (app->last_response_truncated) {
+                    jc_logf(JC_LOG_WARN, "the model returned no tool call and "
+                            "no text, and its previous reply was cut at the "
+                            "output ceiling -- the cut is the cause, not a "
+                            "misread request; see the ceiling warning above "
+                            "(maxTokens, continueCutReply)");
+                } else {
+                    jc_logf(JC_LOG_WARN, "the model returned no tool call and "
+                            "no text while %d tools were advertised -- this "
+                            "usually means the request was rejected or "
+                            "misread, not that the model is idle; capture and "
+                            "replay the request (see docs/LOCAL_MODELS.md, "
+                            "\"When the model calls no tool at all\")",
+                            ntools_adv);
+                }
             }
             /* Self-review: before finishing a top-level turn that changed files,
              * show the agent its own diff once and let it fix problems. Runs
@@ -2015,26 +3011,106 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
 
             /* Final answer. Under an envelope with a verifier, gate the result:
              * run the verifier, advance the green checkpoint on success, or
-             * fix-forward / roll back on failure. */
-            if (env_active(app) && app->env->verify_cmd != NULL && snapshotted) {
+             * fix-forward / roll back on failure.
+             *
+             * M1048 (G18): this used to also require `snapshotted` -- a pre-edit
+             * checkpoint taken when a mutating tool ran. A run that takes none
+             * (`snapshots:false`, or a run that wrote nothing) therefore never
+             * ran its verifier and still finished as a clean run, and the
+             * footer claimed green from "armed and outcome ok". A snapshot is
+             * needed to ROLL BACK, not to CHECK: un-gate. `snapshotted` was set
+             * at depth 0 only, so the depth must be made explicit here. */
+            if (env_active(app) && app->env->verify_cmd != NULL &&
+                app->agent_depth == 0) {
                 struct jc_sb vout;
                 enum jc_verify_consistency vcons;
                 struct jc_test_report rep;
                 int code;
                 int told = 0;   /* M431d: the hollow-green note just reached the model */
+                int predates = 0;   /* M893: the same line failed before any change */
                 cJSON *o;
 
+                /* M892 (the demos drive's N52 (a)): the last fix-forward message
+                 * offered a way out -- "if your changes did not cause this, say
+                 * so and make no further edits: the run then ends on this
+                 * verdict". An answer after which nothing changed takes it. The
+                 * tree the check failed on is the tree it would run on again, so
+                 * the run ends on that verdict and spends no retry re-asking.
+                 * "Changed" is the worktree's content where git can fingerprint
+                 * it (a shell command that only reads is not a change; the M886
+                 * rule), and otherwise any executed call that is not a read. */
+                if (app->env->ff_armed) {
+                    int unchanged;
+                    int by_content = 0;
+                    char fp[72];
+
+                    app->env->ff_armed = 0;
+                    if (app->env->ff_fp_ok &&
+                        jc_snapshot_worktree_fingerprint(app->root, fp, sizeof fp)
+                            == JC_OK) {
+                        by_content = 1;
+                        unchanged = (strcmp(fp, app->env->ff_fp) == 0);
+                    } else {
+                        unchanged = (app->env->changing_executed ==
+                                     app->env->ff_changing_mark);
+                    }
+                    if (unchanged) {
+                        o = jc_env_journal_begin(app->env, "verify_declined");
+                        if (o != NULL) {
+                            cJSON_AddNumberToObject(o, "retries_left",
+                                                    (double)app->env->retries_left);
+                            cJSON_AddStringToObject(o, "by",
+                                                    by_content ? "content" : "calls");
+                        }
+                        jc_env_journal_end(app->env, o);
+                        jc_logf(JC_LOG_WARN,
+                                "envelope: nothing changed after the failed "
+                                "end-of-run check -- the run ends on that verdict "
+                                "(%d retr%s left unspent)",
+                                app->env->retries_left,
+                                app->env->retries_left == 1 ? "y" : "ies");
+                        if (cb != NULL && cb->on_status != NULL) {
+                            cb->on_status(cb->user,
+                                "verify: no change after the failed check; "
+                                "ending on its verdict");
+                        }
+                        app->env->outcome = JC_ENV_VERIFY_FAILED;
+                        return env_rollback_and_finish(app);
+                    }
+                }
+
                 jc_sb_init(&vout);
+                /* M1048 (G18): the run-fact, set the moment the check is
+                 * CALLED -- whatever it returns, and before its code is known.
+                 * Deliberately NOT set above in the ff_armed/unchanged path:
+                 * that path ends on a PRIOR verdict, so this run did not just
+                 * verify. */
+                app->env->verifier_ran = 1;
                 code = jc_env_run_verify(app->env->verify_cmd, app->cwd, &vout,
                                          &app->abort_flag,
                                          app->env->verify_timeout);
                 jc_test_report_init(&rep);
                 jc_testparse(vout.data, &rep);
+                app_record_last_verify(app, code, &rep);  /* M921: for the baton */
+                /* M893 (N52 (b)): the first failing line, compared with the one
+                 * recorded before the run's first change. Once per run, so a run
+                 * cannot spend its turns on free rounds. */
+                if (code != 0 && !app->env->predates_spent &&
+                    app->env->pre_edit_fail[0] != '\0') {
+                    char eline[JC_ENV_SIG_MAX];
+                    if (jc_env_fail_line(vout.data, eline, sizeof eline) &&
+                        strcmp(eline, app->env->pre_edit_fail) == 0) {
+                        predates = 1;
+                    }
+                }
                 o = jc_env_journal_begin(app->env, "verify");
                 if (o != NULL) {
                     cJSON_AddNumberToObject(o, "exit", (double)code);
                     cJSON_AddNumberToObject(o, "retries_left",
                                             (double)app->env->retries_left);
+                    if (predates) {
+                        cJSON_AddBoolToObject(o, "predates", 1);
+                    }
                     if (rep.failed >= 0) {
                         cJSON_AddNumberToObject(o, "failed", (double)rep.failed);
                     }
@@ -2127,18 +3203,53 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     int structured;
                     jc_size off = 0;
 
-                    app->env->retries_left--;
+                    /* M893 (N52 (b)): a failure the run saw before its first
+                     * change is not a failure of its work, so asking about it
+                     * spends no retry. */
+                    if (predates) {
+                        app->env->predates_spent = 1;
+                    } else {
+                        app->env->retries_left--;
+                    }
+                    /* M892: remember the tree this message is about, so that the
+                     * next answer can be told apart from a fix (above). */
+                    app->env->ff_armed = 1;
+                    app->env->ff_changing_mark = app->env->changing_executed;
+                    app->env->ff_fp_ok =
+                        (jc_snapshot_worktree_fingerprint(app->root,
+                            app->env->ff_fp, sizeof app->env->ff_fp) == JC_OK);
                     structured = (rep.failed > 0 || rep.failures.len > 0);
                     jc_sb_init(&msg);
+                    /* M892 (N52 (a)): this arrives as a user-role message, and a
+                     * bare one is read as the operator's order -- run 0105's lead
+                     * wrote "The operator now asks me to make verification pass"
+                     * and spent 33 calls porting the project to a toolchain the
+                     * operator had decided against. So the message names its
+                     * sender, and ends with a way out. */
                     if (code == JC_VERIFY_TIMEOUT) {
                         jc_sb_append_fmt(&msg,
-                            "The verification command `%s` timed out after "
-                            "%lds and was killed.\n",
+                            "[jichi] jichi's end-of-run check timed out: the verify "
+                            "command `%s` ran for %lds and was killed.\n",
                             app->env->verify_cmd, app->env->verify_timeout);
                     } else {
                         jc_sb_append_fmt(&msg,
-                            "The verification command `%s` failed (exit %d).\n",
+                            "[jichi] jichi's end-of-run check failed: the verify "
+                            "command `%s` exited %d.\n",
                             app->env->verify_cmd, code);
+                    }
+                    jc_sb_append(&msg,
+                        "This message comes from jichi, not from the operator: it is "
+                        "the check configured for this run, which jichi runs after a "
+                        "final answer that changed files.\n");
+                    if (predates) {
+                        jc_sb_append_fmt(&msg,
+                            "This failure predates your changes: %s failed on the "
+                            "same line:\n    %s\n", app->env->pre_edit_from,
+                            app->env->pre_edit_fail);
+                        jc_sb_append(&msg,
+                            "The environment or the starting tree is the likely "
+                            "cause, not your work, so this round spends none of the "
+                            "run's retries.\n");
                     }
                     /* M331: put the inconsistency FIRST, ahead of the parsed
                      * failures. A model handed "exit 1" plus a list of zero
@@ -2195,7 +3306,10 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                         }
                     }
                     jc_sb_append(&msg,
-                        "\nFix the code so the verification passes.");
+                        "\nFix the code so the check passes. If your changes did not "
+                        "cause this failure -- a broken tool or environment, or a "
+                        "tree that was already failing -- say so in your answer and "
+                        "make no further edits: the run then ends on this verdict.");
                     jc_history_add(hist, JC_ROLE_USER,
                                    msg.data != NULL ? msg.data : "");
                     jc_sb_free(&msg);
@@ -2230,10 +3344,23 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
             char *args_copy;
             char *id_copy;
             enum jc_approval verdict;
+            const char *perm_why = NULL;   /* M762: the rule the verdict came from */
+            const char *allow_why = NULL;  /* M762: what let this call run */
+            unsigned long why_seq = 0;     /* M762: this call's record, for its outcome */
             int advise_rule = -1;    /* M734: an inferred rule this call breaks */
             char advise_text[256];
+            double tool_dur_ms = 0.0;    /* M806: wall-time, for the R6 at-bound test */
+            int tool_at_bound = 0;       /* M806: ran to its own timeout and cut off */
+            char tool_normcmd[JC_TOOLLOOP_KEY_MAX]; /* M806: normalised shell key    */
+            int pin_rc = 0;              /* M863: kept before a discarding command */
+            char pin_ref[256];           /* M863: ...under this ref                */
+            char fp_before[72];          /* M886: the worktree before a shell call */
+            int fp_ok = 0;               /* M886: ...taken, during a failing run   */
 
+            pin_ref[0] = '\0';
+            fp_before[0] = '\0';
             advise_text[0] = '\0';
+            tool_normcmd[0] = '\0';
             /* Drain/reap background processes opportunistically (M26). */
             if (app->bg != NULL) {
                 jc_bg_poll(app->bg);
@@ -2241,7 +3368,52 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
 
             {
                 jc_status bst;
-                if (env_budget_should_stop(app, &bst)) {
+                int env_stop, task_stop;
+                env_stop = env_budget_should_stop(app, &bst);
+                task_stop = env_stop ? 0 : task_budget_should_stop(app, &bst);
+                if (env_stop || task_stop) {
+                    /* M919 (R01-F1): the budget tripped MID-ROUND, so this
+                     * assistant message still carries calls k..ncalls-1 that
+                     * will never run. The wire invariant (jc_message.c) is
+                     * that every tool call is answered exactly once -- a call
+                     * with no result makes the SAVED session resume into a
+                     * request the provider rejects with HTTP 400 on its first
+                     * model call (exp1 measured it). Answer each remaining
+                     * call with an ERROR result -- the tool was asked for and
+                     * refused to run, so an error is the truth and a success
+                     * would be a lie -- naming what stopped it, then return.
+                     * The round-top budget check (before the model call)
+                     * already exits with nothing in flight, so only this
+                     * mid-round path can strand a call. */
+                    enum jc_env_budget bb;
+                    const char *kind;
+                    struct jc_message *am;
+                    jc_size r;
+                    if (env_stop && app->env != NULL) {
+                        bb = jc_env_over_budget(app->env, (long)time(NULL));
+                        kind = (bb != JC_BUDGET_NONE) ? jc_env_budget_name(bb)
+                                                       : "budget";
+                    } else {
+                        kind = "task";
+                    }
+                    for (r = k; r < ncalls; r++) {
+                        struct jc_tool_call *stranded;
+                        char reason[144];
+                        am = jc_history_get(hist, assistant_index);
+                        stranded = (am != NULL) ? jc_msg_tool_call_at(am, r)
+                                                : NULL;
+                        if (stranded == NULL) {
+                            continue;
+                        }
+                        jc_snprintf(reason, sizeof reason,
+                            "not run: this run's %s budget stopped before this "
+                            "call; answered as an error so the history stays "
+                            "wire-valid for resume", kind);
+                        jc_history_add_tool_result(
+                            hist,
+                            stranded->id != NULL ? stranded->id : "",
+                            reason, 1);
+                    }
                     return bst;
                 }
             }
@@ -2323,6 +3495,16 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
              *
              * M431 established the at-any-depth half (a delegate's calls spend
              * the run's cap; before it a cap of 3 permitted 9). */
+            /* M861 (N28): the task's own budget counts the same attempts, at
+             * every depth of the child's process, with or without an envelope
+             * (0 and unread in the lead, which has no task budget). */
+            app->task_tool_used++;
+            /* M951: the leg's tool-call counter, env-INDEPENDENT (a relay leg
+             * runs without --auto, where app->env is NULL). It is E5's signal
+             * and the baton's "Calls: N in this leg". Same at-any-depth rule
+             * as task_tool_used above: a delegate's calls spend the lead's leg
+             * budget, which is the point (the leg's PROMPT grew by them). */
+            app->relay_leg_calls++;
             if (env_budget_applies(app)) {
                 app->env->tool_calls++;
                 /* M98: count READ-category tools for the per-run read budget
@@ -2349,6 +3531,65 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
              * config allow/deny + MCP policy (see jc_perm_for_tool). */
             tool = jc_tool_registry_find(app->tools, name_copy);
 
+            /* M853 (N32): a DELEGATE ends its turn with a call to a tool named
+             * like `finish` that carries a message. jichi has no such tool -- a
+             * turn ends with a reply that makes no tool call -- and models call
+             * one anyway: the demos drive's children called `finish` 203 times in
+             * six runs, each with a finished answer in `message`, each refused as
+             * an unknown tool. The workers then ran `echo "Done"` until stopped
+             * (run 0087: ~430 calls after the commit), and a stopped worker's work
+             * does not merge (N33). The message is the answer: it becomes the
+             * assistant's reply once this round's results are in (after this
+             * loop), so every caller reads it where it reads any answer, and a
+             * parallel child goes on to verify and merge like one that replied.
+             *
+             * Never at the top level: there a final answer passes the self-review
+             * and the envelope's verify gate, and a call that ended the turn would
+             * go around both. The top level gets jc_tool_execute's error, which
+             * says how a turn ends. Only an UNREGISTERED name -- a registered
+             * `submit` (an MCP server's, say) runs as itself -- and only with a
+             * non-blank `message`: a call without one gets that same error rather
+             * than a guessed answer. Ahead of the fences on purpose: ending the
+             * turn runs nothing. */
+            if (tool == NULL && app->agent_depth >= 1 &&
+                jc_tool_is_finish_alias(name_copy)) {
+                char *fmsg = jc_tool_finish_alias_message(args_copy);
+                if (fmsg != NULL) {
+                    if (finish_answer == NULL) {
+                        finish_answer = jc_arena_strdup(jc_app_scratch(app), fmsg);
+                    }
+                    jc_history_add_tool_result(hist, call_id,
+                        "ok: there is no such tool, so jichi took this call as "
+                        "the end of your turn, and its message as your answer.", 0);
+                    if (cb != NULL && cb->on_tool_result != NULL) {
+                        cb->on_tool_result(cb->user, name_copy, "ended the turn", 0,
+                                           (call_id != NULL) ? call_id : "");
+                    }
+                    {
+                        cJSON *o = telem(app, "finish_alias");
+                        if (o != NULL) {
+                            cJSON_AddStringToObject(o, "name", name_copy);
+                            cJSON_AddNumberToObject(o, "message_bytes",
+                                                    (double)strlen(fmsg));
+                        }
+                        jc_eventlog_end(app->telemetry, o);
+                    }
+                    /* M807's child transcript: why this child stopped. */
+                    if (app->transcript != NULL) {
+                        cJSON *to = jc_eventlog_begin(app->transcript,
+                                                      "finish_alias");
+                        if (to != NULL) {
+                            cJSON_AddStringToObject(to, "name", name_copy);
+                            jc_eventlog_add_text(to, "message", fmsg,
+                                                 JC_EVENTLOG_TEXT_MAX);
+                        }
+                        jc_eventlog_end(app->transcript, to);
+                    }
+                    free(fmsg);
+                    goto next_call;
+                }
+            }
+
             /* A subagent profile's allowed-tools fence (opts->allow): a backstop
              * in case the model calls a tool it remembers despite the tool not
              * being advertised. */
@@ -2364,6 +3605,9 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                 jc_tool_refusal_render(opts->allow, name_copy, &rf);
                 jc_history_add_tool_result(hist, call_id,
                     rf.data != NULL ? rf.data : "Tool not available.", 1);
+                jc_app_why_note(app, name_copy, args_copy, 1,
+                    "the delegated task's list of allowed tools does not name it",
+                    rf.data);
                 jc_sb_free(&rf);
                 app->tool_refusals++; /* M638: a fence, counted apart */
                 if (cb != NULL && cb->on_tool_result != NULL) {
@@ -2374,7 +3618,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                 goto next_call;
             }
 
-            verdict = jc_perm_for_tool((enum jc_agent_mode)app->mode,
+            verdict = jc_perm_for_tool_why((enum jc_agent_mode)app->mode,
                 /* M631: plan_allowed passes plan mode's read-only rule -- one
                  * declared write, not a read-only lie. */
                 tool != NULL ? (tool->readonly || tool->plan_allowed) : 0,
@@ -2382,13 +3626,17 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                  jc_perm_name_in_allow(&app->config.permissions, gate_name)),
                 (jc_perm_name_in_deny(&app->config.permissions, name_copy) ||
                  jc_perm_name_in_deny(&app->config.permissions, gate_name)),
-                (enum jc_approval)jc_mcp_tool_policy(app->mcp, gate_name));
+                (enum jc_approval)jc_mcp_tool_policy(app->mcp, gate_name),
+                &perm_why);
+            allow_why = perm_why;
 
             if (verdict == JC_APPROVAL_DENY) {
                 jc_history_add_tool_result(hist, call_id,
                     "Tool call denied by policy. It will not be approved in "
                     "this run; take a different approach with the tools you "
                     "have.", 1);
+                jc_app_why_note(app, name_copy, args_copy, 1, perm_why,
+                    "Tool call denied by policy.");
                 app->tool_refusals++; /* M638: a fence, counted apart */
                 if (cb != NULL && cb->on_tool_result != NULL) {
                     cb->on_tool_result(cb->user, name_copy,
@@ -2418,8 +3666,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                 int scope_exempt = 0;
                 int crule = -1;
                 enum jc_constraint_verdict cverdict;
-                if (strcmp(gate_name, "run_terminal_command") == 0 ||
-                    strcmp(gate_name, "run_tests") == 0) {
+                if (jc_tool_name_runs_shell(gate_name)) { /* M846 */
                     aj = cJSON_Parse(args_copy);
                     if (aj != NULL) cmd = jc_json_get_str(aj, "command", NULL);
                 }
@@ -2475,6 +3722,11 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     if (o2 != NULL) {
                         cJSON_AddStringToObject(o2, "tool", name_copy);
                         cJSON_AddStringToObject(o2, "rule", advise_text);
+                        if (crule >= 0 && crule < app->n_constraints &&
+                            app->constraints[crule].source != NULL) {
+                            cJSON_AddStringToObject(o2, "from",
+                                app->constraints[crule].source);  /* M872 */
+                        }
                         jc_env_journal_end(app->env, o2);
                     }
                     creason[0] = '\0';
@@ -2528,6 +3780,8 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                 if (blocked) {
                     cJSON *o;
                     jc_history_add_tool_result(hist, call_id, creason, 1);
+                    jc_app_why_note(app, name_copy, args_copy, 1,
+                                    "a constraint you wrote refuses it", creason);
                     app->tool_refusals++; /* M638: a fence, counted apart */
                     if (cb != NULL && cb->on_tool_result != NULL) {
                         cb->on_tool_result(cb->user, name_copy,
@@ -2561,7 +3815,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
              * `always` set); unattended runs (headless AUTO, a subagent, or a
              * client with no privileged prompt) refuse. Runs at all depths.
              * The always-on audit (M154) records the decision here. */
-            if (strcmp(gate_name, "run_terminal_command") == 0) {
+            if (jc_tool_name_runs_shell(gate_name)) { /* M846: run_tests too */
                 cJSON *pj = cJSON_Parse(args_copy);
                 const char *pcmd = (pj != NULL)
                     ? jc_json_get_str(pj, "command", NULL) : NULL;
@@ -2574,9 +3828,21 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     const char *decision;
                     int refuse = 0;
                     const char *reason = NULL;
-                    int allow = jc_priv_allowlisted(pcmd,
-                        (const char *const *)app->config.privileged_allow.data,
-                        (int)app->config.privileged_allow.len);
+                    /* M849 (S4, the operator's decision of 2026-10-01): the
+                     * allowlist is for the user's own turn -- the main turn or
+                     * a subtask command (M848) -- and for a top-level --auto run,
+                     * its documented CI use; never for a delegate. It matches by
+                     * word prefix, so an entry like `sudo systemctl` admitted
+                     * `sudo systemctl disable --now sshd` to an unattended
+                     * subagent with no prompt at all. Keyed on the delegate's
+                     * posture, not on agent_depth: a subtask also runs at depth
+                     * 1 and is the user's turn. An explicit privilegedCommands:
+                     * allow (allow-all) still admits a delegate's command; that
+                     * setting means what it says. */
+                    int allow = !opts->auto_posture &&
+                        jc_priv_allowlisted(pcmd,
+                            (const char *const *)app->config.privileged_allow.data,
+                            (int)app->config.privileged_allow.len);
                     if (allow) {
                         decision = "allowlist";
                     } else if (policy == JC_PRIVPOL_DENY) {
@@ -2595,6 +3861,18 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                             refuse = 1;
                             reason = "privileged command denied by the user.";
                         }
+                    } else if (opts->auto_posture) {
+                        /* M849: a delegate's own decision value, so the audit
+                         * shows WHO tried, and a reason that does not advise the
+                         * allowlist the delegate cannot use. */
+                        decision = "delegate_refused";
+                        refuse = 1;
+                        app->deg_privilege++;   /* M443 */
+                        reason = "privileged command refused: a delegate does "
+                                 "not run sudo/doas/pkexec/su, not even one "
+                                 "privilegedCommandsAllow names -- that list is "
+                                 "for your own turn and a top-level --auto run. "
+                                 "Run the command in the main turn.";
                     } else {
                         decision = "unattended_refused";
                         refuse = 1;
@@ -2616,6 +3894,9 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     }
                     if (refuse) {
                         jc_history_add_tool_result(hist, call_id, reason, 1);
+                        jc_app_why_note(app, name_copy, args_copy, 1,
+                            "the privileged-command policy (sudo, doas, pkexec, su)",
+                            reason);
                         app->tool_refusals++; /* M638: a fence, counted apart */
                         if (cb != NULL && cb->on_tool_result != NULL) {
                             cb->on_tool_result(cb->user, name_copy,
@@ -2656,7 +3937,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     is_kin = 1;
                     jc_snprintf(subjbuf, sizeof(subjbuf), "tool:%s", name_copy);
                     subject = subjbuf;
-                } else if (strcmp(gate_name, "run_terminal_command") == 0) {
+                } else if (jc_tool_name_runs_shell(gate_name)) { /* M846 */
                     const char *prefixes[64];
                     int np = kinetic_collect_prefixes(app, prefixes, 64);
                     if (np > 0) {
@@ -2724,6 +4005,9 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     }
                     if (refuse) {
                         jc_history_add_tool_result(hist, call_id, reason, 1);
+                        jc_app_why_note(app, name_copy, args_copy, 1,
+                            "the physical-actuation policy (kineticCommands)",
+                            reason);
                         app->tool_refusals++; /* M638: a fence, counted apart */
                         if (cb != NULL && cb->on_tool_result != NULL) {
                             cb->on_tool_result(cb->user, name_copy,
@@ -2744,13 +4028,23 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
 
             /* ASK: prompt interactively; in headless mode (no confirm_tool)
              * refuse rather than run silently. A subagent's auto posture runs
-             * ASK verdicts without a prompt (DENY is still refused above). An
-             * unknown tool (tool==NULL) skips the gate so jc_tool_execute can
-             * report it cleanly. */
+             * ASK verdicts without a prompt (DENY is still refused above) --
+             * EXCEPT a shell call. M849 (S4, the operator's decision of
+             * 2026-10-01): a delegate's run_terminal_command, or run_tests with
+             * a command, follows the user's own posture, so in chat mode it is
+             * asked here exactly as the main turn's is, and refused when the
+             * delegate has no way to ask. The shell is the one tool whose reach
+             * no other fence bounds (the path fence, the edit scope and the
+             * tool list all stop at its argv); a delegate's other tools keep
+             * the auto posture (DEFERRED def-286). In --auto the verdict is
+             * ALLOW, so this branch is never reached. An unknown tool
+             * (tool==NULL) skips the gate so jc_tool_execute can report it
+             * cleanly. */
             if (verdict == JC_APPROVAL_ASK && tool != NULL &&
-                !opts->auto_posture) {
+                (!opts->auto_posture || jc_tool_name_runs_shell(gate_name))) {
                 if (cb != NULL && cb->confirm_tool != NULL) {
                     char *edited = NULL;
+                    app->why_approval = 0;
                     if (!cb->confirm_tool(cb->user, name_copy, args_copy,
                                           &edited)) {
                         /* M570: A HUMAN DENIAL NOW REACHES THE LOOP DETECTOR,
@@ -2856,6 +4150,8 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                                 name_copy, dcount);
                         }
                         jc_history_add_tool_result(hist, call_id, dtext, 1);
+                        jc_app_why_note(app, name_copy, args_copy, 1,
+                                        "you declined it at the prompt", dtext);
                         app->tool_refusals++; /* M638: a fence, counted apart */
                         if (cb->on_tool_result != NULL) {
                             cb->on_tool_result(cb->user, name_copy,
@@ -2899,6 +4195,25 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                      * three proposals and accepting the fourth is ordinary use
                      * and must not be mistaken for thrashing. */
                     consec_deny = 0;
+                    /* M762: how it was approved, as the front end reported it. */
+                    switch (app->why_approval) {
+                    case JC_WHY_APPROVED_PROMPT:
+                        allow_why = "you approved it at the prompt";
+                        break;
+                    case JC_WHY_APPROVED_ALWAYS:
+                        allow_why = "you chose \"always\" for this tool at the prompt";
+                        break;
+                    case JC_WHY_ALWAYS_LIST:
+                        allow_why = "you chose \"always\" for this tool earlier in "
+                                    "this session";
+                        break;
+                    case JC_WHY_APPROVED_EDITED:
+                        allow_why = "you edited its arguments, then approved it";
+                        break;
+                    default:
+                        allow_why = "it was approved at the prompt";
+                        break;
+                    }
                     /* The user edited the args before approving (M68): run with
                      * the edited call, so the scope/hook checks below and the
                      * tool itself see the new args. `edited` is malloc'd, and
@@ -2908,13 +4223,37 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                         args_copy = edited;
                     }
                 } else {
+                    /* M849: inside this branch a delegate's call is a shell
+                     * call (see the condition above). It reaches here when the
+                     * delegate was given no way to ask -- headless, an editor
+                     * session (ACP forwards no callbacks into a delegate), a
+                     * spawn_parallel child (another process), or the TUI under
+                     * -q -- and "headless mode" would be false in three of
+                     * those, so the delegate's refusal names its own reason. */
+                    const char *nomsg = opts->auto_posture
+                        ? "This delegate's shell command needs your approval, and "
+                          "the delegate has no way to ask you here (headless, an "
+                          "editor session, a parallel child, or the TUI with -q). "
+                          "Run the command in the main turn, or re-run with "
+                          "--auto to allow it."
+                        : "Tool requires approval, unavailable in headless mode; "
+                          "re-run with --auto to allow it.";
                     /* M443: a tool the run needed, refused only because nobody
                      * could approve it. The model sees a tool error and may work
                      * around it; the OPERATOR sees nothing unless this is counted. */
                     app->deg_approval++;
-                    jc_history_add_tool_result(hist, call_id,
-                        "Tool requires approval, unavailable in headless mode; "
-                        "re-run with --auto to allow it.", 1);
+                    jc_history_add_tool_result(hist, call_id, nomsg, 1);
+                    /* The main turn's /why detail is unchanged, byte for
+                     * byte; only a delegate's says something new. */
+                    jc_app_why_note(app, name_copy, args_copy, 1,
+                        opts->auto_posture
+                            ? "a delegate's shell command needs approval, and the "
+                              "delegate had no way to ask"
+                            : "it needs approval, and nobody was there to give it",
+                        opts->auto_posture
+                            ? nomsg
+                            : "Tool requires approval, unavailable in headless "
+                              "mode.");
                     app->tool_refusals++; /* M638: a fence, counted apart */
                     if (cb != NULL && cb->on_tool_result != NULL) {
                         cb->on_tool_result(cb->user, name_copy,
@@ -2931,13 +4270,16 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
              * tools). Enforced at ANY depth (M133) so a delegated child can't
              * escape the scope via the shell; journaling stays depth-0 only. */
             if (env_scope_fence(app) && app->env->strict_scope &&
-                strcmp(gate_name, "run_terminal_command") == 0) {
+                jc_tool_name_runs_shell(gate_name)) { /* M846 (PAR-2): run_tests too */
                 char bmsg[820];
                 block_message(app, name_copy, "run_terminal_command",
                     "run_terminal_command is disabled by --strict-scope while an "
                     "edit-scope is active; edit files with edit_file/write_file "
                     "(within the scope) instead.", bmsg, sizeof(bmsg));
                 jc_history_add_tool_result(hist, call_id, bmsg, 1);
+                jc_app_why_note(app, name_copy, args_copy, 1,
+                    "--strict-scope refuses the shell while an edit scope is set",
+                    bmsg);
                 app->tool_refusals++; /* M638: a fence, counted apart */
                 if (cb != NULL && cb->on_tool_result != NULL) {
                     cb->on_tool_result(cb->user, name_copy,
@@ -2982,6 +4324,9 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     "without --edit-scope.",
                     bmsg, sizeof(bmsg));
                 jc_history_add_tool_result(hist, call_id, bmsg, 1);
+                jc_app_why_note(app, name_copy, args_copy, 1,
+                    "the edit scope cannot see the paths this tool would change",
+                    bmsg);
                 app->tool_refusals++; /* M638: a fence, counted apart */
                 if (cb != NULL && cb->on_tool_result != NULL) {
                     cb->on_tool_result(cb->user, name_copy, bmsg, 1,
@@ -3016,6 +4361,8 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                                     : "Path outside the run's --edit-scope.",
                                 bmsg, sizeof(bmsg));
                             jc_history_add_tool_result(hist, call_id, bmsg, 1);
+                            jc_app_why_note(app, name_copy, args_copy, 1,
+                                "the edit scope does not include that path", bmsg);
                         }
                         jc_sb_free(&sm);
                     }
@@ -3053,6 +4400,8 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     const char *why = (hr.reason.len > 0) ? hr.reason.data
                         : "Tool call blocked by a PreToolUse hook.";
                     jc_history_add_tool_result(hist, call_id, why, 1);
+                    jc_app_why_note(app, name_copy, args_copy, 1,
+                                    "a PreToolUse hook blocked it", why);
                     if (cb != NULL && cb->on_tool_result != NULL) {
                         cb->on_tool_result(cb->user, name_copy,
                                            "blocked (hook)", 1,
@@ -3092,9 +4441,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
              * is what makes the revert rule provable rather than a guess: if no
              * shell command ran this run, an out-of-scope change cannot have
              * come from the run, because every other write path is fenced. */
-            if (app->env != NULL &&
-                (strcmp(gate_name, "run_terminal_command") == 0 ||
-                 strcmp(gate_name, "run_tests") == 0)) {
+            if (app->env != NULL && jc_tool_name_runs_shell(gate_name)) { /* M846 */
                 app->env->shell_ran = 1;
             }
 
@@ -3134,35 +4481,243 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                 {
                     int sv_capped = app->last_run_capped;
                     int sv_budget = app->last_run_budget_stopped;
+                    int sv_looped = app->last_run_looped;   /* M869 */
                     int sv_cls = app->last_fail_cls;
+                    int sv_fstop = app->last_fail_stopped;   /* M885 */
+                    int sv_repeat = app->last_fail_repeat;   /* M808 */
                     char sv_tool[64];
                     char sv_msg[200];
+                    /* M876: a nested run resets and sets these too */
+                    char sv_merr[200];
+                    int sv_mattempts = app->last_model_attempts;
+                    long sv_mt0 = app->last_model_t0;
+                    long sv_mt1 = app->last_model_t1;
+                    int sv_counts[JC_FAIL_CLASS_COUNT];
                     jc_snprintf(sv_tool, sizeof sv_tool, "%s",
                                 app->last_fail_tool);
                     jc_snprintf(sv_msg, sizeof sv_msg, "%s", app->last_fail_msg);
+                    jc_snprintf(sv_merr, sizeof sv_merr, "%s",
+                                app->last_model_error);
+                    memcpy(sv_counts, app->fail_cls_count, sizeof sv_counts);
 
+                    /* M849: not for a shell call -- a delegate's is asked like
+                     * the main turn's, and an approval keeps its own why. */
+                    if (verdict == JC_APPROVAL_ASK && opts->auto_posture &&
+                        !jc_tool_name_runs_shell(gate_name)) {
+                        allow_why = "a delegated task's auto posture runs it "
+                                    "without asking";
+                    }
+                    jc_app_why_note(app, name_copy, args_copy, 0, allow_why, NULL);
+                    why_seq = app->why.seq;
+                    /* M863 (N44 (a)): in a parallel write child, a git command
+                     * that discards work or moves HEAD runs only after jichi has
+                     * kept the worktree's state. Workers did it against their
+                     * task texts (run 0090: 7 `git checkout <file>`, a `reset
+                     * --hard`, and two checkouts of jichi's own commit). */
+                    if (app->parallel_write && jc_tool_name_runs_shell(gate_name)) {
+                        pin_rc = jc_parallel_pre_discard(app, args_copy, pin_ref,
+                                                         sizeof pin_ref);
+                    }
+                    /* M886 (N50): while a child's failing run is being counted,
+                     * the worktree's content before a shell call, so that only a
+                     * call that changed it ends the run (below). */
+                    if (app->agent_depth >= 1 && fail_run > 0 &&
+                        jc_tool_name_runs_shell(gate_name)) {
+                        fp_ok = (jc_snapshot_worktree_fingerprint(
+                                     app->root[0] != '\0' ? app->root : app->cwd,
+                                     fp_before, sizeof fp_before) == JC_OK);
+                    }
+                    app->cmd_stopped = 0;   /* M885: this call's own command */
                     jc_tool_execute(app->tools, name_copy, args_copy, &res, app);
+                    /* D6 (M975): detection of shell edits to worker-owned paths. */
+                    if (app->agent_depth == 0) {
+                        const char *detection = jc_scopededit_post_tool(app);
+                        if (detection != NULL) {
+                            /* Append the detection notice to the tool result using jc_sb. */
+                            struct jc_sb sb;
+                            jc_sb_init(&sb);
+                            if (res.content != NULL) {
+                                jc_sb_append(&sb, res.content);
+                                jc_sb_append(&sb, "\n");
+                            }
+                            jc_sb_append(&sb, detection);
+                            free(res.content);
+                            res.content = sb.data;
+                            /* The tool succeeded; the notice is informational, not a failure.
+                             * A successful sed must not read as a tool error. */
+                            /* F5: leave res.is_error as 0 (the tool succeeded) */
+
+                            /* Write journal lines for each changed path. The post_tool function
+                             * emits telemetry events; the journal lines are written here.
+                             * C89 requires declarations at block top. */
+                            if (env_active(app)) {
+                                const char *p;
+                                char path_buf[4096];
+                                size_t len;
+                                cJSON *jo;
+                                /* Get the changed paths from detection. Detection is a comma-separated
+                                 * list: "paths changed outside the file tools: path1, path2, ..." */
+                                if (strncmp(detection, "paths changed outside the file tools: ", 38) == 0) {
+                                    p = detection + 38;
+                                    len = 0;
+                                    while (*p != '\0') {
+                                        if (*p == ',') {
+                                            /* End of one path */
+                                            if (len > 0 && len < sizeof(path_buf)) {
+                                                path_buf[len] = '\0';
+                                                jo = jc_env_journal_begin(app->env, "scoped_edit");
+                                                if (jo != NULL) {
+                                                    cJSON_AddStringToObject(jo, "path", path_buf);
+                                                    cJSON_AddStringToObject(jo, "kind", "detected");
+                                                }
+                                                jc_env_journal_end(app->env, jo);
+                                            }
+                                            len = 0;
+                                            p++;
+                                            /* Skip space after comma */
+                                            while (*p == ' ')
+                                                p++;
+                                        } else {
+                                            if (len < sizeof(path_buf) - 1) {
+                                                path_buf[len] = *p;
+                                                len++;
+                                            }
+                                            p++;
+                                        }
+                                    }
+                                    /* Last path (no trailing comma) */
+                                    if (len > 0 && len < sizeof(path_buf)) {
+                                        path_buf[len] = '\0';
+                                        jo = jc_env_journal_begin(app->env, "scoped_edit");
+                                        if (jo != NULL) {
+                                            cJSON_AddStringToObject(jo, "path", path_buf);
+                                            cJSON_AddStringToObject(jo, "kind", "detected");
+                                        }
+                                        jc_env_journal_end(app->env, jo);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    /* M762: a fence inside the tool (the path fence) refused
+                     * it, or it ran and failed -- unless a nested run or the
+                     * tool's own gate has written a newer record since. */
+                    if (app->why.seq == why_seq) {
+                        if (res.policy_refusal) {
+                            jc_app_why_note(app, name_copy, args_copy, 1,
+                                "the tool refused it itself (the path fence, or "
+                                "one of its own rules)", res.content);
+                        } else if (res.is_error) {
+                            char fl[240];
+                            jc_size fn = 0;
+                            const char *rc = res.content != NULL ? res.content : "";
+                            while (rc[fn] != '\0' && rc[fn] != '\n' &&
+                                   fn + 1 < sizeof(fl)) {
+                                fl[fn] = rc[fn];
+                                fn++;
+                            }
+                            fl[fn] = '\0';
+                            app->why.failed = 1;
+                            jc_snprintf(app->why.told, sizeof(app->why.told),
+                                        "%s", fl);
+                        }
+                    }
 
                     app->last_run_capped = sv_capped;
                     app->last_run_budget_stopped = sv_budget;
+                    app->last_run_looped = sv_looped;   /* M869 */
                     app->last_fail_cls = sv_cls;
+                    app->last_fail_stopped = sv_fstop;   /* M885 */
+                    app->last_fail_repeat = sv_repeat;   /* M808 */
                     jc_snprintf(app->last_fail_tool,
                                 sizeof app->last_fail_tool, "%s", sv_tool);
                     jc_snprintf(app->last_fail_msg,
                                 sizeof app->last_fail_msg, "%s", sv_msg);
+                    jc_snprintf(app->last_model_error,
+                                sizeof app->last_model_error, "%s", sv_merr);
+                    app->last_model_attempts = sv_mattempts;
+                    app->last_model_t0 = sv_mt0;
+                    app->last_model_t1 = sv_mt1;
+                    memcpy(app->fail_cls_count, sv_counts, sizeof sv_counts);
                 }
+                /* M806 (R6): while t0 is still live, measure this call's wall-time
+                 * and, for a shell command, derive its normalised loop key and
+                 * whether it was cut off at its own `timeout` bound. Both feed the
+                 * loop detector below -- on the SUCCESS path too, since a command
+                 * piped into `head` exits 0 yet still ran to its limit. */
+                tool_dur_ms = jc_now_millis() - t0;
+                if (jc_tool_name_runs_shell(gate_name)) { /* M846: run_tests too */
+                    cJSON *aj = jc_json_parse(args_copy);
+                    if (aj != NULL) {
+                        const char *cmd = jc_json_get_str(aj, "command", NULL);
+                        if (cmd != NULL) {
+                            jc_toolloop_shell_norm(cmd, tool_normcmd,
+                                                   sizeof tool_normcmd);
+                            tool_at_bound = jc_toolloop_at_bound(cmd, tool_dur_ms);
+                        }
+                        cJSON_Delete(aj);
+                    }
+                }
+                /* M1041-d: the fail_class field records the class of a FAILED call only.
+                 * It is written with the telemetry event and transcript copy on the same
+                 * condition as the loop detector: res.is_error || tool_at_bound. The
+                 * classification is computed inside that condition to avoid re-doing it.
+                 * The loop detector uses this exact predicate at line 4771. */
                 {
+                    int is_rec = (call_id != NULL &&
+                                  strncmp(call_id, "rec-", 4) == 0);
                     cJSON *o = telem(app, "tool_call");
                     if (o != NULL) {
                         char summary[160];
                         cJSON_AddStringToObject(o, "name", name_copy);
+                        if (is_rec) {
+                            /* M949: this call arrived recovered from the
+                             * reply text, not on the native wire. */
+                            cJSON_AddStringToObject(o, "recovered", "text");
+                        }
                         /* ok + error + exit, from one predicate (M536). */
                         stamp_outcome(o, res.is_error, res.exit_status);
+                        /* M1041-d: write fail_class on failed calls only. This matches
+                         * the loop detector's condition (res.is_error || tool_at_bound)
+                         * so the field means 'the class of a FAILED call' exactly like
+                         * the model_call row (which writes it only on failure). */
+                        if (res.is_error || tool_at_bound) {
+                            const char *content = res.content ? res.content : "";
+                            enum jc_fail_class fcls = tool_at_bound
+                                ? JC_FAIL_AT_BOUND
+                                : jc_fail_classify(content, res.exit_status, gate_name,
+                                                   res.policy_refusal);
+                            cJSON_AddStringToObject(o, "fail_class",
+                                                    jc_fail_class_name(fcls));
+                        }
                         cJSON_AddNumberToObject(o, "duration_ms",
                                                 jc_now_millis() - t0);
                         cJSON_AddNumberToObject(o, "output_bytes",
                             (double)(res.content != NULL
                                      ? (long)strlen(res.content) : 0));
+                        /* M805 (P4a): free space + free inodes on the workspace
+                         * filesystem, sampled the moment this tool finished. It
+                         * is a MEASUREMENT, not a guard -- nothing here refuses
+                         * to run; the field exists so the telemetry corpus can
+                         * tell us where the real floors are before P4b turns any
+                         * of them into a fence. Omitted entirely when the sample
+                         * could not be taken (jc_disk_space returns non-OK), so a
+                         * missing field means "unknown", never "zero free". The
+                         * canonical workspace root is where edits and the pool's
+                         * worktrees land; fall back to cwd before it is set. */
+                        {
+                            const char *fs = app->root[0] != '\0'
+                                             ? app->root : app->cwd;
+                            double free_mb = -1.0, free_files = -1.0;
+                            if (fs[0] != '\0' &&
+                                jc_disk_space(fs, &free_mb, &free_files)
+                                    == JC_OK) {
+                                cJSON_AddNumberToObject(o, "disk_free_mb",
+                                                        free_mb);
+                                cJSON_AddNumberToObject(o, "disk_free_files",
+                                                        free_files);
+                            }
+                        }
                         jc_tool_arg_summary(name_copy, args_copy,
                                             summary, sizeof(summary));
                         if (summary[0] != '\0') {
@@ -3194,6 +4749,36 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                         }
                     }
                     jc_eventlog_end(app->telemetry, o);
+                    /* M807: mirror this call into a child's transcript (name,
+                     * outcome, exit, redacted args + output). Same reasoning
+                     * record as the model reply above; NULL for a lead run. */
+                    if (app->transcript != NULL) {
+                        cJSON *to = jc_eventlog_begin(app->transcript, "tool_call");
+                        if (to != NULL) {
+                            cJSON_AddStringToObject(to, "name", name_copy);
+                            stamp_outcome(to, res.is_error, res.exit_status);
+                            /* M1041-d: write fail_class on failed calls only. The same
+                             * condition as the telemetry event and loop detector:
+                             * res.is_error || tool_at_bound. */
+                            if (res.is_error || tool_at_bound) {
+                                const char *content = res.content ? res.content : "";
+                                enum jc_fail_class fcls = tool_at_bound
+                                    ? JC_FAIL_AT_BOUND
+                                    : jc_fail_classify(content, res.exit_status, gate_name,
+                                                       res.policy_refusal);
+                                cJSON_AddStringToObject(to, "fail_class",
+                                                        jc_fail_class_name(fcls));
+                            }
+                            cJSON_AddNumberToObject(to, "duration_ms",
+                                                    tool_dur_ms);
+                            jc_eventlog_add_text(to, "args", args_copy,
+                                                 JC_EVENTLOG_TEXT_MAX);
+                            jc_eventlog_add_text(to, "output",
+                                res.content != NULL ? res.content : "",
+                                JC_EVENTLOG_TEXT_MAX);
+                        }
+                        jc_eventlog_end(app->transcript, to);
+                    }
                 }
             }
             /* PostToolUse hooks (M25): observe the result; any additional
@@ -3257,6 +4842,76 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     jc_sb_append(&combined, "\n\n[jichi] ");
                     jc_sb_append(&combined, redo_note);
                 }
+                /* M852 (N36): in a write child whose shell M831 fences, a shell
+                 * command that failed on a permission error was most likely a
+                 * write the fence refused -- and nothing said so: the kernel
+                 * refuses, the tool prints its own error ("Cannot create
+                 * temporary file ...: Permission denied", measured), and the
+                 * model chases the build instead of the fence. Fold in one line
+                 * naming the fence, worded as a possibility because a READ
+                 * error matches the same text. Counted, so the batch result can
+                 * say how often it happened. */
+                if (app->shell_fenced && jc_tool_name_runs_shell(gate_name) &&
+                    jc_landlock_permission_error(content)) {
+                    if (!have_combined) {
+                        jc_sb_init(&combined);
+                        jc_sb_append(&combined, content);
+                        have_combined = 1;
+                    }
+                    jc_sb_append(&combined,
+                        "\n\n[jichi] This shell is fenced (M831): it may write only "
+                        "in your worktree, in your temp dir ($TMPDIR), and in the "
+                        "directories the operator listed in shellFenceAllow. If "
+                        "the error above is a write elsewhere being refused, write "
+                        "inside your worktree instead, or say in your answer that "
+                        "the task needs that directory.");
+                    app->fence_hints++;
+                }
+                /* M863: the state kept before this command, named where the
+                 * model reads the command's result. */
+                if (pin_rc != 0) {
+                    if (!have_combined) {
+                        jc_sb_init(&combined);
+                        jc_sb_append(&combined, content);
+                        have_combined = 1;
+                    }
+                    if (pin_rc > 0) {
+                        jc_sb_append_fmt(&combined,
+                            "\n\n[jichi] Before this command, jichi kept your "
+                            "worktree as it was -- uncommitted changes, untracked "
+                            "files and HEAD -- as %s. `git diff %s` shows what the "
+                            "command changed; `git checkout %s -- <path>` brings a "
+                            "file back. To compare with the base without discarding "
+                            "anything, use `git diff` or `git show HEAD:<path>`.",
+                            pin_ref, pin_ref, pin_ref);
+                    } else {
+                        jc_sb_append(&combined,
+                            "\n\n[jichi] jichi could not keep your worktree before "
+                            "this command, so what it discarded is not kept.");
+                    }
+                }
+                /* M855 (N34): in a parallel write child, `git stash` uses the
+                 * shadow repo's ONE stash stack, which every sibling's worktree
+                 * shares (measured, git 2.43: one worktree's `git stash pop`
+                 * applied another's entry), and a stashed change is not in the
+                 * worktree jichi keeps or merges. Say so where the model acts on
+                 * it -- the drive's children stashed 57 times in seven runs. */
+                if (app->parallel_write &&
+                    (strcmp(gate_name, "git_stash") == 0 ||
+                     (jc_tool_name_runs_shell(gate_name) &&
+                      args_runs_git_stash(args_copy)))) {
+                    if (!have_combined) {
+                        jc_sb_init(&combined);
+                        jc_sb_append(&combined, content);
+                        have_combined = 1;
+                    }
+                    jc_sb_append(&combined,
+                        "\n\n[jichi] In a parallel write child, the stash is "
+                        "shared with every other child of this batch: a `git stash "
+                        "pop` can apply another child's change, and a stashed "
+                        "change is not part of the work jichi keeps and merges for "
+                        "you. Commit instead: a commit in your worktree is kept.");
+                }
                 /* M432: the in-turn loop detector. Folded in HERE, beside the M105
                  * redo note, because this is the one point where the failure text
                  * is still in hand -- at the `metrics` telemetry tier a tool_call
@@ -3268,26 +4923,85 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                  * through block_message, M429, whose advice is the opposite) and a
                  * verify is not a tool call (M89). Any depth: a subagent loops just
                  * as easily, and the note goes into whichever history is looping. */
-                if (res.is_error) {
-                    enum jc_fail_class fcls =
-                        jc_fail_classify(content, res.exit_status);
+                if (res.is_error || tool_at_bound) {
+                    /* M806 (R6): a call cut off at its OWN time limit is a loop
+                     * signal whatever its exit code -- so at-bound enters here even
+                     * when the pipeline reported 0. When it did, the class is
+                     * AT_BOUND and the key is the normalised command, so the same
+                     * check spelled six ways collapses to one exact key. */
+                    enum jc_fail_class fcls = tool_at_bound
+                        ? JC_FAIL_AT_BOUND
+                        : jc_fail_classify(content, res.exit_status, gate_name,
+                                           res.policy_refusal);
+                    const char *loopkey = tool_at_bound ? tool_normcmd : args_copy;
                     int lcount = 0;
                     enum jc_toolloop_verdict lv;
-                    /* M437: record it for the delegation report. The class is
-                     * already computed here for the loop detector, and it is
-                     * exactly the denied/not_found/bad_args distinction a parent
-                     * needed -- so the report costs one copy, not a new analysis.
-                     * Any depth: the run that reports is whichever one returns. */
-                    jc_snprintf(app->last_fail_tool,
-                                sizeof app->last_fail_tool, "%s", name_copy);
-                    jc_snprintf(app->last_fail_msg,
-                                sizeof app->last_fail_msg, "%s",
-                                (content != NULL) ? content : "");
-                    app->last_fail_cls = (int)fcls;
-                    lv = jc_toolloop_note(&toolloop, name_copy, args_copy, fcls,
+                    /* M437: record it for the delegation report -- but only a
+                     * genuine error is a failure to report to a parent; an at-bound
+                     * SUCCESS is not a failure, only a loop signal. The class is
+                     * already computed here, exactly the distinction a parent
+                     * needed, so the report costs one copy, not a new analysis. */
+                    if (res.is_error) {
+                        jc_snprintf(app->last_fail_tool,
+                                    sizeof app->last_fail_tool, "%s", name_copy);
+                        jc_snprintf(app->last_fail_msg,
+                                    sizeof app->last_fail_msg, "%s",
+                                    (content != NULL) ? content : "");
+                        app->last_fail_cls = (int)fcls;
+                        /* M885 (N47, continued): a shell call whose command
+                         * jc_app_run_command_ex killed because this run was
+                         * being stopped -- the call did not meet a limit. */
+                        app->last_fail_stopped =
+                            (jc_tool_name_runs_shell(name_copy) &&
+                             app->cmd_stopped) ? 1 : 0;
+                        if ((int)fcls >= 0 && (int)fcls < JC_FAIL_CLASS_COUNT) {
+                            app->fail_cls_count[fcls]++;   /* M876 (N47 (c)) */
+                        }
+                    }
+                    lv = jc_toolloop_note(&toolloop, name_copy, loopkey, fcls,
                                           &lcount);
+                    /* M869 (N27): a CHILD's failure loop ends it, as M829 ends a
+                     * success loop -- M432 only warned, so run 0015's worker sent one
+                     * refused call 742 times until an overflow ended it. (a) the same
+                     * refused call at M829's threshold (the exact key: the same tool
+                     * and arguments); (b) copied placeholders three in a row, sooner,
+                     * because arguments that are gone cannot be rephrased back. */
+                    if (content != NULL &&
+                        strncmp(content, "error: those are not arguments", 30) == 0) {
+                        placeholder_run++;
+                    } else {
+                        placeholder_run = 0;
+                    }
+                    {
+                        unsigned long kn = (unsigned long)strlen(loopkey);
+                        unsigned long kh = jc_reread_hash(loopkey, kn) ^
+                            (jc_reread_hash(name_copy,
+                                            (unsigned long)strlen(name_copy)) * 31UL);
+                        if (fail_run > 0 && kh == fail_key_h && kn == fail_key_n) {
+                            fail_run++;
+                        } else {
+                            fail_key_h = kh;
+                            fail_key_n = kn;
+                            fail_run = 1;
+                        }
+                    }
+                    if (app->agent_depth >= 1 && noprog_stop == 0) {
+                        if (placeholder_run >= JC_PLACEHOLDER_STOP_AT) {
+                            noprog_stop = 3;
+                            app->last_fail_repeat = placeholder_run;
+                        } else if (fail_run >= JC_NOPROGRESS_STOP_AT) {
+                            noprog_stop = 2;
+                            app->last_fail_repeat = fail_run;
+                        }
+                    }
                     if (lv != JC_TOOLLOOP_NONE) {
                         char lnote[600];
+                        /* M808: remember the repeat count for the end record's
+                         * `repeated` line -- the same counter, surfaced, not a new
+                         * one. Highest wins, so a later smaller loop cannot mask it. */
+                        if (lcount > app->last_fail_repeat) {
+                            app->last_fail_repeat = lcount;
+                        }
                         jc_toolloop_render(lv, name_copy, fcls, lcount,
                                            lnote, sizeof lnote);
                         if (lnote[0] != '\0') {
@@ -3338,11 +5052,82 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                      * is looping. */
                     enum jc_noprogress_role prole = jc_noprogress_role(
                         gate_name, tool != NULL ? tool->readonly : 0);
+                    placeholder_run = 0;   /* M869: a call that worked breaks the run */
+                    /* M895 (the demos drive's N54 (b)): a command that succeeds and
+                     * prints nothing, again and again in one turn. Six workers re-ran
+                     * a passing `zig build test` looking for output -- nine times in
+                     * run 0106 -- spelled differently each time, so neither M829 nor
+                     * M870 saw a repeat. Counted by the normalised command; from the
+                     * third, the result says what the silence means. */
+                    if (jc_tool_name_runs_shell(gate_name) && res.exit_status == 0 &&
+                        tool_normcmd[0] != '\0' && content != NULL &&
+                        strncmp(content, JC_RUN_SILENT_OK,
+                                sizeof JC_RUN_SILENT_OK - 1) == 0) {
+                        int sc = silent_count(silent_h, silent_n, silent_c, &nsilent,
+                                              tool_normcmd);
+                        if (sc >= JC_SILENT_NOTE_AT) {
+                            char snote[420];
+                            jc_snprintf(snote, sizeof snote,
+                                "\n[jichi] This command has succeeded silently %d "
+                                "times in this turn. Exit status 0 with no output "
+                                "means it passed: it prints nothing when it "
+                                "succeeds, and running it again on an unchanged tree "
+                                "will not show more.", sc);
+                            if (!have_combined) {
+                                jc_sb_init(&combined);
+                                jc_sb_append(&combined, content);
+                                have_combined = 1;
+                            }
+                            jc_sb_append(&combined, snote);
+                            jc_logf(JC_LOG_INFO,
+                                    "silent success: %s succeeded with no output %dx "
+                                    "this turn", name_copy, sc);
+                        }
+                    }
+                    /* M869, amended: a change ends a failing run -- an edit, or a
+                     * shell command that worked AND changed the worktree's content
+                     * (M886, the demos drive's N50). Run 0104's probe read code with
+                     * `sed -n` and `grep` between 15 runs of one failing command;
+                     * every read reset the count, so the stop at 9 never came.
+                     * Content, not `git status`: a second edit to a file already
+                     * modified keeps its status line. When it cannot tell -- the top
+                     * level, no failing run, no git -- it resets, as before. */
+                    if (prole == JC_NOPROGRESS_RESET) {
+                        fail_run = 0;
+                    } else if (jc_tool_name_runs_shell(gate_name)) {
+                        char fp_after[72];
+                        if (!fp_ok ||
+                            jc_snapshot_worktree_fingerprint(
+                                app->root[0] != '\0' ? app->root : app->cwd,
+                                fp_after, sizeof fp_after) != JC_OK ||
+                            strcmp(fp_before, fp_after) != 0) {
+                            fail_run = 0;
+                        }
+                    }
                     if (prole == JC_NOPROGRESS_RESET) {
                         jc_noprogress_reset(&noprog);
                     } else if (prole == JC_NOPROGRESS_COUNT) {
                         int pcount = jc_noprogress_note(&noprog, gate_name,
                                                         args_copy, content);
+                        /* M829 (N4b): a CHILD (depth >= 1) whose whole task is one
+                         * turn has no next turn to change course, so end it when the
+                         * same successful call reaches the stop threshold (after the
+                         * warnings at 3 and 6). Record the repeat count for its end
+                         * record (M808). The top level (depth 0) only warns -- it has
+                         * more turns and an operator. */
+                        if (pcount >= JC_NOPROGRESS_STOP_AT &&
+                            app->agent_depth >= 1) {
+                            noprog_stop = 1;
+                            app->last_fail_repeat = pcount;
+                        }
+                        /* M870 (N21): a child cycling through calls it has made
+                         * before, in any order, with nothing new among the last
+                         * JC_NOVELTY_WINDOW -- the shape M829 cannot see. */
+                        if (noprog.stale >= JC_NOVELTY_WINDOW &&
+                            app->agent_depth >= 1 && noprog_stop == 0) {
+                            noprog_stop = 4;
+                            app->last_fail_repeat = noprog.stale;
+                        }
                         if (pcount > 0) {
                             char pnote[400];
                             jc_noprogress_render(name_copy, pcount,
@@ -3386,14 +5171,22 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                  * that is what the model reads when it decides what next. */
                 if (advise_rule >= 0 && advise_rule < JC_CONSTRAINT_MAX &&
                     !advised[advise_rule]) {
-                    char anote[512];
+                    char anote[800];
+                    /* M872 (N45 (b)): with the words it was read from, so the
+                     * model can tell a rule the request states from one jichi
+                     * misread -- the judgement the note asks it to make. */
+                    const char *asrc = (advise_rule < app->n_constraints)
+                        ? app->constraints[advise_rule].source : NULL;
                     advised[advise_rule] = 1;
                     jc_snprintf(anote, sizeof anote,
                         "\n\n[jichi] note: this call goes against a rule jichi "
-                        "inferred from your request -- \"%s\". Inferred rules "
-                        "are advisory, so it ran. If the request really forbids "
-                        "this, stop and say so in your final answer.",
-                        advise_text);
+                        "inferred from your request -- \"%s\"%s%s%s. Inferred "
+                        "rules are advisory, so it ran. If the request really "
+                        "forbids this, stop and say so in your final answer.",
+                        advise_text,
+                        asrc != NULL ? ", read from: \"" : "",
+                        asrc != NULL ? asrc : "",
+                        asrc != NULL ? "\"" : "");
                     if (!have_combined) {
                         jc_sb_init(&combined);
                         jc_sb_append(&combined, content);
@@ -3402,8 +5195,11 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     jc_sb_append(&combined, anote);
                     jc_logf(JC_LOG_WARN,
                             "[constraint] %s went against an inferred rule "
-                            "(advisory, not enforced): %s", name_copy,
-                            advise_text);
+                            "(advisory, not enforced): %s%s%s%s", name_copy,
+                            advise_text,
+                            asrc != NULL ? " (from \"" : "",
+                            asrc != NULL ? asrc : "",
+                            asrc != NULL ? "\")" : "");
                 }
                 jc_history_add_tool_result(hist, call_id,
                     have_combined ? combined.data : content, res.is_error);
@@ -3432,6 +5228,12 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
              * reconciles each child's piped count. */
             if (env_budget_applies(app)) {
                 app->env->tool_calls_executed++;
+                /* M892: a call that can change a file -- anything but a READ.
+                 * The fallback witness, where git cannot fingerprint the
+                 * worktree, for "nothing changed after the failed check". */
+                if (jc_agent_tool_category(gate_name) != JC_TOOLCAT_READ) {
+                    app->env->changing_executed++;
+                }
             }
             if (env_active(app)) {
                 cJSON *jo;
@@ -3470,6 +5272,23 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
              * boundary below, because a user message between two tool results of
              * the same round is malformed (M364's contract). */
             jc_control_poll(app);
+        }
+        /* M1083 (D-08): the tool-round boundary -- every call of THIS round has
+         * its result landed, so the history is a consistent prefix. Persist the
+         * live session here (top-level only, throttled, durable) so a SIGKILL /
+         * OOM-kill mid-turn loses at most the in-flight round rather than the
+         * whole conversation. Placed BEFORE the control/steering fold-in below:
+         * a boundary that injects a new user message must not land on disk while
+         * the round it follows is still only half-saved -- the saved history
+         * must always be the consistent prefix, never a prefix that stops in the
+         * middle of an in-flight round. */
+        agent_loop_midturn_persist(app, hist);
+        /* M853 (N32): a delegate's finish-like call ended its turn (above).
+         * Every call of the round has its result; the message becomes the
+         * assistant's reply, the shape of any final answer. */
+        if (finish_answer != NULL) {
+            jc_history_add(hist, JC_ROLE_ASSISTANT, finish_answer);
+            return JC_OK;
         }
         /* M159: the control-channel boundary. Serve any waiting supervisor
          * commands (status/inject/pause/resume/abort) now that the world is
@@ -3571,13 +5390,77 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
             ndup = mrep.dup;
             nargs = mrep.args;
             first_midturn = 0;
-            /* M358: the dynamic half of the context gauge. The first PRESSED
-             * pass of this loop tells the model once -- the operator already
-             * had warned_short and the TUI ctx%, the model had only the
-             * per-message elision markers, which explain one output and
-             * never say "change how you read". Any depth: each (sub)agent
-             * flies its own window. */
-            note_now = (!ctx_noticed && mrep.pressed);
+            /* M920: the relay's decision, from the pass just measured -- the
+             * five triggers of proposal 6.2 as a pure function, so the loop
+             * never re-derives the policy. Off by default (config.relay = 0,
+             * the core then returns CONTINUE on every signal). The check runs
+             * at EVERY round's compaction point, so the unrelieved streak is
+             * consecutive passes; the handover itself waits for the round
+             * boundary below, where the history is whole. */
+            /* Only at depth 0: a nested delegate runs on the SAME app, and
+             * relay_handover is a lead-level flag -- a child's exhausted
+             * window must not end the LEAD's run as a handover (the M347/
+             * last_run_capped depth rule, the same reason). */
+            if (app->config.relay && app->agent_depth == 0 && !relay_stop) {
+                struct relay_signal rs;
+                struct relay_cfg rc;
+                enum relay_action ra;
+                enum relay_reason rr;
+                rs.pressed = mrep.pressed;
+                rs.reached = mrep.reached;
+                rs.unrelieved = mrep.unrelieved;
+                rs.latched = mrep.latched;
+                rs.overflow = app->ctx_overflow;
+                rs.server_tokens = app->last_prompt_tokens;
+                rs.limit = mrep.limit;
+                /* M951 (E5, V2): the leg budget, wired. The cap is the
+                 * operator's (--max-tool-calls / the seeded leg's baton
+                 * budget, which by construction is <= it), and the leg's tool
+                 * calls are counted env-independently. 0 cap = E5 off: the
+                 * trigger can never fire and the decision is unchanged from
+                 * M920. Topology-B legs (leg count) stay next milestone. */
+                {
+                    jc_size e5_cap =
+                        (app->relay_leg_calls_prev > 0)
+                            ? (jc_size)app->relay_leg_calls_prev
+                            : (app->env != NULL &&
+                               app->env->max_tool_calls > 0)
+                              ? (jc_size)app->env->max_tool_calls : 0;
+                    rs.leg_calls = (e5_cap > 0)
+                                         ? (jc_size)app->relay_leg_calls
+                                         : 0;
+                    rc.leg_calls_max = e5_cap;
+                }
+                rc.relay_on = 1;
+                rc.trigger = 0;
+                rc.hard_pct = 90;
+                rc.legs_max = 1;
+                ra = relay_decide(&rs, &rc, &relay_st, &rr);
+                if (ra != JC_RELAY_CONTINUE) {
+                    relay_stop = 1;
+                    /* M921 (sub-slice B): keep the trigger's name for the
+                     * baton's header (the headless tail writes the notes
+                     * where rr is out of scope). relay_reason_name is
+                     * "unknown" at worst, never NULL. */
+                    jc_snprintf(app->relay_reason_name,
+                                sizeof(app->relay_reason_name), "%s",
+                                relay_reason_name(rr));
+                    jc_logf(JC_LOG_WARN,
+                            "[relay] window exhausted (%s) -- ending this run "
+                            "at the round boundary; the next leg continues "
+                            "from the notes",
+                            relay_reason_name(rr));
+                }
+            }
+            /* M358: the dynamic half of the context gauge -- the operator
+             * already had warned_short and the TUI ctx%, the model had only the
+             * per-message elision markers, which explain one output and never
+             * say "change how you read". M900 (C1): STANDING -- every PRESSED
+             * pass tells the model (not the first, once, and never again), so
+             * the water-level reading continues for as long as the window is
+             * over the high-water, not a single alarm at the edge. Any depth:
+             * each (sub)agent flies its own window. */
+            note_now = mrep.pressed;
             /* M323: emit when the pass ELIDED something OR when it ran under
              * pressure and could not get there. The second case used to produce
              * no event at all, and it is the one worth seeing: a workload whose
@@ -3745,10 +5628,13 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
             /* M358: the injection itself -- one user-role note at the tail
              * (the M347 control-inject shape, so the M31 cached prefix stays
              * byte-stable), from the pass's own calibrated numbers so the
-             * note and the trigger cannot disagree. */
+             * note and the trigger cannot disagree. M900 (C1): injected on
+             * EVERY pressed round, not latched once -- the standing reading.
+             * The tail vehicle (a user message after the breakpoint) keeps the
+             * cached prefix byte-stable: test_prefix_stable_across_turns is the
+             * guard. */
             if (note_now) {
                 struct jc_sb cn;
-                ctx_noticed = 1;
                 jc_sb_init(&cn);
                 jc_compact_pressure_note(mrep.before, mrep.limit,
                                          mrep.reached, &cn);
@@ -3766,12 +5652,17 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
         /* M81: periodic verify cadence. Run the gate every `verify_every` tool
          * calls so a long implementation turn stays green incrementally instead
          * of thrashing to a budget with a broken build (the dogfood found a
-         * 62-call turn that built only once, then died mid-fix). Top-level +
-         * snapshotted only. On pass: bank a green checkpoint (so a later
-         * budget-exit rolls back less, M80). On fail: feed the parsed failures
-         * back so the model fixes them next round -- no mid-turn rollback (too
-         * disruptive to the model's in-flight edits). */
-        if (env_active(app) && app->agent_depth == 0 && snapshotted &&
+         * 62-call turn that built only once, then died mid-fix). On pass: bank
+         * a green checkpoint (so a later budget-exit rolls back less, M80). On
+         * fail: feed the parsed failures back so the model fixes them next
+         * round -- no mid-turn rollback (too disruptive to the model's
+         * in-flight edits).
+         *
+         * M1048 (G18): un-gated the same way as the completion site. The check
+         * needs a tree, not a checkpoint: green-checkpoint BANKING below stays
+         * behind jc_snapshot_available. The depth is made explicit because
+         * `snapshotted` used to imply it. */
+        if (env_active(app) && app->agent_depth == 0 &&
             app->env->verify_cmd != NULL &&
             jc_env_should_verify_now(app->env->verify_every,
                                      app->env->tool_calls,
@@ -3790,6 +5681,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                                      &app->abort_flag, app->env->verify_timeout);
             jc_test_report_init(&rep);
             jc_testparse(vout.data, &rep);
+            app_record_last_verify(app, code, &rep);  /* M921: for the baton */
             o = jc_env_journal_begin(app->env, "verify");
             if (o != NULL) {
                 cJSON_AddStringToObject(o, "phase", "periodic");
@@ -3906,7 +5798,157 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
             jc_test_report_free(&rep);
             jc_sb_free(&vout);
         }
+        /* M829 (N4b): a depth>=1 child looped on the same successful call to the
+         * stop threshold -- end its one turn now, keeping the work and the last
+         * answer, rather than spin to the iteration cap. */
+        if (noprog_stop) {
+            break;
+        }
+        /* M920: the relay's handover, AT the round boundary -- every tool call
+         * of the round has its result, so the saved history is wire-valid and
+         * the session resumes intact. proposal 6.3: the template is the loop
+         * stop exit above; like it, the work is kept and the run reports WHY. */
+        if (relay_stop && app->agent_depth == 0) {
+            char *account = NULL;
+            int account_cut = 0;
+            /* M951 (V2): the NEXT leg's budget, from THIS leg's measured
+             * growth -- computed BEFORE the account call, which makes a model
+             * call that would otherwise append to the prompt series and skew
+             * the growth. g is the median per-call prompt growth over the
+             * whole leg; P0_next = P0 (this leg's first measured prompt), the
+             * safe direction: the baton's notes make the next prompt bigger,
+             * so using P0 can only make the budget a touch LARGER, never
+             * shorter than needed (tighten-only). A < 2-point series, no
+             * window, or no growth each take the controller's defined
+             * degenerate answer (the cap stands) -- a leg that could not be
+             * measured must not invent a limit. */
+            {
+                /* The configured cap is the operator's bound for THIS leg
+                 * (env->max_tool_calls; 0 when a plain -p leg has no envelope).
+                 * The baton's previous-leg budget only ever SHORTENS it --
+                 * min, so an operator who lowers the cap for this leg is
+                 * honoured, and the baton can never raise a leg above the
+                 * configured bound (tighten-only). */
+                long cap_l = (app->env != NULL)
+                                 ? (long)app->env->max_tool_calls
+                                 : 0;
+                if (cap_l > 0 && app->relay_leg_calls_prev > 0 &&
+                    (long)app->relay_leg_calls_prev < cap_l) {
+                    cap_l = app->relay_leg_calls_prev;
+                }
+                if (cap_l > 0 && app->relay_prompt_series.len >= 2) {
+                    jc_size n = app->relay_prompt_series.len;
+                    jc_size nd = n - 1;
+                    long *diffs = (long *)malloc(nd * sizeof(long));
+                    if (diffs != NULL) {
+                        long P0;
+                        long g;
+                        long W = jc_compact_context_limit(app);
+                        jc_size i;
+                        for (i = 0; i < nd; i++) {
+                            long a = *(long *)jc_vec_at(
+                                &app->relay_prompt_series, i);
+                            long b = *(long *)jc_vec_at(
+                                &app->relay_prompt_series, i + 1);
+                            diffs[i] = b - a;
+                        }
+                        qsort(diffs, nd, sizeof(long), relay_diff_cmp);
+                        g = diffs[(nd - 1) / 2];   /* lower median, total */
+                        P0 = *(long *)jc_vec_at(
+                            &app->relay_prompt_series, 0);
+                        app->relay_measured_p0 = P0;
+                        app->relay_measured_g = g;
+                        app->relay_measured_w = W;
+                        relay_leg_budget(P0, g, W, P0, (jc_size)cap_l, 0,
+                                         &app->relay_next_leg_calls);
+                        /* M951: measured only when the controller actually
+                         * derived a limit from growth (g > 0 and a window to
+                         * measure against); the degenerate answers (cap
+                         * stands) are not an "adjustment" worth journaling. */
+                        app->relay_measured = (g > 0 && W > 0) ? 1 : 0;
+                        free(diffs);
+                    }
+                }
+                if (app->relay_measured) {
+                    /* M951: the session-history half (telemetry); the run's
+                     * journal gets `budget_adjust` at the baton write. The
+                     * event is metrics-only: the numbers, not any text. */
+                    cJSON *bo = telem(app, "relay");
+                    if (bo != NULL) {
+                        cJSON_AddStringToObject(bo, "phase", "budget");
+                        cJSON_AddNumberToObject(bo, "p0",
+                            (double)app->relay_measured_p0);
+                        cJSON_AddNumberToObject(bo, "g",
+                            (double)app->relay_measured_g);
+                        cJSON_AddNumberToObject(bo, "w",
+                            (double)app->relay_measured_w);
+                        cJSON_AddNumberToObject(bo, "old",
+                            (double)cap_l);
+                        cJSON_AddNumberToObject(bo, "new",
+                            (double)app->relay_next_leg_calls);
+                        jc_eventlog_end(app->telemetry, bo);
+                    }
+                }
+            }
+            /* M921 (sub-slice C): obtain the model's account before the baton
+             * is written. A leaf: any failure falls back to the labelled quote
+             * of the last answer; the handover and the loop's return stand. */
+            relay_account_call(app, hist, prov, opts->system_msg,
+                               &account, &account_cut);
+            free(app->relay_account);
+            app->relay_account = account;
+            app->relay_account_cut = account_cut;
+            app->relay_handover = 1;
+            break;
+        }
         /* Loop again so the model can react to the tool results. */
+    }
+
+    /* M920: the relay's handover, distinguished from the iteration cap. The
+     * break above ended the loop EARLY -- the window was exhausted, not the
+     * iteration count -- so it must not fall into the cap's settlement below:
+     * that sets turn_capped, and jc_agent_stop_reason would report
+     * max_iters over handover. Like the loop stop, the work is kept and the
+     * run returns JC_OK; the reason is read from app->relay_handover, set at
+     * the break. (The baton the reason points at is the follow-up milestone.) */
+    if (relay_stop) {
+        return JC_OK;
+    }
+
+    /* M829 (N4b): the no-progress stop above, distinguished from the iteration cap
+     * so the log and the record say what actually happened. The last answer stands;
+     * the child's end record notes `repeated` (last_fail_repeat, set above). Like the
+     * cap it returns JC_OK -- the work so far is valid. */
+    if (noprog_stop) {
+        static const char *const kinds[] = { "", "same_result", "refused",
+                                             "placeholder", "rotation" };
+        cJSON *lo;
+        if (noprog_stop == 2) {
+            jc_logf(JC_LOG_WARN, "stopping this sub-agent: the same refused call "
+                    "failed the same way %d times", app->last_fail_repeat);
+        } else if (noprog_stop == 3) {
+            jc_logf(JC_LOG_WARN, "stopping this sub-agent: %d copied placeholders "
+                    "in a row instead of arguments", app->last_fail_repeat);
+        } else if (noprog_stop == 4) {
+            jc_logf(JC_LOG_WARN, "stopping this sub-agent: its last %d calls "
+                    "produced nothing it had not seen in the %d before",
+                    app->last_fail_repeat, JC_NOVELTY_WINDOW);
+        } else {
+            jc_logf(JC_LOG_WARN, "stopping this sub-agent: the same successful call "
+                    "returned the same result %d times with no progress",
+                    app->last_fail_repeat);
+        }
+        /* M869: which loop, where an offline reader sees it (any depth). */
+        lo = telem(app, "loop_stop");
+        if (lo != NULL) {
+            cJSON_AddStringToObject(lo, "kind",
+                kinds[(noprog_stop >= 1 && noprog_stop <= 4) ? noprog_stop : 1]);
+            cJSON_AddNumberToObject(lo, "repeat", (double)app->last_fail_repeat);
+        }
+        jc_eventlog_end(app->telemetry, lo);
+        app->last_run_capped = 1;
+        app->last_run_looped = noprog_stop;
+        return JC_OK;
     }
 
     /* The cap is a CIRCUIT BREAKER, not a task failure: the work done so far is
@@ -3969,6 +6011,14 @@ enum jc_run_stop jc_agent_stop_reason(struct jc_app *app, jc_status st)
     if (app->turn_capped) {
         return JC_STOP_MAX_ITERS;
     }
+    if (app->relay_handover) {
+        /* M920: the window was exhausted and the run ended at the round
+         * boundary to hand over. Not budget (no fence fired), not error
+         * (nothing failed), not max_iters (the cap did not run out) -- a
+         * distinct reason, so a supervisor can tell "hand it on" from all
+         * three. */
+        return JC_STOP_HANDOVER;
+    }
     return JC_STOP_DONE;
 }
 
@@ -3978,6 +6028,7 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
 {
     struct jc_run_opts opts;
     struct jc_vec core_allow;
+    struct jc_vec turn_isect;   /* M848: attempt's profile fence x core */
     jc_size i, n;
     jc_status st;
     /* M715: the caller has already added this turn's user message, so every
@@ -3995,7 +6046,7 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
         if (app->config.model.model == NULL ||
             app->config.model.model[0] == '\0') {
             jc_snprintf(why, sizeof(why), "no model is configured -- %s",
-                        jc_config_no_model_advice());
+                        jc_config_no_model_advice_cfg(&app->config));
         } else if (!jc_config_provider_problem(&app->config.model, why,
                                                sizeof(why))) {
             jc_snprintf(why, sizeof(why), "no provider could be created for "
@@ -4009,6 +6060,7 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
     }
 
     jc_vec_init(&core_allow, sizeof(char *));
+    jc_vec_init(&turn_isect, sizeof(char *));
     app->turn_capped = 0;   /* M322: this turn's own cap-exit, not a subagent's */
 
     /* Expose the active callbacks so tools (e.g. spawn_subagent) can forward
@@ -4028,6 +6080,10 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
      * until the next tool call -- or forever, in a session that never runs one. */
     if (app->agent_depth == 0 && app->tool_scratch != NULL) {
         jc_arena_reset(app->tool_scratch);
+    }
+    /* D6 (M975): per-turn scoped-edit state (reset at top-level turn start). */
+    if (app->agent_depth == 0) {
+        jc_scopededit_turn_start(app);
     }
     /* M218: the resets above just handed the previous turn's blocks back to
      * malloc; sweep the free heap back to the OS while it is at its emptiest.
@@ -4078,6 +6134,20 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
         jc_size k = jc_history_len(hist);
         while (k > 0) {
             struct jc_message *m = jc_history_get(hist, k - 1);
+            /* M921 (sub-slice D, proposal 6.7): the relay's SEED is EXEMPT
+             * from this scan. It carries the previous leg's baton (fenced,
+             * untrusted) plus this leg's task; a sentence in the notes ("do
+             * not touch the parser yet") is the previous model's account, not
+             * an instruction the operator gave this leg, and adopting it would
+             * turn a handover note into an enforced rule for the successor.
+             * The fence alone does not exempt: quote_mask only masks
+             * ```/~~~/quotes, and the UNTRUSTED marker is none of those -- so
+             * the exemption is explicit, on the app, set where the seed is
+             * built (headless, depth 0). Checked before the role test so a
+             * seed that is not the last user message still skips the scan. */
+            if (app->relay_seed_active) {
+                break;   /* skip the scan of the seed; the run proceeds */
+            }
             if (m != NULL && m->role == JC_ROLE_USER && m->content != NULL) {
                 int before = app->n_constraints;
                 int added = jc_app_constraints_scan_adopt(app, m->content);
@@ -4097,9 +6167,17 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
                      * that the fix for a misparse is to rephrase and re-run,
                      * not to hunt for a file. */
                     char names[512];
+                    char said[1400];
                     jc_constraint_join_text(app->constraints, before,
                                             app->n_constraints,
                                             names, sizeof names);
+                    /* M872 (N45 (b)): each rule with the sentence it was read
+                     * from. The canonical text alone ("do not commit") could
+                     * not show that run 0091's came from a quoted phrase in a
+                     * question. */
+                    jc_constraint_join_sourced(app->constraints, before,
+                                               app->n_constraints,
+                                               said, sizeof said);
                     /* M734: advisory now, and the notice says so -- an
                      * operator reading "enforced" would expect refusals that
                      * no longer happen. */
@@ -4108,7 +6186,7 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
                             "for THIS SESSION (not enforced, not saved): %s -- "
                             "the model is told to follow it unless the task "
                             "needs otherwise; `/constraints add` makes a rule "
-                            "binding", names);
+                            "binding", said);
                     if (cb != NULL && cb->on_status != NULL) {
                         cb->on_status(cb->user,
                             "inferred constraints from your request "
@@ -4133,6 +6211,28 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
                             /* M734: what a reader of the journal needs to
                              * know about an adoption -- whether it binds. */
                             cJSON_AddBoolToObject(cj, "advisory", 1);
+                            /* M872: the sentences they were read from, each
+                             * once ("source" above says where a rule came
+                             * from in kind; this says in words). */
+                            {
+                                cJSON *fr = cJSON_CreateArray();
+                                int q;
+                                for (q = before; fr != NULL &&
+                                     q < app->n_constraints; q++) {
+                                    const char *s = app->constraints[q].source;
+                                    const char *p = (q > before)
+                                        ? app->constraints[q - 1].source : NULL;
+                                    if (s == NULL ||
+                                        (p != NULL && strcmp(p, s) == 0)) {
+                                        continue;
+                                    }
+                                    cJSON_AddItemToArray(fr,
+                                                         cJSON_CreateString(s));
+                                }
+                                if (fr != NULL) {
+                                    cJSON_AddItemToObject(cj, "from", fr);
+                                }
+                            }
                             jc_env_journal_end(app->env, cj);
                         }
                     }
@@ -4237,6 +6337,27 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
         jc_tool_core_allow(&core_allow);
         opts.allow = &core_allow;
     }
+    /* M848 (def-287): `attempt --agent` fences its one turn to the profile's
+     * `tools:` (app->turn_allow), so the learner tiers differ by tools as
+     * ASSIGNMENTS.md says -- before M848 they differed by persona only, and
+     * learner-senior was offered `hint`. Intersected with the core set when
+     * that is on, so it can only narrow; a profile sharing no tool with the core
+     * set leaves the turn with none (the helper's sentinel), and says so. A
+     * main-turn command never sets turn_allow, so its tool prefix is stable. */
+    if (app->turn_allow != NULL && app->turn_allow->len > 0) {
+        if (opts.allow != NULL) {
+            if (jc_tool_allow_intersect(opts.allow, app->turn_allow,
+                                        jc_app_scratch(app), &turn_isect) == 0) {
+                jc_logf(JC_LOG_WARN,
+                        "the agent profile's tools: and the core tool set (a "
+                        "small context window) share no tool -- this turn has "
+                        "none");
+            }
+            opts.allow = &turn_isect;
+        } else {
+            opts.allow = app->turn_allow;
+        }
+    }
 
     /* Under an envelope the declared budgets (tokens/deadline/tool-calls) are
      * the real bound, and verify-retries add iterations; give the loop ample
@@ -4332,6 +6453,17 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
         }
         jc_env_journal_end(app->env, o);
 
+        /* M893 (N52 (b)): the worktree as the run's first turn found it, once,
+         * so that a batch can tell whether its base is still the tree the run
+         * started from (jc_tool_parallel.c). */
+        if (!app->env->start_fp_taken && app->env->verify_cmd != NULL) {
+            app->env->start_fp_taken = 1;
+            app->env->start_fp_ok =
+                (jc_snapshot_worktree_fingerprint(app->root, app->env->start_fp,
+                                                  sizeof app->env->start_fp)
+                     == JC_OK);
+        }
+
         /* Optional baseline check: record whether the workspace already passes
          * the verifier. A failing baseline is expected when the task IS to fix
          * it, so this only informs (and warns that rollback-to-green would
@@ -4347,14 +6479,33 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
         if ((app->env->verify_baseline ||
              app->env->verify_kind != JC_VERIFY_KIND_UNSET) &&
             app->env->verify_cmd != NULL) {
-            int code = jc_env_run_verify(app->env->verify_cmd, app->cwd, NULL,
-                                         &app->abort_flag,
-                                         app->env->verify_timeout);
-            enum jc_env_baseline_verdict v =
-                jc_env_baseline_check(app->env->verify_kind, code);
+            struct jc_sb bout;
+            int code;
+            int kept_line = 0;
+            enum jc_env_baseline_verdict v;
+
+            jc_sb_init(&bout);
+            code = jc_env_run_verify(app->env->verify_cmd, app->cwd, &bout,
+                                     &app->abort_flag, app->env->verify_timeout);
+            v = jc_env_baseline_check(app->env->verify_kind, code);
+            /* M893 (N52 (b)): a red baseline before any change is the evidence
+             * that a later failure on the same line is not the run's doing. */
+            if (code != 0 && app->env->changing_executed == 0 &&
+                app->env->pre_edit_fail[0] == '\0' &&
+                jc_env_fail_line(bout.data, app->env->pre_edit_fail,
+                                 sizeof app->env->pre_edit_fail)) {
+                jc_snprintf(app->env->pre_edit_from,
+                            sizeof app->env->pre_edit_from, "%s",
+                            "the run-start verify, before any change,");
+                kept_line = 1;
+            }
+            jc_sb_free(&bout);
             o = jc_env_journal_begin(app->env, "baseline");
             if (o != NULL) {
                 cJSON_AddNumberToObject(o, "exit", (double)code);
+                if (kept_line) {
+                    cJSON_AddStringToObject(o, "line", app->env->pre_edit_fail);
+                }
                 if (app->env->verify_kind != JC_VERIFY_KIND_UNSET) {
                     cJSON_AddStringToObject(o, "kind",
                         jc_env_verify_kind_name(app->env->verify_kind));
@@ -4426,6 +6577,11 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
             jc_logf(JC_LOG_INFO, "[hook] prompt blocked");
             jc_history_add(hist, JC_ROLE_ASSISTANT, why);
             jc_hook_result_free(&hr);
+            /* M848: this early return skipped the frees at the end of the
+             * function -- core_allow's array leaked here before M848, and
+             * attempt's turn_isect would have joined it. */
+            jc_vec_free(&core_allow);
+            jc_vec_free(&turn_isect);
             return JC_OK;
         }
         if (hr.context.len > 0) {
@@ -4436,6 +6592,7 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
 
     st = run_agent_loop(app, hist, cb, &opts);
     jc_vec_free(&core_allow); /* frees the backing array; names are literals */
+    jc_vec_free(&turn_isect); /* names are scratch-arena copies or the sentinel */
 
     /* M83: once the top-level turn's file state is final (any rollback already
      * applied inside the loop), warn about files changed OUTSIDE the edit scope --
@@ -4497,6 +6654,22 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
         if (o != NULL) {
             cJSON_AddStringToObject(o, "outcome",
                                     jc_env_outcome_name(app->env->outcome));
+            /* M1048 (G18): whether the completion verifier RAN and what it
+             * said -- the tri-state the outcome cannot carry. `outcome` says
+             * how the run ended; it cannot say the difference between "the
+             * check ran and passed" and "armed, outcome ok, the check never
+             * ran". true: it ran and exited 0. false: it ran and the run
+             * ended red on it. "not_run": armed, and it never ran (which,
+             * after the un-gate, is a non-completed run). Absent when no
+             * verifier was armed. */
+            if (app->env->verify_cmd != NULL && app->env->verify_cmd[0] != '\0') {
+                if (app->env->verifier_ran) {
+                    cJSON_AddBoolToObject(o, "verified",
+                        app->env->outcome == JC_ENV_OK ? 1 : 0);
+                } else {
+                    cJSON_AddStringToObject(o, "verified", "not_run");
+                }
+            }
             /* M690: and WHY it stopped, which `outcome` cannot say. Measured
              * over 114 journals and 101 completed runs before this line
              * existed: the recorded values were ok / running /
@@ -4535,13 +6708,16 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
              * what no single number could show. */
             cJSON_AddNumberToObject(o, "tool_calls_executed",
                                     (double)app->env->tool_calls_executed);
-            /* Did this run change anything at all? The completion verify is gated
-             * on a mutating tool having run (`snapshotted`), so a run that writes
-             * NOTHING never executes its own verifier and still exits 0. For a run
-             * whose deliverable is a file that is indistinguishable from success,
-             * and M96's `starved` does not cover it -- that fires on budget
-             * exhaustion, not on giving up early. A supervisor needs this fact to
-             * tell "did the work and it passed" from "did nothing".
+            /* Did this run change anything at all? The completion verify was
+             * gated on a mutating tool having run (`snapshotted`), so a run
+             * that writes NOTHING never executed its own verifier and still
+             * exited 0 (M1048 un-gated the verify -- the `verified` field
+             * above is the run-fact this comment then argued for); for a run
+             * whose deliverable is a file, "wrote nothing" was
+             * indistinguishable from success, and M96's `starved` does not
+             * cover it -- that fires on budget exhaustion, not on giving up
+             * early. A supervisor needs this fact to tell "did the work and
+             * it passed" from "did nothing".
              *
              * M496 -- ASK THE TREE, NOT THE CHECKPOINT. This was
              * `green_commit[0] == '\0'` -- "no pre-edit checkpoint was taken",
@@ -4578,6 +6754,8 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
                                               app->env->baseline_commit,
                                               &chg) == JC_OK) {
                     have = 1;
+                    /* M1095 (D-03): 0 changed files is an empty buffer in the
+                     * NUL form too, so this emptiness test is unchanged. */
                     none = (chg.data == NULL || chg.data[0] == '\0');
                 } else if (app->env->green_commit[0] == '\0') {
                     /* No baseline to diff against (snapshots armed late, or the
@@ -4665,16 +6843,27 @@ const char *jc_agent_last_assistant_text(const struct jc_history *hist)
     return jc_agent_turn_answer(hist, 0);
 }
 
-jc_status jc_agent_run_subagent(struct jc_app *app, struct jc_history *hist,
-                                struct jc_provider *provider,
-                                const char *system_msg,
-                                int include_mutating, int max_iters,
-                                const struct jc_vec *allow_tools,
-                                const struct jc_agent_callbacks *cb,
-                                char **answer_out)
+/* M848 (S2): the delegate runner, with the POSTURE as a parameter. Every
+ * delegate -- spawn_subagent, a parallel child, ask_for_help's helper, a
+ * workflow stage -- runs with the AUTO posture (jc_agent_run_subagent, below):
+ * its ASK verdicts run without a prompt. A subtask command is the exception: it
+ * IS the user's turn, so it runs under the user's own posture (auto_posture 0),
+ * and in chat mode an ASK verdict prompts exactly as in the main turn, or is
+ * refused headless. While an AUTO-posture delegate runs, app->delegate_auto is
+ * raised so the path fence's default turns on (1e): a run that asks nobody has
+ * nobody in the loop to catch a stray path. */
+static jc_status run_subagent_posture(struct jc_app *app,
+                                      struct jc_history *hist,
+                                      struct jc_provider *provider,
+                                      const char *system_msg,
+                                      int include_mutating, int max_iters,
+                                      const struct jc_vec *allow_tools,
+                                      const struct jc_agent_callbacks *cb,
+                                      char **answer_out, int auto_posture)
 {
     struct jc_run_opts opts;
     jc_status st;
+    int saved_readonly;
 
     if (answer_out != NULL) {
         *answer_out = NULL;
@@ -4696,22 +6885,129 @@ jc_status jc_agent_run_subagent(struct jc_app *app, struct jc_history *hist,
     opts.allow = (allow_tools != NULL && allow_tools->len > 0)
                  ? allow_tools : NULL;
     opts.max_iters = max_iters;
-    opts.auto_posture = JC_TRUE; /* run its sandboxed tools without prompting */
+    /* M848 (S2): the caller's posture. Before M848 this was JC_TRUE for every
+     * delegate, commented "run its sandboxed tools without prompting" -- but
+     * nothing sandboxed a subtask command: it got every tool and asked nothing,
+     * in chat mode and headless without --auto alike. */
+    opts.auto_posture = auto_posture ? JC_TRUE : JC_FALSE;
 
+    /* M750: a read-only delegate is read-only at the GATE, not only on its
+     * advertised menu. include_mutating 0 keeps the mutating tools out of the
+     * advertisement (jc_tool_build_neutral_ex); app->readonly is the separate
+     * flag jc_tool_execute checks when a model calls a tool it was never shown.
+     * spawn_subagent {"readonly": true}, a read-only spawn_parallel task, and
+     * ask_for_help's helper all pass include_mutating 0 and, before this, left
+     * app->readonly as the parent's -- so a child that named write_file anyway
+     * was served, and a read-only parallel task ran that write against the LIVE
+     * workspace (it has no worktree). M634 had closed exactly this for the
+     * workflow's map and refute stages by setting app->readonly around each; the
+     * three callers it did not touch kept the gap. Enforcing it here, at the one
+     * function every delegate runs through, covers them all and any future
+     * caller. The invariant each upholds: include_mutating == 0 iff the child
+     * must be read-only. Saved and restored so a writable parent is unaffected,
+     * and so the workflow stages' own save/restore nests cleanly. */
+    saved_readonly = app->readonly;
+    if (!include_mutating) {
+        app->readonly = 1;
+    }
+
+    if (auto_posture) {
+        app->delegate_auto++;   /* M848 (1e): the path fence's default is on */
+    }
     st = run_agent_loop(app, hist, cb, &opts);
+    if (auto_posture) {
+        app->delegate_auto--;
+    }
 
+    app->readonly = saved_readonly;
+
+    /* M911 (def-318): the hand-back crosses ONE boundary -- cap it here,
+     * spill the full text, name the file. Lifetime is M62 #6's per-turn
+     * scratch, so a chain of subagent calls does not accumulate one answer
+     * per call on the session arena. */
     if (answer_out != NULL) {
-        const char *ans = jc_agent_last_assistant_text(hist);
-        if (ans != NULL) {
-            /* M62 #6: the answer is consumed synchronously within this turn
-             * (spawn_subagent copies it into the tool result; a parallel child
-             * pipes it then exits). Put it on the per-turn scratch arena, not the
-             * session arena, so a long chain of subagent calls in one session
-             * doesn't accumulate one answer per call on the session arena. */
-            *answer_out = jc_arena_strdup(jc_app_scratch(app), ans);
-        }
+        jc_subagent_answer_into(app, hist, (const char **)answer_out);
     }
     return st;
+}
+
+/* def-318 (M911): the subagent hand-back, capped at the boundary.
+ *
+ * The measured wound (2026-10-05 audit): a child's final answer lands in the
+ * parent's context VERBATIM -- 14 of 17 sibling-log hand-backs were over
+ * 10 KB, max 31 KB, 301 KB total -- a second context-eater behind the
+ * mid-turn pressure the M218 elision pass responds to, and the very elision
+ * that is lossy on exactly this material (def-317). The cap is here, at the
+ * one point every hand-back crosses, not in the child's instructions.
+ *
+ * Over the cap: the parent gets the head (the answer's opening carries its
+ * claim) plus a note naming the file that holds the FULL text in the 0600
+ * preservation store -- the M348/M909 shape, spill-and-reference. A storage
+ * failure degrades to the old behaviour: the answer passes through whole,
+ * because an uncapped answer is better than a note pointing nowhere (D3).
+ * Under the cap: byte-identical, no note. Lifetime per M62 #6: the per-turn
+ * scratch, so a chain of subagent calls does not accumulate answers on the
+ * session arena. */
+#define JC_SUBAGENT_ANSWER_CAP 4096
+
+jc_status jc_subagent_answer_into(struct jc_app *app,
+                                  const struct jc_history *hist,
+                                  const char **answer_out)
+{
+    const char *ans;
+    jc_size len;
+
+    *answer_out = NULL;
+    ans = jc_agent_last_assistant_text(hist);
+    if (ans == NULL || ans[0] == '\0') {
+        return JC_OK;
+    }
+    len = (jc_size)strlen(ans);
+    if (len <= JC_SUBAGENT_ANSWER_CAP) {
+        *answer_out = jc_arena_strdup(jc_app_scratch(app), ans);
+        return JC_OK;
+    }
+    {
+        struct jc_sb sb;
+        char path[700];
+        jc_size head = JC_SUBAGENT_ANSWER_CAP - 300;
+
+        if (!jc_toolout_preserve(app, "subagent", ans, len,
+                                 path, sizeof(path))) {
+            *answer_out = jc_arena_strdup(jc_app_scratch(app), ans);
+            return JC_OK;
+        }
+        head = jc_utf8_trunc_len(ans, head);
+        jc_sb_init(&sb);
+        jc_sb_append_n(&sb, ans, head);
+        jc_sb_append_fmt(&sb,
+            "\n\n... [the complete answer is at %s -- read or search that "
+            "path for the rest instead of re-running the subtask; this note "
+            "carries the opening only, %lu of %lu bytes] ...\n",
+            path, (unsigned long)head, (unsigned long)len);
+        /* M911 contract: answer_out is ARENA-owned (per-turn scratch), as the
+         * pre-M911 full-answer path was. Callers do not free it. Copy the built
+         * buffer into the scratch and free the transient sb. */
+        *answer_out = jc_arena_strdup(jc_app_scratch(app), sb.data);
+        jc_sb_free(&sb);
+        return JC_OK;
+    }
+}
+
+jc_status jc_agent_run_subagent(struct jc_app *app, struct jc_history *hist,
+                                struct jc_provider *provider,
+                                const char *system_msg,
+                                int include_mutating, int max_iters,
+                                const struct jc_vec *allow_tools,
+                                const struct jc_agent_callbacks *cb,
+                                char **answer_out)
+{
+    /* A delegate: the AUTO posture, as documented in TOOL_DECISIONS.md. Whether
+     * spawn_subagent should keep it is open (DEFERRED def-286); since M848 it
+     * runs with the path fence on (run_subagent_posture). */
+    return run_subagent_posture(app, hist, provider, system_msg,
+                                include_mutating, max_iters, allow_tools, cb,
+                                answer_out, 1);
 }
 
 jc_status jc_agent_run_command_subtask(struct jc_app *app,
@@ -4738,8 +7034,9 @@ jc_status jc_agent_run_command_subtask(struct jc_app *app,
      * jc_app_command_agent_apply before this call) is the identity the subtask
      * runs under. Until M596 this built the generic delegate prompt and the
      * persona was silently dropped -- the scaffolded mentor never saw its own
-     * FORMAT IS STRICT block. The profile's tools fence is still not applied
-     * here: a command runs with the current permission posture (jc_app.h). */
+     * FORMAT IS STRICT block. M848 (def-287): the profile's `tools:` now fences
+     * the subtask as well (app->command_tools, below) -- it can only narrow,
+     * and a subtask runs on its own prompt, so no cache prefix is broken. */
     /* M597: the command's own `language:` wins; else the session language. A
      * subtask's answer reaches the user with no parent in between, so it must
      * carry the directive the top-level prompt carries. */
@@ -4767,10 +7064,17 @@ jc_status jc_agent_run_command_subtask(struct jc_app *app,
 
     /* Forward the callbacks directly: a subtask command IS the user's turn, so
      * its output should stream like a normal turn (in both headless and TUI),
-     * unlike a nested spawn_subagent which is gated on app->stream_subagents. */
+     * unlike a nested spawn_subagent which is gated on app->stream_subagents.
+     * M848 (S2, decision 1c): and it runs under the user's OWN posture, not a
+     * delegate's. Before M848 it ran with the AUTO posture and no allow list, so
+     * /learn -- the mentor, every tool -- ran the shell with no prompt in a chat
+     * session, and headless without --auto, where a plain prompt was refused.
+     * In --auto nothing changes: the verdict there is ALLOW before any posture
+     * is consulted, so learn-on-stop runs as it did. */
     app->agent_depth++;
-    st = jc_agent_run_subagent(app, &sub, app->provider, sysmsg,
-                               !app->readonly, iters, NULL, cb, &answer);
+    st = run_subagent_posture(app, &sub, app->provider, sysmsg,
+                              !app->readonly, iters, app->command_tools, cb,
+                              &answer, 0);
     app->agent_depth--;
     jc_history_free(&sub);
 

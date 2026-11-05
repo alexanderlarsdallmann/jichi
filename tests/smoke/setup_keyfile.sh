@@ -12,7 +12,22 @@
 # terminal attribute, so a piped run would "pass" while proving nothing. The
 # whole point of this prompt is that it is the only one in the wizard that takes
 # a key, so it is the only one that must not display what is typed.
+#
+# M881: since M709 the wizard asks the chosen provider's endpoint which models it
+# serves -- the drive picks 2, anthropic, so api.anthropic.com -- between the
+# provider menu and the model-id prompt. The drive typed the provider and the id
+# 400 ms apart without waiting, a race that request had to win; on the Pi 400
+# (2026-10-02) it lost, and the wizard discarded the early keystrokes, as it must
+# (M503). The drive now waits for each prompt. And the whole test runs with its
+# proxy at a closed local port. That listing and doctor's reachability check
+# (api.openai.com, for the config written below) went to the providers from every
+# run; every request jichi makes goes through libcurl, which honours the proxy, so
+# both now fail at once and the test sends nothing off this machine.
 . "$(dirname "$0")/_smoke.sh"
+
+https_proxy=http://127.0.0.1:1; HTTPS_PROXY=$https_proxy; http_proxy=$https_proxy
+no_proxy=; NO_PROXY=
+export https_proxy HTTPS_PROXY http_proxy no_proxy NO_PROXY
 
 t_plan 28
 smoke_home
@@ -37,8 +52,10 @@ delay 500
 expect "How are you working?" 30
 delay 400
 send "\r"
+expect "Model provider:" 30
 delay 400
 send "2\r"
+expect "model id" 30
 delay 400
 send "gpt-4o\r"
 delay 500

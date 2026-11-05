@@ -42,6 +42,8 @@ void test_delegreport(void)
     JC_CHECK(jc_delegreport_stop_parse("no_answer") == JC_DELEG_NO_ANSWER);
     JC_CHECK(jc_delegreport_stop_parse("aborted") == JC_DELEG_ABORTED);
     JC_CHECK(jc_delegreport_stop_parse("error") == JC_DELEG_ERROR);
+    JC_CHECK(jc_delegreport_stop_parse("task_budget") == JC_DELEG_TASK_BUDGET);
+    JC_CHECK(strcmp(jc_delegreport_stop_name(JC_DELEG_TASK_BUDGET), "task_budget") == 0);
     /* An unknown or absent name must not invent a reason. The caller checks for
      * an empty string before calling, so "done" is the safe floor. */
     JC_CHECK(jc_delegreport_stop_parse("wat") == JC_DELEG_DONE);
@@ -56,6 +58,10 @@ void test_delegreport(void)
      * send the parent to spend a budget that is already gone. */
     JC_CHECK(jc_delegreport_stop_from(1, 0, 1, 1, 1) == JC_DELEG_BUDGET);
     JC_CHECK(jc_delegreport_stop_from(1, 0, 1, 0, 1) == JC_DELEG_MAX_ITERS);
+    /* M861: 2 is the TASK's own budget, which also outranks the cap; an abort
+     * still outranks it. */
+    JC_CHECK(jc_delegreport_stop_from(1, 0, 1, 2, 1) == JC_DELEG_TASK_BUDGET);
+    JC_CHECK(jc_delegreport_stop_from(1, 1, 0, 2, 1) == JC_DELEG_ABORTED);
     /* An abort outranks everything: re-delegating after the operator interrupted
      * the run is the wrong move whatever else was true of it. */
     JC_CHECK(jc_delegreport_stop_from(1, 1, 1, 1, 1) == JC_DELEG_ABORTED);
@@ -148,6 +154,35 @@ void test_delegreport(void)
     JC_CHECK(sb.data != NULL && strstr(sb.data, "do not delegate again") != NULL);
     jc_sb_free(&sb);
 
+    /* M869 (def-305): a MAX_ITERS stop that was a loop stop -- not "narrower". */
+    jc_delegreport_init(&r);
+    r.stop = JC_DELEG_MAX_ITERS;
+    r.looped = 2;
+    render(&r, &sb);
+    JC_CHECK(sb.data != NULL && strstr(sb.data, "repeated the same call") != NULL);
+    JC_CHECK(sb.data != NULL && strstr(sb.data, "NARROWER") == NULL);
+    jc_sb_free(&sb);
+
+    /* M861: a parallel child's SHARE of the run's budget, while the run has
+     * budget left -- no "do not delegate again" either. */
+    jc_delegreport_init(&r);
+    r.stop = JC_DELEG_BUDGET;
+    r.share_only = 1;
+    render(&r, &sb);
+    JC_CHECK(sb.data != NULL && strstr(sb.data, "stop=budget") != NULL);
+    JC_CHECK(sb.data != NULL && strstr(sb.data, "its share of the run's budget") != NULL);
+    JC_CHECK(sb.data != NULL && strstr(sb.data, "do not delegate again") == NULL);
+    jc_sb_free(&sb);
+
+    /* M861: the task's budget -- the run goes on, so no "do not delegate again". */
+    jc_delegreport_init(&r);
+    r.stop = JC_DELEG_TASK_BUDGET;
+    render(&r, &sb);
+    JC_CHECK(sb.data != NULL && strstr(sb.data, "stop=task_budget") != NULL);
+    JC_CHECK(sb.data != NULL && strstr(sb.data, "max_tool_calls") != NULL);
+    JC_CHECK(sb.data != NULL && strstr(sb.data, "do not delegate again") == NULL);
+    jc_sb_free(&sb);
+
     jc_delegreport_init(&r);
     r.stop = JC_DELEG_MAX_ITERS;
     render(&r, &sb);
@@ -166,6 +201,122 @@ void test_delegreport(void)
     render(&r, &sb);
     JC_CHECK(sb.data != NULL && strstr(sb.data, "files changed:") != NULL);
     JC_CHECK(sb.data != NULL && strstr(sb.data, "tests/b.c") != NULL);
+    jc_sb_free(&sb);
+
+    /* --- M858 (N42): a cut last reply ------------------------------------ */
+    /* A clean, unmeasured delegation renders nothing (the M347 rule) -- but a
+     * cut reply is information: its text reads like an answer and stops
+     * mid-sentence. The line must appear even on an otherwise clean report. */
+    jc_delegreport_init(&r);
+    r.cut = 1;
+    render(&r, &sb);
+    JC_CHECK(sb.data != NULL &&
+             strstr(sb.data, "cut off at the output ceiling") != NULL);
+    jc_sb_free(&sb);
+    jc_delegreport_init(&r);
+    render(&r, &sb);
+    JC_CHECK(sb.data == NULL || strstr(sb.data, "cut off") == NULL);
+    jc_sb_free(&sb);
+
+    /* --- M876 (the demos drive's N47): the run's own model failure first ------
+     * Run 0094's worker failed on the gateway; its report named only its last
+     * failing TOOL call, a time limit, and its lead planned around that. */
+    jc_delegreport_init(&r);
+    r.stop = JC_DELEG_ERROR;
+    jc_snprintf(r.fail_tool, sizeof r.fail_tool, "run_terminal_command");
+    r.fail_cls = JC_FAIL_AT_BOUND;
+    r.fail_count = 3;
+    jc_snprintf(r.run_error, sizeof r.run_error,
+                "could not connect within 20s (timeouts.connect)");
+    r.run_error_attempts = 12;
+    r.run_error_t0 = 1790951327L;   /* 2026-10-02 14:28:47 UTC */
+    r.run_error_t1 = 1790951638L;   /* 2026-10-02 14:33:58 UTC */
+    render(&r, &sb);
+    if (JC_REQUIRE(sb.data != NULL)) {
+        const char *re = strstr(sb.data, "the run ended because its model calls "
+                                         "failed: could not connect within 20s");
+        const char *lf = strstr(sb.data, "last failing call: run_terminal_command");
+        /* (a) named, with its attempts and times, and BEFORE the tool call */
+        JC_CHECK(re != NULL && lf != NULL && re < lf);
+        JC_CHECK(strstr(sb.data, "(12 attempts, 14:28:47-14:33:58 UTC)") != NULL);
+        /* (b) the tool call is an earlier event, and its remedy is not given */
+        JC_CHECK(strstr(sb.data, "it is not why the run ended") != NULL);
+        JC_CHECK(strstr(sb.data, "time limit") == NULL);
+    }
+    jc_sb_free(&sb);
+    /* no model failure recorded: the tool call's remedy, as before */
+    r.run_error[0] = '\0';
+    render(&r, &sb);
+    JC_CHECK(sb.data != NULL && strstr(sb.data, "model calls failed") == NULL &&
+             strstr(sb.data, "kept hitting its own time limit") != NULL);
+    jc_sb_free(&sb);
+    /* a model failure on a run that did not END on it (stop done) is not named */
+    jc_snprintf(r.run_error, sizeof r.run_error, "HTTP 502 from the provider");
+    r.stop = JC_DELEG_DONE;
+    render(&r, &sb);
+    JC_CHECK(sb.data == NULL || strstr(sb.data, "model calls failed") == NULL);
+    jc_sb_free(&sb);
+    /* (c) "kept hitting" only when the class repeated */
+    jc_delegreport_init(&r);
+    jc_snprintf(r.fail_tool, sizeof r.fail_tool, "run_terminal_command");
+    r.fail_cls = JC_FAIL_AT_BOUND;
+    r.fail_count = 1;
+    render(&r, &sb);
+    JC_CHECK(sb.data != NULL && strstr(sb.data, "kept hitting") == NULL &&
+             strstr(sb.data, "hit its own time limit and was cut off") != NULL);
+    jc_sb_free(&sb);
+    r.fail_count = 0;   /* an older child: not known, read as once */
+    render(&r, &sb);
+    JC_CHECK(sb.data != NULL && strstr(sb.data, "kept hitting") == NULL);
+    jc_sb_free(&sb);
+    r.fail_count = 2;
+    render(&r, &sb);
+    JC_CHECK(sb.data != NULL && strstr(sb.data, "kept hitting") != NULL);
+    jc_sb_free(&sb);
+
+    /* --- M885 (the demos drive's N47, continued): a SIGTERM from outside ----
+     * Run 0102: a supervisor stopped one worker with SIGTERM; the batch result
+     * said "the operator interrupted the run -- stop and report, do not restart
+     * it", about the run, and "a limit killed the call ... split it", about the
+     * shell call the SIGTERM had killed. The lead wrote the first into the
+     * team's log as the operator's interruption. */
+    jc_delegreport_init(&r);
+    r.stop = JC_DELEG_ABORTED;
+    r.term = 1;
+    render(&r, &sb);
+    if (JC_REQUIRE(sb.data != NULL)) {
+        JC_CHECK(strstr(sb.data, "operator interrupted") == NULL);
+        JC_CHECK(strstr(sb.data, "stopped from outside the run (SIGTERM)") != NULL);
+        JC_CHECK(strstr(sb.data, "your own run, which goes on") != NULL);
+    }
+    jc_sb_free(&sb);
+    r.term = 0;   /* the operator's interrupt keeps its advice */
+    render(&r, &sb);
+    JC_CHECK(sb.data != NULL && strstr(sb.data, "operator interrupted") != NULL &&
+             strstr(sb.data, "SIGTERM") == NULL);
+    jc_sb_free(&sb);
+    /* the killed call: no limit advice when the run's own stop killed it */
+    jc_delegreport_init(&r);
+    r.stop = JC_DELEG_ABORTED;
+    jc_snprintf(r.fail_tool, sizeof r.fail_tool, "run_terminal_command");
+    r.fail_cls = JC_FAIL_KILLED;
+    r.fail_stopped = 1;
+    render(&r, &sb);
+    if (JC_REQUIRE(sb.data != NULL)) {
+        JC_CHECK(strstr(sb.data, "a limit killed the call") == NULL);
+        JC_CHECK(strstr(sb.data, "killed because the run was being stopped") != NULL);
+    }
+    jc_sb_free(&sb);
+    r.fail_stopped = 0;   /* a kill the stop did not cause keeps its advice */
+    render(&r, &sb);
+    JC_CHECK(sb.data != NULL && strstr(sb.data, "a limit killed the call") != NULL &&
+             strstr(sb.data, "was being stopped") == NULL);
+    jc_sb_free(&sb);
+    r.fail_stopped = 1;   /* the flag speaks only for a killed call */
+    r.fail_cls = JC_FAIL_NOT_FOUND;
+    render(&r, &sb);
+    JC_CHECK(sb.data != NULL && strstr(sb.data, "was being stopped") == NULL &&
+             strstr(sb.data, "could not find what the task named") != NULL);
     jc_sb_free(&sb);
 
     /* --- NULL-safety: both delegation tools call this on failure paths ------ */

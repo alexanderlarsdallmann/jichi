@@ -16,6 +16,23 @@ extern "C" {
  * on success, -1 for any other (or NULL) value. */
 int jc_output_format_parse(const char *s, int *out_json);
 
+/* M923: parse a WHOLE non-negative decimal string into *out (a long). Returns
+ * JC_OK only when `s` is exactly a run of digits (no sign, no suffix, no
+ * whitespace, not empty, and within LONG_MAX). The defect this guards is that
+ * atoi/atol on "abc", "1k", "" or "-3" return 0 (or a truncated value) with no
+ * signal -- which for a FENCE flag silently REMOVES the fence
+ * (`--max-tool-calls abc` -> 0 = uncapped) and for a data flag silently deletes
+ * (`prune --keep abc` -> 0 = keep nothing). A CLI arg is user-typed, so any
+ * character a strict parser would not produce is a typo to surface, not a value
+ * to guess. Pure; unit-tested (M923). */
+jc_status jc_cli_parse_nonneg_int(const char *s, long *out);
+
+/* M923: as jc_cli_parse_nonneg_int, but additionally refuses a value above
+ * `bound` so the int cast cannot truncate it to an arbitrary number -- the
+ * "1k becomes a cap of 1" half of R02-F3. `bound` is the largest value the
+ * caller will accept (INT_MAX for a plain int field). */
+jc_status jc_cli_parse_bounded_int(const char *s, int bound, int *out);
+
 /* Human one-line summary of a tool call's arguments for display: the first
  * meaningful field of the JSON object (path/command/query/pattern/symbol/url/
  * name/file/task), else the raw JSON. Always NUL-terminates `buf` (truncated to

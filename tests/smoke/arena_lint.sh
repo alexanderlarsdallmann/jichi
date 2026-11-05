@@ -45,14 +45,16 @@ tmp=$(smoke_tmp)
 # copy (deduped via jc_app_was_read, paths only), the scratch-accessor
 # fallback + /context gauge (no allocation), the reachability cache + the
 # constraints file (once per process), the constraint adopt (deduped,
-# bounded by JC_CONSTRAINT_MAX); jc_rules/jc_glossary -- loaded once per
+# bounded by JC_CONSTRAINT_MAX; M872 adds its source sentence, <= 200 bytes); jc_rules/jc_glossary -- loaded once per
 # session by main; jc_repomap.c -- jc_repomap_build's session copy is the
 # app->repo_map prompt cache (transient consumers use jc_repomap_render).
 tab=$(printf '\t')
 cat > "$tmp/allow" <<EOF
 jc_tool_mcp.c${tab}t = (struct jc_tool *)jc_arena_calloc(app->arena, sizeof(*t));
+jc_tool_subagent.c${tab}t = (struct jc_tool *)jc_arena_calloc(app->arena, sizeof(*t));
 jc_tool_imagegen.c${tab}t = (struct jc_tool *)jc_arena_calloc(app->arena, sizeof(*t));
 jc_tool_mcp.c${tab}if (app == NULL || app->arena == NULL) {
+jc_tool_subagent.c${tab}if (app == NULL || app->arena == NULL) {
 jc_tool_imagegen.c${tab}if (app == NULL || app->arena == NULL) {
 jc_tui.c${tab}app->session_all ? NULL : app->cwd, app->cwd, app->arena);
 jc_tui.c${tab}jc_session_new(&session, app->cwd, app->arena);
@@ -79,8 +81,9 @@ jc_app.c${tab}if (jc_read_file(path, &data, &len, app->arena) != JC_OK || len ==
 jc_app.c${tab}JC_CONSTRAINT_MAX, app->arena);
 jc_app.c${tab}? jc_arena_strdup(app->arena, c->subject) : NULL;
 jc_app.c${tab}dup.text = (c->text != NULL) ? jc_arena_strdup(app->arena, c->text) : NULL;
+jc_app.c${tab}? jc_arena_strdup(app->arena, c->source) : NULL;
 jc_context.c${tab}jc_size aused = jc_arena_used(app->arena, &acap);
-jc_glossary.c${tab}if (jc_read_file(path, &data, &len, app->arena) != JC_OK || len == 0) {
+jc_glossary.c${tab}if (jc_read_file_bounded(path, &data, &len, app->arena,
 jc_glossary.c${tab}result = jc_arena_strdup(app->arena, text);
 jc_rules.c${tab}c.a = app->arena;
 jc_rules.c${tab}char *d = jc_arena_strdup(app->arena, cur);

@@ -8,10 +8,15 @@
 #include "jc_log.h"
 #include "jc_http.h"
 #include "jc_snprintf.h"
+#include "jc_net.h"
 #include "net_util.h"
 
 #include <stdlib.h>
 #include <string.h>
+
+/* M1093 (C-09): the speech side call's named TOTAL cap (a CAP, not a fence).
+ * The connect + dead-stream FENCES come from jc_net_side_fences. */
+#define JC_NET_AUDIOGEN_TIMEOUT_SECS 60
 
 char *jc_audiogen_build_body(const char *model, const char *input,
                              const char *voice, const char *fmt)
@@ -80,7 +85,8 @@ const char *jc_audiogen_format(const char *path)
 jc_status jc_audiogen_run(const struct jc_model_cfg *m, const char *input,
                           const char *voice, const char *fmt,
                           unsigned char **out_bytes, jc_size *out_len,
-                          volatile int *abort, long *out_http)
+                          volatile int *abort, long *out_http,
+                          long max_bytes, int *out_overflow)
 {
     char *body;
     char *resp = NULL;
@@ -94,6 +100,9 @@ jc_status jc_audiogen_run(const struct jc_model_cfg *m, const char *input,
 
     *out_bytes = NULL;
     *out_len = 0;
+    if (out_overflow != NULL) {
+        *out_overflow = 0;
+    }
     if (m == NULL || input == NULL) {
         return JC_ERR_INVALID;
     }
@@ -116,8 +125,10 @@ jc_status jc_audiogen_run(const struct jc_model_cfg *m, const char *input,
     req.headers = &headers;
     req.body = body;
     req.body_len = strlen(body);
-    req.timeout_secs = 60;
+    req.timeout_secs = JC_NET_AUDIOGEN_TIMEOUT_SECS;
     req.abort_flag = abort;
+    req.max_bytes = max_bytes; /* C-06: 0 => the library's default ceiling */
+    jc_net_side_fences(&req, NULL); /* M1093: no jc_config in scope: built-in */
 
     st = jc_http_perform(&req, &status, &resp, &resp_len);
     jc_http_headers_free(&headers);
@@ -129,13 +140,20 @@ jc_status jc_audiogen_run(const struct jc_model_cfg *m, const char *input,
         *out_http = (st == JC_OK) ? status : 0;
     }
     if (st != JC_OK) {
+        if (out_overflow != NULL) {
+            *out_overflow = req.overflow; /* C-06: was the transfer cut at the cap */
+        }
         free(resp);
         return st;
     }
     if (status >= 400 || resp == NULL) {
+        /* M1131 (C-13): cap the error body to 2048 before logging (see
+         * jc_log_err_body_cap); resp NULL -> cap NULL -> just the status. */
+        char *cap = jc_log_err_body_cap(resp, 2048);
         /* The error body (when present) is JSON. */
         jc_logf(JC_LOG_ERROR, "audio generation: HTTP %ld%s%s", status,
-                resp != NULL ? " " : "", resp != NULL ? resp : "");
+                cap != NULL ? " " : "", cap != NULL ? cap : "");
+        free(cap);
         free(resp);
         return JC_ERR_PROVIDER;
     }

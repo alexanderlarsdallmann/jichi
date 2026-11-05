@@ -71,10 +71,16 @@ else
 fi
 
 # Half one: the loader names the cause, at the chokepoint that knows it.
-if grep -q "is a directory" "$out/b.err"; then
-    t_ok "the cause is named: the config path is a directory"
+# M198 named a directory by its own message ("config path is a directory, not
+# a file"); M1114-b (the M1108-b pattern) gives each non-regular shape its TRUE
+# text, so a directory takes the M198 directory message -- the M1114 guard's
+# "(FIFO/device/socket)" parenthetical is FALSE for a directory (a directory is
+# neither a FIFO nor a device nor a socket). This leg pins the directory case at
+# full text.
+if grep -q "config path is a directory, not a file" "$out/b.err"; then
+    t_ok "the cause is named: the config path is a directory, not a file (M198)"
 else
-    t_fail "stderr never says the path is a directory: $(tr '\n' ' ' < "$out/b.err")"
+    t_fail "stderr never names the directory config path: $(tr '\n' ' ' < "$out/b.err")"
 fi
 
 # Half two: the caller gives the context and the way out.

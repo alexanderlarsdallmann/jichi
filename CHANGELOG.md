@@ -23,7 +23,1184 @@ The version lives in one place — `include/jc_version.h` — and is printed by
 `jichi --version`, `jichi-convert --version`, the top of `jichi doctor`, and
 the `describe` interface contract.
 
-## [Unreleased]
+## [0.13.0] — 2026-11-05 — the hardening wave: redirect and multipart fences, validated session ids, and 32-bit large files
+M1143 (SV:0850, run 0186; corrected SV:0947 + SV:0954, run 0188; SV:1147, run 0193): the release record is corrected before the 0.13.0 cut -- the four public pages that stated a present-tense release claim (README's version line and `make ci` stamp, CHATBOT's 'latest release' clause, the install page's sample `--version` output) now state the version this tree reads, 0.13.0, true in both trees; the unit-suite build list in the README's `make ci` stamp is corrected to the nine the gate runs, and gateway attributions are removed per the operator's rule of 2026-11-02 (eight places, plus four more sites of the same class in the gateway-findings header, the GATEWAY_ADMIN introduction, a snapshot_lint comment and the public-snapshot plan's not-shipped table); docs only, no code, no user-visible behaviour change. The 0.13.0 snapshot is cut from the commit carrying this record.
+M1142 (SV:0419, run 0167): the retry gate no longer retries an in-stream context-overflow error -- M1125's transient arm (a provider error arriving inside an HTTP 200 stream) also matched M909's in-stream over-context shape: the LM Studio message is known only to `jc_text_is_context_overflow`, not to `jc_http_body_ctx_overflow`, so `ctx_overflow` stayed 0 and the deterministic error was re-sent (measured with `maxRetries` 3: 4 model calls, 3 retries). The in-stream M909 reclassification now marks overflow when either classifier matches, and the retry gate checks the flag (stale-flag safe: reset in the run preamble; a call that sets it ends the run). Red-first `stream_error` leg 7 (4 requests / 3 retry rows before, 1 request after); M1142-b leg 8 pins the jc_http-only arm of the OR (teeth probed red). `stream_error` 8/8, `stream_cut_retry` 7/7 (the M1125 engine-error cut still retries), gate 37482/0; the independent review's M1125 WRONG verdict is resolved and the 0.13.0 cut waits on the BATCH 12b landing.
+M1140 (D-10, run 0158): 32-bit builds get large-file support and a failed directory listing says so -- the build now carries `-D_FILE_OFFSET_BITS=64` behind a capability probe, so a file over 2 GiB is no longer reported as missing (`stat`/`fopen` used to fail `EOVERFLOW`), and `jc_list_dir` now reports a mid-listing `readdir` failure as an error instead of returning a short listing with success. The 64-bit `time_t` and the `long`-typed size interface remain the separate E-09 card; gate 37482/0, the 32-bit stage 37482/0.
+M1139 (D-07, run 0156/0157): the session store validates the id before it becomes a path -- the editor protocol's `session/load` used to hand the client's `sessionId` straight into `~/.jichi.d/sessions/<id>.json`, where a traversal id loaded a foreign `.json` as a conversation (and the next save would overwrite it), and `jc_session_delete` could remove any file. `jc_session_load_by_id` and `jc_session_delete` now refuse any id outside the command line's existing `[A-Za-z0-9_-]` gate with `JC_ERR_INVALID` before touching the disk; a malformed `sessionId` gets the protocol's "unknown session" refusal. Plain (jichi-created, UUID) ids are unchanged. Unit teeth in the session suite witness the actual destruction (fixture read in, fixture removed) on the unfixed tree; gate 37482/0.
+M1138 (D-05, run 0155): `jc_read_file` (and its `jc_read_file_bounded` sibling) no longer reads a procfs file as empty, with success -- on procfs the seek-to-end succeeds and `ftell` reports 0 for a file that has real bytes, so the size==0 path allocated 1 byte, read 0, and returned JC_OK with an empty buffer (`/proc/cpuinfo` -> len 0). The size==0 window now routes to a bounded read: a 1-byte probe discriminates a genuine empty file (kept: JC_OK, len 0, the old 1-byte shape -- procfs pseudo-files are stat-identical to a genuine empty regular file, so stat cannot) from an unknown-size file, which is fread in a loop to EOF capped at JC_READ_FILE_MAX (the sibling at `max`), with each ferror (an EIO short read, previously returned as success) -> JC_ERR_IO. The size>0 path is byte-identical. In a hardened (PR_SET_DUMPABLE 0) build `/proc/self/environ` is still refused at the open, so the M770 key protection is unchanged (proc_key_hidden.sh 8/8). Red-first: new teeth in test_platform.c fail on the unfixed tree (4 FAIL, control green), green after; gate 37470/0.
+M1137 (C-19, run 0154): the six secret-redaction sinks that failed OPEN on an allocation failure (the over-cap tool-output spill, the `--dump-requests` body, the full-tier eventlog value, the session save, the `--output jsonl` stream, and the relay handover baton) now fail CLOSED: a shared `jc_redact_scrub` helper returns a redacted copy or "degrade", and each sink routes the degrade to its pre-existing failure arm (discard / no file / drop the key / refused save / drop the line / no baton), so a redaction that cannot allocate never writes the unredacted buffer. A `JC_FAULT_REDACT` probe makes the arms deterministically testable; the relay baton's adjacent defect (writing the original length from the shorter redacted buffer) is folded in. Gate 37458/0 (plain), 37547/0 (FAULT).
+M1136 (C-18, run 0153): the raw-string-call lint (`tests/smoke/sprintf_lint.sh`) now checks CLAUDE.md's full list -- `sprintf`, `strcpy`, `strcat`, `gets` -- instead of `sprintf` only. The 71 existing `strcpy`/`strcat` sites (17 in src/ incl. the 2 cJSON-pair, 54 in tests+tools) were each audited bounded by an explicit check and are allowlisted by exact line beside the 4 pre-existing cJSON `sprintf` lines; a new completeness check (raw-match floor 75) keeps the allowlist honest, so a new unbounded call, or a moved/removed site, turns the driver red. No source change; no new driver (count 542); gate 37448/0.
+M1135 (C-17, run 0152): a reranking model's out-of-range `index` (a reply with `"index": 1e300`) is now pinned by a running test as a **dropped row**, not a memory write. The underlying cast was already made safe by the A-02 sweep (it clamps to `INT_MAX`, fails the `0..n-1` range check, and the row is left at the parser's `0.0`), and the mechanism was lint-pinned (`json_cast_lint.sh`); what was missing was the behaviour -- the embedding parser got the same pin at M725, the rerank parser did not. Reverting the one line and building with `-fsanitize=undefined,float-cast-overflow` aborts on `1e300` ("outside the range of representable values of type 'int'"), confirming the teeth fire; on the fixed tree the gate is green (37448 checks, 0 failures).
+M1134 (C-16, run 0151): when `HOME` is unset and the system has no password entry for your user, jichi's `/tmp` state fallback now verifies the `pid-scoped` directory it was about to use — the `uid-scoped` one already did, the `pid`-scoped one did not, on the assumption that "a `pid`-scoped name cannot have been pre-planted," which is false (pids are predictable; a hostile local user can pre-create `/tmp/jichi-<uid>-<pid>` and jichi would root its config, sessions and key file in a directory they control). Both candidates are now checked the same way (directory, owned by you, no group/other bits); a pre-planted `pid` path falls back to a fresh unique `0700` directory (`mkdtemp`), and if even that fails jichi degrades loudly rather than persisting into an unsafe directory — never `NULL`, never a crash.
+M1133 (C-15, run 0150): `jichi --version` and `jichi doctor` now report what the **linked libcurl** can do — its version, its TLS backend, and its default CA path — so a TLS-free libcurl, an old one, or a static build with no CA bundle is visible before the first https call rather than after it. `doctor` also fails when a model's `https://` endpoint meets a library that has no TLS backend, and a new config key `caBundle` names a CA bundle to use (`CURLOPT_CAINFO` — certificate and host verification stay on; the key only repoints the trust anchors), with `doctor` failing a `caBundle` path that is not an existing regular file so a typo no longer passes the report and dies at the first transfer.
+M1132 (C-14, run 0149): `jichi doctor` now tells you when a credential can cross the network in cleartext, for every endpoint that carries one. Before this fix the check exempted every PRIVATE address (it reused the SSRF guard, which answers "loopback or private"), so a model `apiBase` on `http://192.168.x.x` passed in silence, and MCP server URLs and the web-search URL were never checked at all. Now only true loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`) stays silent, a private-range endpoint warns (and fails under `--unattended`), and the warning names the offenders (model / MCP / search).
+M1131 (C-13, run 0148): a registered secret that straddles the log line's cut no longer leaks its prefix. When the log's secrets path formatted an over-long message it redacted the already-cut text, so a credential starting within its length of the cut left its near half printed; it now redacts the full text. Separately, the five network clients (embeddings, rerank, image, audio, transcription) no longer write a whole (multi-megabyte) provider error body into one log line -- they cap it at 2048 bytes, the bound the chat path already uses.
+M1130 (C-12, run 0147): credentials your configuration holds for other services -- an MCP server's `Authorization` (or other credential-named) header, an MCP server's `env` entry, and a user tool's `env` entry -- are now scrubbed from the logs, the saved session, and the streaming output the same way model API keys are. Before this fix, a session whose configuration named such a credential could have that credential appear unredacted in the transcript and journal if a command printed the configuration back, because only the model keys were registered with the redactor. The recognition is by the credential's NAME (a header named `Authorization`/`Proxy-Authorization`/`X-Api-Key`/`Api-Key` or ending `-token`/`-secret`/`-key`; an environment variable ending `_KEY`/`_TOKEN`/`_SECRET`, case-insensitive) -- a value that merely looks key-shaped is not a reason to redact.
+M1125 (SV:0825, run 0146): a model stream that is cut mid-generation by an engine error now retries when it has not yet shown you any answer. A request that receives a 200 response and then an error inside the stream (the over-context / engine-crash shape) used to end the turn — and, in a headless run, the whole run — on its first attempt even when the retry budget (`maxRetries`) allowed more. It is now retried within the normal budget, and the run survives when the next attempt succeeds. A cut that already streamed answer text or a tool call is still not retried: a partial answer is never duplicated.
+
+M1129 (run 0142): the quality gate (`make ci`) now also builds the optimised fortified release and a 32-bit build, as two self-cleaning stages at the END of the gate (the smoke and e2e stages reuse the ordinary binary, so the rebuilds must not precede them; on a host without gcc multilib the 32-bit stage says SKIP and why). The stages were red on landing, which is their tooth: (1) the release stage exposed three jichi-harness warnings visible only at fortify+optimised builds -- a redundant `realpath` declaration (fortify's headers declare it themselves at -O) and an ignored `write` return in the run's drain loop -- now fixed by the `_XOPEN_SOURCE 600` guard (the `jc_path.c` precedent) and a write-return capture (the `jc_term.c` precedent); (2) the 32-bit stage exposed two unit-test literals that overflow a 32-bit `long` -- now width-aware preprocessor test constants (the 64-bit arms unchanged, the 32-bit arms assert the correct clamp). Driver count unchanged.
+M1128 (R12-N2, run 0141): a multi-leg relay run no longer forgets the task it was given. When a run hands over to its next leg in the same process (the relay, topology B), it re-seeds each leg from the operator's original prompt -- but that prompt was copied onto memory that is reclaimed at the end of every leg, so from the second leg on the relay carried a fragment of reused memory instead of the task, and each leg's handover note recorded the task verbatim from garbage. The task is now kept on memory that lives as long as the run, so every leg continues the same prompt. Driver count unchanged.
+M1127 (R01-N2, run 0140): a memory corruption in the budget-stop path is fixed. When a run stops on the tool-call budget mid-round, jichi answers every unrun call with an error result so the saved session stays wire-valid -- but it read the assistant message through a pointer fetched before the first answer, and each answer can grow the history and invalidate it: from the second stranded call on, the call ids were read from freed memory (a heap use-after-free under AddressSanitizer; on a default build the stale bytes happen to be intact, which is why the test suite never saw it). The message is now re-read at each iteration. Pinned by the new sanitizer-stage driver `stranded_call_uaf.sh`; driver count 537 -> 538.
+M1126 (R01-N1, run 0139): a crash at a relay handover is fixed. When a context-exhausted run hands over and the model call that writes the handover note fails (a refused request, an empty reply), jichi quotes the leg's last real answer as the note instead -- and that fallback wrote through a garbage pointer and left its copy unterminated, so the run died (a segmentation fault) at the handover with no handover note and the turn not saved. The note is now written correctly: a refused account call leaves a clean handover whose note carries the quoted answer under a label that says the model's own part was not obtained.
+M1124 (C-08, run 0138): the redirect guard no longer refuses two legitimate feed fetches. A feed or docs URL that redirects to the SAME host and port (a path change on the same endpoint) is fetched again, and a name that resolves to both a dead IPv6 and a live IPv4 address (a dual-stack feed) is reached over its working address -- both first-hop addresses are the user's own naming, not a server's redirect. A redirect to any NEW private address, or to a different port on a private host, is still refused; that fence is unchanged. Known limitation: a redirect to another port on the same private host (e.g. http://host:80 answering 301 to https://host:443) is refused; name the final URL.
+M1123 (C-11, run 0137): the SSRF address classifier now covers the reserved IPv6 ranges it missed. NAT64 (the well-known 64:ff9b::/96 and RFC 8215's local-use 64:ff9b:1::/48) and 6to4 (2002::/16) are classified by the IPv4 address they embed -- an embedded private target is refused, an embedded public one is not -- the deprecated IPv4-compatible form (::a.b.c.d, other than :: and ::1) by its embedded v4, and deprecated site-local (fec0::/10) and multicast (ff00::/8) are refused outright. Teredo (2001:0000::/32) is refused by its prefix: its client address is stored XOR-obfuscated, so classifying the raw bytes would read the flags and port field as an address and fail open for a private client behind a cone NAT; refusing the whole legacy prefix is the finding's own "or refuse it" option. A reserved IPv6 literal (e.g. a NAT64 translation of 127.0.0.1) that previously read as a public address can no longer reach a connect on a guarded fetch, feed or docs URL; ordinary public IPv6 hosts are untouched (the Teredo test is the /32, not the /16 -- 2001:4860:4860::8888 and 2001:db8::1 stay allowed). Unit-only: nine red-first rows in the SSRF classifier test plus the moved public control, no driver, driver count unchanged.
+M1121 (C-10, run 0136): the multipart upload's file payload is now checked against its boundary, and `doctor` reports which entropy source the identifiers use. A model-chosen file whose bytes contained the part-terminating delimiter `--<boundary>` (RFC 7578: the delimiter must not appear in any data unit) could split the part and inject a fake one -- reachable exactly when the boundary is a guessable time-seeded `rand()` id (no `/dev/urandom`). `jc_multipart_file` now scans the file payload for the delimiter and, on a match, regenerates the boundary (bounded at 5; the payload is never modified), so the body renders from the final boundary; the single caller `jc_transcribe` propagates the (impossible under OS entropy) failure. `jc_multipart_field` is deliberately left unchecked (a text parameter). Separately, `doctor` now says which source the identifiers come from -- `/dev/urandom` (OK) or the weak time-seeded `rand()` fallback (WARN, FAIL under --unattended) -- via a new `jc_entropy_probe()` that does the same read the uuid path uses. Pinned by the new `test_multipart_payload_boundary` unit test (red-first: the planted boundary made the delimiter appear three times) and the new `tests/smoke/multipart_boundary.sh` driver; driver count 536 -> 537. Deferred: the finding's prefer-`getrandom`/`getentropy`/`arc4random_buf` bullet (a portability improvement with no red on a Linux host where `/dev/urandom` works) and the reopen-per-id nit (C89 `fopen` already does the equivalent).
+M1120 (C-08, run 0135): the `@rss:` feed fetch and the docs URL fetch now guard their redirect hops against private addresses while still allowing the user-named first hop. `resolve_rss` (jc_refs.c) and `materialize_url` (jc_docs.c) set `follow_redirects = 1` with no private-address check, so a feed/doc host the user named could answer 302 to a loopback or link-local address (e.g. the cloud-metadata endpoint) and jichi followed it, placing the private target's body in the prompt. A new per-request flag `block_redirect_private` (with a connect-time guard mirroring `block_private_addrs`) allows the transfer's FIRST IP connection and refuses every LATER one at a private / link-local / reserved address; the M1026/M1027 authority triple (FRESH_CONNECT + FORBID_REUSE + the empty proxy) keeps the hop count honest. A blanket `block_private_addrs` was rejected because it would refuse the first hop and break a legitimate internal feed (the HARDENING.md §6b decision). Security-class: docs/HARDENING.md states the consequence by class only; the mechanism and the reproduction stay in the test. Pinned by the new `tests/smoke/feed_redirect_guard.sh` driver (5 checks; red-first witnessed: `not ok 1 - fence: the @rss: redirect reached the private (loopback) target`; 5/5 after). Driver count 535 -> 536. M1120-f1: the review's two source findings (the driver's docs-run env prefix is the M465 shape; the header comment no longer promises both guards).
+M1119 (C-07, run 0134): the image tool's fetch of a server-named reply URL (the `url` half of an `images/generations` reply, when there is no inline `b64_json`) now carries the connect-time private-address guard -- the same `block_private_addrs` standard `fetch_url` applies to a model-named URL -- so a reply the image server (or anyone able to alter its replies) names can no longer point jichi at an address inside the machine or network, and a refused reply writes no file. The configured image endpoint itself is unchanged (it is the operator's trusted `apiBase`, as for providers). Security-class: docs/HARDENING.md states the consequence by class only; the reproduction stays in the test. Pinned by the new `tests/smoke/imagegen_url_guard.sh` driver (5 checks; red-first witnessed: `not ok 1 - fence: the reply-URL GET reached the private (loopback) target`; 5/5 after). Driver count 534 -> 535.
+M1118 (C-04, run 0133): the over-cap tool-output spill (the M339 preserved remainder of a too-large tool output) is now written through the secret scrub, into an owner-only directory. `jc_toolout_preserve` wrote the preserved text verbatim into a store directory made 0755 -- a registered secret a shell echoed was readable from `~/.jichi.d/tool-output/<pid>/*.txt` by another user of the machine until the age sweep removed it. It now redacts into a copy before the atomic write (the same guarantee the session and the request dump give; byte-identical when no secret is registered) and creates the store directory owner-only where it did not already exist. Security-class: docs/HARDENING.md states the consequence by class only under the on-disk-sinks section; the reproduction and the canary stay in the test. Pinned by the new `tests/smoke/toolout_private.sh` driver (4 checks; red-first witnessed: `not ok 2 - the spill is not redacted: canary appears 1 line(s), marker 0` and `not ok 3 - the store directory is group/other-readable: 'r-xr-x'`; 4/4 after). Driver count 533 -> 534. M1118-b (SV:1737): the two 10b-6c docs drivers (hooks_docs, lease_advisory_docs) no longer carry the binary skip-guard and are exempt from smoke_lint check 5 by name, so they stop staying green against a binary that does nothing -- the make-ci gate red on the 10b-6c wave head. M1118-b-c: the review's three comment rewordings (comment-only).
+M1117 (B-10, run 0122/0130): docs/HOOKS.md now states the depth-0 hook rule's consequence for delegated writes. A hook never fires for a `spawn_subagent` child (in-process, depth 1) or a `spawn_parallel` write child (depth 1) -- the per-tool fence (path fence, edit scope, mode) is the gate that covers them, and the hook is the operator's top-level veto -- so a project believing "every write is gated" is wrong for delegated writes; the hook child runs with jichi's environment minus the secret variables (the M130 scrub), everything else on stdin as JSON. The env-var half of B-10 was already closed at 267189de before this drive. Doc-only, the finding's own recommendation (the behaviour is correct and intentional). Pinned by the new `tests/smoke/hooks_docs.sh` driver (3 checks; red-first witnessed: `not ok 2 ... HOOKS.md spawn_parallel=missing 'every write is gated'=missing`). Driver count 532 -> 533 (run.sh registration + CONTRIBUTING.md / docs/VOCABULARY.md / the ja VOCABULARY count page in the record commit).
+M1116 (B-09, run 0121): the `posix_spawn` child backend (`JICHI_SPAWN_BACKEND=spawn`, the fork-less rows' choice) restores jichi's own working directory through a held directory handle (`open(".")` + `fchdir`) instead of re-chdir'ing the saved path, so the original directory vanishing mid-call can no longer leave jichi running in a silently-moved directory (the old code warned and continued); the path-based restore + its warning stays where the `JC_HAVE_FCHDIR` link probe is absent or the open failed, and `make info`'s new FCHDIR line (with docs/BUILD.md's probe-list entry, SV:1057) says which restore a build took. Default fork-backend builds are unchanged.
+M1115 (B-07, run 0120): the per-workspace lease's degradation is documented. Where the filesystem's file locking is unavailable (some network mounts) or the current holder keeps the lock past its wait, `--lease fail` does not guarantee a single writer -- the take proceeds, and the no-locking case is logged at debug level, so nothing is printed at the default log level. The finding's recommendation (note the degradation; a strict mode that refused to start was considered and rejected: on a mount without lock support it would turn a convenience into an outage) is now carried in the learner-facing pages by class only: a bullet on SECURITY.md's non-model-dependent defences and docs/HARDENING.md 7.6, both stating the lease is advisory in those cases and is a convenience, not a security boundary, that does not serialise against another user (docs/AUTONOMY.md 3b keeps the full honest-limits account). A new smoke driver (`lease_advisory_docs.sh`, 2 checks) pins the two src degradation log lines and the presence of the documentation; driver count 531 -> 532. No product behaviour changed.
+M1113 (A-13, run 0117): the JSON object accessor `cJSON_GetObjectItemCaseSensitive` now returns the LAST matching member instead of the first, so a peer object carrying a duplicate key (`{"x":1,"x":2}`) reads its last value (last-write-wins) -- the one product change of the 10b-6b wave, chosen as the minimal altitude (decision B) over parse-time dedup (rejected as an O(n^2) parse plus a tree/iteration/re-serialisation change for a LOW finding); every `jc_json_get_*` routes through it (jc_json.c:22/31/63/159/169/192), so config, model, MCP and tool-argument reads become last-wins at once, while `parse_object`, the `AddItemToObject` build path and `cJSON_Duplicate` are deliberately untouched (a different altitude -- a dup peer object still iterates/prints both, which jichi never re-serialises). Red-first: unit legs in tests/test_json.c (`{"x":1,"x":2}` -> one GetObjectItem match, value 2; `jc_json_get_num` == 2.0) -- the unfixed first-wins tree FAILs at test_json.c:123/124/130/131/146, green after. In the same window the three remaining 10b-6b SV rows close, all test-only except M1106-b's product strip: M1106-b (SV:1725 #2, the D-24 neighbour -- `setup --from-global` still copied literal `mcpServers[].env` / `.headers` and `tools[].env` values into the 0644 committed project config under the "never a literal key" `_comment`; the inherit strip now generalises `strip_api_key` to `strip_named_member` and drops `mcpServers[].env` + `.headers` + `tools[].env` on inherit, warning per affected entry while the entry's name/command/args survive -- red-first unit + setup_from_global_nokey 10 -> 14) and M1106-b-b (the stale `strip_api_key` comment nit); M1108-b (SV:1725 #5 -- the D-33 WARN's "(FIFO/device/socket)" parenthetical was false for a DIRECTORY, which also skips without a hang; both choke messages now say "-- skipped without reading", the guard untouched -- rules_fifo_skip 6 -> 8) and M1108-b-b (the rules-side `add_file` directory WARN pinned at full-text altitude, rules_fifo_skip 8 -> 9); M1110-d (SV:1725 #3 -- search_option_path leg 5's `found5` matched the CALL'S OWN PATTERN ARGUMENT in the request body, not the tool result, so the "is searched" half read nothing; the link is renamed so its name carries no content marker, so `found5` is satisfied only by grep's RESULT line -- anti-vacuous, driver 5/5). Gate `make WERROR=1 test` 37304/0 (37293 + 11); drivers setup_from_global_nokey 14/14, rules_fifo_skip 9/9, search_option_path 5/5, config_verbs 7/7, config_set_comments 6/6. Every wave extended an EXISTING driver, so the driver count is UNCHANGED at 531 -- no run.sh or count-page change. 10b-6b is now code-complete (the three SV:1725 #2/#3/#5 rows and the next LOW row A-13 are all closed). The operator then measured the CONSEQUENCE (SV:2259): on master, a PreToolUse hook on write_file that parses its event last-wins judged one path while jichi (first-wins) wrote another -- a model reply with duplicate `path` keys was ALLOWED and the blocked name was written, a fence bypass; M1113-b pins it by a three-leg hooks.sh driver (red witness on the pre-M1113 accessor) and corrects the M1113 comment in cJSON.c (jc_tool.c DOES re-print the args; every value read resolves last). M1114 (SV:2220 #1, pre-existing): a FIFO at local/config.json or ~/.jichi blocked start-up (rc=124); a following-stat guard now refuses a non-regular config path before the open, each shape's true text (M1114-b: a directory keeps the M198 message). M1112-j (SV:2220 #2/#3): the parallel_salvage instrument's present= line no longer leaks the path, and the wait keys on the marker being written, not the file existing. Fast gate 37304/0.
+- **Batch 10 "The rest, by severity" (runs 0095-0096, cards 119-121) begins with the two memory-cap findings and the privileged-launcher detector.** `src/json/cJSON.{c,h}` + `docs/LOW_MEMORY.md`, `src/provider/jc_provider.c` + `src/provider/jc_provider_openai.c` + `src/provider/jc_provider_anthropic.c` + `src/provider/prov_internal.h`, `src/util/jc_priv.c`. (1) The JSON parser bounds the node count of one parse at 1,000,000 (M1089/A-06): a dense reply used to expand ~40x its bytes into tree memory (a 4 MB array -> ~160 MB resident; measured on head, 1.9 MB -> ~78 MB peak), so on a 256 MB board one large-but-valid reply could exhaust memory while the byte cap "held" -- a cap now holds the memory, and a reply that would need more nodes is refused as an error (the parser returns an error, not a partial tree; the largest legitimate parse, a 64-item embeddings reply at 8192 dimensions, is ~524,000 nodes and clears the cap with margin). (2) Streamed assistant text and each tool call's arguments are capped (M1090/A-07): 4 MiB of text and 1 MiB of arguments per stream, the same order of magnitude as the 4 MB SSE field cap; a stream that exceeds them is cut and the message it produces is marked truncated, the same verdict the server's own length cap already sets, so a misbehaving endpoint cannot grow the agent's memory without limit. (3) The privileged-launcher detector skips a wrapper's own options and matches a launcher by its final path component (M1091/B-05): `nice -n5 sudo x`, `timeout 5 sudo x` and `/usr/bin/sudo x` used to pass the gate undetected because the wrapper branch skipped only the wrapper word (its own option was re-read as the command) and the launcher table compared whole barewords; the option/value tokens are now skipped the way `env`'s arguments already are, a launcher named by a path is matched by its last component, and the documented non-catches (`sudoku`, `sh -c 'sudo'`, `S=sudo; $S`, quoted sudo) are untouched. The supervisor's effect-check then surfaced two follow-ups, both landed (run 0096): a clipped tool call or reply caused by JICHI's OWN per-stream cap is now named as such in the message the model reads, instead of blaming the model's output-token limit that never fired (M1090-b/G2 -- an in-memory `truncated_by_cap` cause rides `jc_message`, never serialised), and the args-cap test now guards ALL FOUR dialect routes (openai stream/full, anthropic stream/full) instead of only the openai stream route the wave-1 test drove (M1090-b/G1 -- the supervisor proved the other three could regress to uncapped appends with the test suite still green). M1091-b (SV:2258) fixes a false positive the fix itself introduced: `command -v NAME` is a shell name LOOKUP that runs nothing, so the detector no longer flags the looked-up name (and `command sudo x` / `command -p sudo x` still flag); five one-level-deeper obfuscations (path-qualified `env`/`nice`, `timeout -s KILL`/`-k`, `exec -a`) are encoded as documented non-catches, not fixed -- the lexer's honest boundary.
+M1092 (C-06, runs 0096-0098): a default 32 MiB ceiling (JC_HTTP_DEFAULT_RESP_BYTES) bounds every collected jc_http response and ABORTS the transfer past the bound (a distinct overflow flag, so a caller never misreads a cut body as a whole one); the audio and image caps ride it, and web search/fetch name the limit in the message the model reads. M1092-b (SV:0219): the image POST leg's transfer cap moves from the DECODED bytes to the b64_json ENVELOPE size bound, so a legal image whose base64 envelope is larger than its decoded bytes is no longer refused. M1092-c (SV:0302 R2): the driver's memory teeth read the kernel's high-water mark (rusage.ru_maxrss via a new tests/tools/rsshwm helper) against a baseline turn, not a 50 ms /proc sampler that missed the transient peak -- a check that could not go red. M1093 (C-09): every side (non-model) HTTP call -- embeddings/rerank, the model listings, image/audio/transcribe, MCP-over-HTTP, compaction, one-shot, web search, feed/doc fetch, the two helper completions and the TUI's inline suggestion -- now carries the connect fence (CLI > global > built-in 30, no per-model tier) and the dead-stream fence (cfg->dead_stream_secs, explicit-off honoured, else the built-in 900), through one helper (jc_net_side_fences); the totals stay on but are named per call class, and a new lint (side_call_fences_lint, floor 21) holds every site fenced. M1094 (G3, run 0099): the JSON parser's per-parse node cap (M1089) now names a REFUSAL in the SSE event path -- an event whose JSON would need more than 1,000,000 nodes used to be dropped silently (the streamed reply came back rc 0, not marked truncated); both provider dialects now mark the reply truncated and log a line when the parse is a cap refusal, so the message the agent sees is incomplete and the journal says why, instead of the silence reading as the server never having sent the event. M1095 (D-03, run 0100): the edit-scope out-of-scope sweep and its revert read raw git names again -- `jc_snapshot_changed_since` goes NUL-separated (`-z`), so a non-ASCII (or quote/backslash/tab/newline) path is no longer C-quoted into a name that mismatches the scope glob (a false violation) and unlinks a name that does not exist (the journal recorded a revert that did not happen); every consumer of the list splits on NUL, and the M1095-b teeth pin the full C-quoted name family (SV:0918). M1096 (D-06, run 0101): the state root ~/.jichi.d -- which holds the shadow-repo objects, the worktrees and the index cache, i.e. FULL CONTENT COPIES of your workspaces -- is created owner-only (0700) by every jichi before any dispatch, so every child is unreachable on a traversable home whatever its own umask-derived mode, and, on an existing install, tightened back to owner-only by an agent run (SV:1618: a pre-fix root at 0755 left the old checkpoints' full content copies of workspaces readable by other users); the checkpoints/<key> shadow-repo base and the improve/attempt/workflow worktree bases are created owner-only too (belt); `jichi doctor` names a group/other-accessible state dir -- with its observed octal mode and a `chmod 700` remedy -- and never tightens one itself (it must keep observing), and a no-op chmod (the MSYS2 no-acl class, M503) is reported on stderr with the same remedy. M1096-b (SV:1618): the existing-install tighten. M1097 (D-09, run 0105): the per-workspace stores -- the checkpoint shadow repo, the run lease and the telemetry log -- are keyed by the 64-hex SHA-256 of the RAW workspace path (the M851 trust-step digest) instead of djb2, which collides on adjacent bytes differing by (+1,-33): two workspaces whose names collided (e.g. `col/Ez` and `col/FY`) used to share ONE shadow repo, so `jichi checkpoints` in the never-run sibling listed the other's checkpoint and `undo --dry-run` there offered to restore the other's tree and delete its own; an `undo` in one could restore the other's state. The shadow repo now records its work tree (`jichi.worktree` config) at fresh init and is DISABLED (one warn, "snapshots unavailable here") when a positively-mismatched belt is read back; a belt-absent (pre-M1097) store is trusted and pinned once, and old numeric-keyed stores are simply never reached again (orphaned by effect). New `keyprobe` instrument (sha256/djb2, linked to the in-tree SHA-256 core) and the `checkpoint_key_collision` smoke driver (6 checks); driver count 515 -> 516. M1098 (run 0102): the batch-10 full-smoke gate reds are cleared -- the batch-10 drivers are POSIX (`http_resp_cap`'s GNU-only `head -c` becomes the tier's `head_bytes`; `side_call_fences_lint`'s `grep --include`, which BSD grep reads as a filename, becomes `smoke_srcfiles | xargs grep` with a fixed `/dev/null` operand so a lone-file xargs batch keeps its file name, SV:2138) and the M1096 state-root creation no longer runs ahead of the legacy-migration advice (which reads whether `~/.jichi.d` exists to decide between the safe plain `mv` and the M326v merge-by-hand warning), so an old-only install is still told the safe rename. M1099 (D-12, run 0106): the spawn_parallel merge no longer follows symlinks at either end -- apply_change lstats both ends: a child-side link is re-created as a link (bounded readlink, parent dir created, byte-exact), a regular file is read O_RDONLY|O_NONBLOCK then fstat-verified (S_ISREG, same st_dev/st_ino) and written through the new jc_write_file_atomic_mode (the atomic tmp+rename shape, so rename REPLACES a live link; the temp fchmod-ed to the CHILD's mode, the two existing 0600 writers untouched and byte- and mode-identical), and any other type (FIFO, socket, device, dir) is refused as a conflict without opening -- never a silent drop, never a blocking read; the M975 scoped-edit re-read follows a merged link only when its endpoint is a regular file. M1099-c (SV:1144): the read allocates the file's st_size + 1, not 64 MiB per file (the strace-measured no-overcommit/32-bit spurious-conflict class), a read past the fstat size is a conflict, and the read chunk is off the stack onto the tool-scratch arena. Red-first driver tests/smoke/parallel_symlink_merge.sh (13 checks: the SRC link-copy, the DST write-through, the FIFO link-to-pipe stall, the MODE, the FIFO-DIRECT, and the NEWLINK legs); driver count 518 -> 519; per-check teeth probe pinned all six effect-on-disk checks. M1100 (D-16, run 0106): a present-but-unreadable .jichi/memory.md or rules.md is refused, never replaced -- jc_read_file returns JC_ERR_TOOBIG over the 64 MiB cap (and the run-0106 measurement: a 67109888-byte memory.md became 8 bytes, only the new note, after one remember, rc=0); the new platform helper jc_read_existing returns a true tri-state (JC_ERR_NOTFOUND only for a genuinely absent path, the read error unchanged for a present-but-unreadable one, *out NULL on every error), so jc_memory_add and learn_apply_rules write only on a genuine absence and refuse otherwise -- the remember tool surfaces a tool error naming the cause and the remedy, the M533 board rule applied to the file-tool writers; at-cap (exactly JC_READ_FILE_MAX) still appends, pinned by the strict-boundary leg. M1100-b (review nit 1): the helper lstats the leaf, so a symlink -- live or broken -- is never NOTFOUND and a trusting writer can never create the target on the other side of a link (the D-12 write-through class). Red-first driver tests/smoke/memory_over_cap.sh (5 checks); driver count 519 -> 520; cap-relative unit teeth in tests/test_platform.c. Red-first driver tests/smoke/memory_over_cap.sh (5 checks); driver count 519 -> 520; cap-relative unit teeth in tests/test_platform.c. M1101 (D-17, run 0107): the workspace lease holds one record per holder -- `<key>.<run>.json` beside the legacy `<key>.json` (still read) -- so a `--lease warn` run no longer overwrites the live holder's record and its exit erases nothing but its own; stale records are counted by `jichi ps` and left on disk as evidence, red-first driver `tests/smoke/lease_lifo.sh` (6 checks). M1102 (SV:1637, run 0107): `learn apply`'s rules arm (the M1100 refusal of a present-but-unreadable rules file) is pinned by the new driver `rules_over_cap` (a 67109888-byte `AGENTS.md` survives byte-exact; the small-file append and the `CLAUDE.md` fallback still work), and the refusal names the real file -- `AGENTS.md` or `CLAUDE.md` -- instead of the `.jichi/rules.md` that never existed. M1103 (SV:1848, run 0107): the control channel answers `status`/`pause`/`abort` while an in-process `spawn_subagent` runs -- the service points guard the socket's owner process (recorded at open), not `agent_depth`; an `inject` sent mid-child folds only at the lead's next top-level boundary; red-first driver `control_subagent_answer`. M1103-b (SV:2118, run 0107): a `--daemon` run with an opened control socket is refused at startup (exit 2) -- after M1103's owner-process rule no forked worker would answer a bound socket; red-first driver `daemon_control_refuse`. Driver count 520 -> 524 with this run's four drivers. M1104 (D-18, run 0108): the four in-place rewrites of jichi's own workspace files -- .jichi/memory.md (jc_memory_add/correct) and the rules file AGENTS.md/CLAUDE.md (learn_apply_rules / learn_rules_apply_correction) -- now go through a MODE-PRESERVING atomic replace (jc_write_file_atomic_mode with the target's lstat mode, 0644 for a genuinely absent target), so a failed write leaves the pre-existing bytes untouched instead of truncating them to 0 while the command exits 0; the atomic impl honours the one-shot JICHI_FAULT_WRITE_ONCE_AT knob for the red-first injection; red-first driver tests/smoke/inplace_rewrite.sh (7 checks, FAULT-gated), named in the Makefile smoke-faults target (smoke_lint check 16); driver count 524 -> 525. M1105 (D-23, run 0109): init, setup and setup --import no longer write through a symlink planted in the project -- one guard (scaffold_write_guard) fences every scaffold/config/start-script/import write: it resolves the leaf parent under the canonical project root (a symlinked parent like .jichi -> ../dir is refused) and lstats the leaf (a symlink leaf is refused always, even under --force; a non-regular leaf is refused; a regular existing file is still force-overwritten, no over-refusal); global writes have no workspace to fence and are exempt, and an unnameable project root refuses every local write (fail-closed); a refused setup aborts before the config write and the trust registration; red-first driver tests/smoke/init_symlink_refused.sh (5 legs, offline); driver count 525 -> 526. M1104-c (SV:0257, run 0109): the remember/learn writers now keep a HARD LINK -- jichi's own workspace files (memory.md, the rules file) are written in place when the target's st_nlink is greater than 1 (the editor convention, vim backupcopy=auto), so a rules file shared between two names (AGENTS.md linked to CLAUDE.md) sees the new bytes under every name; a single-link or absent target still takes the mode-preserving atomic replace of M1104 (D-18), and the M141 in-place truncation trade applies only to the hard-linked case. Red-first driver tests/smoke/hardlink_rules.sh (4 legs, offline); 43 unit teeth in tests/test_platform.c; driver count 526 -> 527. M1106 (D-24, run 0110): `setup --from-global` (and its `--inherit` subset) no longer copies a literal `apiKey` from the global `~/.jichi` into the project config -- a secret that used to move from a 0600 home file into a 0644 project file that is commonly committed, under a `_comment` promising "apiKeyEnv only, never a literal key". When inheriting, the exact member `apiKey` is now dropped from every model and from the top-level `search` (a one-time stderr warning names the affected model by its name, else its id), while `apiKeyEnv` (the env-var NAME -- the whole point of inherit) is kept, so the inherited config's promise is now true. Red-first driver tests/smoke/setup_from_global_nokey.sh (10 checks, offline); unit legs in tests/test_setup.c; driver count 527 -> 528. M1107 (D-25, run 0111): `config set` no longer loses the config it is editing -- the old sequence RENAMED the live config to .bak first, then wrote a temp at a FIXED name (<path>.tmp) and renamed it over the config: a 0600 config came back 0644, a DIRECTORY planted at <path>.tmp made the save fail with the config GONE, and a symlinked config was followed and replaced by a regular file. The save is reordered to refuse a symlink (the name and its target are left untouched) -> back up by COPY (the backup now carries the original's mode, M1107-b) -> temp-first mode-preserving EXCLUSIVE write (unique <path>.tmp<pid> suffix, fchmod to the original mode before the rename), so a failed save leaves the original byte- and mode-identical. Red-first unit legs in tests/test_configedit.c (9 failing checks pre-fix) + drivers tests/smoke/config_set_safe.sh (5 checks, offline) and tests/smoke/fault_config_loss.sh (3 checks, FAULT-gated); driver count 528 -> 530.
+M1112 (A-12, run 0116): jc_testparse no longer overflows on a test runner's attacker-sized number -- the finding named find_loc's line number, but the same unguarded n = n*10 + digit sat at FOUR sites (the TAP plan total, num_before's backward multiply-accumulate for "N failed/passed/tests", and scan_counts' "out of" loop); each wrapped signed int (UB) -- a 30-digit line number overflowed at jc_testparse.c:89 (UBSan), wrapping to the deterministic 5076944270305263615, a 30-digit count wrapped to the garbage 1073741823. One file-static read_num_capped helper now guards all four, capping at INT_MAX (the report's count fields are int, so (int)LONG_MAX would be UB on its own) and consuming the whole digit run (pointer invariant); in-range values are byte-identical. The finding's second clause ("JUnit parse is O(n*m)") does not reproduce -- benchmarks are linear (400k testcases in 7 ms, 10M in 3 s), recorded with the measurements, not fixed. Red-first: four unit legs in tests/test_testparse.c (a 30-digit input per shape, asserting the INT_MAX cap) -- the junit leg's wrapped value can never equal INT_MAX, so the plain gate is red; make WERROR=1 test 37252/0 -> 37256/0; the ASan/UBSan standalone is the secondary witness. qwen27b review REJECTED-with-findings: M1112-b -- the INT_MAX cap propagated into two downstream sums (r->total = failed + passed in scan_counts, p + f in jc_test_report_count), each a reachable signed-int overflow (lead-verified UBSan 2147483647+2147483647 at jc_testparse.c:474:30; the unchecked sum also wraps to total=-2 in the plain gate); both are now checked and cap at INT_MAX, plain-gate red-first legs (37256/0 -> 37258/0). No smoke driver (unit-only), no count pages. In the same window: M1107-d (SV:1739 -- make ci RED at d294b8da on its -O2/ASan stage: test_save_safe's two jc_arena_free(a) ran before their blocks' memcmps; moved after; test-only, no product change; the instrumented gate re-run clean on the main line: SAN 37264/0, -O2 37264/0) and M1107-e (SV:1725 #1 -- config set's M1107 copy backup wrote <path>.bak with jc_write_file (fopen "wb" follows the name) + chmod: a planted symlink/hardlink at the .bak was written THROUGH (canary clobbered, chmod 0600), a planted FIFO BLOCKED the save (rc 124, a new hang); the .bak is now jc_write_file_atomic_mode -- unique temp, fchmod before the rename, the name replaced, never opened -- so all three shapes are replaced, not followed; the redundant chmod and M1107-c's remove-partial are dead; red-first three config_set_safe legs (plan 5 -> 8), lead-witnessed red on the main line (legs 6/7 CLOBBERED, leg 8 rc=124) and 8/8 after; fault_config_loss 4/4 on a FAULT=1 build (its faulted .bak is now ABSENT, an accepted shape; header comment updated, no assertion changed). M1110-c (SV:1725 #4): the search_code stat-fallthrough for a DANGLING symlink (present link, absent target) had no unit tooth -- the comment claimed the M1110-b missing-path tooth pinned it; a sibling green-first regression tooth added (+6 checks) and the comment corrected. Open for 10b-6: SV:1725 #2 (the D-24 neighbour -- setup --from-global still copies literal mcpServers[].env / .headers / tools[].env values; the strip covers models[].apiKey + search.apiKey only; measured MKM 0 / MKE 1 / MKH 1 / MKT 1), #3 (search_option_path leg 5's found-key is the call's own pattern argument -- the "is searched" half reads nothing) and #5 (nit: the D-33 WARN's parenthetical names FIFO/device/socket for a directory too).
+
+M1111 (A-11, run 0115): jc_group_num clamps its staged number length to what was written, so a caller buffer larger than the 40-byte staging buffer can no longer make the copy loop read past it -- n is jc_snprintf's WOULD-BE length, so a value whose integer part is >= 40 digits (1e40 renders as 41) and a >41-byte caller read raw[39] and beyond and copied OOB stack bytes into the output; the fix is `if (n > (int)(sizeof raw - 1)) n = (int)(sizeof raw - 1)` after the n<0 guard, a no-op for every current caller (all pass 40-byte buffers with token counts well under 1e38) and for every <40-digit value. Latent, keyed on the caller's size argument (the finding's shape), so low/note; it is on the DEFAULT vsnprintf path (the strict-C89 fallback emits a bounded "big" marker). Red-first: a plain-gate unit leg in tests/test_str.c (a 64-byte caller, `jc_group_num(1e40,'.',big,64)`, asserting the clean grouped string) -- the unclamped output is deterministic mis-grouped garbage that can never equal it, so it is red WITHOUT ASan (a stronger tooth than M1029's ASan-only relay case; ASan fires pre-fix at jc_str.c:304, clean post-fix). make WERROR=1 test 37252/0 (baseline 37251 + 1). No smoke driver (unit-only), no count pages. A-11 is the next un-fixed batch-10b row after D-36 (A-08 was fixed at M1078 in batch 8); it rides 10b-6 (the LOWs). The 10b-5 READY (the five mediums M1106/M1107/M1108/M1109/M1110) cleared at d294b8da, full smoke green 531/3187, after three record/lint reds their own commits introduced (docs_flags --devices FOREIGN line, SETUP_WIZARD --inherit row back under 200, config_set_safe guarded G=); parallel_salvage's in-suite red is environmental (passes 6/6 standalone).
+M1110 (D-36, run 0114): search_code no longer hangs when its path is a present-but-unsearchable file (a FIFO, device or socket) -- a model pointing the tool at a named pipe made grep block forever in open() (no writer), so the whole tool call ran until the deadline killed it. search_run now lstats the path (after the D-31 dash check) and, when the entry exists but is neither a regular file nor a directory, returns a tool error naming it instead of running grep; lstat (not stat) so a link to a FIFO is refused like a FIFO, and a missing path still falls through to grep's usual "reading the path" error (a FIFO INSIDE a directory is already skipped by grep -r, so only the top-level path changed). No --devices=skip (it does not cover the top-level case, and -I is non-universal, M658); the popen/read loop is unchanged. Red-first: legs 3/4 of tests/smoke/search_option_path.sh (2 -> 4 checks) under a 30 s inner deadline -- leg 3 is not-ok (rc 124, the hang) pre-fix and ok (the refusal marker in the round-2 request, not the dash message) post-fix, leg 4 the anti-vacuous regular-file control; the first attempt's leg 3 was hollow (ok on the unfixed binary) and was re-cut so rc>=124 is a failure, mirroring the D-33 sibling rules_fifo_skip. make WERROR=1 test 37246/0 (check-neutral against the pre-M1110 head, measured); qwen27b hunk audit carried two unpinned assumptions to a note (M1110-b: the missing-path fall-through has no unit tooth, and the char sp[1024] copy is redundant because lstat takes the string directly). M1110-b (run 0114, the lead's self-review): the guard found a THIRD problem the audit had not pinned -- lstat over-refuses a symlink resolving to a regular file (pre-M1110 grep opened the link and searched the target, the house M992/M1020/M1108 semantics) -- and it is now stat: a link to a regular file searches again (search_option_path leg 5, not ok on 3ed79604, 5/5 after; qwen27b re-review confirmed no lstat/stat case is worse than either baseline), a link to a FIFO is still refused by the target's type without blocking (stat is metadata-only, never opens), the sp[1024] copy is dropped (for a >1023-char path it lstat'd the truncated PREFIX -- a hang bypass), and the missing-path fall-through is a unit tooth in test_tool.c (green regression tooth; its red is the predicate perturb, 2 failures at test_tool.c:1237/1238). make WERROR=1 test 37250/0.
+M1109 (D-35, run 0113): a prompt-asset file is no longer read whole onto the session arena before its cap is cut -- rules add_file (the global AGENTS.md and every explicit config instructions path) and glossary append_file (project and global .jichi/glossary.md) and the command @-reference append_file each jc_read_filed the whole asset (up to the 64 MB JC_READ_FILE_MAX) into app->arena and only then cut to the cap (rules 32 KB head, glossary 8 KB of the combined buffer, command file 32 KB head); the cut bound the output, not the retention -- the arena block held the whole file for the process lifetime (measured: an 8 MB CLAUDE.md added 8064 KB peak RSS; the finding raised peak 12.9 to 442 MB over seven sparse 60 MB files). A new additive jc_read_file_bounded(path, out, len, a, max, head) reads at most max bytes of a file the caller cuts to max anyway -- the leading max when head, the trailing max otherwise, no TOOBIG (the bound IS the size) -- and the three chokes switch to it: rules reads the HEAD JC_RULES_MAX+1 (the +1 is the M516 UTF-8 boundary byte the truncation backstep needs), glossary reads the TAIL JC_GLOSSARY_MAX (the kept cut is the TAIL of the COMBINED buffer; byte-identical, case analysis in the M1109 report), command @-ref reads the HEAD JC_CMD_FILE_MAX. jc_read_file and its 64 MB cap are untouched, as are its other callers; jc_command.c load_dir, jc_agentdef.c and jc_skill.c (read whole with NO cap) are a distinct shape, recorded not fixed. No output change for files <= 64 MB (the one deliberate change: a > 64 MB asset at these chokes now expands truncated instead of being refused -- the documented no-TOOBIG contract). Red-first tests/smoke/prompt_asset_peak.sh (a 4 MB CLAUDE.md adds ~4032 KB peak RSS pre-fix, ~384 KB post-fix; the file head marker in the captured request is the anti-vacuous denominator); test_glossary_tail_cut pins the glossary tail read (red on a head-read swap -- the hunk-audit F2, closed in M1109-b); arena_lint session-arena allow-list rekeyed to the bounded read (F5); driver count carried 530 to 531 (CONTRIBUTING, VOCABULARY, ja translation). make WERROR=1 test 37247/0; qwen27b review APPROVE.
+M1108 (D-33, run 0112): a FIFO (or other non-regular file) in a prompt-asset position no longer hangs start-up -- M1020 had guarded only the rules dir-walk (add_dir_rules lstats AGENTS.md/CLAUDE.md); the two read chokes the other routes reach directly -- rules add_file (the global ~/.config/jichi/AGENTS.md and every explicit config `instructions` path) and glossary append_file (project and global .jichi/glossary.md) -- fopened the pipe and blocked. Each choke now follows-stats the path and, when it exists and is not S_ISREG, prints one WARN and skips it BEFORE the open: a missing or broken-symlink path gives stat!=0 and still falls through to jc_read_file's silent NOTFOUND skip, a symlink resolving to a regular file still reads (M992/M1020 semantics); red-first driver legs C/E/F of rules_fifo_skip.sh (2 -> 6 checks: not-ok command-timed-out pre-fix, all green after; the regular-file control leg pins the no-over-block), make WERROR=1 test 37241/0; qwen27b review APPROVE.
+- **Batch 9 "Resources" (run 0092, cards 112-117): the small-board memory and persistence findings land.** `src/index/jc_repomap.c`, `src/chat/jc_app.c` + `src/session/jc_session.c` + `src/chat/jc_agent.c` + `src/platform/jc_platform_posix.c`, `src/json/cJSON.{c,h}` + `src/util/jc_utf8.c`, `src/util/jc_telemetry.c`. (1) The repo map's build arena peaks at ONE scanned file instead of the sum of all of them (M1081/F-01) -- a 40-file workspace no longer retains ~2.5 MB of source text while it renders a sub-KiB listing. (2) A session save that fails (ENOSPC/EACCES/EROFS) now says so -- one line naming the session file and the reason, once per process -- instead of silently losing the turn (M1082/F-02). (3) A `SIGKILL`/OOM mid-turn loses at most the in-flight round: the session persists at each tool-round boundary, the session save fsyncs its file and directory, and stale `<id>.json.tmp<pid>` files are swept on listing (M1083/D-08). (4) cJSON appends to an array in O(1) via a cached tail instead of walking the whole list (M1085/F-05) -- 16,557 appends 0.236 s -> 0.0008 s. (5) The telemetry readers (`jichi telemetry`, `context tools`) are honest past the 64 MiB slurp cap -- they stream the log line by line instead of refusing it (M1086/F-04). (6) The request-path printer and UTF-8 sanitiser get two byte-identical fast paths (M1084/F-06), a ~27% cut in re-serialisation CPU on a tool-heavy turn.
+- **M1080 (run 0091, card 111, batch 8, SV:0548): the `jichi-harness --help` BUILT marks are pinned.** `tests/smoke/harness_third_program.sh`. Check 3 now asserts the `run` entry carries "BUILT, M1057/M1058" and the `drive` entry "BUILT, M1059", so the carried M1059-b fix can no longer revert without a gate going red.
+- **M1079 (run 0091, card 110, batch 8, A-10): the C89 `snprintf` fallback consumes the right `va_arg`.** `src/platform/jc_snprintf.c` + `include/jc_snprintf.h` + `tests/smoke/snprintf_fallback.sh`. Without `vsnprintf`, an unsupported conversion (`%.*s`, `%5d`, `%g`, ...) printed the literal and consumed NO argument, so the next `va_arg` read the wrong slot (SEGV). The fallback now parses width/precision/`*`/length, honours them for the supported set, and every else branch consumes its class-implied argument. Red-first: `snprintf_fallback.sh` (the SEGV leg).
+- **M1078 (run 0091, card 109, batch 8, A-08): `cJSON_Parse` refuses trailing content after the root value.** `src/json/cJSON.c` + `tests/test_json.c`. The parser used to return the first value and silently accept anything after it (`{"a":1}}`, `{"a":1}{"b":2}`, ... all ACCEPTED). Now: after the root, skip whitespace and require the end of input. Verified no caller feeds a prefix (jsonrepair re-parses the complete string; the prose-scanner slices are complete objects).
+- **M1077 (run 0091, card 108, batch 8, A-02): 117 out-of-range `(int)`/`(long)` casts of untrusted JSON are now defined.** `src/json/jc_json.{c,h}` + the 25 swept `src/` files + `tests/smoke/json_cast_lint.sh`. Four clamp helpers (`jc_json_clamp_int/_long/_uint/_size`, NaN->0, +-Inf->the bound, out-of-range clamped, in-range exact) replace every `(int|long|unsigned|jc_size) jc_json_get_num*` and `(int|long) x->valuedouble` site in `src/` (117, enumerated by the lint). The new `json_cast_lint` is RED BY DESIGN at floor 117 pre-sweep and pins the clean tree at 0 post-sweep so a new bare cast fails loudly.
+- **M1076 (the resumed drive, run 0091, card 107, batch 8, A-09 + L-04): the JSON printer is exact.** `src/json/cJSON.c` + `tests/test_json.c` + `tests/smoke/sprintf_lint.sh`. The in-tree cJSON printed integral `|d|<=1e15` via `(long)d` (UB on an out-of-range double; `-2147483648` garbage on 32-bit) and everything else via 6-digit `%g`, so a re-serialised session file / tool-argument echo / converted config was lossy. Integral `|d|<2^53` now prints via `%.0f` (exact, no cast) and the rest via `%.15g` with a `strtod` round-trip falling back to `%.17g`. Red-first: `test_json_print_exact` (9 failing checks pre-fix).
+- **M1074 (the resumed drive, run 0090, card 105, batch 7, E-06): a `make CFLAGS=...` no longer replaces the project's compile line, and the environment's `CFLAGS`/`CPPFLAGS`/`LDFLAGS` are no longer silently dropped.** `Makefile` + `tests/smoke/harden_flags_lint.sh` (10->15 checks). The Makefile's project flags live in `JC_CFLAGS`/`JC_LDFLAGS`; the user's three variables are empty by default and are honored AFTER the project's on the compile and link lines (GNU convention; `OPT` stays the documented knob). The capability probes and `fallbacks-compile` deliberately keep project-only flag sets (the D1 decision: they ask "does the compiler accept flag X?", not "does the user's CFLAGS break X?"). `make info` prints the user's three variables. New checks 11/12 (red-first: pre-fix the command-line form lost the project's `-Iinclude` and the env form was silently dropped), 13/14 (the user flag's POSITION on the compile and link lines), 15 (no user-flag leak into `fallbacks-compile`); the audit that found the 13-15 gaps is M1074-b.
+- **M1073 (the resumed drive, run 0089, card 104, batch 7, L-01): the documented install path gets a named release build to point at.** `Makefile` + `docs/BUILD.md` + `tests/smoke/release_mode.sh`. `make install` (which does not build, M586) shipped whatever the last plain `make` produced -- the `-O0` debug build with zero `_FORTIFY_SOURCE` imports, by the recorded design decision. `RELEASE=1` is now the named release mode: `-O2` at the probed fortify level (M1071's gate, fed by placing the knob *before* the immediate `OPTLEVEL :=` line -- the ordering is load-bearing) plus `-ftrivial-auto-var-init=zero` where the toolchain accepts it (probed, not assumed; the aarch64 and GCC-14 umbrella candidates stay out of scope). The default build is byte-identical. The install section of `docs/BUILD.md` now recommends `make -j4 RELEASE=1` for the running build, keeping plain `make` for the editing loop. New smoke driver `release_mode` (6 checks) is red-first: pre-fix, a `RELEASE=1` build reports fortify inert and imports no `__*_chk` symbols.
+- **M1072 (the resumed drive, run 0088, card 99, SV:1419, LOW): `jichi-harness mirror push`'s within-limits size-check line no longer prints the biggest file version as a whole-MB ceiling next to the total's one-decimal number.** `src/harness/jc_harness_push.c`. A 0.13 MB blob read "the biggest file version 1 MB" beside "0.3 MB in all" — biggest larger than the total on the same line, in 32 of push.log's size lines; the limit decision (byte comparison) was right all along, only the message was wrong. The biggest is now formatted with the same one-decimal `fmt_mb` the total and the over-limit branch already use; the ceiling computation is gone. New harness_mirror_push cell 32 asserts biggest ≤ total numerically (the total is the sum, the biggest the max) — red-first: `biggest=1 MB > total=0.1 MB` pre-fix.
+- **M1071 (the resumed drive, run 0088, card 102, batch 7, E-05): `_FORTIFY_SOURCE` is keyed on an optimisation level and its level is probed, not pinned.** `Makefile`. The old gate was true for `LTO=1` alone (SIZEFLAGS = -flto, no -O) and for `OPT=-O0`, so it set `-D_FORTIFY_SOURCE=2` at -O0 — inert on glibc ≥ 2.39, a `#warning` (→ WERROR error) on older — while `make info` claimed "live" there (the LTO=1 "carries -Os" lie); and where it was live it silently LOWERED Ubuntu gcc's own -O2 default of 3 to 2, losing the run-time-sized-overflow class the arena buffers are. Now `OPTLEVEL` (an actual -O level) keys the gate and the level is probed 3-then-2 (a `<string.h>` program must compile silently under the build dialect; fallback the compiler default, announced). `make info` names the probed level. The default -O0 posture is the recorded trade-off and is unchanged (see M1070's sibling L-01 for the installed build). harden_flags_lint 8→10: `make info LTO=1` must not claim live (red-first), and a live OPT=-O2 build must import `__*_chk` symbols (detector self-test, no vacuous pass).
+- **M1070 (the resumed drive, run 0088, card 101, batch 7, E-04): jichi's own printf-style formatters are checked by `-Wformat`.** `include/jc_platform.h` + the four formatter headers + `src/util/jc_relay.c`. `JC_PRINTF(f, a)` (guarded `__GNUC__`, empty on a compiler without attributes) is on `jc_snprintf`/`jc_sb_append_fmt`/`jc_logf`/`jc_ir_warn`; `jc_vsnprintf` takes a `va_list` and cannot carry it (documented). The first catch was a live undefined-behaviour site: `jc_relay.c`'s relay-baton render printed the `int` changed-file count with `%ld`. harden_flags_lint check 8 pins the attribute (floor 4). No `-Wformat=2` yet (its nonliteral count is measured first, as M472 did for its flags).
+- **M1059-b/-c (the resumed drive, run 0088, the operator's go 19:38): `jichi-harness --help` marks `run` and `drive` BUILT.** `src/harness/jc_harness_main.c` + `tests/smoke/harness_third_program.sh` + `tests/smoke/harness_drive.sh`. The fix and its teeth were built by the stopped harness drive (2026-10-23, run 0018) and never landed — carried by `git am -3` with the original authors and trailers (its red gate was one lint line: the carried log-shape teeth spelled the stamp offset `[+-][0-9]{4}` in a t_fail MESSAGE, which posix_utils_lint check 24 reads as an awk regex literal; spelled out, its own commit). The bare-form "not built yet" refusal stays pinned by harness_third_program checks 4-7.
+- **M1069 (the resumed drive, run 0087, card 77, batch-13 residual): the constraint scanner no longer infers a blanket rule from prose that is a path scope, a named file object, or a description of a subject's habits.** `src/chat/jc_constraint.c`. An inferred advisory rule (printed in every later prompt of the run; M734 keeps it non-enforcing) was misread three ways, confirmed on the pre-fix core: "never a report at the repository root" inferred a privilege ban from the scope noun `root`; "never commit a REPORT.md at the root" inferred a blanket commit ban from a prohibition that NAMES its file object; "The branches never run at runtime (only the unit tests reach them)" inferred a test ban from a description of what code executes. The fixes: `root` now requires an action reading like the other privilege words (G1); a command-key ban is withheld only when the target is followed by a determiner AND a file-extension name (G2, the M968 named-target class); a `never` cue is classified by what PRECEDES it — a reader, an opener or a clause start orders; a third-party subject describes — and a deontic (`must/should/shall/may`) or a reporting verb (`says/states/notes/writes/requires`) standing right before `never` is still an order (G3, reworked per the operator's measured 16/30-brief contrasts SV:1359/SV:1459/SV:1737). `tests/measure/scanner_corpus.py` over 669 distinct messages (the drive sessions + jichi's own docs): 18 verdicts moved, 77 → 59 rules, every mover a false-positive removal, zero real orders dropped. `make WERROR=1 test` 16360/0; the 8 touched constraint smoke drivers green; qwen27b reviewed every fix commit.
+- **M1068 (the resumed drive, run 0084, card 98, LOW): portability_lint check 5 refuses a libcurl guard token that is not exactly 6 hex digits, instead of decoding it to a fake version.** `tests/smoke/portability_lint.sh`. Check 5 extracted the source's `LIBCURL_VERSION_NUM >= 0x...` guards with `grep -o 'LIBCURL_VERSION_NUM >= 0x[0-9a-f]*'`, which stops at the first character outside `[0-9a-f]` — so an UPPERCASE guard `0x073B00` was read as `0x073` and the decoder turned it into the FAKE version 7.3.0, surfacing as "guarded but undocumented libcurl versions: 7.3.0" instead of refusing the malformed token. The fix is in the LINT (the guards in `src/net/jc_http.c` are the ground truth; no src/ change): a shared POSIX-sh function `curl_version_guards FILE` (broadened class `0x[0-9a-fA-F]*`; a token decodes only if its hex part is exactly 6 digits — `0xMMmmpp` — and everything else is emitted as the token on a second line, never decoded; a malformed token is UNKNOWN, not a version). Check 5 t_fails "check 5 extraction: N malformed libcurl guard token(s) ... — unknown, not decoded" on a non-empty malformed line, before the `nwant >= 2` floor. The teeth row is new check 39 (`t_plan` 38 → 39): a synthetic 3-guard fixture (`0x073b00`, `0x073B00`, `0x073`) run through the SAME function — not a copy of `jc_http.c`. Red-first: `not ok 39 - guard extraction wrong (want decoded='7.59.0 7.59.0' malformed='073'; got decoded='7.59.0 7.3.0 7.3.0' malformed='')`. `make WERROR=1 test` 16340/0; portability_lint 39/39; smoke_lint 22/22.
+- **M1067 (the resumed drive, run 0078→0083, SV:0957.2, LOW-MEDIUM): an undeclared tool argument is named on the call's own result, not dropped silently.** `src/tools/jc_tool.c`. A tool's `tu_arg_*` readers look up declared keys by name and dropped every other top-level argument the model sent — so a key the schema does not declare vanished with no signal, and the model concluded the extras were honoured (run 0078: the `git_commit` tool's schema declares only `message`/`all`, so the `trailer` block the agent sent was dropped and commits 49c48026/bcdec34a carried no trailers). The executor now captures the schema's `properties` names, computes the undeclared top-level keys of the normalised arguments, and appends an advisory `[note: ...]` naming each ignored key on the call's own result (the M353 idiom: a per-call fact rides its own result) plus one `undeclared_args` telemetry event (`tool`, `count`). The note is advisory — `is_error` is untouched, the run lands clean. Red-first driver `tests/smoke/tool_undeclared_args.sh` (the M350/M351 count-not-absence pattern). The C++ build stage (make ci) forced the `(struct jc_vec *)malloc` casts (SV:0200, M1067-c; the M690/M709/M867 class — the gcc fast gate cannot see it).
+- **M1064 (the resumed drive, run 0083-0086, SV:0904.3, LOW, card 93): the drive loop's two in-process mirror FETCH reports reach harness.log stamped, off the loop's stdout.** `src/harness/jc_harness_drive.c` (one static helper `fetch_logged_to_harness_log`, called by both the pre-run fetch and save_team's fetch; the push's redirect window is unchanged and covers the push only). The loop's own fd 1/fd 2 are never dup2'd for the fetch (the first attempt's dup2-the-loop-stdout capture poisoned the snapshot's gzip child's execvp to EFAULT and regressed D6; run 0085 root-caused it). The fetch runs in a FORK child whose fd 1 is a pipe; the parent drains the pipe (select, 200 ms) and reaps the child (waitpid WNOHANG) CONCURRENTLY (the jc_proc_capture discipline) and log_line()s each complete line stamped, with a 120 s deadline. Red-first: harness_drive cell 12 (D1f) -- `mirror fetch:` absent from the loop's stdout, at least two STAMPED `mirror fetch:` lines in harness.log; the teeth probe re-verified the instrument (product reverted: 11/12, check 12 RED class 1, D6 check 7 ok in the same invocation). `make WERROR=1 test` 16340/0; the full 12-cell driver green; C++ build clean. (Lands out of number order -- M1064's number is lower than M1065/M1067/M1068 which already shipped in earlier runs of the same batch -- so its entry is inserted at its numeric home, before M1065, and the "latest milestone" banner keeps naming M1068, the numeric max. M1064-c routes the helper's pipe() through jc_pipe_cloexec (the bare pipe left the loop's fds inherited by the fetch child; posix_utils_lint check 8); M1064-d spells out check 12's `{n}` interval braces (the `$G` indirection tripped the lint's awk-regex check; match language unchanged).)
+
+- **M1065 (the resumed drive, run 0077→0083, SV:0904.4, LOW): `--output jsonl` streamed `text` lines are well-formed UTF-8.** `src/main.c`, `include/jc_utf8.h`, `src/util/jc_utf8.c`. The direct jsonl text emit copied each provider SSE content delta verbatim, and a provider splits a multibyte character across deltas (the `→` of E2 86 92 as three 1-byte deltas), so streamed `text` lines were raw-invalid UTF-8 (run 0077 measured 5 of 2,537). The fix holds an incomplete trailing multibyte sequence to the next delta: new `jc_utf8_stream_prefix(s, len)` (the largest well-formed prefix; a truncated tail excluded) and a `hl_ctx.utf8_tail` carry flushed verbatim at message end on the no-secret path. The redact path's emit cut is clamped to the boundary-safe prefix (the hold-bound arithmetic keeps it from ever emitting mid-character and never moving the cut backward). Red-first driver `tests/smoke/jsonl_text_utf8.sh` (byte-level via od). `make WERROR=1 test` 16340/0.
+- **M1062-c (the resumed drive, runs 0079→0081, SV:1141/SV:1518/SV:1557, MEDIUM): a COLD first call whose DNS resolve times out reads as a connect failure, not a reused stream death.** `src/net/jc_http.c`. M1062's reused-connection discriminator (the empty per-transfer sockwatch + `connect_time == 0`) is necessary but not sufficient: a cold call whose resolver outlives the connect bound gives the same inputs yet nothing was sent, so it read as "connected, then the stream went dead (timeouts.deadStream)" — a *stall* where nothing connected, when `timeouts.connect` is the bound that fired. The helper gains a third input, `jc_http_reused_conn(w, connect_time, sent)` with `sent = request_size > 0` (`CURLINFO_REQUEST_SIZE` is a `long`, not `curl_off_t` — SV:1518: the type was wrong on 32-bit): a resolve timeout never uploaded a byte, a reused-then-dead transfer did. A cold resolve timeout now lands as `timeout-connect` with "the request was never sent" — true there. E2e: `resolve_timeout_connect.sh` (a private netns whose resolver is blackholed; it branches on the recorded `fail_class` and never passes an unknown shape, and skips where unprivileged user namespaces are blocked). The hang shape is toothed on the gate host by M1062-e's FAULT=1 driver `resolve_stall_connect.sh` (a resolver-start stall past the connect bound; the config pins the measurement values `connect 1, stall 0, request 0, deadStream 5` so the -b misclassification reads in the wording check 3 greps — SV:1859). `make WERROR=1 test` 16317 checks, 0 failures.
+- **M1062 (the resumed drive, run 0077→0078, SV:0813, MEDIUM): a dead-stream fence firing on a REUSED (keep-alive) connection no longer misclassifies as a connect timeout and no longer keeps the dead socket.** `src/net/jc_http.c` + `include/jc_http.h`. A model call that REUSED a live connection and then died mid-stream (the VPN-drop signature: status 0, nothing arrives, the `timeouts.deadStream` fence fires) was recorded as `fail_class: timeout-connect` and "the request was never sent" — the opposite of what happened. The cause: the classifier's "was it connected?" answer (`jc_sockwatch_tcp_up(&g_sockwatch, connect_time)`) reads 0 on a reused transfer, because libcurl leaves `CURLINFO_CONNECT_TIME` at 0 for a pooled connection and the per-transfer sockwatch counts only sockets THIS transfer opened. The fix infers the third answer with the new pure helper `jc_http_reused_conn(w, connect_time)` — `connect_time == 0` AND an EMPTY per-transfer sockwatch (`w->nfds == 0 && w->closed == 0`, consulted only for timeouts, so a reused transfer that fails for any other reason is unchanged): a reused transfer inherited its socket from the pool and opened none, while a cold dial that failed pre-TCP opened and libcurl closed a socket, so its watch is non-empty (`closed >= 1`) — which guards the M326v cold-timeout keep. It then passes `(tcp_up || reused)` at both failure sites (`jc_http_perform`, `jc_http_stream`): the reused dead stream now lands as `timeout-stall` (status 0) or `provider-error` (status 200) and the message names `timeouts.deadStream`. Cold-connect rows are unchanged (a fresh dial that connects has `connect_time > 0`, and one that failed pre-TCP has a non-empty watch, so `reused` stays 0 either way). Second half: the pure predicate `jc_http_conn_reusable(transfer_ok, connected, reused)` now DROPS a pooled handle whose connection died mid-transfer (reused OR fresh) so the retry re-dials instead of riding the dead socket — a pre-connect timeout on a cold dial still keeps it (M326v). mockmodel gains a `stall none` action (reads + captures the request, sends ZERO bytes, holds the socket) to reproduce the signature. Red-first driver `tests/smoke/reuse_dead_stream.sh` (two model calls on ONE connection, the second dead): red on the unfixed tree (`timeout-connect`, "the request was never sent"), green after. `make WERROR=1 test` 16311 checks, 0 failures; `telemetry_fail_class` 12/12, `dead_stream_fence` 3/3, `fail_class_lint` 4/4, `stall` 5/5.
+- **M1058 (batch H4): `jichi-harness run`'s handoff body, the C89 port of `handoff.py`.** `src/harness/jc_harness_handoff.c`. Before the spawn, the run builds the `## What the previous run left you` section of the prompt from the PREVIOUS run's own records and keeps it as `runs/N/handoff.md` (empty when there is no section): the `meta.txt` ("How it ended" -- `rc`, the minutes, the `team_head_after` commit), the `stream.jsonl` (the model's last message, its todo list as last written -- at most 15 items, the files it read or changed with their counts, its `spawn_parallel` batches, the manager's notes it was given -- at most four, the rest counted), every line capped and the whole section cut at 6000 bytes with a marker. It FAILS OPEN: a previous run whose records are missing or unreadable starts the next run without the section (the exit class is unchanged) and the reason is filed to `runs/N/handoff.err`. Port differences from the reference, each named: the run writes the `team_head_after` meta line itself (the reference's `loop.sh` did); the notes' "full text is in" path is the Mode A records dir (no read-only `/records` mount); `apply_patch` edits are counted per `edits[].path` (the reference reads only a top-level `path`/`file` and never counts one); the batch lines pair each `spawn_parallel` call with its `tool_result` BY ID; a `.gz` note is `(unreadable)` by name (def-358 -- no gunzip). The SAN stage now runs every `tests/smoke/harness_*.sh` driver (SV:1158/SV:1200): the H0 `leakcheck.sh` gap had run only `jichi-harness --version`, so it missed `team_head`'s `argv[14]` index-out-of-bounds (an M1057 bug, now `argv[15]`) and two `closedir`-before-`refuse(e->d_name)` heap-use-after-free in the mirror/push check-4 hooks refusal (reordered refuse-then-closedir) -- all six drivers green under ASan/UBSan. Red-first driver `harness_run` (17 cells: the todo/files/notes section, the batches with the pairing tooth on its own run pair, the byte cap, the two fail-open classes, the first run's no-header, and the non-vacuous stdin guard whose argv-dump wrapper no longer pins the child's stdin). `make WERROR=1 test` 16308 checks 0 failures; qwen27b review: all behaviours match, three findings (the 1-byte `one_line` arena OOB, five `jc_vec` leaks, run 0001's spurious `handoff.err`) fixed.
+- **M1057 (batch H4): `jichi-harness run`, one lead run in Mode A, the C89 port of `run-lead.sh`.** `src/harness/jc_harness_run.c`. `jichi-harness run --config <f> --tenant <n> --run <N>` lays out `<dir>/runs/N/` (the prompt, the meta, the journal, the telemetry, the stream, the stderr, the config copy) and spawns the pinned jichi `-C <the tenant workdir>` with the full flag set. The container half of the reference is dropped (Mode A, D4) -- there is no podman; the record and key-delivery half is kept: the model key is read from the file the configuration names at run start and handed to the spawn through its env vector under the fixed `JICHI_API_KEY` (the reference's env var), never on argv, in a URL, a log or a record; the parent unsets `JICHI_API_KEY`/`JLU_API_KEY` before the read so the file is the only source, and jichi's own scrub (M1043-a) drops it again from the model's children. Caps off (no `--deadline`, no `--budget-tokens`), fences on (`--max-tool-calls`, `--verify-timeout`); stdin at /dev/null so a blocked spawn cannot hang the run (the ANECDOTES #64 class); the child's HOME is the tenant's home. A `drive.leadModel` the tenant's config does not name WARNS on the harness's stderr and OMITS `--model` (the run proceeds on the config's routing; a raw id reaching the gateway is the priced-model class, ANECDOTES #68) -- a cost fence, not a refusal. The supervisor's notes are moved into the run's records ONLY after the run's first model call succeeds (a run that dies before its first call keeps them in the inbox). Red-first driver `harness_run` (11 cells; the 498th driver). Deferred: def-355 (post-run record collection), def-356 (a per-tenant `apiKeyEnv` name -- the run delivers under the fixed name), def-357 (the gateway-up probe, H5's loop). `make WERROR=1 test` 16309 checks 0 failures.
+- **M1056 (batch H3c): `jichi-harness mirror push` + the C `credential-helper` subcommand, the C89 port of `mirror.sh`'s push.** `src/harness/jc_harness_push.c` + `src/harness/jc_harness_cred.c`. The push is a sequence of check-then-use refusals: the five mirror-integrity prechecks (git-free, BEFORE any git child) -> the URL guard (`git remote get-url --push origin` must equal the mirror's stored-config-copy `remote.origin url` byte-exact, exit 2, the first git child) -> the C key scan (the model key + git token read from the files the config names at the moment of use, `>= 12` bytes after trim, fail-closed; scans the blobs the push adds -- the remote's current tips come from `git ls-remote <stored URL>` because a URL push leaves the mirror's `refs/remotes/origin/*` stale -- the supervisor's 2026-10-25 01:37 item 1; a `.gz`'s decompressed content is def-341) -> the C size check (the reference's 8 MiB per file-version / 20 MiB per-push limits, fail-closed, `no pushed tips resolved` is a refusal) -> the push (`push -q <stored URL>` the refset, the M2 set, `core.hooksPath=/dev/null`, the `credential.helper=` reset then `<ABS> credential-helper` two-word spec, `credential.useHttpPath=true`, no `--force`, no `refs/kept/*`). The credential-helper reads its token from `JICHI_HARNESS_GIT_TOKEN_FILE` at the moment git asks and refuses (exit 1, no `password=` line) a `get` whose stdin protocol/host/path identity is not the configured remote URL `JICHI_HARNESS_CRED_URL` -- the race-free layer the check-then-use guard cannot be (01:37 item 2). Red-first driver `harness_mirror_push` (26 cells; the driver count re-measured 495->496, the English AND the Japanese count pages in the same commit). Deferred: def-341/342/343/344/345/346/347/348; def-338 (the Mode B alternates fence) and def-340 (the allow-list env) RESTORED. `make WERROR=1 test` 16308 checks 0 failures; qwen27b review: APPROVED-WITH-FINDINGS, F1/F2/F5 fixed with their own cells.
+- **M1055 (batch H3b): `jichi-harness mirror fetch` + `mirror head`, the C89 port of `mirror.sh`'s fetch.** `src/harness/jc_harness_mirror.c` (the push, batch H3c, is not built here). The mirror is the FETCH CLIENT: `git -C <mirror> fetch <the team clone>` reads the team's `refs/heads/<br>/main` + `refs/heads/<br>/work/*` into the mirror's `refs/heads/` (not `refs/remotes/`), no `+`, no prune, `--no-tags`; a non-fast-forward rejection of one refspec is a report line, not a failure (the other refspecs still apply). The kept-attempt checkpoint loop (each `<dir>/home/.jichi.d/checkpoints/*` whose `worktree =` line names the team) fetches `refs/jichi/discarded/*` into `refs/kept/<k>/*` and runs even after a team-fetch transport failure (the script's `|| log` order). **The five integrity prechecks run BEFORE any git call in the mirror** (the Mode A threat model: the mirror is same-user-writable, unlike the script's host-only-writable one): bare (git-free — it reads `<mirror>/HEAD` as a file), owned by the harness's uid, `config` byte-identical to a stored copy (`init` now writes `mirror.git-config.harness-copy`), `hooks/` holds no regular file but git's own `*.sample` (git never runs a `.sample`), and no `objects/info/alternates` (the measured `core.alternateRefsCommand` vector — a command in the mirror's OWN local config that git runs as its child; the M2 read set does not stop it; refusal is the guard). Every harness git child carries the M2 set + `GIT_CONFIG_GLOBAL`/`SYSTEM` at empty files + `-c core.alternateRefsCommand=`. A failed precheck is exit 2 naming the check, before any fetch. The fetch child's environment is the DENY-LIST scrub (the model-key and git-token names are on the builtin list); a git-wrapper driver cell measures it — the registered-name canary is absent from the child's env, the unregistered one crosses, and a driver-shell control carries both. Deliberately CHANGED away from the script (the note's CHANGED lines): the container serve becomes a local isolation-guarded fetch (Mode A has no container — def-336); the host's ownership becomes the five prechecks (a guard against the agent's commands, not a deliberate same-uid racer — def-330, P4). The precheck is check-then-use (a racer can plant between the check and the fetch) — the complete fence is Mode B (P4). Red-first smoke driver `harness_mirror_fetch` (13 cells, real git, a rehearsal layout made by `init`). Deferrals: def-339 (the `objects/info/alternates` recursion) and def-340 (the allow-list env the C9 correction removes). qwen27b review: eight structural points confirmed correct, four LOWs.
+- **M1053 (batch H2): `jichi-harness init`, the C89 port of the drive's `setup-dir.sh`.** `src/harness/jc_harness_init.c` lays out a drive's or a rehearsal's runtime directory (`init --config <f> <drive|rehearsal> DIR [--from <repo>] [--jichi-bin <p>]`): the plain directories, the pinned `bin/jichi`, in a drive the `key.env` that references the model key file (mode 600, never a copy) and in a rehearsal the random canaries plus a local bare `standin.git`, `team/` (on `<prefix>/main`, origin to `/nonexistent-the-harness-pushes`, no sample hooks), `mirror.git` (bare, the fetch refspec, an initial fetch that is reported not fatal and runs with a cleared credential helper), and `recs/` (the orphan records branch, the identity-stamped README commit). It is idempotent — a part that exists is "left as it is", and init never deletes — and a usage refusal precedes the layout. Every git step runs M2-neutral through the shared spawn primitive. Deliberately not done (the port's CHANGED lines): no `harness/` archive, no container-prefix rewrite (def-336, Mode D), no pre-push hooks or credential helper installed (def-337, H3).
+- **M1051 (batch H1, H1a): the harness's JSON configuration file and its C89 loader.** `src/harness/jc_harness_config.c` (a prerequisite of the harness binary and the unit target, not `LIB_OBJ`): a credential is BY REFERENCE (tokenFile/env/helper/sshKey) and a `credential` that holds a `token`/`key`/`password` value is refused before it is stored -- the configuration never holds a secret (D4); the six server kinds (gitlab/github/gitea/bitbucket/ssh/local) fix the user-name rule (oauth2/x-access-token/git/bitbucket/none/none); a tenant with a non-local push target but no `branchPrefix` is refused; booleans read leniently; the `JICHI_HARNESS_DIR`/`_MODEL_KEY_FILE`/`_GIT_TOKEN_FILE` env settings (D13) override their config twins with the source recorded; a malformed config is a `jc_status`, never a crash; the loader never opens a secret file and a successful load carries no message (the teeth probe's canary perturbation made `JC_CHECK(cfg.message == NULL)` red). Red-first unit (`test_harness_config`), per-guard teeth (the probe's b1 segfault -- a bare `JC_REQUIRE` write left a `strcmp` on NULL -- is the same class the M729 stage found; verified rc=1, complete count, no crash); def-334 registers the bare-`JC_REQUIRE` lint; qwen27b review APPROVED WITH FINDINGS, both LOWs closed. `doctor` and the linted settings table come next in the batch.
+
+- **M1006 (batch 14, run 0074): the dirty-tree dispatch guard.** A write dispatch (`spawn_parallel` with write tasks, `spawn_subagent` with write tools) now checks the workspace for uncommitted changes before it forks anything: `strictness.dirtyDispatch` takes `off` / `warn` / `refuse` (default `warn`, PROVISIONAL -- the drive runs `refuse`), and a refusal names the uncommitted paths and the fix ("commit, then dispatch"). `jichi doctor` prints the effective mode, a config typo in the key is loud instead of silent, and a probe that fails in a git workspace reads `unknown` (work proceeds, and the `dirty_dispatch` telemetry line -- checked / refused / unknown, new in `jichi telemetry` -- says so). Read-only dispatches are never checked.
+- **M1061 (the resumed drive, run 0077, SV:0725.4, HIGH): the credential-helper `get` answers real git's identity for its configured remote.** `src/harness/jc_harness_cred.c`. The helper's path guard compared the request byte-exactly against the configured remote's URL path *with its leading '/'*, but real git with `-c credential.useHttpPath=true` sends the path *without* it (`path=drive/remote.git`, measured on git 2.43.0 and 2.53.0) — so `mirror push` against a real HTTPS remote could never authenticate: the helper refused its own remote. `cred_get` now strips the single leading '/' so the comparison is byte-exact on git's form; the guard is not loosened (a different project still refuses, a different host still refuses, file-URL stays empty==empty, and a literal slash-prefixed request — no real git sends one — refuses). The driver's hand-written cells 18/19/25 corrected to git's form, and a new cell 31 (P11r) drives REAL git as the credential peer (`git credential fill`, the reset + the two-word helper spec + `useHttpPath=true`, offline): leg a answers the configured remote (red first: git exit 128, "the helper refused its own remote"), leg b refuses a different project on the same host — the control that catches a path-ignore regression. `harness_mirror_push` 31 cells; `docs/HARNESS.md` count updated; `make WERROR=1 test` 16309 checks 0 failures; qwen27b review approve-with-notes (two non-blocking: the literal slash form is comment-pinned only; the git version range is not tree-pinned — both fail-loud).
+- **M1060 (the resumed drive, run 0077, card 89, the shakedown): `dirty_dispatch.sh` checks 4/6 grep the event form, not the bare word.** `tests/smoke/dirty_dispatch.sh`. The absence checks grepped the BARE word `dirty_dispatch` over the whole telemetry file, and every event carries the workspace path — so a TMPDIR whose path held the word turned both red on a correct tree (verified by the supervisor by effect). They now grep `'"event":"dirty_dispatch"'` — the form check 3 already used, which only the guard's own line can carry (the path field's internal quotes are JSON-escaped). 14/14 with a word-bearing TMPDIR and with a normal one; the tooth is a flow-neutral forced emission (the event present while off/readonly turns both checks red, `events=1`).
+- **M1048 (batch G18, finding G18, HIGH): a "verify green" claim now comes from a check that ran.** A run that took no pre-edit checkpoint -- `snapshots: false`, or a model whose tools changed nothing -- used to never execute its completion verifier, yet the reach footer read "verifier armed + outcome ok" as green and the envelope footer said "[envelope] verified ok" with exit 0, with zero `verify` journal records behind the claim. The completion and `--verify-every` verifiers now run whenever they are armed and the run completes (a snapshot is needed to roll back, not to check): a "did nothing" run with a failing check ends red (exit 1), and without a checkpoint the work is kept as it is rather than rolled back. The footer says "ok, not verified (verifier did not run)" for an armed stop-first finish instead of "verified ok", and the journal `end` record gains `verified: true | false | "not_run"`. `jichi doctor` warns (and does not refuse) when a configured verifier meets snapshots off. Held red-first in the smoke driver `verify_without_snapshot` (three false-green cases red on the unfixed head, a budget control, the relay handover, and the periodic-without-snapshot teeth) and `capped_turn_says_so` (the cap qualifier the footer restructure must not drop).
+
+### Added
+- **M1049 (the jichi-harness drive, batch H0a): `jichi-harness`, jichi's third C89 program, builds.** `make`/`make all`/`make smoke` now produce three programs: `jichi`, `jichi-convert` and `jichi-harness` (its own `src/harness/jc_harness_main.c`, a standalone main mirroring the converter, linked against the shared `src/util` + `src/json` + `src/platform`). At this commit the harness prints and refuses only: `--version`/`-V` (the version from `jc_version.h`, the copyright/author/licence lines, and the `build:` stamp from `jc_build_rev()`), `--help`/`-h` (the five commands the plan names), and each of `init`/`doctor`/`mirror`/`run`/`drive` refuses on stderr with exit 2 (`jichi-harness: <cmd>: not built yet`), never a silent success. `make install`/`uninstall`/`clean` and the C++ and SAN+leakcheck stages of `make ci` all reach it. `docs/HARNESS.md` is its page. Held red-first in the smoke driver `harness_third_program`.
+- **M1050 (the jichi-harness drive, batch H0b): the learner's page `docs/HARNESS.md`.** What the harness is (jichi's third C89 program, driving an agent on its own, unattended, with the operator deciding), the threat model from the plan's section 6, and on its first screen D4's limit: in Mode A the harness keeps the token from the model's commands, not from a determined attacker with the same account. The five commands are listed with their roles and stated plainly as not-yet-built. def-327 in DEFERRED now points at the drive that builds it.
+- **M1045 (batch 14, item (d)): the control `status` reports the inject delivery state.** `jichi control inject` acks `applied at next model call` immediately, but the note is folded into the model's history only at the next tool boundary -- a paused run serves `status` while the ack has already overclaimed, so an operator could not tell from the channel whether a queued note had landed. `status` now carries two integers, both always emitted, zero included: `injected` (total inject commands accepted this run) and `queued_injects` (notes still pending that have not folded yet). M1045-b closes a seam the supervisor measured: `queued_injects` was derived from the pending buffer's *line* count, so a single note containing a newline read as more than one queued inject -- it now counts notes, not lines, and a multi-line note reads as 1. Held red-first in the smoke driver `control.sh` (run 6: baseline `0/0`, `1/1` after one inject, `injected=2 queued_injects=2` after a second two-line note).
+- **M1044 (batch 14, def-332): a worker's root report no longer rides the `spawn_parallel` merge.** A `spawn_parallel` task's root `REPORT.md` / `REPORT-*.md` was merged like code, so a second writer's report was dropped as a conflict and the drop forced the whole worktree into a Kept `parallel-conflict` state — a report-only change read as unfinished work. Reports are now kept out of the merge, stored redacted (the run's registered secrets scrubbed) with the run's records, and named in the batch result's `## Reports` section (one `[report]` line each). Held red-first in the smoke driver `parallel_reports`.
+- **M1044-b (batch 14, the supervisor's two closes on M1044): the stored report's redaction buffer is sized from the input, and the redaction is pinned.** With redaction active — every drive run registers the API key — a stored report longer than 8191 bytes was cut at the 8 KB stack buffer, silently, and the "redacted" claim was unmeasured (the driver's 1-byte key sat below the redaction minimum). The buffer is now allocated from the input length (redaction only shrinks), and the driver arms an 18-byte canary plus a 9000-byte report so both mechanisms have their own tooth.
+- **M1043-b (batch 14, def-329's `-C`): a run's workspace is a flag.** `jichi -C <dir>` / `--cwd <dir>` changes the working directory to `<dir>` before config discovery and before the run, so the project config, the path fence, the repo map, skills/agents/commands, sessions and `.jichi/` state all see that directory — run jichi in a checkout from any other directory (def-329's 4.3, the headless-harness prerequisite). It applies to every subcommand and run mode the way git/make/tar's `-C` does — `jichi -C dir init` scaffolds into `dir`, `jichi -C dir prune` acts on `dir`'s state — and a missing directory is refused at startup for every invocation. Held red-first in the smoke driver `workdir_flag`.
+- **M1043-a (batch 14, def-329's `secretEnv`): a named credential in the environment reaches no child.** A config `"secretEnv": ["NAME", ...]` lists environment variables to remove from EVERY child jichi forks — the model's shell commands, lifecycle hooks, MCP servers and the verify command — the same registry the `apiKeyEnv` scrub uses, so the fork+exec drop and the shell `unset` prefix carry the names together. The built-in drop list gains the four usual CI/forge names (`CI_JOB_TOKEN`, `GITLAB_TOKEN`, `GITHUB_TOKEN`, `GH_TOKEN`), which are removed even when unconfigured, and `jichi doctor` warns for a variable in the environment that is set, looks like a credential (ends in `_TOKEN`, `_KEY`, `_SECRET`, `_PASSWORD`) and is in neither list. The class measured on 2026-10-03 — a credential under a name jichi does not know reaches every child — is closed for named credentials. Held red-first in the smoke driver `secret_env_register`.
+- **M1042 (batch 13, M1039 residual): the `fail_class` token has one writer.** M1039's classifier was only one of four writers of the telemetry's `fail_class` value (the stream's 4xx/5xx path and the agent's `aborted`/`provider-error` fallbacks wrote their tokens directly), so two of the classifier's branches never ran and the vocabulary could drift between writers. Every site now calls `jc_http_fail_class`, and a smoke lint holds the rule: no direct literal write, one definition, all nine documented tokens returned. The tokens a failed call records are unchanged.
+- **M1039 (batch 13, MO-2): a failed model call names its failure class, so an outage is greppable by one stable token.** A failed `model_call` telemetry row used to carry its diagnosis only in `result` (`aborted`/`timeout`/`error`) plus `transport`, libcurl's free-text prose, which changes with the curl version and the timeout knob and so cannot be matched across an outage's rows by a `grep`. Every failed row now also carries **`fail_class`** — `connect`, `timeout-connect`, `timeout-tls`, `timeout-stall`, `dns`, `refused`, `http-status`, `provider-error`, or `aborted` — classified from the same structured inputs that decide `result` and the `transport` prose, so the two cannot disagree. `result` is unchanged (it still drives the retry decision); `fail_class` appears only on a failed row, never on a success. See TELEMETRY.md, "The failure class." Held red-first in the smoke driver `telemetry_fail_class` (four legs: a closed port → `refused`, an unresolvable host → `dns`, a scripted 401 → `http-status`, an error inside a 200 stream → `provider-error`).
+- **M1038 (batch 13, MO-1): a model call that fails at connect walks the fallback chain.** A model call that could not connect (no HTTP status) used to re-hit the same dead endpoint until `maxRetries` was exhausted, burning every retry while a configured fallback sat unused. On a connect failure the call now re-probes the endpoint and, if it is still down, walks the active model's `fallback` chain and routes the turn to a reachable fallback for the rest of the turn. An HTTP status **≥ 400** is a reachable server and keeps retrying in place (no routing), and with no fallback configured there is no re-probe and no routing — byte-identical to before. Held red-first in the smoke driver `model_fallback` (four legs; supervisor-verified).
+- **M1024 (C-03): provider error text into the on-disk telemetry is redacted at the source.** The three error fields of the model-call telemetry event and the run's `last_model_error` note used to be written with plain JSON insertion, bypassing the secret redactor. They now go through the redaction path, so a registered key echoed by a gateway or debug proxy does not reach the telemetry file, the session, or a child agent's error report. Held red-first in the smoke driver `redact_sinks`.
+- **M1025 (B-08, C-05): language-server children no longer inherit the registered API keys.** The LSP spawn scrubbed no environment; a repository could point a language server at any host and the server would carry the keys. The spawn path now strips the registered secret environment variables while keeping the rest, held red-first in `lsp_env_scrub`.
+- **M1026 (C-01): a guarded fetch no longer rides a pooled connection.** A `fetch_url` to the provider's own host:port could reuse a live keep-alive connection and skip the connect-time address check. Guarded requests now force a fresh, non-reused socket. Held red-first in `fetch_ssrf_reuse`.
+- **M1027 (C-02): a proxy in the environment no longer defeats the SSRF guard on a guarded fetch.** Guarded requests used to route through the environment proxy, so the address check classified the proxy, not the target. Guarded requests now go direct, and `jichi doctor` names the proxy variables it sees without their credentials. Held red-first in `fetch_ssrf`.
+- **M1028 (C-03 residual): the error note redacts the whole provider body before cutting it to 120 bytes.** A secret straddling the cut boundary leaked its near half into a child agent's error report, which reaches the provider. The cut now applies to the redacted text. Held red-first in `redact_rerr_straddle` (M1030) and the `fetch_ssrf` doctor leg (M1031).
+- **M977 (D-02): `undo`/`rewind`/the rollback no longer delete files that are ignored *now*.** A whole-tree restore is `reset --hard` + `clean -fd`, and the preservation stash (`git add -A`) skips exactly the files `clean -fd` deletes — those the working tree's `.gitignore` currently ignores. A file tracked at the target checkpoint but ignored now was preserved as nothing and deleted. `restore_to` now runs `clean -fd` before `reset --hard` and checks clean's exit status; held red-first in `test_restore_clean_before_reset` and the smoke driver `restore_clean_before_reset`.
+- **M978 (D-01): binary files are refused by `edit_file`/`apply_patch` and marked by `read_file`.** Both edit tools cut a file at its first NUL byte and reported success, and `read_file` showed the same prefix with no marker. The tools now use the byte length, not `strlen`: `edit_file` and `apply_patch` refuse a NUL-bearing file with a tool error naming the readable prefix, and `read_file` appends a one-line marker ("contains NUL bytes; content truncated at byte N in the display") placed after the gutter is initialised so it survives the capped path too. Held red-first in the D-01 unit tests and the smoke driver `nul_edit_refused` (check 2 greps the edit's own phrase, "readable as", so it fires on the guard itself, not the read marker).
+- **M979 (D-04): a failed write no longer destroys the original file it was replacing.** `jc_write_file` truncates on open, so a disk-full write left the file empty and both tools reported the failure without recovering it. `edit_file` and `write_file` now read the file they are replacing and, on a failed in-place write, re-write the original bytes — reporting "(original restored)" or "(restore also failed; the file may be corrupt)", never a false success. The monotone fault model could not express the positive case (it faults the restore too), so a one-shot knob `JICHI_FAULT_WRITE_ONCE_AT` (the M269 `NET_MID_AT` shape, unset = -1 = disabled per M503) was added; two `#ifdef JC_FAULT` unit tests per tool observe both the transient case (bytes land) and the persistent case (honest "restore also failed"). Held in the smoke driver `write_fail_restores` (FAULT-gated, `smoke-faults`).
+- **M980 (D-22): `jichi setup` no longer silently replaces a commented (JSONC) project config.** A JSONC config failed the strict parse and `setup` overwrote it with a fresh build — comments and hand-edits gone, no backup. The merge/inherit path now strips comments with `jc_jsonc_strip` before parsing, keeps a `.bak` **copy** of the original bytes (a rename stranded the original on a failed write), and refuses to replace a genuinely unparsable config without `--force`. Review found and fixed a second defect in the same path: `setup --from-global` called `free(raw)` on a scratch-arena buffer (heap/arena mismatch, aborts on the reachable success); held red-first in `setup_jsonc_preserved`'s `--from-global` arm (rc=134 unfixed).
+- **M984 (L-27): the background spool's on-disk cap no longer corrupts a running command's output.** The 512 KiB spool cap rewrote the file with `O_TRUNC` on every drain that saw it oversized — including mid-run drains while the command was still writing — destroying its output in the gap between reading and truncating (the batch-1 gate failed on exactly this). The cap now binds **at reap only**: while a command runs its spool file is unbounded, and the in-memory head + tail you see are unchanged; the file is capped once the command exits. This is the operator's decision (2026-10-19) to give up the running-time disk bound until a loss-free design restores it; the bound is deferred (see `DEFERRED.md`, def-324). Held red-first in a FAULT-injection test that pauses the drain in the truncate window and verifies the final output line survives.
+- **M976 (L-25): `run_terminal_command`'s `timeout` no longer invites a cap on a measurement run.** The parameter's description read "a command you expect could hang or run long (a build, a test suite)" — which on 2026-10-18 led a lead following the tool text over its standing no-cap-on-measurement rule to cap `make smoke` at 1200 s (exit 124, driver 413 of ~457). The description now says what it is *for* (only for a command that might hang) and states the measurement caveat: do not set it for a run that measures or reproduces something, because a cap that fires does not merely hide the answer — it manufactures a plausible different one. Held red-first in `test_run_timeout_schema`; the three tsuiseki traces that carry the tools array are re-taken (the diff is exactly the description).
+- **M975 (D6): the one-owner-per-file rule gets a jichi-side check the shell cannot bypass.** When you run workers in parallel, a merged worker file now belongs to that worker for the rest of the turn: from your **second** (configurable, `scopedEditMax`, default 2, `0` = off) edit of it in the same turn the file tools return a tool error naming the file and the owning task, and after each tool call jichi checks whether a merged worker file changed *by any means* (a `sed -i`, a `git checkout`) and reports it in the next result with a telemetry event. The first edit stays allowed, so a one-line reconciliation after a merge costs no round. It closes the M2 verdict's deferred `.git` coverage: a worker-owned path written out-of-band is detected, reported, and journalled.
+- **M966 (L-21 with L-19): a constraint inferred from your brief no longer leaves the clause it came from.** The advisory rules jichi infers from a task's text (L-19, L-21) now stay inside one clause, and a negation only governs the verb it is joined to. Two measured briefs that read the OPPOSITE of what they said are fixed: "Never run `make ci` here." no longer infers a class ban on the whole build command family (so the gate's own `make` is not flagged), and "Never end a run with a dirty tree: commit the work, or say why it was discarded" no longer infers "do not commit" (the negation no longer crosses the colon onto the following instruction). Held red-first in `test_constraint`; `jichi brief-check` now reports `constraints inferred: none` for both.
+- **M963 (L-20): a background read at the cap's edge no longer delivers its last lines twice.** When a background command's output sits between the 256 KiB in-memory cap and the cap + 8 KiB tail, the head buffer and the 8 KiB tail ring overlap; the exit flush used to re-send the overlapping lines (up to 8 KiB, with no marker) and an output of exactly the cap size was misreported as truncated although nothing was dropped. The tail flush now sends only the ring bytes the head does not already hold, and the truncated flag is set only when bytes were really dropped. Held red-first in `test_bg` at the exact-cap and cap + 4 KiB boundaries.
+- **M960 (record; feature at `c31cee0c`/`7d814ea0`, def-326): the background read keeps the tail, where a build log's verdict is.** A background command whose output over-runs the 256 KiB in-memory cap now delivers its LAST `JC_BG_TAIL_MAX` (8 KiB) of output on the final read -- prefixed by a `[... N middle bytes not shown ...]` marker and an `output truncated` note -- instead of dropping it, so `read_background_output` reaches the "N tests passed" summary line of a chatty build without the model re-running the command until it fits. The head is retained as before; only the middle is dropped.
+- **M958: the V2f guest's seven smoke reds are classified and fixed (zero product defects), and the stall default gains its measurement.** The Debian 9 / 492 MB / 1-vCPU KVM guest re-runs the whole smoke tier at `702f9fab` with KEEP_GOING: **455 of 456 drivers, 2,612 checks** (named gap: `peer_line_cap` -- a 9.4 MB no-newline peer read that crosses its 60 s deadline under full-suite 1-vCPU load and passes standalone in the same run), unit **15,396 / 0**, `WERROR=1` clean. Every one of the seven reds the first-fail stamp had hidden behind `from_resume_commits` is a test-tier defect the guest's old userland exposed, each proven red-to-green on the guest: three drivers read back state with a BARE command while their write run pinned the full profile (a low-RAM host's auto-lite `snapshots:0` default then denies the read -- `attempts show`, `ps --output json`'s stderr banner, `undo`'s usage path), three lints extracted with mawk 1.3.3-incompatible constructs (`[[:space:]]` silently matches nothing; `length(array)` needs 1.3.4), and `trailer_block_lint` needed git >= 2.22's `interpret-trailers --parse` (now a detected capability with a portable sh/awk fallback). The same re-run's `model_call` telemetry: a cut attempt where nothing arrived now records **`stall_ms`** (time-to-cut) alongside the already-present `req_bytes`, so the 30 s stall default's failure mode -- slow local prefill on a big context -- can be measured instead of censored; `stall_silent_answer` holds it (red without the field). The rig record is `docs/internal/2026-10-16-v2f-red-set.md`; the V2f matrix row is re-verified at this head.
+- **M957: the VisionFive 2 v1.3B graduates to Verified (the first board drive over the jlu gateway).** With the bench's GPU down for another agent's crash analysis, the board re-runs now drive a free `jlu/*` gateway model — `jlu/qwen3.8-27b`, verified in the gateway's free `jlu/` namespace, native tool-caller, 256k context — instead of a loopback LM Studio server. The re-run at `f73e63fa`: `WERROR=1` build 85.15 s (multiplier 10), unit 15,402 / 0, `smoke: OK (456 drivers, 2,657 checks)`, the whole tier 0 red, footprint and offline green, and both driven turns green against the gateway (the agentic turn executed its tool, phrase `TIER-B-D84038`). The rig gained `--live-key-env` for keyed endpoints: the operator's key value is piped over stdin into the board's isolated `.home` as a mode-600 `.jichi.env` (never on a command line, in no `ps`, in no log), the live config references it by name (`apiKeyEnv`), and every remote shell sources it through a guard that is a silent no-op for the offline steps and for keyless runs; `--keep` now leaves the board's tree in place for inspection and prints a copy-paste follow-up line that sources the kept key env. Two first-launch rig defects (an unmatched quote, and a `\$HOME` the board's final parse read as an escaped dollar — the row ran fully green with both live turns 401'ing) were found by the board itself and proven before the row counted. The LicheeRV Nano stays Partly verified: its re-run waits on the board's eth link (offered 2026-10-16, not installed this week).
+- **M955: the platform campaign's first landing — three boards recorded, and the stall premise made testable.** The matrix gains its first physical-RISC-V and 16 KB-page rows: the VisionFive 2 v1.3B (riscv64, 8 GiB), the LicheeRV Nano (riscv64, 256 MB) and the Raspberry Pi 500+ (aarch64, 16 KB pages), each Partly verified + Driven at `7f5ca791` with the rig's own two turns and its measured build/unit/smoke figures. The Pi 500+ found a real defect the workstation's gates could not see: `tests/tools/mocklsp.c` built its LSP frames off uninitialised memory (a `strlen` over an unterminated buffer, feeding the Content-Length) — zero on x86-64's stack by luck, five stray bytes on the 16 KB Pi, so the LSP server never initialised and `lsp_diag_grace` failed there; fixed and proven red-to-green on the board. The 30 s `timeouts.stall` default's premise ("any progress keeps the timer from firing") is true only while the response *streams* — a prefill sends no bytes, so a healthy slow generation is cut — which the board runs measured (4 of 4 first-attempt cuts on the VF2). `mockmodel` gains a `text-stream` rule and a new `stall_silent_answer` smoke driver (red-first) proves the premise offline; the rig's driven turns now run with `stall 0` (a cap, off for a measurement; `connect`/`deadStream` stay fences). MODELS.md's and `jc_http.h`'s uncappable-progress claims are corrected. Two shipped-tree lint defects the VF2's run found are fixed: `config_keys_lint` now counts the archive (not the checkout) as its corpus, and `trailer_block_lint` skips its history checks — with a note — when the tree has no jichi history. `relayNotesBytes` gains a public doc line (RELAY.md).
+- **M954: the relay's leg surfaces.** The session store is now version 3, carrying the relay's four chain fields (`relay_id`, `leg`, `prev_session`, `notes_path`) on every session that handed over: every relay session's file carries its position, and the listing API (`jc_session_list_ex`) reads the four fields, so a supervisor can walk a relay from the store alone, and a forked session does not inherit a `relay_id`/`prev_session` that pointed at its source's relay dir. Each relay leg also journals a `leg_start` (the run's one relay, leg N) and a paired `leg_end` (N, reason: the relay's own stop — `hard_limit`, `leg_budget`, … — or the run's stop name for a leg that finished the task), and telemetry carries the same two as `relay` events with `phase` `leg_start` / `leg_end` through the stamped helper. The chain rebuilds across processes in topology A (each `--handoff-in` leg journals exactly one pair, linked by `prev_session`) and within one in topology B (legs 1..N of one process pair directly). Held by the `relay_store_v3` smoke driver: leg 1's file is v3 (relay_id self, leg 1, notes_path the baton it wrote, no prev_session), leg 2's chains to leg 1 (prev_session = leg 1's id), and leg 2's journal has the paired leg_start/leg_end.
+- **M953: topology B's RSS guard (invariant 2).** A topology-B run whose process has grown past four times its first leg's resident set now ends the relay as a handover (stop reason `handover`, rc 0, the baton already on disk) instead of starting another in-process leg -- topology A takes over from the baton. The guard is checked at the continue-decision (after the baton is written, before the next leg), so a tripped run is resumable; when the process's resident set is unreadable (no `/proc`) it is a no-op rather than a false trip. A `FAULT=1` build arms `JICHI_FAULT_RSS_AFTER` to make the branch testable: a healthy ~12 MB process cannot honestly exceed four times its own start, so the seam reports the current leg's read eight-fold (the baseline stays honest), tripping the guard deterministically on leg 1. Held by the `relay_rss_guard` FAULT smoke driver (red-first: with the guard neutralised the run reaches the `relayMaxLegs` ceiling -- six requests, three batons -- and the driver's check goes red).
+- **M952: topology B's in-process legs.** A top-level headless relay run with `relayInProcess` (off by default: topology A's handover-and-exit is unchanged) now continues its next legs in the same process up to the `relayMaxLegs` ceiling (5 by default, 32 guard), each re-seeded from the baton the previous leg wrote. One session, one run id, one journal; the baton is still written at every in-process handover, so a crashed relay is resumable from its last one. The RSS guard ships in M953; the leg surfaces (store v3, journal/telemetry) ship in the follow-up slice.
+- **M951: the relay's leg budget is now measured (V2, tighten-only).** When the relay is on and a leg runs under a configured cap (`--max-tool-calls`), the loop ends that leg at a budget derived from the leg's own measured prompt growth, not at the cap: the depth-0 model calls' server-reported prompts give a per-call growth (the lower median of the sorted diffs, so one big call does not inflate it), and the next leg's tool-call budget is the window's 80% high-water over the first prompt and a handover reserve, divided by the growth, clamped to [25, cap] and never above the relay's remaining call fence. Tighten-only: a leg with no cap measures no budget; the baton can only shorten a leg, never lengthen one. The number crosses the process in the baton's `Next-leg budget:` line (the `--handoff-in` parse path) and fires the previously-disarmed E5, ending the next leg with `stop_reason handover` (`reason: leg_budget`). Recorded in the journal (`budget_adjust`), session telemetry (`relay`/budget), the done object (`relay.next_leg_calls`, `calls_used`), and the runs table (`relay_budget(N)`). Off by default; off, the controller is never called. The mock test model gains a `usage grow BASE STEP` script line so a long run can measure a real per-call growth (the relay's controller needs it).
+- **M950: the PROJECT_TIMELINE's counting expressions are written down and pinned.** `scripts/timeline-pin.sh [commit]` (default HEAD; `--pin` re-checks the thirteen M865 targets at `a9cc36f3`, all exact) prints every at-a-glance file figure and the three line totals from the tracked tree, and the table is re-counted in one pass from them (EN + ja). Two historical conventions the pin exposed are named, not re-guessed: the Milestones figure is milestone-named `###` headings (930 at this tree; all-`###` 938 -- the M865 column had used all-`###`), and the M907 "758 files incl. translations" reproduces from no tracked rule (the pinned expression gives 686 at M907, 704 now, 628 at M865). The two counting traps from the M907 off-by-one lesson are recorded in the script header.
+- **M949 (def-325): tool calls a model writes as markdown are now executed.** For a model flagged `textToolCalls` (or `toolCalling: "text"` now a live setting), well-formed calls in the reply text are recovered and run through the unchanged executor (fences, approval, telemetry) instead of the M147 nudge. Opt-in per model, precision over recall; `md_tool_call_recovered` telemetry + `recovered:"text"` on the run journal.
+- **The docs carry the house's standards, and lints now hold three of them
+  (M941–M948).** CONTRIBUTING.md gains a junior developer's route ending in a
+  worked first change; BOARD.md, the entry pages and the reading guides are
+  corrected for stale facts (macOS's verdict, the learner's first command);
+  DOC_REVIEW says what a revised page gains and which rule a lint holds. Three
+  smoke lints are added: every install page states the verdict PLATFORMS.md
+  gives its platform, every living page's missing opener / "Read further" can
+  only get fewer, and every headless run a living page shows pins its stdin
+  (so a copy-pasted `jichi -p` example can't block on a keyboard it never has).
+- **A file that still has errors is no longer read as clean after an edit
+  (M938).** Post-edit diagnostics now wait on a monotonic clock with a real
+  2-second grace (the old whole-second clock made a 0.4 s grace expire at the
+  next second boundary, so a re-index pass that published the real errors ~1.5 s
+  in was never read, and the edit reported "No diagnostics."). LSP re-opens also
+  now send incrementing versions instead of a hardcoded 1, so a
+  version-aware server re-syncs a changed document.
+
+- **A reasoning-only delegate child is asked once for its answer (M937).**
+  When a delegated run (`spawn_subagent`, `spawn_parallel` worker) ends a reply
+  with reasoning but no answer text -- and was not cut at the output ceiling --
+  jichi asks it once for the final answer, instead of accepting the empty reply
+  as the child's result and running the next phase with the review missing.
+  The top level is unaffected (a person can say "continue" to their own empty
+  reply). The nudge is a single extra model call, made only in this failure
+  shape; a second reasoning-only reply still ends the child and is warned
+  about.
+
+- **Cut replies are diagnosed as cuts, not misreads (M934).** When a reply
+  ends on reasoning with no answer text, the warning now names the actual cap
+  the request sent and the two knobs that change the outcome
+  (`maxTokens`, `continueCutReply`), instead of advising to "declare a larger
+  contextLength" -- which, for a 196,608-token context, was already past the
+  16,384 ceiling. And when a cut reply's next shape (no tool call, no text)
+  arrives, jichi says the cut is the cause, not "the request was rejected or
+  misread". Both were measured wrong on the same stderr in the 2026-10-11
+  zigodot drive; the M167 warning stays for the case it was written for.
+
+- **The loaded memory block says when it is truncated (M933).** When
+  `.jichi/memory.md` exceeds the injection budget, the oldest notes are
+  dropped; the drop was previously announced on stderr only, where an
+  unattended run never sees it. The "Remembered notes" block the model reads
+  now carries a one-line notice that it is partial.
+
+- **`board` returns what changed, and `jichi board --output json` (M932).** A
+  board action no longer sends the whole render back to the model: `add`,
+  `move`, `remove` and `set_phase` report the one changed card and the
+  counts, and `list` shows the done column as a count (with `"all": true` for
+  everything). A 185-card board that cost about 30,000 tokens a call now
+  costs the size of its one changed line. `jichi board --output json` (or
+  `board list --output json`) is a read-only, one-line JSON view -- phase,
+  counts and cards -- for a supervisor or a script; it writes nothing, and a
+  board file that exists but cannot be read is an error, never an empty board.
+
+- **The context relay begins: `relay: true` in the config, off by default
+  (M920).** A headless run is one long turn, so the between-turn summary
+  never runs in it, and a window exhaustion today ended as an HTTP 400 with
+  no notes and no continuation. With the relay on, jichi measures each
+  round's numbers (the server's token count, the elision passes' pressure,
+  refusals) with the relay's decision core and, when exhaustion is measured
+  rather than forecast, ends the run at the round boundary with
+  `stop_reason: "handover"` and a log line naming the reason that fired --
+  the work is kept and the saved session resumes intact.
+
+- **The relay writes its baton and starts the next leg (M921), still off by
+  default.** With the relay on, a handover now writes the notes it hands over
+  to `~/.jichi.d/relay/<session-id>/leg-NN.md` (a fixed template: the task
+  verbatim, jichi's own mechanical records, and the model's own five-heading
+  account, capped to a byte budget and cut first on a UTF-8 boundary), and a
+  new `--handoff-in <file>` flag starts the next leg as a FRESH session seeded
+  with the baton's task and notes. The notes are fenced as untrusted data and
+  are exempt from the AUTO constraint scan, so a sentence in the previous
+  leg's account does not become an enforced rule for the successor. `--handoff-in`
+  is refused alongside `--session`/`-c` (a baton starts a fresh session, not a
+  resume). The relay itself remains the `relay` config key: nothing here runs
+  unless that key is on.
+
+- **jichi's commit attribution is now machine-readable** (M916): the
+  `Co-Authored-By`/`Jichi-Build`/`Jichi-Model` block on jichi's register commits
+  must be a parseable git trailer. A smoke lint (`trailer_block_lint`) checks every
+  commit after the one grandfathered block that was glued onto its body: the block
+  must parse, name a clean build sha, and the sha must actually precede the commit.
+  A draft `pre-push` hook (`docs/internal/scripts/`) that refuses a
+  non-fast-forward push to `master` ships for the operator to install.
+- **Large file writes no longer cost double** (M912): when a whole-file
+write's body is unchanged on disk, long sessions elide it to a pointer
+that says "re-read the file" instead of preserving a redundant copy.
+
+- **Sub-agent answers are capped at the boundary** (M911): a spawned agent's final answer longer than 4 KB no longer lands in the session uncapped; you see its opening and a note naming where the complete answer is preserved on disk (readable with the usual tools).
+
+- **Elided arguments can no longer be elided twice** (M910): the M909
+  recovery file a trimmed write or patch argument points at can no longer be
+  itself trimmed into a second placeholder in a long session, which used to
+  leave the original unrecoverable in exactly the runs the ticket was for.
+
+- **Elided tool-call arguments are recoverable** (M909): when mid-turn
+  compaction trims an oversized write or patch argument out of the context, the
+  full argument is now saved to the private tool-output store and the
+  placeholder points at the file instead of saying the content is gone
+  (M348's claim ticket was already there for tool results, but missing for
+  arguments — the asymmetry def-317 recorded, cost measured by M901). The
+  marker still names the file it targeted, and a model that copies the
+  placeholder back as arguments is still rejected and told to re-send the real
+  ones.
+- **An attempt records what it cost, and `jichi runs` lists it** (M898): `attempt --output json`
+  adds `wall_s`, `model_calls`, `tool_calls`, `tool_calls_executed`, `model`, `model_id` and `run`.
+  Every attempt keeps a run journal (`--journal -` still turns it off), and `jichi runs` shows it
+  with `attempt=PASS` or the other verdict. Before, an attempt wrote no journal, or, with an
+  envelope flag, one that held only its `open` line and listed as outcome `?`.
+- **Each model call records its first-token time** (M897): `model_call` telemetry carries `ttft_ms`,
+  the time from sending the request to the first answer text, reasoning or tool call, and `jichi
+  telemetry` prints its mean and maximum after `lat_ms`. A chat visitor waits the first-token time
+  before anything appears; `latency_ms` remains the whole call.
+- **The batch result names each task's model** (M891): a `spawn_parallel` task's section says which
+  model it ran on, and says so when that was the lead's own because neither the task nor its profile
+  named one.
+- **`"merge": false` for a `spawn_parallel` write task** (M890): its work is kept and named, never
+  merged, at any ending and after any verify -- for a probe whose changes are evidence, not a change.
+  The demos drive had a probe's code merge four times in one night. The value is read leniently.
+- **A metric gate for parallel write children** (M875): with `"parallelTestEdits": "metric"` and a
+  declared `parallelMetric` (a command, the label its number follows, which way is better, and the pin
+  files it governs), a child that moved an expected value in a pin file merges when the metric
+  measured in its worktree is not worse than the base's run, and is kept otherwise. The default is
+  unchanged: such a child is held. See `docs/proposals/2026-10-metric-gate.md`.
+- **`"constraintsAutoAdopt": false` turns off reading rules out of an `--auto` request** (M874): for a
+  harness that assembles its prompt from several documents, where a "do not ..." in any of them would
+  become a rule for the run. Rules you wrote in `.jichi/constraints.md` still bind. Your own config or
+  `--config` can turn it off; an untrusted project config cannot. `jichi doctor` says when it is off.
+- **A guide and an example for jichi as a chatbot on a website or in an application** (M841):
+  [`docs/CHATBOT.md`](docs/CHATBOT.md) and [`examples/chatbot/`](examples/chatbot/), a chat page and a small server
+  that answer visitors from a folder of documents, read-only, on a free local model. The guide explains each setting
+  and the measurements behind it, which local models worked, and what to add before exposing it.
+  `tests/smoke/chatbot_example.sh` checks the example's safety claims on every gate run.
+- **On DOS, jichi says when a drive keeps only 8.3 file names** (M838): plain DOS cuts file names to eight
+  characters and cannot hold a name like `.jichi.d`, so jichi's state files would be truncated and collide.
+  `jichi doctor` now reports long file names as ok or FAIL, naming DOSLFN (which FreeDOS ships) as the fix,
+  and a command that writes state prints one warning first unless `--quiet` is given. Other systems have no
+  8.3 limit, and nothing changes there.
+- **A rig that runs jichi on FreeDOS** (M836): `scripts/tier-v-freedos.sh` boots FreeDOS 1.3 in QEMU from its
+  published image (pinned by the SHA-256 the release publishes), cross-builds jichi with DJGPP, and runs the
+  unit suite, `jichi --version` and `jichi describe` inside DOS. Results come back over the serial port and
+  from the guest's disk, which the rig reads with GNU mtools, so nothing needs root. The first run: 14,072
+  checks, 108 failures, each with a cause recorded in `docs/DEFERRED.md`.
+- **jichi can start every program it runs without `fork()`** (M832): the eight fork-to-exec sites — the
+  shell and `run_tests`, verifiers, git (checkpoints and the git tools), background commands, MCP stdio
+  servers, language servers, and the captured commands (hooks, user tools, grading, `pdftotext`) — plus the
+  `popen` path now describe their child to one primitive, `jc_spawn`, which has two backends: **`fork`**
+  (the default everywhere fork exists; the historical child ritual, moved verbatim) and **`posix_spawn`**
+  (where `make info` shows the probe found it), selected at run time with **`JICHI_SPAWN_BACKEND=spawn`**.
+  Both backends carry the same fences — the child leads its own process group so a timeout kills the whole
+  pipeline, SIGPIPE returns to default, and the provider keys are scrubbed (parent-built environment on the
+  spawn backend) — and `tests/smoke/spawn_backend.sh` proves each of them against both backends on every
+  gate run. `doctor` reports the resolved backend (`process backend: …`). This is the gate the fork-less
+  platform rows (AROS/AmigaOS, FreeDOS+DJGPP, NuttX) were waiting behind (M769's measurement, DEFERRED
+  def-33); the parallel pool and the daemon still fork jichi's own code, by design (def-34). Also new:
+  `jc_proc_popen` streams are closed with `jc_proc_pclose` (libc `pclose` on them would be undefined
+  behaviour; `posix_utils_lint` check 7b enforces the pairing).
+- **A parallel write task's shell is now confined to its worktree (Linux Landlock)** (M831): a
+  `spawn_parallel` `write:true` child already edits an isolated git worktree with its **file tools** fenced
+  to it — but its **shell** (`run_terminal_command`) could write anywhere, and guarding the command text is
+  not a fence (an absolute path, a `cd ..`, a variable, or a written-then-run script all reach the live
+  tree). On Linux ≥ 5.13 with Landlock, jichi now applies an irrevocable kernel **write fence** in the
+  forked child: it and every command it starts can write only under its worktree, the shadow repo (so `git`
+  works), and `/dev/null`. New config keys: **`shellFence`** (default on where Landlock is available; set
+  `false` to disable) and **`shellFenceAllow`** (extra directories the fenced shell may write, e.g. a build
+  cache — `/tmp` is deliberately not granted by default). `doctor` reports the capability
+  (`shell fence: available/unavailable/disabled`). Where Landlock is absent the child runs **unfenced but
+  never silently** — a warning, a `shell_fence` telemetry event, and the `doctor` line say so. Reads and
+  execution are never restricted. See [`docs/CONFIG_TUTORIAL.md`](docs/CONFIG_TUTORIAL.md) §10.
+- **Haiku (Apple-of-BeOS) is now a verified, driven platform** (M830): the first Haiku build (R1~beta6,
+  hrev60160 x86_64, under qemu) moves it into `docs/PLATFORMS.md` as **Partly verified + Driven**. It took
+  **one Makefile line and no source change**: Haiku's BSD socket API lives in `libnetwork`, so the
+  socket-lib probe gained a `-lnetwork` fallback (a no-op where libc has sockets). `make WERROR=1` clean
+  (0 warnings, gcc 13.3.0), unit suite 14,119 checks / 0 failures, `smoke: 364 of 370 drivers` (the six
+  are test-tolerance/fixture, named on the row), and both model turns driven over the HRZ gateway
+  (`jlu/qwen3-coder-next`, native tool calling, `TIER-V-HAIKU-82a3a0`). `doctor` and `test_platform.c`
+  learn the `Haiku` verdict.
+- **Docs caught up on container-git safety, hooks, Godot, the parallel merge, and the reference pages**
+  (M828): `CONTAINER_TUTORIAL.md`/`DRIVING_A_TEAM.md` warn that running git on the host in a workspace a
+  container wrote runs the container's hooks/config — read the result *through* the container (N11) — and
+  that git skips a non-executable hook, so install a key-scan hook `-m 755` (N12); `GAME_DEVELOPMENT.md`
+  notes Godot `--check-only` without a `--script` runs the project (bound it with `timeout`, N10);
+  `PARALLEL.md` documents untracked-file copying and shared-registry drops (N8) and gained a "what happens
+  to unmerged work" section (M803–M816); `CONTROL.md` records the mid-call `status`/`abort` exceptions and
+  exit codes; `SUBAGENTS.md` states a subagent inherits no context. Also lands threadwork's demos-drive
+  findings handoff.
+- **`spawn_parallel` surfaces a dropped change at the top of its report** (M824): when two write children
+  change the same file, the first-wins merge keeps one and drops the other (preserved in the loser's
+  worktree, but not in the tree). That drop used to sit in the merge summary at the bottom — easy to
+  miss, and on threadwork's drive it silently dropped a second worker's test registration, uncompiled
+  until the lead noticed. The dropped-change list now appears at the **top** of the result, next to
+  *Kept*, telling the lead the lines are recoverable (`jichi attempts show`, or `spawn_parallel`
+  `from:"<ref>"`) and must be re-applied. Red-first via `tests/smoke/parallel_dropped_top.sh` (N7).
+- **The control client tells a supervisor "queued" apart from "not delivered"** (M823): when
+  `jichi control … inject`/`status` connects and sends but the run is inside a long model call and does
+  not reply within the wait, the client now **exits 3** (delivered, queued for the next boundary),
+  distinct from the **1** a failed connect returns — so a supervisor script can wait-and-re-check on 3
+  and treat 1 as a gone run, without parsing the message. The wait (default 300 s) is overridable with
+  `JC_CONTROL_CLIENT_SECS`. Exit codes are documented in `docs/CONTROL.md`. Red-first via
+  `tests/smoke/inject_queued_rc.sh`. From threadwork's weekend-drive findings (N5).
+- **A guide to driving a TEAM of jichi agents** (M822): `docs/DRIVING_A_TEAM.md` — task texts, agent
+  profiles, skills, memory, the lead's commit discipline, supervision and the harness, each rule backed
+  by evidence from a 248-run weekend drive, with a checklist and exercises. Lands with the drive's public
+  record (`docs/analysis/2026-09-26…`, `2026-09-28-the-weekend-drive-complete.md`) and anecdotes
+  #112–#118. This is threadwork's documentation, and it is the source the M818–M821 findings work drew
+  from.
+- **macOS (Apple Silicon) is now a verified, driven platform** (M817): the first verified macOS build,
+  contributed by **Dima Mellnik** (MacBook Air M4, macOS 26.5, Apple clang 21), moves macOS from *Never
+  compiled* to **Partly verified + Driven** in [`docs/PLATFORMS.md`](docs/PLATFORMS.md). One Darwin-only
+  build fix (`_DARWIN_C_SOURCE`, so `<sys/sysctl.h>`'s BSD typedefs are visible under `-D_POSIX_C_SOURCE`;
+  a no-op on every other platform), a portable `with_deadline` watchdog fix in the smoke harness (macOS
+  has no `timeout(1)`: preserve the command's stdin, and stop an orphaned `sleep` from holding the
+  caller's stdout for the full deadline), and three **test-tolerance** fixes (not product bugs) so the
+  unit and smoke tiers are green on Darwin: a TMPDIR trailing slash, BSD grep accepting Perl `(?:…)` and
+  matching, and the `/var`→`/private/var` symlink. Tool calling runs "native" on the HRZ gateway
+  (`MAC-50FFBE`). The build fix closes a **second, distinct** macOS build blocker after M400's `long
+  long` one: under `-D_POSIX_C_SOURCE` the SDK hid the BSD typedefs `u_int`/`u_char`/`u_short` that the
+  `HW_MEMSIZE` branch needs, failing the build with eight errors before any jichi code.
+- **`spawn_parallel` can RESUME a kept attempt with `from:"<ref>"`** (M816, P5): a write task given
+  `from` (a ref from a run's **Kept**/**Salvaged** list or `jichi attempts`) starts with that kept
+  state's file changes **already applied** — a 3-way `cherry-pick --no-commit` replays the predecessor's
+  diff onto the current base — and the predecessor's **outside-tree actions** (shell side effects,
+  network, git-ref writes: everything the merge does **not** carry) prepended to the task text as
+  "already done", so a successor builds on the work instead of redoing it. In-tree file edits are not
+  re-listed — the merge already carries them. A merge **conflict is returned as that task's error**,
+  naming the files, never a crash; `from` implies `write:true`, and needs snapshots. Red-first via
+  `tests/smoke/from_resume.sh` (the resumed change merges, the predecessor's side-effect counter still
+  fires only once, and a diverged tree conflicts as a value). **This completes P5.**
+- **`jichi attempts show <ref>` inspects a preserved attempt** (M815, P5): it prints the state's §4.2
+  end record (task, reason, model, run, base, counters, the loop count), a **diffstat** of what the
+  attempt changed against the base it was made from, and the **tail of the child's transcript** — so an
+  operator (or a successor) can read what an attempt did before reusing or discarding it, without
+  materialising it. `--output json` carries the record for tooling. The `jichi attempts` list now points
+  at it. Red-first via `tests/smoke/attempts_show.sh`.
+- **`doctor` now reports free disk, the fence floor, and unrecovered work** (M814, P4b): the "disk space"
+  line is measured with `jc_disk_space` (not the old `jc_disk_free_mb`, which read **0** on a sub-1024
+  fragment size — ZFS = 512 — so it told illumos/FreeBSD users "0 MB free" on a disk that was not), and
+  now shows free MiB, the `diskFloorMb` floor, and free inodes, warning as free space approaches the
+  fence. `doctor` also names **kept-but-unpreserved worktrees** — orphan `par-<run>` bases a dead run
+  left behind — so an operator knows recoverable work is sitting there. And `spawn_parallel` runs an
+  unthrottled disk check before it allocates worktrees, so a full `~/.jichi.d` stops the run rather than
+  filling. Red-first via `tests/smoke/disk_doctor.sh`. This completes P4b.
+- **jichi stops before it fills the disk** (M813, P4b): a new disk-space **fence** halts a run when free
+  space on the workspace filesystem falls below `diskFloorMb` (default **10** MiB; `0` disables), so a
+  filling disk can't corrupt the very records a stop needs to leave behind. It is a fence, not a cap —
+  on even in measurement runs, because it can only fire when the disk is genuinely nearly full — and it
+  is safe two ways: **unknown never stops** (when free space can't be measured, the run carries on) and
+  it is **time-throttled** (~10 s at tool boundaries, not per call, since one build can write gigabytes
+  in a single call). A trip tells the operator plainly, even under `-q`. `diskFloorFiles` guards inodes
+  (default off). Red-first via `tests/smoke/disk_guard.sh` and the `test_diskguard` unit test.
+- **A dead run's orphaned parallel work is now recovered, not lost** (M812, P3): if a `spawn_parallel`
+  batch's parent dies mid-run, its worktrees are orphaned with no teardown to preserve them. The next
+  batch now **salvages** them on start — each orphan base whose lock is free (its run has died) has its
+  trees preserved under `refs/jichi/discarded/parallel-orphaned/…` (named from the manifest,
+  recoverable with `jichi attempts show`/`recover`), then removed so they don't pile up. It is
+  **idempotent** (two salvages yield one ref, guarded by the fcntl lock and by removing the base), and
+  the batch's result reports what it recovered at the top. This completes P3's recovery path. Red-first
+  via `tests/smoke/parallel_salvage.sh`.
+- **A dead run's leftover no longer breaks the next `spawn_parallel` batch** (M811, P3): the pool's
+  worktree base is now named by the **run id** (`worktrees/par-<run>`), not the pid. In a container every
+  lead is the same pid, so a pid-named base let a *dead* run's orphaned worktrees collide with the next
+  run's and silently break its isolation (a write child ran in the live tree) — a defect reproduced
+  under a pid namespace. A run id is unique per invocation, so bases never collide. Each base also holds
+  an **fcntl lock** (dies with its holder, so an orphan's lock reads free) and a **manifest** written
+  before the worktrees, which the coming salvage step uses to tell a dead run's trees from a live one's
+  and to name its tasks. Red-first via `tests/smoke/parallel_run_id_base.sh`.
+- **A model call whose stream goes dead is now bounded, even with the stall cap off** (M810, L2): a new
+  `timeouts.deadStream` **fence** (default **900 s**) aborts a call that has connected but is receiving
+  *nothing* — the failure mode that once let a call run 11,677 s in a measurement run with `stall 0`.
+  Unlike `stall` (a cap, off in measurement runs) it stays on, because it can only fire when nothing is
+  arriving. curl has one low-speed window per handle, so `stall` and `deadStream` share it (effective
+  window `min(stall, deadStream)` when stall is on, else `deadStream`), and the error names whichever
+  knob fired. Red-first via `tests/smoke/dead_stream_fence.sh` and a `test_http`/`test_config` unit pair.
+- **`spawn_parallel` now lists the work it kept, at the top of its result** (M809, P2): when a batch
+  preserves unmerged child work (interrupted, conflict-losing), the aggregated result opens with a
+  **Kept** section — one line per preserved state, each naming the ref and how a child looped, and how to
+  recover it (`jichi attempts show <ref>` / `jichi recover <ref>`). The lead (and the operator) reads the
+  kept states first, instead of a recovery ref buried at the bottom of a long report. Red-first via
+  `tests/smoke/parallel_kept_section.sh`. This completes P2.
+- **A preserved parallel child now carries an end record, not just its diff** (M808, P2): when a
+  `spawn_parallel` write child's work is kept (interrupted, conflict-losing, unanswered), the preserved
+  state's commit message is now the plan's §4.2 **end record** — the task, the reason it was kept, the
+  model, the run/task-run ids, the base commit, its counters, the last failing call, a **`repeated`**
+  line when a tool loop was detected (the same counter M432/M806 keeps, surfaced — not a new one), and a
+  pointer to the child's transcript. A successor, and the coming salvage path, read *why* a state was
+  kept instead of guessing from the diff. Red-first via `tests/smoke/parallel_end_record.sh`.
+- **A parallel write child now records its own reasoning** (M807, P2): each `spawn_parallel` write
+  child writes a transcript to `~/.jichi.d/attempts/<run>/t<k>.jsonl` — one JSONL line per model reply
+  and per tool call — so a successor (and, next, the salvage path) can see not just *what* a child
+  changed but *what it was doing*. The file is **born redacted** (a registered secret a child's tool
+  prints never reaches it), `0600` in a `0700` directory, and flushed line by line so a `SIGKILL` loses
+  at most the line in flight. It follows `--no-session`: with sessions off, nothing is written.
+  Red-first via `tests/smoke/parallel_transcript.sh`.
+- **The loop detector now catches a command that keeps timing out** (M806, R6): a shell command cut
+  off at its own `timeout` bound, run over and over, is a loop — even when it is piped into `head` and
+  so "succeeds" with exit 0. jichi now recognises this (`JC_FAIL_AT_BOUND`), on the success path as well
+  as the failure path, and keys it on a **normalised** command so the same check spelled six ways
+  (`timeout 2 X`, `cd . && timeout 3 X`, `X | head`, `X 2>&1`, …) collapses to one — while two genuinely
+  different commands stay distinct, so a working agent that legitimately varies what it runs is not
+  muzzled. The detector also **re-warns as the loop persists** (every threshold-worth of repeats)
+  instead of falling silent after one note — a single ignored note is exactly how one drive looped for
+  three hours. Red-first via `tests/smoke/tool_loop_atbound.sh` and `test_toolloop_atbound`.
+- **Every tool call records how much disk is free** (M805): each `tool_call` telemetry row now carries
+  `disk_free_mb` and `disk_free_files` — free space and free inodes on the workspace filesystem, sampled
+  the instant the call finished. It is a **measurement, not a guard**: nothing refuses to run, and the
+  pair is *omitted entirely* when the filesystem could not be sampled (a missing pair means *unknown*,
+  never *zero free*). It exists so the telemetry corpus can show where a real disk floor sits before a
+  later step turns one into a fence. The new `jc_disk_space()` measures in `double`, so — unlike the
+  older `jc_disk_free_mb` — a fragment size below 1024 (ZFS uses 512) no longer collapses the reading
+  to a false 0, and "could not measure" is kept distinct from "0 free". Red-first via
+  `tests/smoke/disk_telem_field.sh` and the `test_disk_space` unit test.
+- **A supervisor can abort a running spawn_parallel batch, and its work is kept** (M804): `control
+  abort` sent mid-batch now interrupts it immediately (M801 deferred it to the boundary), which is safe
+  because P1 preserves each child's worktree at teardown — so an aborted batch's interrupted children
+  are recoverable under `refs/jichi/discarded/parallel-interrupted`. `pause` in the pool is defined as
+  "launch no new task" (running children continue; the pool starts nothing new until resume), the one
+  safe pool semantics — freezing the loop would starve the children's pipes. Red-first via
+  `tests/smoke/parallel_abort_preserves.sh`.
+- **A spawn_parallel or attempt worktree is preserved before it is removed** (M803): the four paths
+  that tore down a worktree (the parallel pool, the improve/assignment attempts, a workflow stage) now
+  preserve its content under `refs/jichi/discarded/…` first — so an interrupted or conflict-losing
+  child's work survives and is recoverable via `jichi attempts`/`recover`, instead of being deleted.
+  If preservation fails the tree is kept, never destroyed. A child whose work already merged is skipped
+  (`JC_WT_MERGED`). Red-first via `tests/smoke/parallel_preserve.sh`; a lint
+  (`worktree_destroyers_lint.sh`) pins the set of destroyers so a new one cannot skip preservation.
+
+### Fixed
+- **A repository's own `.jichi/` can no longer point jichi's `progress.jsonl` / `hints.jsonl` / `predictions.jsonl` and `board.json` outside the workspace (M997, D-15 review-4).** M990's guard checked only the `.jichi` **directory**, so a workspace whose `.jichi/progress.jsonl` was a symlink to an outside file let `grade --record` append the JSONL line **outside** the workspace, and `jc_board_edit` created its `board.lock` (an `O_CREAT`) outside before the guarded load could refuse. Each progress appender now lstats the **leaf** before it opens and refuses a link; `jc_board_edit` checks the directory and the `board.json` leaf before any create. `SECURITY.md` now names the class (by class only); the mechanism and repro stay internal.
+- **A closed terminal or a supervisor's `SIGHUP` now stops jichi gracefully, like `SIGTERM` (M988, E-03).** SIGHUP had no handler: the default kill ended a run mid-turn without teardown and left its background jobs running. A hang-up now aborts gracefully, reaps background children, and exits 129 (128+SIGHUP), documented in the help and the `describe` contract.
+
+- **`--verify` and watched shell commands report a real failure even when started under a supervisor that ignores `SIGCHLD` (M987, E-01).** A parent that ignores `SIGCHLD` lets the kernel reap jichi's children before jichi reads them, so a failed `waitpid` used to leave the zeroed status behind and a failing gate decoded as "exited normally 0" -- a red verifier printed GREEN and a failed command read as exit 0. jichi now resets the inherited signal state at start-up and reaps through a checked helper that says "unknown" when the child cannot be collected, never a decoded zero.
+
+- **`search_code` refuses a dash-spelled path and pins its own grep options (M982, D-31).** A model-controlled `path` beginning with `-` was read by grep as an option, so the search ran with that flag through the whole tree. The tool now refuses such a path with a message that names the fix, and the command carries `--` after the pattern.
+- **`search_code` no longer tells a model a broken pattern is valid, on Alpine/busybox grep (M956).** Where the platform's `grep` is busybox (Alpine), it reports a bad extended-regex only once it has read real content; jichi's old error probe read `/dev/null`, so a malformed pattern came back as "grep exited with an error reading the path (the pattern itself is valid)" — a mis-telling that sent models to retry the same pattern. The probe now reads a one-line input (busybox reports `bad regex '…'`, like GNU's `Unmatched ( or \(`), and the model gets the pattern-invalid error on every grep. The M732 "grep warned" feedback is unchanged — it stays on `/dev/null` on purpose, because a readable input would let a pattern that both warns and matches (e.g. `.*`) hide the warning. On Alpine that feedback remains GNU-only by nature (busybox accepts `(?:…)` silently); it is documented, not a defect.
+- **A background command no longer stalls when it prints a lot (M940).** A
+  detached child's output went to a pipe jichi drained only at tool-call
+  boundaries; a child that filled the 64 KiB pipe and kept going while the
+  model sat in a long call blocked in `write(2)` (a 13-hour `make ci`). Output
+  is now spooled to a file the child writes with no reader at all; the read,
+  truncation and kill semantics are unchanged, and the spool is cleaned up
+  once the child is reaped.
+
+- **A formatted or renamed file no longer gets mangled when it holds non-ASCII
+  text (M939).** LSP `character` fields count UTF-16 code units (the spec
+  default), but jichi applied them as byte offsets: a single `ö` (2 bytes, 1
+  unit) shifted every later edit on the line by one byte, so `format_file`,
+  `rename_symbol` and `apply_code_action` silently corrupted lines with
+  multi-byte characters. The `initialize` handshake now reads the server's
+  `capabilities.positionEncoding` (and advertises UTF-8, so a UTF-8-capable
+  server can pick it), and jichi converts UTF-16 columns to byte offsets per
+  line on the way in and back on the way out. ASCII-only files are unchanged.
+- **`config set` no longer wipes a commented config (M924):** a config with
+  `//` comments used to be read as *empty* by the writer, and the edit saved
+  one key over it -- losing the model, fences and permissions the file held.
+  The writer now strips comments like the reader does, and a file that does
+  not parse to a JSON object is refused, its bytes untouched.
+- **A numeric CLI argument is a whole number or a usage error (M923):**
+  `--max-tool-calls abc` read as 0 (no fence), `--context-limit 32k` as 32,
+  `--keep abc` as keep nothing, and `undo`/`rewind abc` as one. The
+  whole-string parser now refuses any non-digit in these arguments with a
+  clear `error:` and exit 2, instead of guessing.
+- **A `spawn_subagent` child's telemetry now names the model it actually called**
+  (M922): a delegated subagent ran on its chosen model, but its `model_call`
+  telemetry, cost report and run journal named the LEAD's model, because the
+  in-process child never set the override fields `spawn_parallel` (a fork) does
+  -- so a child's cost was charged to a model it never called. The child now
+  labels its calls with its own model and restores the caller's label after, so
+  a depth-0 model switch no longer mislabels the lead's later calls either.
+- **Resuming a run stopped by a budget mid-round no longer 400s on the
+  provider** (M919): when a tool-call/token/deadline/read budget (or a
+  `spawn_parallel` task budget) stopped a run in the middle of a round, the
+  round's remaining tool calls were saved with no result, and the next
+  `--session`/`--continue` resume sent them as unanswered calls -- which
+  OpenAI-compatible and Anthropic endpoints reject at the first model call,
+  so a "kept for you to resume" run died at its resume. Those calls are now
+  answered with an error result naming the budget that stopped them, so the
+  saved history is wire-valid and the resume runs.
+- **The second Ctrl-C no longer kills jichi** (M918): every signal handler
+  was installed with `signal()`, which on glibc under this build's flags is
+  `__sysv_signal` (SA_RESETHAND) -- after one delivery the disposition reset
+  to the default, so a first Ctrl-C aborted the current turn but a second one
+  terminated the process with no teardown (no session save, no shutdown of
+  background processes, MCP/LSP or leases). Handlers are now installed with a
+  `sigaction()` helper that persists across deliveries while keeping the
+  interrupt behaviour the tool loops rely on.
+- **A context-window 400 no longer poisons later parallel children** (M917): a
+  request refused as over the model's window set a process-wide flag that was never
+  cleared, so after any one such refusal every later `spawn_parallel` write child was
+  labelled "ran out of context" and its finished work was kept instead of merged,
+  whatever the child itself did. The flag now resets at the start of each run, so a
+  refusal describes the run it ended -- a child that overflows itself is still
+  labelled as one, but a later run (or a forked child) inherits no stale flag.
+- **A model call that errors mid-stream fails instead of answering with the error** (M914):
+  a server that answers a stream begun HTTP 200 with an `error` event (LM Studio over its loaded
+  context; Anthropic overloaded) used to turn the error message into the *answer* and mark the call
+  a success with 0 tokens. It now fails the call as it fails an HTTP error -- no answer, no retry,
+  the server's message kept and logged, recorded as `stream_error` on `model_call` telemetry, and
+  in the run's last-error report.
+- **The subagent-cap note no longer reads "total of opening"** (M915): a reversed argument made
+  M911's capped hand-back note print "12,000 of 3,796 bytes" -- claiming the note carries more bytes
+  than the whole answer. It now reads "the opening only, 3,796 of 12,000 bytes", and the test
+  asserts the exact string so a reversal fails rather than reading as a plausible number.
+- **Telemetry lines are valid UTF-8 again, and a task's title is cut at a character** (M889):
+  `spawn_parallel` cut each task's title at 70 bytes, which could keep part of a character, and the
+  telemetry line that carried the batch result was then not valid UTF-8 -- a strict reader rejected
+  it. The title and a long answer are now cut at a character, and the event log repairs any line a
+  producer cut mid-character.
+- **A write child's large new directories are held out of the merge, and every new one is named**
+  (M888): scratch a `spawn_parallel` write child made in its worktree -- 15 MB of copied demo
+  projects in one drive's run -- was merged into the live tree with its work. The batch result now
+  names each new directory with its file count and size, holds one over 1 MB or 100 files (the task is
+  kept as `parallel-new-dir`), and merges the rest.
+- **A write child's file tools reach what its shell may write** (M887): a `spawn_parallel` write
+  child's shell may write its own `$TMPDIR` and the `shellFenceAllow` directories, but its
+  `write_file` and `read_file` were refused there, so a task told to write `/tmp/x.tsv` used the
+  shell -- or wrote into its worktree, and the merge carried the file into the tree. In a write
+  child the file tools now reach the same directories; the top level is unchanged.
+- **A child that reads between its failures is still stopped as a loop** (M886): a delegated child
+  that sent the same failing call nine times is stopped (M869), but any shell command that worked
+  reset the count -- a `sed -n` or a `grep` included -- so a probe that read code between fifteen runs
+  of one failing command was never stopped. Now only a shell command that changed the worktree's
+  content resets it.
+- **A worker stopped from outside is reported as that** (M885): when a supervisor stopped one
+  `spawn_parallel` worker with SIGTERM, the lead's batch result said the operator had interrupted the
+  run, and advised splitting the task whose command the SIGTERM had killed. It now names the SIGTERM,
+  says the lead's own run goes on, and says the killed call met no limit.
+- **jichi no longer reads the rules files above a linked worktree** (M884): the walk took the
+  repository root to be a `.git` directory, and a worktree's `.git` is a file, so from a worktree jichi
+  read every `AGENTS.md` or `CLAUDE.md` above it, ahead of the project's own. A submodule's walk now
+  stops at the submodule too; list the superproject's rules under `instructions` to keep them (in a
+  project's `.jichi/config.json`, after `jichi trust`).
+- **A model call no longer crashes when the server keeps its connection open** (M882): M880's socket
+  watch outlived its stack frame inside libcurl, and the connection's close wrote into it -- a crash on
+  LM Studio and any provider that keeps connections. It reached master `b0a8a790` but no release. The
+  smoke tier's mock can now keep a connection, and `make ci`'s sanitizer turn runs over one.
+- **The smoke tier no longer reaches model providers, and the board rig reads doctor's summary** (M881):
+  `setup_keyfile` contacted api.anthropic.com and api.openai.com from every run, and failed on a slow
+  machine because it typed ahead of a prompt; it now waits for its prompts and runs with its proxy at a
+  closed local port. `scripts/tier-b-device.sh` failed `doctor` on every board since jichi stopped
+  choosing a model (M709); it now reads doctor's summary line and keeps its output.
+- **A slow TLS handshake is named on libcurl 8.14 and later too** (M880): there, M877's "TCP connected,
+  but the TLS handshake did not finish" read as "could not connect", because libcurl no longer reports a
+  connect time for a connection whose TLS never finished (Debian 13, and likely Ubuntu 26.04). jichi
+  now asks the socket itself whether TCP was up.
+- **The smoke tier's placeholder lint passes on a release tarball** (M879): its page floor counted
+  `docs/internal/`, which a tree made with `git archive` leaves out, so `make check-target` failed on
+  every shipped tree, a test board's included. It now counts the pages that ship.
+- **A read-only phrase said of someone else no longer becomes a rule** (M878): "The child runs in
+  read-only mode", "Run the children in read-only mode", a markdown note's heading, blockquote or table
+  about its children, and "read-only children" no longer make an `--auto` run adopt a session-wide
+  read-only rule. An order to the run itself -- "Stay read-only", "Run everything in read-only mode",
+  "This session is read-only" -- still does.
+- **A slow TLS handshake is no longer reported as a stalled model** (M877): `timeouts.connect` also
+  bounds the TLS handshake, so on a listening but slow `https` endpoint it fired before any request was
+  sent -- and jichi said the stream had stalled. The error now says "TCP connected, but the TLS
+  handshake did not finish within Ns", the call is retried as a connect failure, and the docs no longer
+  say `connect` "can only fire when nothing is listening". Raise it for a shared or slow gateway.
+- **A delegate whose model calls failed is reported as such** (M876): a worker whose gateway went down
+  was reported by its last failing tool call alone ("kept hitting its own time limit"), and its lead
+  planned around the wrong cause. The report now opens with the run's own failure -- the model call's
+  diagnosis, the attempts and the times -- marks the last failing call as an earlier event, and says
+  "kept hitting" only when a call's class failed more than once.
+- **An inferred rule is no longer said to be broken by a command that only names it** (M873): with "do
+  not install packages" read from a request, `grep -n install build.zig` was told it went against the
+  rule. A rule jichi inferred is now matched against what a command runs -- its command word, or the
+  action of a program that takes one (`pip install`, `git commit`, `zig build test`, a `make` target).
+  A rule you wrote in `.jichi/constraints.md` still matches the word anywhere, and refuses.
+- **A phrase a request quotes, or asks about, is no longer read as a rule** (M872): in an `--auto` run,
+  "do not commit" inside quotation marks or code, or in a sentence that ends in "?", was adopted as a
+  rule for the whole session -- a drive's lead agent was told not to commit by its supervisor's question
+  about what a task text should say. Each inferred rule now also quotes the sentence it was read from:
+  in the notice, the system prompt, the note on a call against it, the run journal, and
+  `jichi constraints scan`, `brief-check` and `/constraints`, which now also say which rules advise.
+- **`make ci` holds the C++ build** (M871): it builds, links and tests jichi with `CC=g++` and runs
+  `cpp-check`, so a C++ incompatibility can no longer rot unnoticed as it did twice in ten days.
+- **A child that cycles through calls with nothing new is stopped** (M870): a parallel or delegated
+  child whose last 24 calls each repeat one of the 24 before them -- a rotation of checks after its work
+  is done -- ends with its work kept. Before, commands in rotation reset each other's counts and nothing
+  stopped them.
+- **A child that repeats a refused call, or copies a placeholder, is stopped** (M869): a parallel or
+  delegated child whose same refused call reaches nine repeats, or that copies M218's placeholder
+  three times in a row, ends with its work kept, as a child repeating a successful call already did
+  (M829). And every such stop is now named as a loop, not as the iteration cap.
+- **A repeated failing call with long arguments is noticed** (M868): the tool-loop detector compared a
+  key cut at 159 bytes with the whole incoming one, so calls with arguments of 160 bytes or more never
+  counted as repeats; it now compares a hash and a length.
+- **`make CC=g++` and `make CC=clang++` build again** (M867): a compile error since M709 and a link
+  error since M690 (a header without its own `extern "C"` guard) had broken both; the unit suite now
+  passes compiled as C++.
+- **A JSON number jichi builds no longer overflows its int view** (M866): `cJSON_CreateNumber` cast a
+  double to int unchecked, undefined behaviour for a number beyond about 2.1 billion; it now clamps
+  as the parser does.
+- **A write child that changed an existing test assertion is kept, not merged** (M865): before a
+  `spawn_parallel` write child's changes merge, jichi diffs each test file it modified against the
+  base; a change to an existing assertion keeps the work (`parallel-test-edit`, in the Kept list)
+  instead of merging it, even after a green verify. A new test, or an added assertion, merges as
+  before. **Changed behaviour:** an honest pin update is taken from the Kept list on purpose.
+- **A parallel child's log lines say when, and which child** (M864): in a `spawn_parallel` child,
+  each stderr log line begins with the UTC time and the child's `task_run`
+  (`2026-10-02T08:12:34Z <sid>-b1-t1 [jichi warn] ...`), and every log line is written with one call,
+  so concurrent children no longer cut into each other's lines. **Changed format** for a child's
+  lines only; the lead's are unchanged.
+- **A write child's work survives its own discarding git commands** (M863): before a parallel write
+  child runs `git checkout`, `switch`, `restore`, `reset`, `clean` or `rebase` (harmless forms
+  excepted), jichi keeps its worktree's files and HEAD under `refs/jichi/discarded/pre-discard/`,
+  without touching the tree, and the tool result and the batch result name the ref.
+- **A red worktree verify shows its failing lines first, and keeps its whole output** (M862): the
+  batch result showed only the last 500 bytes of a red `parallelVerify` run, which for zig is its
+  summary and not the failing tests. It now lists the lines that look like failures first (at most
+  12, with a count of the rest), then the tail, and names a file that holds the whole output.
+- **A parallel task can be given its own tool-call budget** (M861): `spawn_parallel`'s tasks take
+  `max_tool_calls` (a number, or a string of digits; any other value refuses the task). It binds with
+  or without `--max-tool-calls`, the task is told once at four-fifths, and a task that reaches it ends
+  with a note and merges only after a green worktree verify. **Changed behaviour:** a write child
+  stopped by its share of the run's budget is now such an ending too; before, it merged unverified
+  whenever it had written text. The delegate report's new stop `task_budget` says so, and a stop on
+  a share no longer reports the run's budget as spent while the run has budget left.
+- **Every parallel batch has its own id** (M860): two batches of one session no longer give their
+  children the same `task_run` and `seq`, and a batch started inside a write child no longer
+  overwrites the lead's manifest or deletes its lock (which let a later run salvage the lead's live
+  worktree). **Changed format:** `task_run` is `<sid>-b<k>-t<task>`, and a child's transcript lives
+  under `~/.jichi.d/attempts/<sid>-b<k>/`.
+- **A delegate whose reply is cut off is asked once to continue** (M859): a delegate whose reply
+  hit the output ceiling with no tool call gets one "continue, and keep each reply short" turn
+  instead of ending mid-sentence; a second cut ends the turn as M858's ending. New config key
+  `continueCutReply`: `"delegates"` (default), `"headless"` (a headless top-level run too), `"off"`.
+- **A reply cut off at the output ceiling is seen, recorded, and not taken for an answer** (M858): a
+  reply also counts as cut when its `completion_tokens` reach the request's `max_tokens` (a cut tool
+  call reports `finish_reason: "tool_calls"` on some gateways, so its incomplete arguments were
+  treated as malformed). Telemetry's `model_call` row says `truncated`. **Changed behaviour:** a write
+  child whose turn ended on a cut reply answers with a note naming the cut, and its work merges only
+  after a green worktree verify; the delegate report names the cut for `spawn_subagent` too.
+- **A fenced write child keeps its claim tickets** (M857): the shell fence (M831) binds the whole
+  write child, so jichi's own store for over-long tool output (`~/.jichi.d/tool-output/<pid>`) was
+  refused and every trim lost the path it would have left. The child now creates that store before
+  the fence and the fence grants it, alone. A `shellFenceAllow` list longer than six entries is no
+  longer cut short without a word.
+- **A resumed attempt carries the predecessor's own commits** (M856): `"from":"<ref>"` applied only
+  the kept commit's own diff, so a worker that had committed as it went was resumed without its
+  commits, and told they were applied. The resume now replays the range from the base the kept state
+  records, `jichi attempts show` diffs against that base, and the resume note says how many files it
+  applied, or that nothing was.
+- **A parallel child's `git stash` is kept, and no child pops another batch's** (M855): a write
+  child's worktree shares one stash stack with every other child (measured: one worktree's `git stash
+  pop` applied another's entry), and a stashed change was in no kept state. **Changed behaviour:**
+  before and after a batch with write tasks, every entry on the shadow repo's stash stack is kept as a
+  ref, named in the batch result, and the stack is emptied; a child that runs `git stash` is told to
+  commit instead. With `preserveDiscarded: false` the stack is left as it is.
+- **A write child stopped, capped or out of context answers, and its work can merge** (M854): such
+  a child ended "without a result" and its committed work was only kept. It now answers with its
+  last text and a line saying how it ended (stopped from outside with SIGTERM, a context-window
+  400, or `maxSubagentIters`), and its work merges after a green worktree verify (`parallelVerify`).
+  **Changed behaviour:** with no verify such a child is kept as `parallel-unverified`, not merged --
+  including a capped child that had written text, which merged unverified before.
+- **A delegate that calls `finish` ends its turn with its message** (M853): models call a `finish` tool
+  jichi does not have, and a refused delegate looped until something stopped it, which cost a write
+  child its merge. **Changed behaviour:** in a delegate, a call to an unregistered `finish`, `done`,
+  `complete`, `submit`, `task_complete` or `final_answer` that carries a `message` ends the turn, and
+  the message is the answer; a write child then verifies and merges as after any answer. At the top
+  level, or with no `message`, the call gets an error that says how a turn ends. `jichi telemetry`
+  counts these endings, and no longer reports a write task the fence refused (M852) as one that ran
+  unfenced.
+- **A fenced write task can compile and make temp files** (M852): since M831, a `spawn_parallel` write
+  child's shell was fenced with no writable temp dir, so `cc` aborted ("Cannot create temporary file in
+  /tmp") and `mktemp` failed, with nothing naming the fence. Each write child now gets a private
+  `$TMPDIR` inside the shadow repo, removed with its worktree, and a fenced command that fails on a
+  permission error gets one line naming the fence, counted in the batch result. **Changed behaviour:**
+  where Landlock is present but the fence cannot be applied, the write task is refused instead of running
+  unfenced; a `shellFenceAllow` entry that is not absolute or does not exist grants nothing, as before, and
+  the batch result now says so once at the top; an entry that is a file refuses the write tasks.
+- **A project's own config no longer runs with your trust** (M851): `local/config.json`, else
+  `.jichi/config.json`, used to be merged over your `~/.jichi` with nothing asked -- so a cloned repository
+  could send your requests (and your API key) to its own endpoint, start programs, pre-approve tools, or
+  switch a headless run to auto. Until you trust it, a project config now applies only its safe settings
+  (display and behaviour, and anything that only tightens: `mode: "plan"`, a `permissions.deny`, a smaller
+  bound); the rest is listed, not applied. **Changed behaviour, and the migration:** if you run `jichi`
+  directly in a project whose `local/config.json` or `.jichi/config.json` names models, servers, commands or
+  pre-approvals, run `jichi trust` there once (the TUI asks you instead; `jichi doctor` shows what the file
+  would do first). Trust is bound to the file's content: editing it outside jichi makes it untrusted again,
+  while `jichi config set` on a trusted file keeps it trusted. `jichi untrust` drops it. Start scripts written
+  by `jichi setup` pass `--config` and are unaffected; a config `jichi setup` creates is trusted for you.
+- **An armed envelope no longer switches an editor's session to auto** (M850): in `jichi --acp`,
+  `--edit-scope`, `--max-tool-calls`, a config `verify`, or a project `.jichi/config.json` with `editScope`
+  silently turned the session to auto -- the editor got no permission requests -- because ACP's piped
+  stdin read as headless. An ACP session now keeps asking; the envelope still applies its budgets, scope
+  and verifier. An explicit `--acp --auto` still runs unprompted.
+- **A delegate asks before running a shell command, and never runs a privileged one through the
+  allowlist** (M849): a subagent or parallel task ran every tool without asking, so a pack profile that
+  holds the shell (`sysadmin`, `deploy-runner`) could run any command after one approved
+  `spawn_subagent`. A delegate's shell call (`run_terminal_command`, `run_tests` with a command) now
+  follows your posture: the TUI asks, and where the delegate cannot ask -- headless, an editor, a
+  parallel task -- it is refused; `--auto` is unchanged. **Changed behaviour:** `privilegedCommandsAllow`
+  no longer applies to a delegate (it is for your own turn, a subtask command, and a top-level `--auto`
+  run); a delegate's privileged command is refused and audited as `delegate_refused`. An allowlist entry
+  matches by word prefix -- `sudo systemctl` admits every `sudo systemctl ...` -- so list whole commands.
+- **A subtask command asks before a change, like the turn it runs in** (M848): `/learn` and any
+  `subtask: true` command ran their agent with every tool and asked nothing -- in chat mode, and headless
+  without `--auto`, where a plain prompt is refused. A subtask now runs under your posture: in chat it
+  asks, headless without `--auto` a change is refused, and under `--auto` nothing changes. A delegate
+  that runs without asking (`spawn_subagent`, a parallel child) now has the path fence on in chat too.
+  **Changed behaviour:** a profile's `tools:` now fences a subtask command and `attempt --agent` -- a
+  tool outside the list is refused, and the refusal names the list, so a subtask command of yours whose
+  profile lists fewer tools than it uses will lose those -- and `attempt --agent` takes the profile's
+  `model:` unless `--model` is given. A main-turn command is unchanged. The scaffolded mentor is
+  read-only: its answer is the draft, and when `.jichi/lessons.draft.md` already exists the new draft
+  lands beside it as `lessons.draft.md.answer`. Existing projects keep their mentor and now get asked.
+  A profile and a skill whose tool lists share nothing are refused, instead of running a subagent with
+  every tool.
+- **A `formatCommand` with `{}` inside quotes is refused, not run with a broken-out path** (M847): the
+  file path is substituted already single-quoted, so a `{}` placed inside your own quotes let the path
+  fall out of them -- an ordinary filename with a space split into two arguments, and a crafted name could
+  run commands. jichi now refuses that shape with an error naming the fix (put `{}` outside the quotes, or
+  append the path as a trailing argument). **Changed configs:** the `r` and `elisp` scaffold packs now take
+  the path as a trailing argument; a hand-written `formatCommand` with `{}` inside quotes must be moved.
+  `docs/FORMATTING.md` is corrected -- it had taught the unsafe shape.
+- **`--strict-scope` forbids the shell through `run_tests` too** (M846): `run_tests` runs its `command`
+  through the shell exactly as `run_terminal_command` does, but the shell fences matched only the name
+  `run_terminal_command` -- so `--strict-scope` let a `run_tests` command write outside the edit scope,
+  and the privileged (sudo) and kinetic gates missed a command sent that way. jichi now decides "this
+  tool runs a shell command" in one place, so both tools are fenced alike. A plain test command is
+  unaffected.
+- **A session saved in auto mode no longer turns a stricter run into auto** (M845): loading a session over
+  ACP applied the mode it was saved with, even in a process started with `--plan` -- which then wrote files
+  without asking, and saved its next sessions in auto too. Resuming in the TUI or headless without a mode
+  flag widened chat to auto the same way. A saved mode may now make a run stricter, never looser, and jichi
+  says when it kept one out (`mode: kept chat -- the session was saved in auto, ...`). **Changed
+  behaviour:** to resume a session in auto mode, start with `--auto`.
+- **A command jichi runs no longer reads the editor's messages** (M844): over ACP, jichi's stdin is the
+  editor's JSON-RPC stream, and a shell command, a background command, the verify command or a git call
+  inherited it -- so a command that read stdin (`head`, `cat`, an installer's prompt) swallowed the
+  editor's next message, such as a cancel. Every program jichi starts now gets `/dev/null` as its stdin,
+  in every mode: a command that waits for input gets end-of-file at once.
+- **A permission written as `1` or `"true"` now applies** (M843): `permissions.deny` and an MCP server's
+  `deny` took only a JSON `true` (or `"*"`) as "every tool", so a config saying `"deny": 1` denied nothing --
+  measured with a real model under `--auto`, `write_file` wrote. These fields now read a boolean the way every
+  other config key does: `1`, `"true"`, `"on"` and `"yes"` mean true, and prose still means nothing. The same
+  reader serves `permissions.allow` and `autoApprove`, so **`"allow": 1` now means allow-all**, as written.
+  Read leniently now too: `control` (an `"on"` or `"off"` was taken as a socket path), `routing.escalateOnContext`
+  (a `"false"` switched escalation on), an MCP server's prompt-argument `required`, and an opencode agent's
+  tools map in `jichi-convert`.
+- **`--readonly` now holds for a bounded headless run, and for a resumed session** (M840): a headless run with
+  `--deadline`, `--budget-tokens` or `--max-tool-calls` was promoted to auto mode, and resuming a session saved in
+  auto mode re-applied that mode. Both cleared an explicit `--readonly`, so such a run could write files, and under
+  `-q` it said nothing. `--readonly` is now kept through every mode change, and a read-only run is no longer
+  promoted at all. `tests/smoke/readonly_pinned.sh` holds both paths.
+- **On DOS, dates and timestamps are right even when `TZ` is not set** (M839): DJGPP's C library returns a
+  garbage local time, and shifts the clock itself by weeks, whenever `TZ` is unset, empty or lacks an offset,
+  and FreeDOS leaves it empty by default. jichi now checks the local time against UTC at start-up and, where it
+  is no real time zone, runs with `TZ=UTC0`, says so once, and explains it in `jichi doctor`. On a system whose
+  time zone works, nothing changes.
+- **Every file jichi opens is opened in binary mode** (M837): on DOS (DJGPP), a file opened in text mode has
+  `"\n"` written as `"\r\n"` and is cut short at the first Ctrl-Z byte when read. 27 stream opens and 4
+  low-level `open()` calls relied on text mode being the same as binary, which is true only on POSIX systems.
+  The input history, for one, came back with a stray `"\r"` on every line on DOS. All of them now ask for
+  binary, and `tests/smoke/portability_lint.sh` fails the build if a new one does not. Nothing changes on
+  Linux, the BSDs, illumos or macOS.
+- **`jichi describe` no longer offers the daemon on a build that has none** (M836): on a build without sockets its
+  text said "Drive warm: jichi daemon", which that build refuses. The text now says the daemon is not on this
+  build, and the JSON contract marks `daemon` and `control` `"available": false` with the reason. A build with
+  sockets prints exactly what it printed before.
+- **jichi builds on a system with no socket library** (M835): DJGPP on FreeDOS has no `<sys/socket.h>`, and the
+  build failed there. The Makefile now detects that and builds without sockets: `jichi daemon`, `--connect` and
+  `jichi control` refuse with exit 2 and say what to do instead, `--control` prints a warning and the run
+  continues, `jichi doctor` lists "built without sockets", and the check that keeps a model from fetching private
+  addresses reads IPv4 addresses itself. Nothing changes where sockets exist; `make info` reports the answer
+  under `SOCKET_LIBS`.
+- **The unit suite compiles without warnings on a system without `posix_spawn`** (M835): two test helpers were
+  unused there, which failed a `WERROR=1` build. `make ci` now compiles every file once with each detected
+  feature taken away, so a fault of this kind shows up on the machines that run the gate.
+- **jichi builds on a C library that hides POSIX from strict C89** (M834): DJGPP's headers show POSIX
+  declarations only when `__STRICT_ANSI__` is undefined, so under `-std=c89` the build lost `pid_t`, `struct stat`
+  and the rest, and three capability probes wrongly reported `vsnprintf`, `lstat` and the terminal-size ioctl
+  absent. The Makefile now detects this and adds `-U__STRICT_ANSI__` for the headers (the compiler stays in
+  strict C89); it also works without `<sys/select.h>` (via `include/jc_select.h`), without `nanosleep`
+  (`select()` sleeps instead), without `SIGCHLD` and without `_SC_PAGESIZE`. Nothing changes on glibc, musl
+  or the BSDs; `make info` reports the three new answers.
+- **The build no longer trusts what a compiler prints on stdout** (M833): the Makefile's probes kept the
+  compiler's stdout with their own answer, so a compiler that prints a notice there (DJGPP's gcc does, for
+  `-fPIE`) put that sentence into the compiler flags and broke every compile, and under any such compiler a
+  feature probe would silently report the feature absent. Probes now read only the exit status, and an
+  optional flag is used only when the compiler accepts it without comment. `-fstack-protector-strong` is now
+  also passed at link time, which toolchains whose libc lacks the stack-protector runtime (DJGPP) need; on
+  glibc and musl nothing changes. Found by the FreeDOS + DJGPP cross-compile; `tests/smoke/probe_quiet_lint.sh`.
+- **A command run without a timeout no longer receives libcurl's internal pipe** (M832): libcurl creates
+  that pipe without close-on-exec, and the old libc-`popen` path ran no jichi code between fork and exec,
+  so both ends reached every such `run_terminal_command` shell (measured on the installed M831 build, which reports 0.12.0: descriptors 5 and 6;
+  DEFERRED def-151, open since M472). The popen path now starts its child through `jc_spawn`, which closes
+  everything above stderr, and `tests/smoke/child_fds.sh` asserts the total on that path too, on both
+  process backends. The descriptor was not a sink, a socket or a secret, but the fence's claim was
+  "stdio and nothing else", and now it holds everywhere.
+- **A looping sub-agent now stops itself, instead of spinning to its iteration cap** (M829): the
+  no-progress detector already re-warned a model repeating the same successful call (M819), but a
+  `spawn_parallel`/`spawn_subagent` child's whole task is **one turn** — it has no next turn to change
+  course, so on threadwork's drive a worker made one passing call **1,126 times**. A child (depth ≥ 1) is
+  now ended when the same successful call reaches the stop threshold (9, after the warnings at 3 and 6),
+  keeping its work and recording the repeat count in its end record; the top level, which has more turns
+  and an operator, still only warns. Red-first via `tests/smoke/parallel_noprogress_stop.sh` (the looping
+  child stops near the threshold instead of running to `maxSubagentIters`). Completes finding N4.
+- **Three honest-reporting fixes from the demos-drive rehearsal** (M827): (N14) a `control abort` sent
+  during a `spawn_parallel` batch now replies "the batch stops now and its workers' work is kept" — the
+  pool acts on it in ~200 ms — instead of "queued to the next tool boundary", which was true only for a
+  shell call, not a batch a supervisor was watching; (N15) `jichi attempts`/`recover`/`undo`/`checkpoints`
+  — read-only inspectors that call no model — no longer print the "No model is configured" first-run
+  banner ahead of their output; (N16) an interrupted worker's end record counts its tool calls as
+  "unknown (interrupted before it reported)" rather than a fabricated **0** that could make a successor
+  discard a state holding real work. Red-first via `tests/smoke/parallel_abort_preserves.sh` (N14, N16)
+  and `tests/smoke/attempts_no_banner.sh` (N15).
+- **The ROADMAP's "Where we stand" banner no longer describes a milestone ten behind its number** (M826):
+  the banner bumped its milestone *number* every milestone but its descriptive *prose* had drifted to
+  M815 while the number said M825 — a currency claim that lied. The banner now leads with the current
+  state, and `milestone_currency_lint` gains a check that the banner's prose cites a milestone within a
+  window of the number it states, so it cannot silently fall behind again. From threadwork's demos-drive
+  findings (N13).
+- **The memory over-budget warning names which notes it drops** (M825): `.jichi/memory.md` loads only its
+  last 8 KB, so a file ordered by importance loses its most important notes first — and the warning used
+  to say only that "older notes are skipped". It now lists the **headings** (or first words) of the
+  dropped head ("dropped: …"), and both the warning and `docs/MEMORY.md` now say plainly that the kept
+  part is the tail: durable rules belong in a rules file or an agent profile (loaded in full), not at the
+  top of `memory.md`. From threadwork's weekend drive, where a lead moved its costliest lesson to the top
+  and watched it fall out of the window fourteen runs later (N1). Red-first in `tests/test_memory.c`.
+- **A parallel write child is told where its workspace is; the two delegation tools' workspaces are
+  documented** (M820): a `spawn_parallel` write child edits in an isolated worktree, but its *shell* is
+  not confined there — on threadwork's weekend drive a worker whose task named the parent's `/work` path
+  eight times made 53 write-class shell commands against the live tree. Its system message now states
+  plainly that it runs in its own worktree, that the parent's workspace is not its, and that a refused
+  file path means stop-and-report rather than reach for the shell (the note the drive's own team added to
+  its profiles, after which no worker strayed). And `spawn_subagent`'s docs and tool description now say
+  the opposite, previously unstated, fact: a **write subagent edits the live workspace directly** (no
+  worktree) — use `spawn_parallel` with `write:true` for isolated or parallel edits. Red-first via
+  `tests/smoke/parallel_workspace_note.sh`.
+- **The success-loop detector now re-warns, instead of once and then silent** (M819): when a model
+  repeats the same *successful* call with the same result, the "no progress" note fired once per turn and
+  went quiet — but a sub-agent's whole task is one turn, and on threadwork's weekend drive a child made
+  one passing call **1,126 times** in a single turn, warned once, and looped until a chance compaction
+  broke it. The note now re-fires at each multiple of the threshold (3, 6, 9 …), matching what M806 did
+  for the failure detector; a genuine edit still resets the count, so it only re-warns inside an unbroken
+  loop. Red-first in `tests/test_toolloop.c` and `tests/smoke/no_progress.sh`.
+- **The goalpost warning no longer fires on files that merely contain "test"** (M818): the envelope's
+  test-file check matched `test`/`spec` as a bare substring, so it warned about "moving the goalposts"
+  when a model edited an agent profile (`.jichi/agents/weekend-test-writer.md`), anything under
+  `latest/`/`contest/`, or `inspector.*` (it contains "spec"). It now matches by **path component** — a
+  test directory (`test`, `tests`, `spec`, `specs`, `__tests__`) or a test basename (`test.zig`,
+  `test_x`, `parser_test.zig`, `foo_spec.rb`, `FooTest.java`) — and never jichi's own `.jichi/` config
+  tree. Found on threadwork's weekend agent-team drive; red-first in `tests/test_envelope.c`.
+- **A secret split across two streamed deltas can no longer leak** (M802b, security): the `--output
+  jsonl` text stream now holds back the last `jc_redact_maxlen()` bytes across delta boundaries and
+  redacts the reassembled text, so a registered secret split across two SSE deltas (a full match in
+  neither line) is scrubbed before release. Finishes the redaction fix begun in M802. Red-first via
+  `tests/smoke/redact_split_delta.sh`.
+- **The saved session and the `--output jsonl` stream now redact tool output** (M802, security): a
+  registered secret a tool printed (e.g. a command dumping an environment) could reach a saved session
+  or a jsonl stream verbatim; telemetry already redacted, these two did not. Both now route their
+  serialized text through the redactor. Sessions are redacted rather than kept for replay (the model
+  already saw the value). Red-first via `tests/smoke/redact_sinks.sh`. (Two narrower gaps remain, to
+  be closed next: secrets the model prints that were never registered, and a registered secret split
+  across two streamed model-text deltas.)
+
+### Added
+
+- **A busy lead answers `status` mid-call** (M801): the `--control` socket is now polled from inside
+  a long tool call and a `spawn_parallel` batch, so a supervisor's `status` is answered in ~1 s
+  instead of waiting ~15 s for the call to end. Status-immediate, abort-deferred: `abort` is queued
+  to the next tool boundary (serving it in the pool is a later step, after preservation lands), so an
+  operator's abort can never destroy a batch's unmerged work here. Red-first via
+  `tests/smoke/parallel_reach.sh`.
+- **Telemetry names the `spawn_parallel` child** (M800): the first step of the preserve-agent-work
+  line. A child's depth-1 records now carry the model it actually called (not the lead's), a `task`
+  index, and their own `seq` band, so two concurrent children can be told apart in the log. Readers
+  tolerate old rows without the new fields. Red-first via `parallel_child_attribution.sh`.
+- **illumos hides the API key from `pargs -e`** (M799): the key-protection sweep's fourth row, and
+  the third SysV/procfs platform with neither a dumpable nor a trace-control flag. illumos hides a
+  foreign process's environment behind `pargs -e` (reading `/proc/<pid>/as`), not `/proc/environ` or
+  `ps -e`; the same in-place environ scrub closes it (measured on the OmniOS r151058 rig).
+  `proc_key_hidden` now detects the `pargs` route — without which it would have skipped illumos as
+  unmeasured while the key was readable — and names it in its output. Partial, like NetBSD's procfs
+  case: `/proc/<pid>/{as,mem}` and the fd channel stay open, and illumos offers no way to close them,
+  and `doctor` says so. **macOS is now the sweep's only unmeasured route.**
+- **NetBSD hides the API key from `ps -e` and `/proc/environ`** (M798): the key-protection sweep's
+  third row. The same in-place environ scrub as OpenBSD closes NetBSD's key-read routes (measured on
+  the NetBSD 10.1 rig). Partial where procfs is mounted — `/proc/<pid>/mem` and the fd channel stay
+  open, and NetBSD offers no way to close them — and `doctor` says so; on a default (no-procfs)
+  NetBSD the scrub is a full guard.
+- **OpenBSD hides the API key from `ps -e`** (M796): a same-user process could read jichi's key
+  from its environment via `ps -e`, and OpenBSD has no dumpable/trace flag. jichi now scrubs its
+  secret env-strings in place (measured on the OpenBSD 7.9 rig). Partial by nature — it closes
+  `ps -e` but not a debugger (ptrace), which OpenBSD offers no way to prevent — and `doctor` says
+  so. `JICHI_KEEP_DUMPABLE=1` opts out.
+- **The S3 entry-path review is written up** (M789):
+  [`docs/analysis/2026-09-26-docs-s3-entry-path-review.md`](docs/analysis/2026-09-26-docs-s3-entry-path-review.md)
+  records the start-here review — four reviewers, the priced-model headline, the seven fixing
+  milestones (M782–M788), what was verified against the tree, and what was deferred —
+  completing docs-structure S3.
+- **`docs/install/` — a step-by-step page per platform** (M777–M779), the first steps of the docs
+  restructure: **13 pages** — Debian/Ubuntu, Fedora/RHEL/Arch, Alpine/musl, old Linux, Raspberry Pi,
+  Guix, GNU/Hurd, FreeBSD, OpenBSD, NetBSD, illumos, Windows/WSL2 and macOS — all with the same nine
+  sections (Status, Before you start, Steps, Measured difficulties, Verifying, …) so they compare
+  line for line. They are **written for self-learners**: which terminal to open, which directory to
+  be in, exactly what to type, what you should see after each command, and what to do if you see
+  something else; the model step leads with the guided `jichi setup` wizard and a free local server.
+  `INSTALL.md` gained a "Find your platform" table. The `PLATFORMS.md` matrix restructure follows.
+  (`BUILD.md`'s stale "no `#ifdef __FreeBSD__`" claim was corrected — M771 added one, for FreeBSD's
+  `procctl`.)
+- **`make NOFORK=1`**, a measuring build that creates no process (M769): `fork()` and `popen()`
+  refuse with `ENOSYS`. It is not a product, and it is how the fork-free design was measured:
+  a read, edit and search agent works in it, and 271 of 342 smoke drivers pass.
+- **`docs/QUEUE_PROTOCOL.md`** (M765): the task queue several agents share, written down
+  as a protocol, with the POSIX rule each step relies on, the four gaps the two example
+  supervisors still have, and the design of the experiment that will measure them.
+- **The `slm-lab` bench** (M764), in `examples/slm-lab/`: train a character-level language
+  model from scratch on a CPU with `charlm.c`, one C89 file, and read the result against
+  a held-out part of the text and three baselines. It has a guide agent, a read-only
+  leakage reviewer, four commands and three skills. jichi still trains nothing itself.
+- **Typed input is kept across TUI runs** (M763), in `~/.jichi.d/input_history` (0600,
+  at most 500 entries), so Up and Ctrl-R reach earlier sessions. A line that holds a key
+  jichi registered, or a token shaped like a credential, is never written.
+  `"inputHistory": false` turns it off.
+- **`/why` in the TUI** (M762): which rule decided the last tool call. It names the gate
+  that refused it (a constraint, the edit scope, the path fence, a hook, your answer at the
+  prompt), or what let it run (the mode, your allow list, your approval), and what the
+  model was told. The gates record their decisions themselves.
+- **`jichi ps`** (M759): the jichi runs alive on this machine. Each gets its pid, age,
+  mode, lease, control socket, workspace and journal, and `--output json` gives the same
+  to a supervisor. Leases and sockets left by runs that are gone are counted and never
+  removed. A run's lease now also records its workspace and its control socket.
+- **`/fences` in the TUI** (M757): what bounds the next turn, on one screen. It shows the
+  mode, read-only, the path fence, the edit scope, the constraints (yours refuse, inferred
+  ones advise), the privilege policies, the approvals remembered, the budgets, and the
+  shell, which no fence covers. The screen says so.
+- **Esc stops a running turn in the TUI**, as Ctrl-C does, and says so (M753). An arrow key
+  or an Alt chord does not. Without type-ahead, a key typed while jichi works is still not
+  kept, and the first one now says so at once instead of vanishing at the next prompt.
+- **`describe --output json` describes the control socket** (M752): a `control` section
+  beside `daemon`, with the transport, the socket path and one row per verb (`status`,
+  `inject`, `pause`, `resume`, `abort`, `mode`) with its fields. The `control`
+  subcommand's summary names `mode` too, which it never had.
+- **`describe --output json`: each `conditional_tools` row that names a tool carries
+  `readonly`** (M744), the flag the registry itself uses. A consumer classifying calls by
+  the contract used to have to guess that `git_diff` is read-only. This is an added field,
+  under the contract's own rule that new fields may appear.
+
+### Changed
+
+- **A silent success says it succeeded, and its third in a turn says what that means** (M895): a
+  shell command that exits 0 and prints nothing reads "(no output: the command succeeded and printed
+  nothing)", and from its third silent success in a turn -- counted by the normalised command, so
+  `cmd | tail` counts as `cmd` -- the result adds that exit 0 with no output means it passed. Workers
+  had re-run a passing test suite looking for output, nine times in one run.
+- **A failure that predates the run's changes is said to, and costs no retry** (M893): when the
+  end-of-run check fails on the very line that failed before the run's first change -- in the
+  run-start verify, or in a batch's worktree verify on the starting tree -- the message says the
+  failure predates the run's changes and where it was seen, and that round spends none of the run's
+  retries. Once per run.
+- **The end-of-run check says it is jichi's, and offers a way out** (M892): the fix-forward message
+  arrives as a user message, and began "The verification command ... failed", so a model read it as
+  the operator's order -- one spent 33 calls porting a project to a toolchain the operator had
+  decided against. It now says it comes from jichi's end-of-run check, not from the operator, and
+  ends: if your changes did not cause this failure, say so and make no further edits. An answer
+  after which nothing changed ends the run on the check's verdict, without re-running it.
+- **The heavy reference diagrams become tables and lists; the Mermaid review (S5) is done** (M794):
+  `HARDENING`'s threat model, SSRF flow, write path, fence tiers and insight pipeline;
+  `SELF_IMPROVEMENT`'s worktree anti-pattern and safety rules; and `PROJECT_TIMELINE`'s subsystem
+  pie (whose per-subsystem line counts were data-only) all became tables or lists. Two low-value
+  groups (a chronological timeline diagram and four historical ROADMAP-entry diagrams) are
+  registered in `DEFERRED.md`.
+- **The autonomy and teaching diagrams become tables and lists** (M793, docs S5 part 2): 9 more
+  flowcharts converted (grading paths, escalation ladder, tutor/teacher loops, reporting
+  channels, the bench loop, "what travels", the lean knobs, the RAM breakdown); genuine
+  sequence/state/topology diagrams kept.
+- **The unreadable `PLATFORMS` matrix diagram is gone, and 16 more diagrams became tables or
+  lists** (M792, docs S5 part 1): the Mermaid review's first batch. Wide flowcharts that
+  duplicated an adjacent table were removed with a pointer; others became the list or table
+  they always were; genuine diagrams were kept, some trimmed. Sequence/state diagrams and the
+  teaching pages' diagrams are untouched.
+- **`DEFERRED.md` is now one line per entry** (M791, docs S4 complete): its 94 tables (262
+  entries, three column shapes) became a one-line index over per-entry `#### ` sections,
+  converted in place with every section intro preserved. Overlong rows fell from 225 to 3.
+  With `DECISIONS.md` (M790), both registers are now scannable; all 20 lints that parse the
+  page stay green.
+- **`DECISIONS.md` is now one line per entry** (M790, docs S4): its five category tables
+  (358 decisions) became a scannable one-line index, each row linking to a `#### M###`
+  section that holds the full rejected-alternatives reasoning (moved verbatim). Overlong
+  rows on the page fell from 354 to 9. `DEFERRED.md` follows.
+- **Consistent `doctor` glyphs and a workflow tiebreaker** (M788, docs S3):
+  `CONFIG_TUTORIAL.md` showed doctor output three incompatible ways; it now uses the real
+  `✓`/`!`/`✗` throughout and notes that the config accepts JSONC comments. `WORKFLOWS.md`
+  now tells a lone self-teacher when to pick `learner` vs `developer` and links its jargon
+  to `VOCABULARY.md`.
+- **`doctor`'s docs lead with a healthy run** (M787, docs S3): `DOCTOR.md` opened with a
+  sample ending "1 problem" — a red `✗` as the first thing a just-set-up reader saw. It now
+  leads with an all-`✓` run and moves the failure example to "A check failed", and gained an
+  audience header. `SETUP_WIZARD.md` gained a who-this-is-for header, and
+  `TUTORIAL_BEGINNER.md`'s setup-check step shows a healthy doctor sample.
+- **macOS docs corrected: "never compiled" was too absolute** (M786, docs S3): two people
+  reported compiling jichi on macOS (2026-09) but sent no evidence and may have changed the
+  source, so the docs no longer claim no Mac ever built it or invite you to "be the first".
+  The strict verdict stays **Never compiled** (no *verified* build exists), now defined to
+  cover unverified reports; the call to action is to send the first verified result.
+- **The build walkthrough explains `run.sh`** (M785, docs S3): `PREPARE_AND_BUILD.md`
+  told readers to run `./run.sh` without ever saying it is the start-script `jichi setup`
+  writes — a dead-end for anyone who had not run setup. It now says so, with the escape
+  route. `BUILD.md`'s stale "line 13" reference to the Makefile's `CC` default (it is
+  line 15) was dropped, and a `VOCABULARY.md` pointer added.
+- **`VOCABULARY.md` gains the words the entry pages point to it for** (M784, docs S3):
+  the `role` list was corrected against the source (`vision` is a bool, not a role;
+  five real roles were missing), and `provider`, `apiBase`, `apiKeyEnv`, `selector`,
+  `fallback`, `preset`, `journey`, `headless`, `daemon`, `subagent`, `fork pool`,
+  `MCP`, `LSP`, `SDLC` and `arena` were added — so the glossary every page links to
+  actually defines the words those pages use.
+- **`docs/README.md`'s "Start here" is now an ordered path** (M783, docs S3): a numbered
+  seven-step spine from an empty terminal to a working session, instead of sixteen pages
+  in no order. Six pages (`BUILD`, `CJK`, `READING_THE_STANDARD`, `DISTRIBUTED`,
+  `COMPARED`, `LICENSING`) moved to the groups where they belong, and `PLAIN_LANGUAGE`,
+  `STATE` and `LICENSING` gained the context a lone self-learner needs — where to get a
+  model and key (a free local server needs none), a "who this is for" opener, and an
+  SPDX definition.
+- **The onboarding docs default to a free local model** (M782), the first fix of the start-here
+  pass (docs S3). `INSTALL.md`, `SETUP_WIZARD.md` and `TUTORIAL_BEGINNER.md` led their copy-paste
+  examples with a **priced** model (`anthropic/claude-opus-4-8` or `openai/gpt-4o` behind an API
+  key) — so a self-learner following the happy path spent real money on first use, the exact
+  surprise the local-only rule exists to prevent. All three now lead with a **free local
+  OpenAI-compatible server** (LM Studio at `http://localhost:1234/v1`, no API key), with a hosted
+  model as the demoted, clearly-paid alternative. `INSTALL.md` also gained the missing **FreeMiNT /
+  ARAnyM** routing entry and had three stale samples corrected (the `--version` string, a fabricated
+  `Makefile:311` line, and a pre-rename cleanup line).
+- **`PLATFORMS.md` shrank from 129 KB to 54 KB** (M780–M781), completing the docs restructure: the
+  long per-platform *history* prose moved to `docs/platform-notes/` (M780), then the giant
+  verdict-table Evidence cells — the worst an 8,198-character row — were rewritten to the essential
+  tokens with their measurement logs moved to `platform-notes/` too (M781, longest row now ~1,090).
+  The five tools that parse `PLATFORMS.md` were preserved token-for-token and verified after each
+  batch. With the 13 self-learner install pages (M777–M779), the docs restructure (S2) is complete.
+- **`describe` lists the two always-on background tools it had omitted** (M774):
+  `read_background_output` and `kill_background`, registered unconditionally but absent from
+  `describe`'s `tools` and `conditional_tools`. A supervisor enumerating the contract now sees
+  every always-on tool (19 in `describe --output json`).
+- **Eight smoke drivers skip instead of failing where git is absent** (M773): `hint_record`,
+  `undo_scope`, `attempt_tainted`, `attempt_guard`, `improve_tainted`, `grade_cannot_run`,
+  `verify_stuck_periodic`, `verify_consistency_periodic` -- they enable jichi snapshots, which
+  need git, and now carry the `command -v git || t_skip` guard the other snapshot drivers use.
+- **Documentation house rules, and a table-row length lint** (M772), the first step of the
+  docs-structure plan. `DOC_REVIEW.md` §7 records how to write so a page passes review (short
+  table cells, readable diagrams, a context header, honest measurement, one question per page);
+  `tests/smoke/docs_table_rows_lint.sh` refuses a new table row over 200 characters in a
+  top-level `docs/*.md`, carrying a per-page floor of today's counts so existing long rows are
+  grandfathered and come down as pages are revised. No existing row is shortened yet.
+- **The API-key `/proc` protection now covers FreeBSD** (M771), the second platform after
+  Linux's M770. FreeBSD has no procfs by default, but a same-user process reads another's
+  environment through `ps -e` / `sysctl kern.proc.env`; jichi now makes itself untraceable at
+  startup with `procctl(PROC_TRACE_CTL_DISABLE)` (behind the `HAVE_PROC_TRACE_CTL` probe), so
+  that read is refused. `JICHI_KEEP_DUMPABLE=1` is the same opt-out. `proc_key_hidden.sh` is
+  now route-aware — it measures the `ps -e` route where there is no readable
+  `/proc/<pid>/environ`, and reports *unmeasured*, never *absent*, where it knows neither
+  (M770's version skipped green on FreeBSD, where `ps -e` in fact revealed the key). OpenBSD,
+  NetBSD, macOS and illumos remain unmeasured; doctor warns there.
+- **The sdlc pack's `/design` is now `/design-doc`** (M751). In the TUI the built-in
+  `/design`, which loads a design document, always answered instead, so the pack's command
+  only ever ran headless. A project scaffolded before this keeps its
+  `.jichi/commands/design.md`, and `jichi doctor` now says it is shadowed. Rename the file to
+  `design-doc.md` to use it in the TUI.
+
+### Fixed
+
+- **Every ptydrive `waitexit` is now read by an `assertexit`** (M776), so a smoke driver that
+  waits for jichi to exit also checks the code it exited with. 44 of 63 `waitexit` sites across 26
+  drivers checked nothing; each now asserts the code its session ends with (all 0, after a clean
+  `/exit`), and `tests/smoke/assertexit_lint.sh` keeps it so. A wrong exit code -- a `/exit` that
+  returned non-zero -- no longer slips through where only a crash was caught before.
+- **The SSE parser ends a line at a bare CR** (M775), the third line ending the WHATWG spec
+  allows beside CRLF and LF. `jc_sse_feed` ended a line only at LF, so a bare-CR stream produced
+  no events; it now honours all three, and one bit of state (`last_was_cr`) swallows the LF of a
+  CRLF split across two network chunks, so the events are the same at every chunk size. No
+  provider jichi talks to sends bare CRs, so nothing user-visible changes today.
+- **On GNU/Hurd the TUI no longer freezes before every model call** (M768). Its key poll
+  read with `VMIN=0`, which the Hurd's term server blocks on, and since M753 that poll ran
+  on every turn. It now asks `select()` first.
+- **Two processes editing one board keep each other's cards** (M761). A session edited
+  the copy of `.jichi/board.json` it had loaded at its start, so a run overwrote cards added
+  meanwhile, and both handed out the same id. Every edit now reloads the board under a
+  lock (`.jichi/board.lock`: kept, not for committing). The board tool and
+  `jichi board` no longer report an edit into an unreadable board as made, and a
+  session that once saw an unreadable board no longer refuses edits after the file
+  is repaired.
+- **Two runs started together can no longer both take a workspace's lease** (M760).
+  The take was read-then-write, so under `--lease fail` both could run, and under
+  `--lease warn` neither warned. The take and the release now hold a short lock
+  (`~/.jichi.d/leases/<key>.lock`, kept on purpose). A run that waits more than 5 s for it
+  says so and goes on.
+- **With no model configured, jichi no longer crashes on its way out** (M758). Since M718
+  `jichi -p hi` and the TUI's `/exit` ended in SIGSEGV (exit 139) after the refusal was
+  printed. A fresh install did this on its first run. They now exit with the refusal's code,
+  or 0 from `/exit`.
+- **The control socket's reply to an unknown verb lists `mode`** (M752), the verb that
+  narrows a run's posture. Its list was typed by hand and stopped at `abort`.
+- **`/help` lists `/accessible`**, and says that bare `/learn` is a pack command, which it
+  is (M751). `jichi doctor` warns about a project command that `/design` or `/predict` would
+  shadow.
+- **A read-only sub-agent could write anyway** (M750). `spawn_subagent` with
+  `"readonly": true`, a `spawn_parallel` task without `"write"`, and `ask_for_help`'s
+  helper took the write tools off the child's menu, and nothing else. A child that named
+  `write_file` regardless was served, and a read-only parallel task, which has no
+  worktree, wrote to your tree. The call is now refused, and the model is told so.
+- **`spawn_subagent` understands the model names a model actually writes** (M745).
+  `"model": "default"` or `"current"` is the current model, and a role that no configured
+  model declares runs on the current model, with a `[delegate]` note saying so. Both used to
+  be refusals. A selector that matches nothing is still refused, and the refusal now lists
+  the configured models. The `readonly` description says that a read-only sub-agent is
+  offered no shell, so a parent does not brief it to run a command.
+- **`scripts/corpus-drive.sh` records everything a run changed** (M744). Its per-run patch
+  was `git diff`, which is empty for a run that staged its edit or created a new file. It
+  is now taken against the base with staged and untracked files included, and the
+  script's self-test runs in `make e2e`.
+- **An `--auto` prompt's "Do not modify any file." is heard.** The rule jichi infers from
+  a prompt knew one edit verb, *edit*, so *modify*, *change* and *touch* inferred nothing:
+  240 runs of a drive with sixteen read-only tasks produced no advice at all. They are orders
+  now, and so is *"Make NO edits to any file."* (M743).
+- **Nine ways the inference misread a prompt, seven of them fixed** (M743). A keyword in a
+  file name is not the word (*"Do NOT modify `src/root.zig`"* no longer implies *do not run
+  privileged commands*). *never-compiled* is an adjective, not a ban on compiling. *"do not
+  just build"* bans nothing. A negation ends at its clause (a semicolon or a dash). *make*
+  is the build tool only when it is run. *other*, *else* and *but* narrow a prohibition.
+  *code* and *source* name a kind of file, so *"do not edit any source"* in a brief that
+  writes a document is no longer read-only. Measured over 656 stored prompts: 73 rules with
+  23 wrong became 69 with 2 wrong. `tests/measure/scanner_corpus.py` reproduces it.
+- **`brief-check` and `constraints scan` said an inferred rule is enforced.** Since M734
+  it only advises. They now say ADVISORY.
+
+### Security
+
+- **The `--edit-scope` fence no longer trusts argument shapes the executor would normalise (M981, M986).** SECURITY. The fence and the executor read DIFFERENT tool-argument trees, and both read a bypass shape as "nothing to check, so in scope": a path spelled with `..` matched its glob textually and was then written at the workspace root, and a call wrapped under its own name (or with its nested arguments sent as a string) carried no path the fence could see at all. There is now one argument normalisation both readers share, so a path the fence checks is a path the tool will act on, `..` is collapsed before the glob matches, and a path that escapes the root is treated as out of scope. The public chapter describes the two bypass shapes; the mechanism and reproduction stay internal.
+- **`git_branch` no longer lets a model-controlled name reach git as options (M983).** SECURITY. The name was passed to `git checkout` with no end-of-options marker, so a name beginning with `-` was read as a flag. A branch name that legitimately begins with `-` does not exist, so the tool now refuses it.
+
+- **The CI example in `DEPLOYMENT.md` no longer hands its model key to the verify command** (M894):
+  it began with `export OPENAI_API_KEY="$CI_LLM_KEY"`. jichi removes a key from its children only under
+  the names it knows, so the original stayed visible to `make test`, which runs the code the model
+  wrote -- and since M718 the copy authenticated nothing but OpenAI's own endpoint. The config now
+  names the CI variable (`"apiKeyEnv": "CI_LLM_KEY"`), and a smoke driver runs the recipe as printed.
+  `docs/HARDENING.md` says what the scrub does not cover.
+- **`doctor` warns when a container init process holds your API key** (M821): jichi hides the key in
+  its *own* environment (M770), but in a container an init process at PID 1 (`podman run --init`) holds
+  whatever `-e NAME` passed it, and its `/proc/1/environ` is readable by the model's same-user shell — a
+  route jichi's hardening cannot close. `doctor` now reads PID 1's environment (only possible inside a
+  rootless container, where it is the same user; skipped on a normal host) and warns if it names a
+  configured key variable, reading the NAME only, never the value. `docs/CONTAINER_TUTORIAL.md` §8 now
+  tells operators to hand the key to jichi on its standard input through a small wrapper — so jichi is
+  the only process that holds it — instead of `-e`. Found on threadwork's weekend agent-team drive;
+  red-first for the detector in `tests/test_priv.c`.
+- **A model's command can no longer read your API key back out of jichi** (M770). Since
+  M130 jichi removes the key variables from every command it runs. But the command runs as
+  you, and on Linux it could read jichi's *own* environment, key included, from
+  `/proc/<pid>/environ`, and write into jichi's output through `/proc/<pid>/fd`. 0.11.0's
+  "your keys stay out of a model's commands" held for the command's environment, not for
+  this route. jichi now makes itself non-dumpable at startup, so those files refuse every
+  other process; the programs it starts are unaffected. It costs jichi's own core dump and
+  a debugger's attach: `JICHI_KEEP_DUMPABLE=1` keeps both, and `jichi doctor` says which
+  is in force. Linux only, and elsewhere doctor warns. It protects jichi's copy of the key,
+  not the file you keep it in: see `docs/CONFIG_TUTORIAL.md` §1.7.
+
+### Fixed
+- **M1014 (D-14): a relay handover note no longer overflows its own buffer.** When jichi relays a run, it rewrites process-local file paths in the note into a stable marker. That rewrite used to shift the text in place and could run past the end of the note's memory (a heap overflow) when the note held many such paths. It now rebuilds the note in a correctly-sized buffer. The path is still rewritten and the note is still written; what changes is that a note full of elided paths can no longer corrupt memory or a following field.
+- **M1015 (A-04): YAML front matter from a cloned repository can no longer overflow the stack.** A repository whose README or config front matter nests hundreds of levels deep used to recurse the YAML parser until it crashed. Nesting beyond a bound (about a dozen levels, far more than real front matter uses) is now a clean parse refusal.
+- **M1016 (A-05): a markdown tool call whose code fence is never closed no longer reads past the end of the reply.** A model reply that ends on an opening ```json fence (no closing fence, no trailing newline) used to make the tool-call recovery parser scan a byte past the reply. Such a reply is now treated as an empty (unrecovered) call instead of reading out of bounds.
+- **M1017 (A-03): a very large diff no longer under-allocates its comparison table on 32-bit Linux.** A diff between two texts of tens of thousands of differing lines used to size a working table from a product that wrapped around on a 32-bit machine, allocating too little and crashing. The size is now checked before the multiplication, on every word size.
+- **M1018 (E-02): the shell fence no longer fails at random on 32-bit Linux.** The kernel-attribute structure the fence hands to Landlock was partly left uninitialised on 32-bit Linux, so the fence could be refused for no reproducible reason. It is now initialised fully, and behaves identically to before on 64-bit.
+- **M1020 (review-13): a refused rules/glossary symlink and a skipped non-regular file each print one WARN line.** Loading a rules or glossary file that is a symlink out of the workspace, or a FIFO/device, used to be silent; jichi now says on stderr why the file was not loaded (the load behaviour itself is unchanged). The rest of this band (M1019, M1021) is test-tier and documentation work with no user-visible change. Newest in the band: **M1021**.
+
+### Known issues
+Issues still open when this release was cut, re-checked on the final head: the rows below plus the 2026-10-17 hardening review's open security and phase-2 findings (the review's internal reports name each with its mechanism). They carry into the next release.
+- **A repository setting planted by a write child can still make jichi's own git calls run a program.** This release's neutralisation of the git settings a hostile repository can plant does not close every route from a repository to code execution through jichi's own git tools. The fix is designed (M995) and scheduled as the first batch after this one; this release ships without it.
+- **The 2026-10-17 hardening review's still-open rows.** As of this head the internal findings index lists 23 rows without a fix marker (1 medium, 11 low, 11 note); four further low rows carry a fix marker *and* an explicit open-residual clause (A-12, C-10, D-07, D-10) and count as open for their residual. The next batch builds the security row above first, then the remaining rows in severity order.
+- **An LSP `rename_symbol` given a `line` renames whatever starts that line.** The tool's `line` argument is meant to disambiguate the symbol, but the position it sends is column 0 of the line -- so in the common C style where the definition line starts with the return type, the server renames the *type*, not the function, and the success message still names the symbol you asked for. Fix: locate the symbol as a whole word on that line, confirm the position with the server, and report what it actually renamed.
+- **Control bytes can still reach the terminal on the tool-start line and on the parallel-board rows.** Tool *output* is scrubbed (M472), but a control sequence inside a tool's argument summary or a board row (the tool name or error text a model chose) is printed raw -- a `run_terminal_command` whose arguments carry an OSC 0 title marker sets the terminal title. Fix: the same scrub on those two print paths.
+- **A process run that asks for its exit code only can die mid-run and report failure.** When the caller discards the child's output, the drain loop misreads a stale error flag after the first successful read and stops draining; the child's next write raises a default signal and the call reports it as a failure. Fix: treat a successful read as a read, and keep draining.
+- **The ACP prompt ignores the client's `sessionId`.** A second `session/new` on one connection drops the first session's unsaved state, and a prompt addressed to a session does not verify it is the one being run. Recorded by design as a desktop-client item; the neighbouring `session/load` path (a client-named id becomes a file path without validation) is the larger half and is tracked with it.
+- **The context compaction summary cannot run headless.** `/compact` in a `-p` run refuses instead of summarising; it works in the TUI and ACP. This is by design of the compaction surface, recorded so a headless user is not surprised.
+- **A guarded feed or docs URL that redirects to another port on the same private host is refused.** The redirect guard allows the address the user named and refuses anything a server chooses, and "another port on that private host" is server-chosen: an `http://host` feed answering 301 to `https://host` is not followed. Name the final URL in the config. A redirect to the SAME host and port (a path change) and to a dual-stack name's working address are followed (M1124); a redirect to any NEW private address is refused (M1120).
 
 ## [0.12.0] — 2026-09-24 — a repeating call is named, a guessed rule only advises, and the tests clean up after themselves
 

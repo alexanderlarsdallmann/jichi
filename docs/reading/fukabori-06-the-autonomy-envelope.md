@@ -106,7 +106,7 @@ Run a bounded auto turn and read its journal:
 mkdir /tmp/fk6 && cd /tmp/fk6 && git init -q && echo "int main(void){return 0;}" > m.c
 jichi --auto --budget-tokens 20000 --edit-scope 'm.c' \
       --verify 'cc m.c && ./a.out' --journal j.jsonl \
-      -p "add a function that returns 42, keep it compiling"
+      -p "add a function that returns 42, keep it compiling" < /dev/null
 cat j.jsonl        # start, tool_call, verify, checkpoint, end -- the run's spine
 ```
 

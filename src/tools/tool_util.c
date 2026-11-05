@@ -120,7 +120,7 @@ int tu_arg_int(const cJSON *args, const char *key, int dflt)
      * layer's read-identity keying must agree with this about what
      * {"limit": "100.0"} means -- two parsers for one quantity is the drift
      * that cost M286. */
-    return (int)jc_json_get_num_lenient(args, key, (double)dflt);
+    return jc_json_clamp_int(jc_json_get_num_lenient(args, key, (double)dflt));
 }
 
 cJSON *tu_schema_begin(void)

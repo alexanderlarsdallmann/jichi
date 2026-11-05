@@ -26,7 +26,7 @@
 
 command -v git > /dev/null 2>&1 || t_skip "git is required for snapshots"
 
-t_plan 6
+t_plan 9
 smoke_home
 tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
@@ -160,6 +160,123 @@ if grep -q '"reverted":1' "$tmp2/j.jsonl" 2>/dev/null; then
 else
     t_fail "the run journal does not record the revert: \
 $(grep out_of_scope "$tmp2/j.jsonl" 2>/dev/null | head_bytes 200)"
+fi
+
+# ---- 7+8+9. D-03 (M1095): the sweep's name list carries C-QUOTED bytes -----
+# jc_snapshot_changed_since ran `git diff --cached --name-only` in LINE form,
+# where git quotes non-ASCII paths: café.txt comes out as the literal
+# "caf\303\251.txt" (backslash-escapes in the bytes). Three defects from one
+# root: (1) the scope glob matched the QUOTED string, so an IN-scope file
+# src/naïve.c was reported as a violation; (2) the revert unlinked the quoted
+# name, which is not on disk -- unlink fails ENOENT and the existence guard
+# counts that as success, so the journal says reverted while café.txt SURVIVES;
+# (3) the count is one file too high. The fix is git -z: raw bytes,
+# NUL-separated, never quoted.
+#
+# The writer is a single shell call (the writer the fence does not cover --
+# this driver's own leg 5-6 precedent). ONE tool rule, so every write in the
+# run is attributable and the M142 revert applies to all of them.
+tmp3=$(smoke_tmp); ws3=$(smoke_tmp)
+mkdir -p "$ws3/src"
+printf 'int main(void){return 0;}\n' > "$ws3/src/a.c"
+(cd "$ws3" && git init -q . && git config user.email t@example.com &&
+ git config user.name t && git add -A && git commit -qm base) > /dev/null 2>&1
+cat > "$tmp3/replies.mm" <<'EOF'
+wire openai
+rule
+  match "\"messages\""
+  nomatch "\"role\":\"tool\""
+  tool run_terminal_command {"command":"printf x > café.txt; printf y > plain.txt; printf z > src/naïve.c; printf x > 'we\"ird.txt'; printf x > 'back\\slash.txt'; printf x > 'tab\tname.txt'; printf x > 'new\nline.txt'; printf x > '\" lead.txt'; printf x > 'src/in\tscope.c'"}
+rule
+  text DONE
+EOF
+mm_start "$tmp3/replies.mm" "$tmp3/cap"
+cat > "$tmp3/config.json" <<EOF
+{"models":[{"name":"m","provider":"openai","model":"mock",
+"apiBase":"http://127.0.0.1:$MM_PORT/v1","apiKey":"x","roles":["chat"]}],
+"repoMap":false,"references":false,"toolProfile":"full","lowResource":false,
+"revertOutOfScope":true,"maxRetries":0}
+EOF
+(cd "$ws3" && with_deadline 60 "$BIN" --config "$tmp3/config.json" --no-session \
+    --auto --edit-scope 'src/**' --journal "$tmp3/j.jsonl" \
+    -p "add files" \
+    < /dev/null > "$tmp3/out" 2> "$tmp3/err") || true
+mm_stop
+
+rec=$(grep out_of_scope "$tmp3/j.jsonl" 2>/dev/null | head -1)
+# The seven OUT-of-scope names, in two byte spellings each:
+#  - raw:  the exact filename on disk (grep the disk / build the -e paths)
+#  - json: how the name appears INSIDE the one-line JSON record (cJSON escapes
+#    the quote/backslash/control bytes), which is what check 7 must name.
+caf=$(printf 'caf\303\251.txt')          # non-ASCII: git -z leaves it raw UTF-8
+weird=$(printf 'we"ird.txt')              #  json: we\"ird.txt
+jweird=$(printf 'we\\"ird.txt')
+bksl=$(printf 'back\\slash.txt')          #  json: back\\slash.txt
+jbksl=$(printf 'back\\\\slash.txt')
+tabn=$(printf 'tab\tname.txt')            #  json: tab\tname.txt
+jtabn=$(printf 'tab\\tname.txt')
+nln=$(printf 'new\nline.txt')             #  json: new\nline.txt
+jnl=$(printf 'new\\nline.txt')
+lead=$(printf '" lead.txt')               #  json: \" lead.txt  (control)
+jlead=$(printf '\\" lead.txt')
+# The two IN-scope names (must be absent from the record and present on disk).
+naive=$(printf 'src/na\303\257ve.c')
+insc=$(printf 'src/in\tscope.c')
+
+# ---- 7: the record names the RAW names, never the in-scope files ------------
+if ! grep -q 'run_terminal_command' "$tmp3/j.jsonl" 2>/dev/null; then
+    # The floor (leg 5-6 precedent, line 145). First version of the check
+    # passed while the shell call never happened at all.
+    t_fail "the fixture never ran a shell command, so the out_of_scope record \
+is vacuous: $(cut -c1-120 "$tmp3/j.jsonl" | tr '\n' ' ' | head_bytes 200)"
+elif [ -n "$rec" ] &&
+   printf '%s' "$rec" | grep -Fq "$caf" &&
+   printf '%s' "$rec" | grep -Fq 'plain.txt' &&
+   printf '%s' "$rec" | grep -Fq "$jweird" &&
+   printf '%s' "$rec" | grep -Fq "$jbksl" &&
+   printf '%s' "$rec" | grep -Fq "$jtabn" &&
+   printf '%s' "$rec" | grep -Fq "$jnl" &&
+   printf '%s' "$rec" | grep -Fq "$jlead" &&
+   ! printf '%s' "$rec" | grep -Fq "$naive" &&
+   ! printf '%s' "$rec" | grep -Fq "$insc"; then
+    t_ok "the out_of_scope record names all seven raw (unquoted) names and not \
+the in-scope files"
+else
+    t_fail "the record does not name the raw bytes and/or lists the in-scope \
+file -- the sweep read C-QUOTED names (\"caf\\303\\251.txt\" / \"tab\\tname.txt\" \
+are not the paths that exist on disk). Record: $(printf '%s' "$rec" | head_bytes 260) \
+stderr: $(head_bytes 160 "$tmp3/err")"
+fi
+
+# ---- 8: what is on disk matches what was reported ---------------------------
+if [ ! -e "$ws3/$caf" ] && [ ! -e "$ws3/plain.txt" ] &&
+   [ ! -e "$ws3/$weird" ] && [ ! -e "$ws3/$bksl" ] &&
+   [ ! -e "$ws3/$tabn" ] && [ ! -e "$ws3/$nln" ] &&
+   [ ! -e "$ws3/$lead" ] &&
+   [ -e "$ws3/$naive" ] && [ -e "$ws3/$insc" ]; then
+    t_ok "all seven out-of-scope writes are gone and both in-scope files are \
+untouched"
+else
+    t_fail "the disk disagrees with the journal: café.txt exists=\
+$([ -e "$ws3/$caf" ] && echo yes || echo no), we-ird exists=\
+$([ -e "$ws3/$weird" ] && echo yes || echo no), back-slash exists=\
+$([ -e "$ws3/$bksl" ] && echo yes || echo no), tab exists=\
+$([ -e "$ws3/$tabn" ] && echo yes || echo no), newline exists=\
+$([ -e "$ws3/$nln" ] && echo yes || echo no), lead exists=\
+$([ -e "$ws3/$lead" ] && echo yes || echo no), naïve.c exists=\
+$([ -e "$ws3/$naive" ] && echo yes || echo no), in-scope-tab exists=\
+$([ -e "$ws3/$insc" ] && echo yes || echo no). The revert unlinked the \
+QUOTED name (ENOENT) and the existence guard counted that as success."
+fi
+
+# ---- 9: the reverted count is HONEST ----------------------------------------
+if printf '%s' "$rec" | grep -q '"reverted":7[,}]' &&
+   ! printf '%s' "$rec" | grep -q '"reverted":9[,}]'; then
+    t_ok "the journal records the seven files actually removed -- the false \
+count is gone"
+else
+    t_fail "the reverted count is not the seven files actually removed: \
+$(printf '%s' "$rec" | head_bytes 260)"
 fi
 
 t_done

@@ -5,10 +5,17 @@
 
 #include "jc_test.h"
 #include "jc_repomap.h"
+#include "jc_walk.h"
 #include "jc_str.h"
-
+#include "jc_snprintf.h"
+#include "jc_app.h"
+#include "jc_mem.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 static int has(struct jc_vec *v, const char *name)
 {
@@ -19,6 +26,9 @@ static int has(struct jc_vec *v, const char *name)
     }
     return 0;
 }
+
+/* Forward declarations for tests defined later in this file */
+static void test_repomap_outside_link(void);
 
 static void free_syms(struct jc_vec *v)
 {
@@ -366,6 +376,77 @@ void test_repomap(void)
     test_scheme();
     test_unknown_and_empty();
     test_cap();
+    test_repomap_outside_link();
+}
+
+/* M991 (D-27/D-28/D-29/D-30): a symlink that points outside the workspace must
+ * NOT appear in the repo map. This is tested through the shared walker. */
+static void test_repomap_outside_link(void)
+{
+    struct jc_walk_ctx ctx;
+    char tmpdir[2048];
+    char outside_dir[2048];
+    char link_path[2048];
+    enum jc_walk_kind k;
+
+    /* Create a temporary workspace root */
+    jc_snprintf(tmpdir, sizeof(tmpdir), "%s/test_repomap_outside_%d",
+                jc_test_tmpdir(), (int)getpid());
+    (void)jc_test_rm_rf(tmpdir);
+    if (!JC_REQUIRE(mkdir(tmpdir, 0755) == 0)) {
+        return;
+    }
+
+    /* Create an outside directory with a secret marker */
+    jc_snprintf(outside_dir, sizeof(outside_dir), "%s/test_repomap_secret_%d",
+                jc_test_tmpdir(), (int)getpid());
+    (void)jc_test_rm_rf(outside_dir);
+    if (!JC_REQUIRE(mkdir(outside_dir, 0755) == 0)) {
+        (void)jc_test_rm_rf(tmpdir);
+        return;
+    }
+    {
+        char outside_file[2048];
+        FILE *fp;
+        jc_snprintf(outside_file, sizeof(outside_file), "%s/secret.txt", outside_dir);
+        fp = fopen(outside_file, "wb");
+        if (!JC_REQUIRE(fp != NULL)) {
+            (void)jc_test_rm_rf(tmpdir);
+            (void)jc_test_rm_rf(outside_dir);
+            return;
+        }
+        fprintf(fp, "OUTSIDE_MARKER\n");
+        fclose(fp);
+    }
+
+    /* Create a symlink in the workspace pointing outside */
+    jc_snprintf(link_path, sizeof(link_path), "%s/linked", tmpdir);
+    if (!JC_REQUIRE(symlink(outside_dir, link_path) == 0)) {
+        (void)jc_test_rm_rf(tmpdir);
+        (void)jc_test_rm_rf(outside_dir);
+        return;
+    }
+
+    /* Init context */
+    if (!JC_REQUIRE(jc_walk_ctx_init(&ctx, tmpdir, 10, 1000) == 0)) {
+        (void)jc_test_rm_rf(tmpdir);
+        (void)jc_test_rm_rf(outside_dir);
+        return;
+    }
+
+    /* The link should be skipped because it points outside */
+    k = jc_walk_classify(&ctx, link_path, 1);
+    JC_CHECK(k == JC_WALK_SKIP);
+    JC_CHECK(ctx.skipped_outside == 1);
+
+    /* The directory it points to should also be skipped */
+    k = jc_walk_classify(&ctx, outside_dir, 1);
+    JC_CHECK(k == JC_WALK_SKIP);
+    JC_CHECK(ctx.skipped_outside == 2);  /* should count the direct out-of-root case too */
+
+    jc_walk_ctx_free(&ctx);
+    jc_test_rm_rf(tmpdir);
+    jc_test_rm_rf(outside_dir);
 }
 
 /* M520: the directory-skip decision, which BOTH walkers (repo map and search
@@ -416,4 +497,120 @@ void test_walk_skip_dir(void)
 
     jc_vec_free(&extra);
     free(a); free(b); free(empty);
+}
+
+/* M1081 (F-01): the build arena's peak. The rendered map is bounded to
+ * JC_REPOMAP_MAX (12 KiB) by the listing loop, but the arena that held the
+ * scanned-file TEXTS was released only after the whole loop ran -- so its
+ * high-water mark grew by every file read before truncation, i.e. to the SUM
+ * of the files, not one of them. Measured on the F-01 fixture (40 x ~56 KiB
+ * symbol-sparse .c files): arena peak 2,297,920 B against a 776 B rendered
+ * map (2026-10-29-F01-confirm.md). The 12 KiB stop bounds the OUTPUT, not the
+ * RETENTION.
+ *
+ * This test is the finding's red-first recipe: ~40 symbol-sparse files, each
+ * one top-level function whose body is a huge string literal (one short map
+ * line, the listing far under 12 KiB, so every file is scanned and kept).
+ * Assert the arena peak <= max file size + rendered listing + a small
+ * per-file margin. Before the fix it reads ~sum-of-files (~2.2 MB) and fails;
+ * after, ~one file (~56 KiB + path list) and passes.
+ *
+ * No output change is permitted: the rendered map must still list all 40
+ * functions, untruncated. */
+void test_repomap_peak_is_one_file(void)
+{
+    enum { N = 40 };
+    char dir[512];
+    char file[560];
+    char *map;
+    struct jc_app app;
+    struct jc_arena *a;
+    jc_size fbytes = 60000;     /* >= one fixture file (~58.3 KB), < the 512 KiB cap */
+    jc_size total;
+    jc_size limit;
+    jc_size peak;
+    int i;
+
+    a = jc_arena_new(0);
+    if (!JC_REQUIRE(a != NULL)) return;
+
+    jc_snprintf(dir, sizeof(dir), "%s/test_repomap_peak_%d",
+                jc_test_tmpdir(), (int)getpid());
+    (void)jc_test_rm_rf(dir);
+    if (!JC_REQUIRE(mkdir(dir, 0755) == 0)) {
+        jc_arena_free(a);
+        return;
+    }
+
+    /* Each file: one top-level function whose body is ~58 KiB of short,
+     * indented const declarations (no new symbols, so the scanner emits
+     * exactly one line per file: "modNN.c: f_NN"). Short lines, not one
+     * 57 KB line, because jc_repomap_scan copies each line into a 1 KB
+     * buffer and advances char by char (a single long line would be
+     * quadratic). The 40-file listing is ~720 B -- far under the 12 KiB
+     * limit, so every file is scanned. */
+    {
+        char pat[600];
+        memset(pat, 0, sizeof(pat));
+        for (i = 0; i < 580; i++) pat[i] = (char)('a' + (i % 26));
+        total = 0;
+        for (i = 0; i < N; i++) {
+            FILE *f;
+            int row;
+            jc_size wrote = 0;
+            jc_snprintf(file, sizeof(file), "%s/mod%02d.c", dir, i);
+            f = fopen(file, "wb");
+            if (!JC_REQUIRE(f != NULL)) break;
+            wrote += (jc_size)fprintf(f, "int f_%02d(void)\n{\n", i);
+            for (row = 0; row < 96; row++) {
+                wrote += (jc_size)fprintf(f,
+                    "    const char *s%d = \"%s\";\n", row, pat);
+            }
+            wrote += (jc_size)fprintf(f, "return 0;\n}\n");
+            JC_REQUIRE(wrote > 0);
+            if (fclose(f) != 0) JC_CHECK(0);
+            total += wrote;
+        }
+    }
+    if (!JC_REQUIRE(total >= (jc_size)N * (jc_size)50000)) {
+        (void)jc_test_rm_rf(dir);
+        jc_arena_free(a);
+        return;
+    }
+
+    memset(&app, 0, sizeof(app));
+    app.arena = a;
+    app.scratch = a;
+    jc_snprintf(app.cwd, sizeof(app.cwd), "%s", dir);
+    app.config.repo_map_limit = 0;      /* default: JC_REPOMAP_MAX */
+    limit = JC_REPOMAP_MAX;
+
+    map = jc_repomap_build(&app);
+    if (!JC_REQUIRE(map != NULL)) {
+        (void)jc_test_rm_rf(dir);
+        jc_arena_free(a);
+        return;
+    }
+    /* The rendered map is UNCHANGED by the fix: every file still appears,
+     * untruncated. */
+    JC_CHECK(strstr(map, "mod00.c: f_00") != NULL);
+    JC_CHECK(strstr(map, "mod39.c: f_39") != NULL);
+    JC_CHECK(strstr(map, "truncated") == NULL);
+    {
+        /* jc_repomap_build prepends the "## Repository map" header (3
+         * newlines) before the body; the body is one line per file. */
+        int lines = 0;
+        const char *p = map;
+        while ((p = strchr(p, '\n')) != NULL) { lines++; p++; }
+        JC_CHECK(lines == N + 3);
+    }
+    JC_CHECK((jc_size)strlen(map) < limit);
+    /* THE F-01 assertion: peak = one file, not the sum. Before the fix this
+     * reads ~total (~2.2 MB) and is the red line; after, ~fbytes + path list. */
+    peak = jc_repomap_last_arena_peak();
+    JC_CHECK(peak <= fbytes + (jc_size)strlen(map) + (jc_size)4096);
+
+    (void)jc_test_rm_rf(dir);
+    jc_arena_free(a);   /* app.arena, app.scratch, map, and any retained path
+                          * list all live on `a` */
 }

@@ -17,3 +17,7 @@
 # finding -- that prompt caching is per-deployment and must be measured with at
 # least three calls -- without naming anyone's hosts.
 docs/internal/ export-ignore
+
+# 2026-10-20: .mailmap names the maintainer's address, and snapshot_lint keeps every person's
+# address out of the published tree (and every unexpected file out of its root).
+.mailmap export-ignore

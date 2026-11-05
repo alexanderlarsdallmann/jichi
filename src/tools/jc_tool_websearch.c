@@ -13,6 +13,7 @@
 #include "jc_untrusted.h"
 #include "jc_app.h"
 #include "jc_http.h"
+#include "jc_net.h"
 #include "jc_json.h"
 #include "jc_str.h"
 #include "jc_snprintf.h"
@@ -23,6 +24,9 @@
 #define WEB_SEARCH_MAX_BYTES (16 * 1024)
 #define WEB_SEARCH_DEF_RESULTS 5
 #define WEB_SNIPPET_MAX 320
+/* M1093 (C-09): the web_search side call's named TOTAL cap (a CAP, not a
+ * fence). The connect + dead-stream FENCES come from jc_net_side_fences. */
+#define WEB_SEARCH_TIMEOUT_SECS 30
 
 /* Append `s` to `out`, collapsing runs of whitespace/newlines into single
  * spaces and stopping at `max` source bytes (keeps a snippet compact). */
@@ -192,14 +196,31 @@ static jc_status web_search_run(const cJSON *args, struct jc_tool_result *out,
     req.headers = &headers;
     req.body = body;
     req.body_len = strlen(body);
-    req.timeout_secs = 30;
+    req.timeout_secs = WEB_SEARCH_TIMEOUT_SECS;
     req.abort_flag = &app->abort_flag;
+    /* M1093: `app` is in scope, so the real config's fences apply. */
+    jc_net_side_fences(&req, &app->config);
 
     st = jc_http_perform(&req, &status, &resp, NULL);
     jc_http_headers_free(&headers);
     free(body);
 
     if (st != JC_OK) {
+        /* M1092-b (M1090-b/G2 class): when jc_http_perform's own
+         * JC_HTTP_DEFAULT_RESP_BYTES ceiling aborted the transfer, name
+         * jichi's own limit -- not a generic failure -- so the model does
+         * not retry the same oversized search. A genuine transport
+         * failure (no overflow) keeps the existing message. */
+        if (req.overflow) {
+            char msg[160];
+            jc_snprintf(msg, sizeof(msg),
+                        "error: web search response exceeded the %ld-byte "
+                        "limit (the transfer was cut)",
+                        (long)JC_HTTP_DEFAULT_RESP_BYTES);
+            free(resp);
+            tu_err(out, msg);
+            return JC_OK;
+        }
         free(resp);
         tu_err(out, "error: web search request failed");
         return JC_OK;

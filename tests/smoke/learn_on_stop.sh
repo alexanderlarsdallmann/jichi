@@ -2,8 +2,15 @@
 # smoke: learn-on-stop (M71) -- after a COMPLETED --auto run, the mentor
 # auto-runs and drafts .jichi/lessons.draft.md. The mock routes by
 # content: the main turn gets a plain answer; the mentor turn (its prompt
-# names lessons.draft.md) gets a write_file call creating the draft.
-# (Port of tests/e2e/learn_on_stop.py, M211.)
+# names lessons.draft.md) answers WITH the draft. (Port of
+# tests/e2e/learn_on_stop.py, M211.)
+#
+# M848 (S2, decision 1a): the scaffolded mentor is read-only, so it no longer
+# calls write_file -- its final answer IS the draft, and /learn's `output:`
+# fallback (M79) saves it. Until M848 the mock played the old protocol, a
+# write_file call; a read-only mentor is offered no such tool, so the mock now
+# answers with the draft's text (an sse-file, since a draft needs real newlines
+# and a script `text` line cannot carry one).
 #
 # M598: learn-on-stop now PARSES the draft it just produced and says what
 # `learn apply` would commit from it. A draft that would apply nothing -- prose
@@ -19,15 +26,19 @@ smoke_home
 tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
 
-cat > "$tmp/replies.mm" <<'EOF'
+cat > "$tmp/draft.sse" <<'EOF'
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"## Memory notes\n- learned X from the run\n"},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+
+EOF
+cat > "$tmp/replies.mm" <<EOF
 wire openai
 rule
   match "lessons.draft.md"
-  match "\"role\":\"tool\""
-  text drafted
-rule
-  match "lessons.draft.md"
-  tool write_file {"path":".jichi/lessons.draft.md","content":"## Memory notes\n- learned X from the run\n"}
+  sse-file $tmp/draft.sse
 rule
   text DONE
 EOF
@@ -57,7 +68,7 @@ fi
 
 if grep -q "learned X from the run" "$ws/.jichi/lessons.draft.md" 2>/dev/null
 then
-    t_ok "the mentor wrote lessons.draft.md after the run"
+    t_ok "lessons.draft.md holds the mentor's draft after the run"
 else
     t_fail "no draft (or wrong content) after the --auto run"
 fi
@@ -75,15 +86,19 @@ fi
 # shape the 2026-08-27 analysis measured (0 directives, no parser heading).
 ws2=$(smoke_tmp)
 rm -f "$tmp/.port"
-cat > "$tmp/replies2.mm" <<'EOF'
+cat > "$tmp/prose.sse" <<'EOF'
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"## Tokenizer loops\nThe tokenizer was edited many times.\n"},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+
+EOF
+cat > "$tmp/replies2.mm" <<EOF
 wire openai
 rule
   match "lessons.draft.md"
-  match "\"role\":\"tool\""
-  text drafted
-rule
-  match "lessons.draft.md"
-  tool write_file {"path":".jichi/lessons.draft.md","content":"## Tokenizer loops\nThe tokenizer was edited many times.\n"}
+  sse-file $tmp/prose.sse
 rule
   text DONE
 EOF

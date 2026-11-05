@@ -14,7 +14,7 @@
 # than no key, because it invites a reader to trust it.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 7
+t_plan 8
 smoke_home
 tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
@@ -168,6 +168,59 @@ else
    in four files used to reach jc_eventlog_begin() directly and carried none of
    them, so M420's join was partial by exactly these events. Sample:
 $(grep '"event":"args_repair"' "$tmp/telem2.jsonl" 2>/dev/null | head -1 | head_bytes 300)"
+fi
+
+# --- 8: the `undeclared_args` event RENDERS a summary line (M1067-d) ----------
+# A tool call whose arguments carry a top-level key the schema does not declare
+# still runs on the declared arguments and names the ignored key on its own
+# result (M1067). That run emits an `undeclared_args` event; check 10 of
+# telemetry_events_lint.sh demands a reader, so `jichi telemetry` must show it.
+# This is the render-side arm: provoke the event in this driver's own fixture
+# (a write_file call with a bogus extra top-level key) and assert the
+# Self-correction line appears in the summary.
+cat > "$tmp/undecl.mm" <<'EOF'
+wire openai
+rule
+  count 1
+  tool write_file {"path":"und.txt","content":"x","bogus":1}
+rule
+  text UNDECL_DONE
+EOF
+mm_start "$tmp/undecl.mm" "$tmp/cap3" 2
+cat > "$tmp/config3.json" <<EOF
+{"models":[{"name":"m","provider":"openai","model":"mock",
+"apiBase":"http://127.0.0.1:$MM_PORT/v1","apiKey":"x","roles":["chat"]}],
+"snapshots":false,"repoMap":false,"references":false,
+"toolProfile":"full","lowResource":false,"maxRetries":0}
+EOF
+out3=$(cd "$ws" && with_deadline 60 "$BIN" --config "$tmp/config3.json" \
+       -q --no-session --auto --verify "true" \
+       --journal "$tmp/run3.jsonl" \
+       --log "$tmp/telem3.jsonl" --log-level metrics \
+       -p "Write the file." < /dev/null 2>&1); rc3=$?
+mm_stop
+
+# ONE check, two halves: the event must fire (the denominator a render
+# assertion exists to supply) AND the summary must surface it. A missing
+# reader arm leaves the count at zero and the line absent -- exactly what
+# telemetry_events_lint check 10 is there to catch, so this is the
+# end-to-end proof the arm exists AND renders.
+nund=$(grep -c '"event":"undeclared_args"' "$tmp/telem3.jsonl" 2>/dev/null || true)
+render=$("$BIN" telemetry "$tmp/telem3.jsonl" < /dev/null 2>&1)
+nrnd=$(printf '%s' "$render" | grep -c 'undeclared arguments.* (M1067)' || true)
+if [ "${nund:-0}" -ge 1 ] &&
+   grep '"event":"undeclared_args"' "$tmp/telem3.jsonl" | \
+       grep -q '"tool":"write_file"' &&
+   grep '"event":"undeclared_args"' "$tmp/telem3.jsonl" | \
+       grep -q '"count":1' &&
+   [ "${nrnd:-0}" -ge 1 ]; then
+    t_ok "undeclared_args fires (write_file, 1 key) and the jichi telemetry summary renders it"
+else
+    t_fail "undeclared_args: event fired=${nund:-0} times, render present=${nrnd:-0}.
+   rc3=$rc3. summary tail:
+$(printf '%s' "$render" | tail -6)
+   events:
+$(grep -oE '"event":"[a-z_]+"' "$tmp/telem3.jsonl" 2>/dev/null | sort | uniq -c | head)"
 fi
 
 t_done

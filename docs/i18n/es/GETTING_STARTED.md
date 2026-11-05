@@ -55,7 +55,7 @@ Escribe tu petición en lenguaje natural. Señala el código con `@archivo` o
 Sin interfaz (para scripts y automatización):
 
 ```sh
-jichi -p "explica qué hace src/main.c"
+jichi -p "explica qué hace src/main.c" < /dev/null
 ```
 
 ## 4. Mantén el control

@@ -148,8 +148,69 @@ static void test_capped_answer_says_the_ceiling_not_a_failure(void)
     JC_CHECK(strstr(buf, "OUTPUT CEILING") == NULL);
 }
 
+/* M928 (R06-#0): the run's reach footer used to build the "checked" half in a
+ * 640-byte STACK buffer with `n += jc_snprintf(checked + n, ccap - n, ...)`.
+ * jc_snprintf returns the WOULD-BE length, so a long plan-drift list (a
+ * comma-join of every written path the plan did not name -- model-controlled
+ * data) pushed n past ccap, the next `ccap - n` wrapped to a huge size_t, and
+ * the append wrote past the array: a stack overflow. Review R06 verified it
+ * under ASan from ~560 bytes up. The halves now build in heap jc_sb buffers,
+ * so a long drift must survive, print whole, and truncate ONLY at the
+ * caller's public cap. */
+static void test_long_plan_drift_does_not_overflow(void)
+{
+    struct jc_reach r;
+    char drift[2048];
+    char buf[2400];
+    cJSON *o;
+    int i;
+
+    drift[0] = '\0'; /* the loop appends with strlen; an uninit first scan
+                        * is what valgrind (the gate's leakcheck stage) catches */
+    for (i = 0; i < 60; i++) {
+        int k = snprintf(drift + strlen(drift), sizeof(drift) - strlen(drift),
+                         "%splan/drift_%02d_source.c",
+                         i > 0 ? ", " : "", i);
+        (void)k;
+    }
+    memset(&r, 0, sizeof r);
+    r.envelope = 1; r.verifier_armed = 1; r.verify_green = 1;
+    r.scope_armed = 1; r.tool_calls = 5;
+    r.plan_present = 1; r.plan_named = 1; r.plan_touched = 1;
+    r.plan_drift = 60;
+    r.plan_drift_list = drift;
+    jc_reach_line(&r, buf, sizeof buf);
+    /* the whole drift must be present -- 2 KB of it, in one footer line */
+    JC_CHECK(strstr(buf, "plan drift: ") != NULL);
+    JC_CHECK(strstr(buf, "plan/drift_00_source.c") != NULL);
+    JC_CHECK(strstr(buf, "plan/drift_59_source.c") != NULL);
+    JC_CHECK(strstr(buf, "not checked: ") != NULL);
+
+    /* a small public cap still truncates cleanly: the output fits the
+     * buffer and is NUL-terminated, it just does not reach the end of the
+     * drift. The cap is the caller's contract, not the footer's. */
+    {
+        char small[256];
+        jc_reach_line(&r, small, sizeof small);
+        JC_CHECK(strlen(small) < sizeof small);
+        JC_CHECK(small[sizeof small - 1] == '\0');
+    }
+
+    /* the JSON surface builds the same halves; it must not overflow either,
+     * and it carries the drift list whole (as its own field). */
+    o = jc_reach_json(&r);
+    if (JC_REQUIRE(o != NULL)) {
+        JC_CHECK(strstr(cJSON_GetObjectItem(o, "checked")->valuestring,
+                        "plan/drift_59_source.c") != NULL);
+        JC_CHECK(strcmp(cJSON_GetObjectItem(o, "plan_drift_paths")->valuestring,
+                        drift) == 0);
+    }
+    cJSON_Delete(o);
+}
+
 void test_reach(void)
 {
+    test_long_plan_drift_does_not_overflow();
     test_refused_and_plan_shell();
     test_capped_answer_says_the_ceiling_not_a_failure();
     test_no_envelope();

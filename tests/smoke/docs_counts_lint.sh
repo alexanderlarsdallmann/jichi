@@ -208,8 +208,8 @@ fi
 # between a milestone landing and its README paragraph catching up. Ten is the
 # window changelog_coverage_lint already uses for the same reason.
 _lastn=$(printf '%s' "$last_ms" | tr -dc '0-9')
-_counts=$(grep -oE '\*\*[0-9]{3} of them\*\*|across[[:space:]]+[0-9]{3}[[:space:]]+milestones|[0-9]{3} milestones before' "$root/README.md" \
-          | grep -oE '[0-9]{3}' | sort -u)
+_counts=$(grep -oE '\*\*[0-9]{3,} of them\*\*|across[[:space:]]+[0-9]{3,}[[:space:]]+milestones|[0-9]{3,} milestones before' "$root/README.md" \
+          | grep -oE '[0-9]{3,}' | sort -u)
 if [ -z "$_counts" ]; then
     t_fail "README states no milestone count -- reworded out of reach? (this check is now measuring nothing)"
 elif [ -z "$_lastn" ]; then

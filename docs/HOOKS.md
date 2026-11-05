@@ -21,6 +21,17 @@ restrict* an action, never widen it.
 
 `PreToolUse`/`PostToolUse` match on the tool name (see `matcher` below).
 
+## Where a hook does not run
+
+A hook never fires for a delegated tool call. A `spawn_subagent` child runs
+in-process at depth 1, and a `spawn_parallel` write child runs its own turn
+at depth 1, so neither of their tool calls reaches a hook. If a project
+believes "every write is gated" by its `PreToolUse` hook, that is wrong for
+delegated writes: the gate that covers those is the per-tool fence (path
+fence, edit scope, mode), and the hook is the operator's top-level veto.
+A hook child runs with jichi's environment minus the secret variables (the
+M130 scrub) and receives everything else on stdin as JSON.
+
 ## Config
 
 ```jsonc
@@ -57,7 +68,7 @@ A JSON object on **stdin**:
 ```
 
 `PostToolUse` also gets `tool_response`/`tool_error`; `UserPromptSubmit` gets
-`prompt`. Env vars `JICHI_HOOK_EVENT`, `JICHI_TOOL_NAME`, `JICHI_CWD` are also set.
+`prompt`. These fields are delivered on stdin as JSON (above), not as environment variables.
 
 ## How a hook responds
 

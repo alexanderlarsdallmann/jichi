@@ -365,9 +365,11 @@ static void agent_tools(const cJSON *agent, const char *out[], int *n)
     if (!cJSON_IsObject(tools) || jc_json_get_bool_lenient(tools, "*", 1) != 0) {
         return;
     }
+    /* M843: a foreign program's JSON -- read leniently, as the "*" check above
+     * already is. A `"write": 1` used to be skipped as if it were false. */
     cJSON_ArrayForEach(t, tools) {
         if (t->string != NULL && strcmp(t->string, "*") != 0 &&
-            cJSON_IsTrue(t)) {
+            jc_json_get_bool_lenient(tools, t->string, 0)) {
             add_perm_tools(out, n, t->string);
         }
     }

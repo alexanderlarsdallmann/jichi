@@ -580,8 +580,19 @@ static const char *const FILE_AGENTS_SYSADMIN[] = {
     "records every one to an always-on audit log; under the default `ask`\n",
     "an unattended run refuses them. Pre-approve the specific commands you\n",
     "trust via `privilegedCommandsAllow` rather than switching to `allow`.\n",
+    "An entry matches by word PREFIX: `sudo systemctl` admits every\n",
+    "`sudo systemctl ...`, `disable --now sshd` included -- list whole\n",
+    "commands, not verbs. The list holds for your own turn and a top-level\n",
+    "`--auto` run; a delegate never runs a privileged command, listed or not.\n",
     "The real boundary is the OS: run jichi as a user without passwordless\n",
     "sudo.\n",
+    "\n",
+    "Delegating (the `sysadmin` profile through `spawn_subagent`, a parallel\n",
+    "task): a delegate does NOT read this file, so put the rules it must keep\n",
+    "into its task. It runs its file tools without asking; before a shell\n",
+    "command it asks you in chat mode, and where it cannot ask (headless, an\n",
+    "editor, a parallel task) the command is refused. Under `--auto` its\n",
+    "commands run unprompted, as yours do.\n",
     NULL
 };
 
@@ -847,8 +858,9 @@ static const char *const FILE_CFG_C[] = {
         "project models distinct intent names; `jichi doctor` flags the clash.",
     " The two models below are named by INTENT, not by vendor id: the agent "
         "profiles in .jichi/agents/*.md pin a tier with 'model: fast' or "
-        "'model: strong', so changing which model plays a tier is one edit "
-        "here and none there.",
+        "'model: strong' when they run on their own (a subagent, or attempt "
+        "--agent; a command picks its model with its own 'model:' key), so "
+        "changing which model plays a tier is one edit here and none there.",
     " Routing is fast-first -- each turn starts on 'fast' and escalates to "
         "'strong' on a hard step (failed verify, stalled stream); that is "
         "orthogonal to a profile's pin, which acts on that subagent's whole "
@@ -942,8 +954,9 @@ static const char *const FILE_CFG_ZIG[] = {
         "project models distinct intent names; `jichi doctor` flags the clash.",
     " The two models below are named by INTENT, not by vendor id: the agent "
         "profiles in .jichi/agents/*.md pin a tier with 'model: fast' or "
-        "'model: strong', so changing which model plays a tier is one edit "
-        "here and none there.",
+        "'model: strong' when they run on their own (a subagent, or attempt "
+        "--agent; a command picks its model with its own 'model:' key), so "
+        "changing which model plays a tier is one edit here and none there.",
     " Routing is fast-first -- each turn starts on 'fast' and escalates to "
         "'strong' on a hard step; that is orthogonal to a profile's pin, which "
         "acts on that subagent's whole run. Replace the ids and apiBase with "
@@ -1035,8 +1048,9 @@ static const char *const FILE_CFG_PY[] = {
         "project models distinct intent names; `jichi doctor` flags the clash.",
     " The two models below are named by INTENT, not by vendor id: the agent "
         "profiles in .jichi/agents/*.md pin a tier with 'model: fast' or "
-        "'model: strong', so changing which model plays a tier is one edit "
-        "here and none there.",
+        "'model: strong' when they run on their own (a subagent, or attempt "
+        "--agent; a command picks its model with its own 'model:' key), so "
+        "changing which model plays a tier is one edit here and none there.",
     " Routing is fast-first -- each turn starts on 'fast' and escalates to "
         "'strong' on a hard step; that is orthogonal to a profile's pin, which "
         "acts on that subagent's whole run. Replace the ids and apiBase with "
@@ -1552,8 +1566,21 @@ static const char *const FILE_AGENTS_DEVOPS[] = {
     "sudo/systemctl are governed by the `privilegedCommands` policy (ask /\n",
     "deny / allow) and audited to an always-on log; under the default `ask`\n",
     "an unattended run refuses them. Pre-approve specific trusted commands\n",
-    "via `privilegedCommandsAllow`. The real control is the OS: run jichi as a\n",
-    "user without passwordless sudo, especially in CI.\n",
+    "via `privilegedCommandsAllow` -- whole commands, not verbs: an entry\n",
+    "matches by word PREFIX, so `sudo systemctl` admits every `sudo systemctl\n",
+    "...`. The list holds for your own turn and a top-level `--auto` run; a\n",
+    "delegate never runs a privileged command, listed or not. The real\n",
+    "control is the OS: run jichi as a user without passwordless sudo,\n",
+    "especially in CI.\n",
+    "\n",
+    "## Delegating\n",
+    "\n",
+    "A delegate (`deploy-runner` through `spawn_subagent`, a parallel task)\n",
+    "does NOT read this file: put the rules it must keep into its task. It\n",
+    "runs its file tools without asking; before a shell command it asks you\n",
+    "in chat mode, and where it cannot ask (headless, an editor, a parallel\n",
+    "task) the command is refused. Under `--auto` its commands run\n",
+    "unprompted, as yours do.\n",
     NULL
 };
 
@@ -2090,6 +2117,8 @@ static const char *const FILE_LEARNER_JUNIOR[] = {
     "- When the task itself is ambiguous, use `ask_for_help` for a clarification.\n",
     "- When a self-contained sub-part is over your head, delegate it with\n",
     "  `spawn_subagent` and integrate the result.\n",
+    "`hint` and `ask_for_help` exist only when the project enables assignments;\n",
+    "if they are not offered, work without them.\n",
     "Work in small verified steps: edit, run the verify command, read the\n",
     "failures, fix. Stop when verify passes.\n",
     NULL
@@ -2116,8 +2145,9 @@ static const char *const FILE_LEARNER_STUDENT[] = {
     "Push yourself: attempt each step and read the errors before reaching for\n",
     "help. Use `hint` only after a real attempt has stalled (hints are graded and\n",
     "use is recorded); use `ask_for_help` only for a genuine ambiguity in the\n",
-    "task. Work in small verified steps -- edit, run verify, fix -- and stop when\n",
-    "verify passes.\n",
+    "task. (Both exist only when the project enables assignments; if they are\n",
+    "not offered, work without them.) Work in small verified steps -- edit, run\n",
+    "verify, fix -- and stop when verify passes.\n",
     NULL
 };
 
@@ -2165,8 +2195,9 @@ static const char *const FILE_LEARNER_AGENT[] = {
     "request a `hint` (a graded ladder; use recorded) rather than burning the\n",
     "budget. Use `ask_for_help` only for a true task ambiguity. Delegate a\n",
     "well-scoped, independent sub-part with `spawn_subagent` when it is cheaper\n",
-    "than doing it inline. Verify after every change; stop the moment verify\n",
-    "passes.\n",
+    "than doing it inline. (`hint` and `ask_for_help` exist only when the\n",
+    "project enables assignments; if they are not offered, work without them.)\n",
+    "Verify after every change; stop the moment verify passes.\n",
     NULL
 };
 
@@ -2195,23 +2226,25 @@ static const char *const FILE_MENTOR[] = {
     "---\n",
     "description: Learns from telemetry/history and drafts durable lessons.\n",
     "# model: strong   # synthesis over logs rewards the stronger tier\n",
+    "# read-only (M848): the answer IS the draft -- /learn's `output:` saves it\n",
+    "readonly: true\n",
     "tools:\n",
     "  - read_file\n",
     "  - search_code\n",
     "  - list_files\n",
     "  - git_diff\n",
     "  - git_log\n",
-    "  - write_file\n",
     "---\n",
     "You are this project's mentor. Turn evidence of recurring problems into\n",
     "durable, specific lessons so the agent stops repeating them.\n",
     "\n",
     "You are given a ranked list of recurring problems (mined from telemetry +\n",
     "history) and the notes already remembered. Investigate root causes in the\n",
-    "code as needed, then write a proposal to .jichi/lessons.draft.md with\n",
-    "write_file -- and edit no other file.\n",
+    "code as needed, then give the proposal as your FINAL ANSWER. You are\n",
+    "read-only: jichi saves that answer to .jichi/lessons.draft.md for you.\n",
     "\n",
-    "FORMAT IS STRICT (a tool parses it). The file must contain ONLY these six\n",
+    "FORMAT IS STRICT (a tool parses it). Your answer becomes the file, so it\n",
+    "must contain ONLY these six\n",
     "level-2 headings, verbatim and in this order, and NO other `##`/`###`\n",
     "headings (do not invent per-tool or per-problem sections). The headings\n",
     "stay in English even when the lessons themselves are written in another\n",
@@ -2267,8 +2300,8 @@ static const char *const FILE_MENTOR[] = {
     "or behavior the code no longer has (e.g. a commit fixed it, or a cited\n",
     "file/line has moved), `remove:` it, or `replace:` it with a note that is true\n",
     "now (often reframing 'X is broken' as 'X was fixed in <commit>; the pattern to\n",
-    "keep is Y'). Leave correct notes alone. Keep any analysis/reasoning out of the\n",
-    "file; write only the lessons themselves. Ground every item in the evidence,\n",
+    "keep is Y'). Leave correct notes alone. Keep any analysis/reasoning out of\n",
+    "your answer; give only the lessons themselves. Ground every item in the evidence,\n",
     "prefer a few high-value lessons over many vague ones, and propose only -- the\n",
     "human reviews then runs `learn apply`.\n",
     NULL
@@ -2282,8 +2315,9 @@ static const char *const FILE_CMD_LEARN[] = {
     "output: .jichi/lessons.draft.md\n",
     "---\n",
     "Study this project's recent telemetry and history for recurring problems,\n",
-    "then write durable lessons to .jichi/lessons.draft.md (propose only; the\n",
-    "human reviews and runs `learn apply`).\n",
+    "then propose durable lessons; your answer is saved to\n",
+    ".jichi/lessons.draft.md (propose only; the human reviews and runs\n",
+    "`learn apply`).\n",
     "\n",
     "Project vocabulary (the glossary, when this project keeps one -- the words\n",
     "the notes and the analysis below use; M603):\n",
@@ -3386,18 +3420,22 @@ static const char *const FILE_RELEASE_MGR[] = {
     "description: Walks the release checklist and reports what blocks shipping; "
         "changes nothing.\n",
     "readonly: true\n",
+    "# tools: fences this profile when it runs on its own (a subagent, a subtask\n",
+    "# command, attempt); as /release-check's agent: (the main turn) it is the\n",
+    "# readonly: true above that holds (M848). run_tests is not listed: it is a\n",
+    "# shell, which a read-only profile never runs.\n",
     "tools:\n",
     "  - read_file\n",
     "  - search_code\n",
     "  - list_files\n",
     "  - git_log\n",
     "  - git_status\n",
-    "  - run_tests\n",
     "---\n",
     "You are the release manager. Walk docs/RELEASE_CHECKLIST.md (or the\n",
     "release-checklist skill's template if none exists) against the actual\n",
     "tree: version bumped and consistent, changelog entry present and honest,\n",
-    "tests green, docs updated for every user-visible change, tag/branch\n",
+    "tests green (from the last recorded run -- you are read-only and run\n",
+    "nothing), docs updated for every user-visible change, tag/branch\n",
     "state clean. Report PASS/BLOCKED per item with evidence (file:line,\n",
     "command output). You block releases; you do not fix them.\n",
     NULL
@@ -3862,7 +3900,7 @@ static const struct jc_scaffold_file SDLC_FILES[] = {
     { "skills/changelog-entry/SKILL.md",      FILE_SK_CHANGELOG },
     { "commands/requirements.md",             FILE_CMD_REQUIREMENTS },
     { "commands/usecases.md",                 FILE_CMD_USECASES },
-    { "commands/design.md",                   FILE_CMD_DESIGN },
+    { "commands/design-doc.md",               FILE_CMD_DESIGN },
     { "commands/api.md",                      FILE_CMD_API },
     { "commands/release-check.md",            FILE_CMD_RELCHECK },
     { "commands/explain.md",                  FILE_CMD_EXPLAIN },
@@ -4525,7 +4563,7 @@ static const char *const FILE_CFG_R[] = {
     "{\n",
     "  \"comment\": \"EXAMPLE ONLY. Merge the keys you want into your real config (the global ~/.jichi or a project ./local/config.json). Do NOT drop this in as-is if you already have a config -- a live local/config.json shadows your global one.\",\n",
     "  \"testCommand\": \"Rscript -e 'testthat::test_dir(\\\"tests/testthat\\\")'\",\n",
-    "  \"formatCommand\": \"Rscript -e 'styler::style_file(\\\"{}\\\")'\",\n",
+    "  \"formatCommand\": \"Rscript -e 'styler::style_file(commandArgs(trailingOnly=TRUE))'\",\n", /* M847: path trailing, not {} in quotes */
     "  \"lspServers\": [\n",
     "    {\n",
     "      \"name\": \"r-languageserver\",\n",
@@ -5388,7 +5426,7 @@ static const char *const FILE_CFG_ELISP[] = {
     "  \"comment\": \"EXAMPLE ONLY - merge the relevant keys into your real jichi config (~/.jichi or ./local/config.json). Do NOT copy this file verbatim as your live config; it has no models/apiKey and will shadow your global setup if placed at ./local/config.json. There is no standalone language server for Emacs Lisp: the editor IS Emacs, so correctness comes from byte-compilation, flymake, and checkdoc rather than an LSP. Hence no lspServers entry here",
     ".\",\n",
     "  \"testCommand\": \"emacs -Q -batch -L . -l ert -l test/my-pkg-test.el -f ert-run-tests-batch-and-exit\",\n",
-    "  \"formatCommand\": \"emacs -Q -batch --eval '(progn (find-file \\\"{}\\\") (indent-region (point-min) (point-max)) (save-buffer))'\"\n",
+    "  \"formatCommand\": \"emacs -Q -batch --eval '(progn (find-file (car (last command-line-args-left))) (indent-region (point-min) (point-max)) (save-buffer))'\"\n", /* M847: path trailing (verified on Emacs 29.3), not {} in quotes */
     "}\n",
     NULL
 };
@@ -6123,7 +6161,7 @@ static const struct jc_scaffold_pack PACKS[] = {
       ONBOARDING_FILES, NFILES(ONBOARDING_FILES) },
     { "sdlc",
       "Full lifecycle authoring (M183): requirements/use-case/design/API/"
-      "release agents + skills, /requirements /usecases /design /api "
+      "release agents + skills, /requirements /usecases /design-doc /api "
       "/release-check.",
       SDLC_FILES, NFILES(SDLC_FILES) },
     { "contributor",

@@ -111,6 +111,7 @@ send "0"
 delay 3000
 send "/exit\r"
 waitexit 20
+assertexit 0
 EOF
 
 printf 'one\n' > "$ws/a.txt"
@@ -164,6 +165,7 @@ send "\x03"
 delay 2500
 send "/exit\r"
 waitexit 20
+assertexit 0
 EOF
 printf 'one\n' > "$ws/a.txt"
 mm_start "$tmp/same.mm" "$tmp/capC"
@@ -217,6 +219,7 @@ send "0"
 delay 2500
 send "/exit\r"
 waitexit 20
+assertexit 0
 EOF
 printf 'one\n' > "$ws/a.txt"
 mm_start "$tmp/reset.mm" "$tmp/capD"

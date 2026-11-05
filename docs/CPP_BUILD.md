@@ -40,9 +40,10 @@ interop win below.
    make cpp-check    # g++ -std=c++17 -fsyntax-only over the whole tree
    ```
 
-   Deliberately *not* part of `make ci` — the sources are C89 and the C
-   gate stays the gate; this is an optional extra sieve that has already
-   paid for itself once (the 12 sites).
+   Deliberately *not* part of `make ci` until M871 — the sources are C89 and
+   the C gate stays the gate; this was an optional extra sieve that had already
+   paid for itself once (the 12 sites). Since M871 it is part of `make ci`
+   (below).
 
 2. **Linking jichi's objects from C++ programs.** With the `extern "C"`
    guards, a C++ application can `#include "jc_patch.h"` (or any public
@@ -117,8 +118,9 @@ compiles C, exactly as `zig cc` does. `make CC="zig c++"` therefore builds the
 ordinary C89 jichi; only `make cpp-check CXX="zig c++"`, which passes `-x c++`,
 reaches zig's C++ front-end at all.
 
-**The tier stays out of `make ci`** — the M188 decision holds, the C gate is the
-gate — but `tests/smoke/cppcheck_lint.sh` now runs in every `make smoke`. It
+**The tier stayed out of `make ci`** at M636 — the M188 decision held, the C gate was
+the gate — and `tests/smoke/cppcheck_lint.sh` runs in every `make smoke`. M871
+reversed the first half (see the M867 section). It
 checks the four properties above plus, behaviourally, that `cpp-check` survives a
 missing stamp, at ~2 s rather than the 55 s a full three-front-end sweep costs.
 
@@ -131,19 +133,56 @@ wrong as code: a reader who trusts it looks for an effect that is not there. It
 is now the comment it always was. That is the second time this tier has paid for
 itself — the first was the 12 implicit-conversion sites at M188.
 
+## M867 — it had rotted again, and both C++ builds failed
+
+The operator asked on 2026-10-02 for the build under every compiler at hand. Measured from clean
+exports of one tree, M866 plus this fix:
+
+| Command | Result |
+|---|---|
+| `make WERROR=1 jichi run_tests` (gcc 13.3) | builds, **0 warnings**; unit suite 14659 / 0 |
+| `make CC=clang WERROR=1 ...` (clang 18.1) | builds, **0 warnings**; unit suite 14659 / 0 |
+| `make CC="zig cc" WERROR=1 ...` (zig 0.16) | builds, **0 warnings**; unit suite 14659 / 0 (zig traps UB) |
+| `make CC=g++ jichi run_tests` | builds; unit suite **compiled as C++** 14659 / 0 |
+| `make CC=clang++ ...` | builds; unit suite as C++ 14659 / 0 -- on this machine only with `CC="clang++ --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13"`, see below |
+| `make cpp-check`, `CXX=clang++`, `CXX="zig c++"` | **317 files** parse as C++17, each |
+
+**Before the fix both C++ builds failed**, for two reasons, neither of which `cpp-check` alone
+would have shown in full:
+- **A compile error since M709** (2026-09-22): `const char **opts = jc_arena_alloc(...)` in
+  `src/main.c`, an implicit `void *` conversion that C allows and C++ refuses. `cpp-check` would have
+  caught this one, but nothing ran it.
+- **A link error since M690** (2026-09-21): `jc_agent.h` opens `extern "C"` and then includes
+  `jc_outcome.h`, which had no guard of its own. A unit that reached `jc_outcome.h` through
+  `jc_agent.h` called `jc_run_stop_wire` with C linkage, while `jc_outcome.c`, which includes it
+  directly, defined it with C++ linkage. `cpp-check` cannot see this: it compiles but never links.
+  M867 gives `jc_outcome.h`, `jc_delegreport.h` and `jc_fault.h`, the three headers that declared
+  functions without a guard, their own.
+
+So the M636 lesson repeated itself ten days later, for the same reason: **nothing ran them**. The
+operator decided (2026-10-02, DEFERRED def-307): **gate it**. Since **M871** `make ci` builds and links
+`jichi` and the unit suite with `CC=g++`, runs the suite, and runs `cpp-check` -- about 40 s. Linking
+is the point: `cpp-check` compiles every file and would never have seen M690's linkage mismatch.
+
+**clang++ on this machine** selects the newest GCC installation it finds, GCC 14, whose libstdc++ is
+not installed, and fails to link with "cannot find -lstdc++". That is a fact about the machine, not
+about jichi, which uses no C++ library: pass `--gcc-install-dir` for the GCC whose libstdc++ is
+installed, or install `libstdc++-14-dev`.
+
 ## Practicalities, if you try it
 
-- `make CC=g++` and `make CC=clang++` both work and both print the same 13
-  warnings. Don't add `WERROR=1`: those 13 are real, deliberately left, and
-  described below.
+- `make CC=g++` and `make CC=clang++` both work (M867; broken from M690 to M866, above) and both
+  print the same **10** warnings for `jichi`; building `run_tests` too adds the tests' 20 sites, 35
+  warning lines in all, measured 2026-10-02. Don't add `WERROR=1`: they are real, deliberately left,
+  and described below.
 - Don't override `STD=` on the command line: the Makefile's feature
   probes append `-DJC_HAVE_VSNPRINTF`/`-DJC_HAVE_CURL` to it, and a
   command-line variable would clobber both (make semantics). The C++ dialect is
   selected by the probe, not by you.
 - One residue class remains as warnings under `-Wwrite-strings`: the
   `argv[0] = "/bin/sh"` idiom (string literal into `char *argv[]` for
-  `execv`-family calls) — **13 sites** (measured 2026-09-16; this page said
-  "~20" from 2026-07 to M636), correct C, and left alone
+  `execv`-family calls) — **10 sites** in `src/` (measured 2026-10-02; 13 on 2026-09-16; this page
+  said "~20" from 2026-07 to M636), correct C, and left alone
   deliberately: POSIX's `execv` signature is the constraint, not our
   style. The `sk.description` cast in `jc_learn.c` similarly mirrors what
   C did silently; a full const-correctness pass is noted, not scheduled.

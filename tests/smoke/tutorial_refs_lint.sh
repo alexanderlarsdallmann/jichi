@@ -44,7 +44,8 @@ D="$SMOKE_ROOT/docs"
 # which is the trade this file's header is about, and the honest one is to say
 # so rather than glob a directory and pretend the list maintains itself.
 TUTS="INTERFACE_TUTORIAL.md CODE_REVIEW.md DOC_REVIEW.md LANGUAGE_COURSE.md
-      CRAFT_AB_TUTORIAL.md READING_OPEN_SOURCE.md CONFIG_TUTORIAL.md"
+      CRAFT_AB_TUTORIAL.md READING_OPEN_SOURCE.md CONFIG_TUTORIAL.md ALGORITHMS.md
+      TUI_PRINCIPLES.md"
 
 n=0
 : > "$tmp/badpath"

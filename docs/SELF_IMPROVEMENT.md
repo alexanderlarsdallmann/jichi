@@ -299,20 +299,9 @@ The rehearsal is the most dangerous thing in the band (it runs an agent that
 
 ### The anti-pattern that lost data, and the fix
 
-```mermaid
-flowchart TB
-    subgraph bad["❌ in-place (reverted, ANECDOTES #10)"]
-        b1["snapshot the REAL tree"] --> b2["agent edits the REAL tree"]
-        b2 --> b3["grade"] --> b4["restore: reset --hard"]
-        b4 -->|reset fails| b5["clean -fd deletes<br/>UNCOMMITTED files 💥"]
-    end
-    subgraph good["✅ worktree-isolated (shipped)"]
-        g1["checkpoint current tree<br/>(non-destructive commit)"] --> g2["worktree_add(base) -> temp dir"]
-        g2 --> g3["chdir + repoint app->cwd/root<br/>agent edits the WORKTREE"]
-        g3 --> g4["grade in the worktree"]
-        g4 --> g5["worktree_remove<br/>REAL tree never touched"]
-    end
-```
+**In-place (reverted — ANECDOTES #10):** snapshot the real tree → the agent edits the real tree → grade → restore with `reset --hard`; and when that reset fails, `clean -fd` deletes uncommitted files. 💥
+
+**Worktree-isolated (shipped):** checkpoint the current tree (a non-destructive commit) → `worktree_add(base)` into a temp dir → `chdir` and repoint `app->cwd`/`root` so the agent edits the **worktree** → grade there → `worktree_remove`. The real tree is never touched.
 
 ### Rehearsal sequence
 
@@ -390,12 +379,11 @@ its contract — a bool `1` and a `jc_status` `0` are opposite truths.
 
 The band touches three dangerous surfaces; each has a rule:
 
-```mermaid
-flowchart LR
-    A["autonomous writes"] -->|rule| A2["propose-only, under ~/.jichi.d"]
-    B["agent that edits files"] -->|rule| B2["isolated worktree, discard"]
-    C["rollback"] -->|rule| C2["never reset+clean the user's live tree"]
-```
+| Concern | The rule |
+|---|---|
+| autonomous writes | propose-only, under `~/.jichi.d` |
+| an agent that edits files | an isolated worktree, discarded |
+| rollback | never `reset`+`clean` the user's live tree |
 
 If a future capability can't satisfy the matching rule, it doesn't ship until it
 can — that is exactly why the in-place rehearsal was reverted and rebuilt.

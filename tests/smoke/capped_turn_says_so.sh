@@ -34,7 +34,7 @@
 # not decided here.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 6
+t_plan 7
 smoke_home
 tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
@@ -149,6 +149,37 @@ else
     t_fail "either the clean run did not answer (stdout: \
 $(head_bytes 80 "$tmp/c.out")) or it claimed a cap it never hit: \
 $($G 'not checked' "$tmp/c.err" | head_bytes 200)"
+fi
+
+# ---- 7: the M1048 teeth -- the capped not-run state carries all three facts -
+# After the un-gate, a run that COMPLETES always ran its completion verifier,
+# so the only armed + outcome-ok + verifier-never-ran state is a run that hit
+# the tool-call cap. That state must say all three of its facts at once:
+# (a) the check did not run -- the footer's not-run arm, never the pass arm;
+# (b) the cause -- M688's "the run stopped first" sentence, not "no snapshot /
+#     no change made". The dead verifier_not_run_completed field that named
+#     the completed-but-not-run case is gone (M1048 G18 reviewer MEDIUM):
+#     after the un-gate a completed run always ran its check, so every
+#     armed + outcome-ok + verifier-never-ran state is a stop-first state and
+#     routes to M688's "stopped first" unconditionally. The negative half of
+#     check 7 above (no "verifier ok", no "verify green") still holds the
+#     dead sentence out -- "no snapshot / no change made" cannot appear for a
+#     cap, a relay, a no-progress stop or an interrupt.
+# (c) green is a run-fact -- "verify green" cannot appear for a check that
+#     never ran. This check goes RED if (i) the not-run footer arm is forced
+#     to "verifier ok", (ii) the run-fact is dropped from verify_green, or
+#     (iii) a second not-run sentence for a "completed but no change" state
+#     comes back (there is no such state after the un-gate).
+if $G -q 'stopped first' "$tmp/b.err" && $G -qi 'not verified' "$tmp/b.err" && \
+   ! $G -q 'verifier ok' "$tmp/b.err" && ! $G -q 'verify green' "$tmp/b.err"; then
+    t_ok "the capped not-run state keeps the cap cause and says the check did not run, not green"
+else
+    t_fail "run B's capped footer/reach lost a fact: \
+stopped-first=$($G -c 'stopped first' "$tmp/b.err"), \
+not-verified=$($G -ci 'not verified' "$tmp/b.err"), \
+verifier-ok=$($G -c 'verifier ok' "$tmp/b.err"), \
+verify-green=$($G -c 'verify green' "$tmp/b.err"). \
+stderr: $(tail -6 "$tmp/b.err" | tr '\n' ' ' | head_bytes 300)"
 fi
 
 t_done

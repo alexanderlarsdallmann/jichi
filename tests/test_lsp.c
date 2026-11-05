@@ -149,14 +149,14 @@ static void test_format_diagnostics(void)
     jc_sb_free(&out);
 }
 
-/* Apply a TextEdit[] and assert the result + count (M40). */
-static void check_apply(const char *text, const char *edits, int want_n,
-                        const char *want)
+/* Apply a TextEdit[] and assert the result + count (M40; enc param M939). */
+static void check_apply(const char *text, const char *edits, int enc,
+                        int want_n, const char *want)
 {
     struct jc_sb out;
     int n;
     jc_sb_init(&out);
-    n = jc_lsp_apply_text_edits(text, edits, &out);
+    n = jc_lsp_apply_text_edits(text, edits, &out, enc);
     JC_CHECK(n == want_n);
     if (want != NULL) {
         const char *got = (out.data != NULL) ? out.data : "";
@@ -173,7 +173,7 @@ static void test_apply_text_edits(void)
         "\"end\":{\"line\":0,\"character\":3}},\"newText\":\"qux\"},"
         "{\"range\":{\"start\":{\"line\":1,\"character\":0},"
         "\"end\":{\"line\":1,\"character\":3}},\"newText\":\"qux\"}]",
-        2, "qux bar\nqux baz\n");
+        JC_LSP_ENC_UTF16, 2, "qux bar\nqux baz\n");
 
     /* Out-of-order edits are sorted before applying => same result. */
     check_apply("foo bar\nfoo baz\n",
@@ -181,17 +181,17 @@ static void test_apply_text_edits(void)
         "\"end\":{\"line\":1,\"character\":3}},\"newText\":\"qux\"},"
         "{\"range\":{\"start\":{\"line\":0,\"character\":0},"
         "\"end\":{\"line\":0,\"character\":3}},\"newText\":\"qux\"}]",
-        2, "qux bar\nqux baz\n");
+        JC_LSP_ENC_UTF16, 2, "qux bar\nqux baz\n");
 
     /* Insertion (empty range) and deletion (empty newText). */
     check_apply("ab",
         "[{\"range\":{\"start\":{\"line\":0,\"character\":1},"
         "\"end\":{\"line\":0,\"character\":1}},\"newText\":\"X\"}]",
-        1, "aXb");
+        JC_LSP_ENC_UTF16, 1, "aXb");
     check_apply("abc",
         "[{\"range\":{\"start\":{\"line\":0,\"character\":0},"
         "\"end\":{\"line\":0,\"character\":1}},\"newText\":\"\"}]",
-        1, "bc");
+        JC_LSP_ENC_UTF16, 1, "bc");
 
     /* Overlapping edits: the first wins, the overlapper is skipped. */
     check_apply("abcdef",
@@ -199,19 +199,87 @@ static void test_apply_text_edits(void)
         "\"end\":{\"line\":0,\"character\":3}},\"newText\":\"X\"},"
         "{\"range\":{\"start\":{\"line\":0,\"character\":1},"
         "\"end\":{\"line\":0,\"character\":4}},\"newText\":\"Y\"}]",
-        1, "Xdef");
+        JC_LSP_ENC_UTF16, 1, "Xdef");
 
     /* Empty edit set: zero applied, text unchanged. */
-    check_apply("abc", "[]", 0, "abc");
+    check_apply("abc", "[]", JC_LSP_ENC_UTF16, 0, "abc");
 
     /* JSON null (LSP "no edits" -- e.g. zls formatting an already-formatted
      * file): zero applied, text unchanged -- NOT malformed. Regression for the
      * format_file "malformed formatting edits" false error. */
-    check_apply("abc\n", "null", 0, "abc\n");
+    check_apply("abc\n", "null", JC_LSP_ENC_UTF16, 0, "abc\n");
 
     /* Malformed input: -1, and out left untouched (empty). */
-    check_apply("abc", "not json", -1, "");
-    check_apply("abc", "{\"not\":\"array\"}", -1, "");
+    check_apply("abc", "not json", JC_LSP_ENC_UTF16, -1, "");
+    check_apply("abc", "{\"not\":\"array\"}", JC_LSP_ENC_UTF16, -1, "");
+}
+
+/* M939 (R09-F2): LSP positions count UTF-16 units, not bytes. The conversion
+ * must be per-line in both directions, UTF-8 must stay identity, and the
+ * initialize result must be read conservatively. All pure/offline. */
+static void test_lsp_position_encoding(void)
+{
+    /* The review's line, as a C string literal: "Größe"; x — ö is 2 bytes /
+     * 1 UTF-16 unit, ß is 2 bytes / 1 UTF-16 unit, so x is UTF-16 unit 9 but
+     * byte 11. The UTF-8 bytes are written as split literals ("\xc3\xb6"
+     * "\xc3\x9f" "e", not "\xc3\xb6\xc3\x9fe"): C hex escapes are greedy, so
+     * a future edit that joins them or moves a hex-letter byte (e, b, x...)
+     * next to one would silently become ONE out-of-range escape and the test
+     * would exercise bytes it never meant. The first green of M939 cost that
+     * debugging exactly once already. */
+#define GROSSE "\"Gr\xc3\xb6" "\xc3\x9f" "e\"; "
+    /* 1. A TextEdit at (0,9)-(0,10) must replace the x, not a byte inside
+     * the previous character. */
+    {
+        const char *edits =
+            "[{\"range\":{\"start\":{\"line\":0,\"character\":9},"
+            "\"end\":{\"line\":0,\"character\":10}},\"newText\":\"y\"}]";
+        check_apply(GROSSE "x", edits, JC_LSP_ENC_UTF16, 1, GROSSE "y");
+    }
+
+    /* 2. UTF-8 enc is identity: byte col 3 of aöb IS the last 'b'. */
+    {
+        const char *edits =
+            "[{\"range\":{\"start\":{\"line\":0,\"character\":3},"
+            "\"end\":{\"line\":0,\"character\":4}},\"newText\":\"X\"}]";
+        check_apply("a\xc3\xb6" "b", edits, JC_LSP_ENC_UTF8, 1, "a\xc3\xb6" "X");
+    }
+
+    /* 3. locate_symbol reports the WIRE column: x in "Größe"; x is byte 11,
+     * UTF-16 unit 9. */
+    {
+        long line = -1, col = -1;
+        JC_CHECK(jc_lsp_locate_symbol(GROSSE "x", "x",
+                                      &line, &col, JC_LSP_ENC_UTF16) == 1);
+        JC_CHECK(line == 0);
+        JC_CHECK(col == 9);
+        /* Same symbol, UTF-8 enc => the byte offset. */
+        JC_CHECK(jc_lsp_locate_symbol(GROSSE "x", "x",
+                                      &line, &col, JC_LSP_ENC_UTF8) == 1);
+        JC_CHECK(col == 11);
+    }
+
+    /* 4. encoding_from_initialize is conservative: utf-8 only for the exact
+     * string (case-insensitive); everything else is the spec default. */
+    JC_CHECK(jc_lsp_encoding_from_initialize(NULL) == JC_LSP_ENC_UTF16);
+    JC_CHECK(jc_lsp_encoding_from_initialize("not json") == JC_LSP_ENC_UTF16);
+    JC_CHECK(jc_lsp_encoding_from_initialize("{}") == JC_LSP_ENC_UTF16);
+    JC_CHECK(jc_lsp_encoding_from_initialize(
+        "{\"capabilities\":{}}") == JC_LSP_ENC_UTF16);
+    JC_CHECK(jc_lsp_encoding_from_initialize(
+        "{\"capabilities\":{\"positionEncoding\":null}}") == JC_LSP_ENC_UTF16);
+    JC_CHECK(jc_lsp_encoding_from_initialize(
+        "{\"capabilities\":{\"positionEncoding\":\"utf-16\"}}")
+            == JC_LSP_ENC_UTF16);
+    JC_CHECK(jc_lsp_encoding_from_initialize(
+        "{\"capabilities\":{\"positionEncoding\":\"utf-32\"}}")
+            == JC_LSP_ENC_UTF16);
+    JC_CHECK(jc_lsp_encoding_from_initialize(
+        "{\"capabilities\":{\"positionEncoding\":\"utf-8\"}}")
+            == JC_LSP_ENC_UTF8);
+    JC_CHECK(jc_lsp_encoding_from_initialize(
+        "{\"capabilities\":{\"positionEncoding\":\"UTF-8\"}}")
+            == JC_LSP_ENC_UTF8);
 }
 
 static void test_format_code_actions(void)
@@ -374,6 +442,7 @@ void test_lsp(void)
     test_uri_and_lang();
     test_format_diagnostics();
     test_apply_text_edits();
+    test_lsp_position_encoding();
     test_format_code_actions();
     test_action_command();
     test_diagnostics_for_line();

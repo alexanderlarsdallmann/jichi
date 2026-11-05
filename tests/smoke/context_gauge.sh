@@ -2,9 +2,10 @@
 # smoke: the context gauge (M358) -- the one resource the notice family never
 # metered was the model's own window. Static half: an Environment line states
 # the CONFIGURED context window (never the built-in default -- the M355
-# armed-only rule). Dynamic half: the first PRESSED mid-turn pass injects ONE
+# armed-only rule). Dynamic half: each PRESSED mid-turn pass injects a
 # [context] user-role note built from the pass's own numbers, so the model is
 # told to change how it reads instead of deducing it from elision markers.
+# M900 (C1) made it STANDING -- re-fired every pressed round, not once per run.
 #
 # The pressure recipe: distinct ~4KB files read in sequence (distinct, so the
 # eager zero-loss dedup cannot relieve the pressure the driver needs), under a
@@ -79,12 +80,16 @@ else
     t_fail "the note appeared before any pressure ($n0 in request 1)"
 fi
 
-# --- 4: the note lands EXACTLY ONCE (once-per-run, count-not-absence) --------
+# --- 4: the note is STANDING -- MORE than once in the last (M900/C1) ---------
+# The old once-per-run throttle landed exactly one; the standing gauge re-fires
+# each pressed round, so in this thrash (8 reads, tiny limit, no relief) the
+# last request carries several. count-not-absence: the notes persist in history,
+# so >1 in the last body is the standing behavior, not a duplication.
 n1=$(grep -o '\[context\] this turn has used' "$last" | wc -l)
-if [ "$n1" -eq 1 ]; then
-    t_ok "last request carries the [context] note exactly once"
+if [ "$n1" -gt 1 ]; then
+    t_ok "last request carries the [context] note repeatedly ($n1, standing)"
 else
-    t_fail "expected exactly 1 note in the last request, found $n1"
+    t_fail "expected the note standing (>=2 in the last request), found $n1"
 fi
 
 # --- 5: the note carries the reading guidance, not just the number -----------
@@ -94,13 +99,15 @@ else
     t_fail "guidance text missing from the injected note"
 fi
 
-# --- 6: telemetry joins 'the model was told' to the pass that told it --------
+# --- 6: telemetry joins 'the model was told' to EACH pass that told it -------
+# M900 (C1): standing, so more than one compact event carries noticed:true in
+# this thrash (the old latch made it exactly one).
 noticed=$(grep '"event":"compact"' "$tmp/telem.jsonl" 2>/dev/null \
           | grep -c '"noticed":true')
-if [ "$noticed" -eq 1 ]; then
-    t_ok "exactly one compact event carries noticed:true"
+if [ "$noticed" -gt 1 ]; then
+    t_ok "$noticed compact events carry noticed:true (standing)"
 else
-    t_fail "expected 1 noticed compact event, found $noticed"
+    t_fail "expected standing notices (>1), found $noticed"
 fi
 
 # --- 7: the static half obeys the M355 rule: no configured limit, no line ----

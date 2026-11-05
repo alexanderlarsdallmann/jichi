@@ -174,6 +174,7 @@ static jc_status imagegen_run_ctx(void *ctx, const cJSON *args,
     int n_ref = 0;
     char msg[1100];
     jc_status st;
+    int overflow = 0;
 
     (void)ctx;
     if (prompt == NULL || prompt[0] == '\0' || path == NULL || path[0] == '\0') {
@@ -213,16 +214,46 @@ static jc_status imagegen_run_ctx(void *ctx, const cJSON *args,
         n_ref = 1;
     }
 
+    /* C-06 + M1092-b (SV:0219): the configured (DECODED) cap is computed
+     * BEFORE the call so it can be passed down as the transfer's bound -- the
+     * url-only GET leg (raw bytes) aborts AT the cap, and the POST leg aborts
+     * AT the b64_json ENVELOPE's size bound (jc_base64_encoded_len(cap) + the
+     * framing slack), which every legal image's envelope clears. Neither leg
+     * buffers an over-long reply and only then compares it to the cap. */
+    cap = jc_config_cap(app->config.image_gen_max_bytes, IMAGEGEN_MAX_BYTES);
     st = jc_imagegen_run(m, prompt, size, fmt,
                          n_ref > 0 ? ref_images : NULL, n_ref,
-                         1, &bytes, &len, &app->abort_flag);
+                         1, &bytes, &len, &app->abort_flag,
+                         (long)cap, &overflow);
     free(ref_b64);
     if (st != JC_OK || bytes == NULL) {
+        /* C-06 + M1092-b (SV:0219): when the transfer was cut at its size
+         * bound, say so (not a generic network failure, and not that the
+         * decoded image is over the cap, which would be false on the POST
+         * leg: its bound is the b64_json ENVELOPE's, so the envelope can be
+         * cut while the image is only approximately over the cap). */
+        if (overflow) {
+            jc_snprintf(msg, sizeof(msg),
+                        "error: image response was cut at the %lu-byte size "
+                        "limit (the image may exceed the cap, no file "
+                        "written)",
+                        (unsigned long)cap);
+            free(bytes);
+            tu_err(out, msg);
+            return JC_OK;
+        }
         free(bytes);
         tu_err(out, "error: image generation request failed");
         return JC_OK;
     }
-    cap = jc_config_cap(app->config.image_gen_max_bytes, IMAGEGEN_MAX_BYTES);
+    /* M1092-b (SV:0219): this post-hoc len > cap check is the REAL check for
+     * the POST leg: the transfer bound there is the b64_json envelope's size
+     * bound (~1.37x the cap), which a legal image's envelope clears, so an
+     * over-cap image that still fit the envelope is caught HERE, not in
+     * transit. The transfer bound is the backstop that keeps a hostile
+     * oversized envelope (or GET leg) from filling memory; on the url-only
+     * GET leg the transfer aborts at the cap itself and this check is a
+     * no-op backstop (exact-cap rounding is the only edge). */
     if (len > cap) {
         free(bytes);
         jc_snprintf(msg, sizeof(msg),

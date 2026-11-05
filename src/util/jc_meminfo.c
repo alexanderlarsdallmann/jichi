@@ -72,7 +72,7 @@ int jc_meminfo_self(long *rss_kb, long *hwm_kb)
     if (hwm_kb != NULL) {
         *hwm_kb = 0;
     }
-    f = fopen("/proc/self/status", "r");
+    f = fopen("/proc/self/status", "rb");
     if (f == NULL) {
         return 0;
     }

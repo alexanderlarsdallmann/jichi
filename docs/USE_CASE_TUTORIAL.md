@@ -122,7 +122,7 @@ mistake.
 
 ```sh
 jichi init sdlc                 # ships the use-case-writing skill + /usecases command
-jichi -p "/usecases"           # the requirements-analyst drafts use cases for the project
+jichi -p "/usecases" < /dev/null           # the requirements-analyst drafts use cases for the project
 ```
 
 The `/usecases` command runs the read-only `requirements-analyst` persona in the

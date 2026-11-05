@@ -11,6 +11,7 @@
 #include "tool_util.h"
 #include "jc_app.h"
 #include "jc_search.h"
+#include "jc_json.h"
 
 #include <stdlib.h>
 
@@ -37,7 +38,7 @@ static jc_status codebase_search_run(const cJSON *args,
 {
     const char *query = tu_arg_str(args, "query");
     cJSON *tk = cJSON_GetObjectItem(args, "top_k");
-    int top_k = cJSON_IsNumber(tk) ? (int)tk->valuedouble : 5;
+    int top_k = cJSON_IsNumber(tk) ? jc_json_clamp_int(tk->valuedouble) : 5;
     char *text = NULL;
     jc_status st;
 

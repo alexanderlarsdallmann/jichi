@@ -63,9 +63,16 @@ static void test_rm_rf_refuses(void)
             JC_CHECK(jc_test_rm_rf_allowed(p) == 0);
         }
     }
-    /* A sibling that merely shares the prefix ("/tmpx" for "/tmp"). */
-    jc_snprintf(p, sizeof p, "%sx", td);
-    JC_CHECK(jc_test_rm_rf_allowed(p) == 0);
+    /* A sibling that merely shares the prefix ("/tmpx" for "/tmp"). Built from the
+     * TRIMMED length (M817; Dima Mellnik): macOS sets TMPDIR with a trailing "/", so
+     * "%sx" on the raw path yields ".../T/x" -- a CHILD, which rm_rf legitimately
+     * allows -- instead of the intended sibling. */
+    if (tl + 1 < sizeof p) {
+        memcpy(p, td, tl);
+        p[tl] = 'x';
+        p[tl + 1] = '\0';
+        JC_CHECK(jc_test_rm_rf_allowed(p) == 0);
+    }
     /* A step, which could climb back out. */
     jc_snprintf(p, sizeof p, "%s/..", td);
     JC_CHECK(jc_test_rm_rf_allowed(p) == 0);
@@ -117,7 +124,8 @@ static void test_rm_rf_removes(void)
     /* A link out of the tree, to a directory that must survive the removal.
      * Where symlinks are unsupported the rest still runs. */
     jc_snprintf(p, sizeof p, "%s/a/out", dir);
-    (void)symlink(keep, p);
+    /* Where symlinks are unsupported the rest still runs. */
+    (void)(symlink(keep, p) == 0);
 
     JC_CHECK(jc_test_rm_rf(dir) == 0);
     JC_CHECK(!exists(dir));

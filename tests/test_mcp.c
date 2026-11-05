@@ -256,6 +256,26 @@ static void test_parse_prompts(void)
     JC_CHECK(d->args[1].required == 0);
     jc_mcp_prompt_desc_free(d);
     jc_vec_free(&ps);
+
+    /* M843: an MCP server is a foreign program, so its `required` is read
+     * leniently (CLAUDE.md's rule names an MCP server's JSON): a 1 or a
+     * "true" marks the argument required, as `true` does; a "no" does not. */
+    jc_vec_init(&ps, sizeof(struct jc_mcp_prompt_desc));
+    JC_CHECK(jc_mcp_parse_prompts(
+        "{\"result\":{\"prompts\":[{\"name\":\"r\",\"arguments\":["
+        "{\"name\":\"a\",\"required\":1},"
+        "{\"name\":\"b\",\"required\":\"true\"},"
+        "{\"name\":\"c\",\"required\":\"no\"}]}]}}", &ps) == JC_OK);
+    if (JC_REQUIRE(ps.len == 1)) {
+        d = (struct jc_mcp_prompt_desc *)jc_vec_at(&ps, 0);
+        if (JC_REQUIRE(d->nargs == 3)) {
+            JC_CHECK(d->args[0].required == 1);
+            JC_CHECK(d->args[1].required == 1);
+            JC_CHECK(d->args[2].required == 0);
+        }
+        jc_mcp_prompt_desc_free(d);
+    }
+    jc_vec_free(&ps);
 }
 
 static void test_build_prompt_args(void)

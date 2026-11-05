@@ -1,0 +1,25 @@
+{
+  "_comment": [
+    "slm-lab scaffold -- EXAMPLE config (a template to adapt, not a live config).",
+    "Copy the models block into your own config (~/.jichi or local/config.json)",
+    "and fill in your provider/model/apiBase. Secret-free: the key comes from an",
+    "env var named by apiKeyEnv, never a literal key here.",
+    "",
+    "A chat model is all you need, and a local one is free and private (LM Studio,",
+    "llama.cpp, Ollama); see docs/LOCAL_MODELS.md. The training itself runs in",
+    "charlm, on your CPU -- the model only helps you build, run and read it.",
+    "",
+    "snapshots let you /undo a bad edit to charlm.c; pathFence keeps file writes",
+    "inside this workspace. testCommand builds charlm with strict warnings."
+  ],
+
+  "models": [
+    { "name": "chat", "provider": "openai", "model": "YOUR_MODEL_ID",
+      "apiBase": "http://localhost:1234/v1", "apiKeyEnv": "JICHI_API_KEY",
+      "roles": ["chat"] }
+  ],
+
+  "snapshots": true,
+  "pathFence": 1,
+  "testCommand": "cc -std=c89 -pedantic -Wall -Wextra -O2 -o charlm charlm.c -lm"
+}

@@ -42,6 +42,19 @@ void jc_config_edit_target(const char *explicit_path, char *out, jc_size cap);
  * NULL only on allocation failure. Caller cJSON_Delete()s the result. */
 cJSON *jc_config_edit_load(const char *path);
 
+/* M924 (R07-F1): 1 when `path`, if present and non-empty, parses -- via the
+ * same comment-strip the config reader uses -- to a JSON object; 0 when the
+ * file is non-empty but not a parseable object. jc_configedit_apply checks
+ * this before editing, because saving over a file that load() mapped to an
+ * empty object would wipe its content. Absent and empty files return 1
+ * (start-from-scratch). */
+int jc_configedit_path_is_object(const char *path);
+
+/* M924 (R07-F1): 1 when `path` holds // or block comments or a trailing comma
+ * -- i.e. its content changes under jc_jsonc_strip. Such a file, edited, is
+ * re-serialised without those, so the caller notes it. Absent/empty: 0. */
+int jc_configedit_path_has_comment(const char *path);
+
 /* Atomically persist `root` (pretty-printed) to `path`: write `<path>.tmp` then
  * rename() over `path`, keeping a `<path>.bak` copy of any prior content. Creates
  * parent directories as needed. JC_OK on success. */

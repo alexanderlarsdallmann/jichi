@@ -108,19 +108,25 @@ agent (or you, in plan mode) can choose one to apply.
 
 The server returns a **WorkspaceEdit** (rename, code action) or **TextEdit[]**
 (format); jichi applies them with the pure `jc_lsp_apply_text_edits` — line/character
-ranges are resolved to byte offsets, edits are sorted into document order,
-overlaps after the first are skipped, and every write goes through the
-path-fenced `jc_app_write_file` (so edits outside the workspace are refused, not
-applied). `rename_symbol` reports the edit/file counts; `format_file` reports
-`Already formatted (no changes).` when the server returns nothing;
-`apply_code_action` matches the chosen `title` (case-insensitive substring),
-**resolves** a lazily-computed edit (`codeAction/resolve`) when needed, and
-applies it. The mutating three are `readonly = 0`, so they flow through the usual
-permission gate (ASK in chat, auto-approved under `--auto`, hidden in plan mode);
-`list_code_actions` is read-only (usable in plan mode).
+ranges are resolved to byte offsets **in the server's position encoding**, edits
+are sorted into document order, overlaps after the first are skipped, and every
+write goes through the path-fenced `jc_app_write_file` (so edits outside the
+workspace are refused, not applied). `rename_symbol` reports the edit/file
+counts; `format_file` reports `Already formatted (no changes).` when the server
+returns nothing; `apply_code_action` matches the chosen `title`
+(case-insensitive substring), **resolves** a lazily-computed edit
+(`codeAction/resolve`) when needed, and applies it. The mutating three are
+`readonly = 0`, so they flow through the usual permission gate (ASK in chat,
+auto-approved under `--auto`, hidden in plan mode); `list_code_actions` is
+read-only (usable in plan mode).
 
-> `character` offsets are treated as bytes — exact for ASCII/UTF-8 single-byte
-> source, an approximation where LSP counts UTF-16 code units (rare in code).
+> `character` is a count of **UTF-16 code units** unless the server's
+> `capabilities.positionEncoding` says otherwise (M939). jichi reads that field
+> at the `initialize` handshake (and advertises `["utf-8", "utf-16"]`, so a
+> UTF-8-capable server can pick bytes) and converts UTF-16 columns to byte
+> offsets per line on the way in and back on the way out. Before M939 the
+> column was applied as a raw byte offset, which corrupted any line holding a
+> multi-byte character (an `ö` is 2 bytes but 1 UTF-16 unit).
 > **Code actions apply edits and/or run the action's server command (M50):** an
 > edit-bearing action is applied directly; a `command`-bearing action is run via
 > `workspace/executeCommand`, and any `workspace/applyEdit` the server pushes back
@@ -155,6 +161,25 @@ same transport: one id-matched request/response round-trip
 - **First-call latency** — a server may take a few seconds to start and index;
   subsequent files on the same server are fast. Diagnostics collection is
   time-bounded.
-- One server per extension (first match in config order).
+- One server per extension (first match in config order), with no fallback when
+  it fails or refuses to start ([DEFERRED def-293](DEFERRED.md#def-293)).
+- **Diagnostics must be pushed.** jichi waits for `textDocument/publishDiagnostics`;
+  a server that gives diagnostics only on request (LSP 3.17
+  `textDocument/diagnostic`), such as TypeScript 7's own `tsc --lsp --stdio`,
+  yields `[lsp <name>: no diagnostics received]` (measured 2026-10-01;
+  [DEFERRED def-292](DEFERRED.md#def-292)).
+- **A server's refusal is not shown.** If a server answers `initialize` with an
+  error, jichi carries on and, after the time bound, says `no diagnostics
+  received`; the server's own reason is lost (measured;
+  [DEFERRED def-291](DEFERRED.md#def-291)).
+- **TypeScript:** `typescript-language-server` needs TypeScript 6 or earlier.
+  `npm install typescript` installs 7 (npm's `latest` was 7.0.2 on 2026-10-01),
+  and there that server refuses to start, so jichi shows `no diagnostics
+  received`. Pin `typescript@6` in the project for diagnostics today (measured).
+  The plan is in [DEFERRED def-293](DEFERRED.md#def-293).
+- **A server that speaks only TCP** (Godot's GDScript server, inside a running
+  editor) needs a stdio bridge as its `command`, such as `socat - TCP:host:port`;
+  measured with Godot 4.7.2, recipe in [GAME_DEVELOPMENT.md](GAME_DEVELOPMENT.md).
+  jichi has no TCP transport of its own ([DEFERRED def-295](DEFERRED.md#def-295)).
 - File URIs are plain `file://<abs path>` (no percent-encoding).
 - The language server must be installed separately (e.g. `clangd`, `pyright`).

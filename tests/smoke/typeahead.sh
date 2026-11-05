@@ -58,6 +58,7 @@ expect "STEER_OK" 25
 delay 500
 send "/exit\r"
 waitexit 10
+assertexit 0
 EOF
 
 # --- run A: opted in ------------------------------------------------------
@@ -106,6 +107,7 @@ expect "STEER_MISSED" 30
 delay 500
 send "/exit\r"
 waitexit 10
+assertexit 0
 EOF
 mm_start "$tmp2/replies.mm" "$tmp2"
 write_config "$tmp2/config.json" "$MM_PORT"

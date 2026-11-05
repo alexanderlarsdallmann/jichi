@@ -35,6 +35,8 @@ static int journal_exclusive(const char *ev)
         "ask", "control", "post_outcome", "verify_stuck",
         "test_assertion_edit", "learn_on_stop", "out_of_scope",
         "blocked_repeat", "tool_loop", "no_progress", "constraint_advisory",
+        "attempt", "relay_note_written", "budget_adjust",
+        "leg_start", "leg_end",   /* M954: the relay's leg surfaces */
         NULL
     };
     int i;
@@ -110,7 +112,7 @@ static void feed_event(struct jc_run_summary *s, const char *line,
                     jc_json_get_str(o, "outcome", "?"));
         s->rolled_back = jc_json_get_bool(o, "rolled_back", 0);
         s->tokens_used = jc_json_get_num(o, "tokens_used", 0.0);
-        s->tool_calls = (long)jc_json_get_num(o, "tool_calls", 0.0);
+        s->tool_calls = jc_json_clamp_long(jc_json_get_num(o, "tool_calls", 0.0));
         /* Emitted on `end`, not `budget` -- unlike `starved`, which is a
          * budget-exhaustion fact. Putting this parse in the budget branch made it
          * dead code: the journal carried no_changes and the reader never read it,
@@ -182,14 +184,26 @@ static void feed_event(struct jc_run_summary *s, const char *line,
          * work edits tests), but a supervisor reading a GREEN row deserves to
          * know the gate moved under it. */
         s->test_edits++;
+    } else if (strcmp(ev, "relay_note_written") == 0) {
+        /* M921: the relay wrote a handover baton (off by default). A bounded
+         * run that handed over is a leg, not a finished task; the row says so.
+         * The note the next --handoff-in leg reads is on disk, so the event
+         * carries its path, not its text. */
+        s->relay_batons++;
+    } else if (strcmp(ev, "budget_adjust") == 0) {
+        /* M951: the relay measured the next leg's tool-call budget from this
+         * leg's prompt growth (journal-only; the session-history half is
+         * telemetry's `relay`/budget). The old cap, new budget, and P0/g/W
+         * numbers ride along; the count is what the table needs. */
+        s->relay_budgets++;
     } else if (strcmp(ev, "learn_on_stop") == 0) {
         /* M330: emitted once, after the run's `end` event, carrying the mentor's
          * token and tool-call cost. Non-zero means the run's totals are SHORT. */
         s->learn_tokens = jc_json_get_num(o, "tokens", 0.0);
-        s->learn_calls = (long)jc_json_get_num(o, "tool_calls", 0.0);
+        s->learn_calls = jc_json_clamp_long(jc_json_get_num(o, "tool_calls", 0.0));
         /* M598: what the draft would commit. Absent on a pre-M598 journal or when
          * the learn command declared no output -> -1, "not measured", never 0. */
-        s->learn_draft_items = (long)jc_json_get_num(o, "draft_items", -1.0);
+        s->learn_draft_items = jc_json_clamp_long(jc_json_get_num(o, "draft_items", -1.0));
         s->learn_draft_empty =
             jc_json_get_num(o, "draft_parsed_nothing", 0.0) > 0.0 ? 1 : 0;
     } else if (strcmp(ev, "constraint") == 0) {
@@ -201,6 +215,11 @@ static void feed_event(struct jc_run_summary *s, const char *line,
     } else if (strcmp(ev, "out_of_scope") == 0) {
         double n = jc_json_get_num(o, "paths", 1.0);
         s->out_of_scope += (long)(n > 0.0 ? n : 1.0);
+    } else if (strcmp(ev, "attempt") == 0) {
+        /* M898: the run was an `attempt`; its verdict, not the turn's outcome,
+         * is the grade. */
+        jc_snprintf(s->attempt, sizeof(s->attempt), "%s",
+                    jc_json_get_str(o, "verdict", "?"));
     }
 
     cJSON_Delete(o);
@@ -244,15 +263,15 @@ int jc_runsview_parse(const char *text, struct jc_run_summary *out)
 
 static void fmt_when(double ts, char *buf, jc_size cap)
 {
-    time_t t = (time_t)ts;
-    struct tm *tm;
+    struct tm tm;
 
     if (ts <= 0.0) {
         jc_snprintf(buf, cap, "%s", "?");
         return;
     }
-    tm = localtime(&t);
-    if (tm == NULL || strftime(buf, cap, "%m-%d %H:%M", tm) == 0) {
+    /* M839: UTC where the local zone is unusable (jc_platform.h). */
+    if (jc_localtime_checked((long)ts, &tm) < 0 ||
+        strftime(buf, cap, "%m-%d %H:%M", &tm) == 0) {
         jc_snprintf(buf, cap, "%.0f", ts);
     }
 }
@@ -327,6 +346,13 @@ cJSON *jc_runsview_json(const struct jc_run_summary *s)
     if (s->test_edits > 0) {
         cJSON_AddNumberToObject(o, "test_edits", (double)s->test_edits);
     }
+    if (s->relay_batons > 0) {
+        cJSON_AddNumberToObject(o, "relay_batons", (double)s->relay_batons);
+    }
+    if (s->relay_budgets > 0) {
+        cJSON_AddNumberToObject(o, "relay_budgets",
+                                (double)s->relay_budgets);
+    }
     if (s->blocked_repeats > 0) {
         cJSON_AddNumberToObject(o, "blocked_repeats",
                                 (double)s->blocked_repeats);
@@ -362,6 +388,9 @@ cJSON *jc_runsview_json(const struct jc_run_summary *s)
     }
     if (s->learn_draft_empty) {
         cJSON_AddBoolToObject(o, "learn_draft_empty", 1);
+    }
+    if (s->attempt[0] != '\0') {
+        cJSON_AddStringToObject(o, "attempt", s->attempt);   /* M898 */
     }
     cJSON_AddNumberToObject(o, "events", (double)s->events);
     return o;
@@ -454,6 +483,9 @@ void jc_runsview_render_row(const struct jc_run_summary *s, struct jc_sb *out)
     if (s->learn_draft_empty) {
         jc_sb_append(&notes, "draft=empty ");
     }
+    if (s->attempt[0] != '\0') {
+        jc_sb_append_fmt(&notes, "attempt=%s ", s->attempt);   /* M898 */
+    }
     if (s->asks_unanswered > 0) {
         jc_sb_append_fmt(&notes, "unanswered=%ld ", s->asks_unanswered);
     }
@@ -469,6 +501,14 @@ void jc_runsview_render_row(const struct jc_run_summary *s, struct jc_sb *out)
         char tok[16];
         fmt_tokens(s->learn_tokens, tok, sizeof(tok));
         jc_sb_append_fmt(&notes, "learn_on_stop(%s) ", tok);
+    }
+    if (s->relay_batons > 0) {
+        /* M921: a handover baton was written, so this run ended to hand the
+         * next leg the notes -- the work is kept, not finished. */
+        jc_sb_append_fmt(&notes, "relay_baton(%ld) ", s->relay_batons);
+    }
+    if (s->relay_budgets > 0) {
+        jc_sb_append_fmt(&notes, "relay_budget(%ld) ", s->relay_budgets);
     }
 
     jc_sb_append_fmt(out, "%-22s %-11s %-16s %8s %6ld %7s  %s\n",

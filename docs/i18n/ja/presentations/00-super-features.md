@@ -150,7 +150,7 @@ jichi は**大規模で自律的な Godot → Zig 移植**を駆動している�
 
 ```sh
 make && ./jichi setup            # guided setup
-./jichi -p "explain this repo"   # headless
+./jichi -p "explain this repo" < /dev/null   # headless
 ./jichi                          # the TUI
 ```
 

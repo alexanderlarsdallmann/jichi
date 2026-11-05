@@ -38,7 +38,8 @@ last_req() {  # CAPDIR -> the highest-numbered captured request
     ls "$1"/req.* 2>/dev/null | sort -t. -k2 -n | tail -1
 }
 
-# --- A: four identical searches, each answering "(no matches)" -----------------
+# --- A: six identical searches, each answering "(no matches)" ------------------
+# M819 (N4a): six, not four, so the re-warn at the second multiple is exercised.
 cat > "$tmp/same.mm" <<'EOF'
 wire openai
 rule
@@ -52,6 +53,12 @@ rule
   tool search_code {"pattern":"NOT_IN_THIS_TREE_ZQX"}
 rule
   count 4
+  tool search_code {"pattern":"NOT_IN_THIS_TREE_ZQX"}
+rule
+  count 5
+  tool search_code {"pattern":"NOT_IN_THIS_TREE_ZQX"}
+rule
+  count 6
   tool search_code {"pattern":"NOT_IN_THIS_TREE_ZQX"}
 rule
   text SAME_DONE
@@ -73,13 +80,16 @@ else
     t_fail "fired too early -- request 3 already carries the note"
 fi
 
-# 3: the fourth identical call is not told again.
+# 3 (M819, N4a): the loop is RE-WARNED at the sixth, not silenced after the third.
+# On the weekend drive a child made one passing call 1,126 times in its single turn
+# and was warned once; a child's whole task is one turn, so "once per turn" hid the
+# loop. The final request carries both the 3rd and the 6th note. Before M819 the note
+# fired once, so "6 times" never appeared.
 last=$(last_req "$tmp/capA")
-n=$(grep -o "$NOTE" "$last" 2>/dev/null | wc -l | tr -d ' ')
-if [ "$n" = "1" ]; then
-    t_ok "told once in the whole turn, not once per repeat"
+if grep -q "$NOTE 6 times" "$last" 2>/dev/null; then
+    t_ok "the loop is re-flagged at six, not silenced after three"
 else
-    t_fail "expected 1 note in $last, found $n"
+    t_fail "no re-warn at six in $last: $(grep -o "$NOTE [0-9]* times" "$last" 2>/dev/null | tr '\n' ' ')"
 fi
 
 # 4: the operator is told too (M422's lesson).
@@ -89,9 +99,11 @@ else
     t_fail "no no_progress event: $(grep -o '"event":"[a-z_]*"' "$tmp/ja/j.jsonl" 2>/dev/null | sort -u | tr '\n' ' ')"
 fi
 
-# 5: ...and it reaches the table a supervisor reads.
-if "$BIN" runs "$tmp/ja" --output json < /dev/null 2>/dev/null | grep -q '"no_progress":1'; then
-    t_ok "runs --output json reports no_progress for the run"
+# 5: ...and it reaches the table a supervisor reads. M819: the loop is re-flagged at
+# each multiple, so this six-call run journals two no_progress events (at 3 and 6),
+# and the runs table counts both.
+if "$BIN" runs "$tmp/ja" --output json < /dev/null 2>/dev/null | grep -q '"no_progress":2'; then
+    t_ok "runs --output json counts both no_progress notes (at 3 and 6)"
 else
     t_fail "runs has no no_progress: $("$BIN" runs "$tmp/ja" --output json < /dev/null 2>&1 | head_bytes 200)"
 fi

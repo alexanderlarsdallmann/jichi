@@ -14,6 +14,9 @@ This differs from the repo's other markdown extensions:
 - **Skills** are chosen by the **main agent itself**, on demand, and loaded into
   its own context.
 
+*See also [DRIVING_A_TEAM.md](DRIVING_A_TEAM.md) §4 — how skills fit a driven team
+of agents (a lead and its workers).*
+
 ## Your first skill
 
 Four commands, and the one mistake almost everyone makes.
@@ -38,7 +41,7 @@ Check jichi can see it, then use it:
 
 ```sh
 jichi skills
-jichi -p "Write a commit message for the change I just made."
+jichi -p "Write a commit message for the change I just made." < /dev/null
 ```
 
 **What you should see:** a tool line reading `▸ load_skill  commit-style` before

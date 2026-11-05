@@ -67,6 +67,9 @@ struct jc_run_summary {
                            * The zigodot shape: prose under invented headings,
                            * produced for weeks by a mentor that never received
                            * its format block (M596). Rendered as draft=empty. */
+    char attempt[16];     /* M898: the verdict of an `attempt` run (from its
+                           * `attempt` event: PASS / FAIL / TAINTED / HARNESS /
+                           * CANNOT_RUN); "" for any other run. */
     char jichi[32];       /* M290: the build that ran it (from `start`); ""
                            * for a pre-M290 journal. A run journal is what a
                            * supervisor triages from, and "which jichi ran
@@ -83,6 +86,15 @@ struct jc_run_summary {
                            * Measured 2026-08-13: a real attempt fired this ten
                            * times and still reported PASS (M410 fixed the
                            * verdict; this makes the supervisor's TABLE see it). */
+    long relay_batons;    /* M921: `relay_note_written` events -- the relay
+                           * wrote a handover baton (off by default). A count
+                           * > 0 names the run as a relay leg that handed over,
+                           * so the table can see the notes the next leg reads. */
+    long relay_budgets;   /* M951: `budget_adjust` journal events -- the relay
+                           * measured the next leg's tool-call budget from this
+                           * leg's prompt growth. A count > 0 (next to
+                           * relay_batons) says the leg ended at a MEASURED
+                           * capacity, not the operator's fixed cap. */
     char ws[512];         /* M420: the workspace, from `start` -- "" for a
                            * pre-M420 journal. A run that cannot say which
                            * project it belongs to is unusable on a machine

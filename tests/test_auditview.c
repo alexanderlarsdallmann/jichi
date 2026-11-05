@@ -53,6 +53,30 @@ static void test_feed_counts(void)
     jc_auditview_free(&s);
 }
 
+/* M849: a delegate's privileged command is refused with its own decision value,
+ * delegate_refused. The summarizer must count it as REFUSED: an unknown value
+ * falls through to "ran", so without this the audit view would report a refusal
+ * as a command that ran -- a false record of exactly the event the audit exists
+ * to show. */
+static void test_delegate_refused_counts_as_refused(void)
+{
+    struct jc_audit_summary s;
+    const char *log =
+        "{\"v\":1,\"ts\":1000,\"launcher\":\"sudo\","
+        "\"decision\":\"delegate_refused\",\"mode\":\"auto\","
+        "\"command\":\"sudo systemctl disable --now sshd\"}\n";
+
+    JC_CHECK(jc_auditview_is_refusal("delegate_refused") == 1);
+    JC_CHECK(jc_auditview_is_refusal("unattended_refused") == 1);
+    JC_CHECK(jc_auditview_is_refusal("allowlist") == 0);
+    jc_auditview_init(&s);
+    jc_auditview_feed(&s, log, 0.0);
+    JC_CHECK(s.total == 1);
+    JC_CHECK(s.refused == 1);
+    JC_CHECK(s.ran == 0);
+    jc_auditview_free(&s);
+}
+
 static void test_since_cutoff(void)
 {
     struct jc_audit_summary s;
@@ -151,6 +175,7 @@ static void test_audit_json(void)
 
 void test_auditview(void)
 {
+    test_delegate_refused_counts_as_refused();
     test_feed_counts();
     test_since_cutoff();
     test_ring_and_empty();

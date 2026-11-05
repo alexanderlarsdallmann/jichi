@@ -157,7 +157,13 @@ fi
 # accumulated. jc_eventlog_begin() stays public for sinks that have no app (the
 # unit tests drive it with no application at all) -- the rule binds only calls
 # whose sink comes from one.
-raw=$(grep -nE 'jc_eventlog_begin\([^)]*app' "$tmp/nocomment.c" | grep -c . || true)
+# M807: app->transcript is a SECOND app-owned sink (a spawn_parallel write child's
+# reasoning record). It cannot route through jc_app_telem_begin -- that helper writes
+# app->telemetry, a different file -- and it is stamped its own way (jc_eventlog_set_task
+# gives it task/task_run; its filename encodes run + task), so it is joinable without
+# depth/turn/run. Exclude it by name; every OTHER app-sourced call still binds to the helper.
+raw=$(grep -nE 'jc_eventlog_begin\([^)]*app' "$tmp/nocomment.c" \
+      | grep -vE 'jc_eventlog_begin\(app->transcript' | grep -c . || true)
 # the single legitimate site is the helper's own body, in src/chat/jc_app.c
 own=$(strip_c_comments "$SRC/chat/jc_app.c" | grep -cE 'jc_eventlog_begin\([^)]*app' || true)
 if [ "$own" -eq 1 ] && [ "$raw" -eq 1 ]; then

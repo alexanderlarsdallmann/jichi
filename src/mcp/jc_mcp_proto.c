@@ -115,7 +115,7 @@ int jc_mcp_message_id(const char *json, long *id_out)
     id = cJSON_GetObjectItem(root, "id");
     if (cJSON_IsNumber(id)) {
         if (id_out != NULL) {
-            *id_out = (long)id->valuedouble;
+            *id_out = jc_json_clamp_long(id->valuedouble);
         }
         ok = 1;
     }
@@ -352,7 +352,6 @@ jc_status jc_mcp_parse_prompts(const char *resp_json, struct jc_vec *out)
                 if (d.args != NULL) {
                     cJSON_ArrayForEach(a, as) {
                         const char *an;
-                        cJSON *req;
                         if (!cJSON_IsObject(a)) {
                             continue;
                         }
@@ -360,10 +359,12 @@ jc_status jc_mcp_parse_prompts(const char *resp_json, struct jc_vec *out)
                         if (an == NULL || an[0] == '\0') {
                             continue;
                         }
-                        req = jc_json_get_obj(a, "required");
                         d.args[d.nargs].name = jc_strdup(an);
+                        /* M843: an MCP server is a foreign program, so its
+                         * `required` is read leniently -- a 1 or a "true"
+                         * used to read as optional. */
                         d.args[d.nargs].required =
-                            cJSON_IsBool(req) ? cJSON_IsTrue(req) : 0;
+                            jc_json_get_bool_lenient(a, "required", 0);
                         d.nargs++;
                     }
                 }

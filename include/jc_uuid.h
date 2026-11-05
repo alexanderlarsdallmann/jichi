@@ -25,6 +25,9 @@ extern "C" {
 /* Write a 36-char canonical UUID plus NUL into `out` (needs >= 37 bytes). */
 void jc_uuid_v4(char *out);
 
+/* 1 if the OS entropy pool (/dev/urandom) is readable now, 0 otherwise (C-10). */
+int jc_entropy_probe(void);
+
 #ifdef __cplusplus
 }
 #endif

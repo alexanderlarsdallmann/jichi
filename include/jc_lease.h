@@ -32,6 +32,12 @@
  * run leaves no evidence it ever held the tree -- and "who was in here?" is exactly
  * the forensic question a supervisor asks. A file plus a liveness check answers it;
  * a released lock cannot.
+ *
+ * M760: a lock does guard the TAKE, and only the take. Read-then-write let two
+ * runs started together both read "free" and both take the lease quietly. Taking,
+ * and releasing, now happen under jc_lock_take on <key>.lock beside the record:
+ * the record is still the evidence; the lock only makes reading it and replacing
+ * it one step, and dying with its holder is exactly right for that.
  */
 #ifndef JC_LEASE_H
 #define JC_LEASE_H
@@ -62,6 +68,11 @@ struct jc_lease_info {
     long pid;
     long started;       /* unix seconds */
     char mode[16];      /* the agent mode the holder runs in */
+    /* M759: where the holder works and how to reach it, for `jichi ps`. Both
+     * may be empty (an older record, or a run without --control); a reader
+     * that does not know them ignores them, as for any added field. */
+    char root[1024];    /* the workspace root */
+    char control[1024]; /* its control socket, or "" */
 };
 
 /* Parse `--lease` / config. Returns 1 and sets *out, or 0 for an unknown word
@@ -80,11 +91,33 @@ const char *jc_lease_mode_name(enum jc_lease_mode m);
 enum jc_lease_verdict jc_lease_decide(int held, int holder_alive,
                                       enum jc_lease_mode m);
 
-/* ~/.jichi.d/leases/<jc_workspace_key(work_tree)>.json. Keyed by the SAME
- * derivation as the checkpoint repo, so one project is one number everywhere.
- * Pure. */
-void jc_lease_path(const char *home, const char *work_tree,
+/* ~/.jichi.d/leases/<jc_workspace_key(work_tree)>[.<run>].json. Keyed by the
+ * SAME derivation as the checkpoint repo, so one project is one number
+ * everywhere. M1097 (D-09): that key is now the 64-hex SHA-256 digest of the
+ * work-tree path (was a decimal djb2), so the filename is <64-hex>.json.
+ *
+ * M1101 (D-17): ONE RECORD PER HOLDER. The holder's run id is folded into the
+ * name -- <key>.<run>.json -- so a second run that warns and proceeds writes
+ * its OWN file beside the first run's instead of over it. `run` that is NULL or
+ * empty yields the LEGACY bare name <key>.json (the pre-D-17 shape, still read
+ * by the scan so a hand-planted or old-format record is honoured). Pure. */
+void jc_lease_path(const char *home, const char *work_tree, const char *run,
                    char *buf, jc_size cap);
+
+/* M1101 (D-17): walk the leases directory and count this workspace's records.
+ *
+ * Reads every <key>.<...>.json and the legacy <key>.json for THIS work_tree
+ * (key = jc_workspace_key(work_tree), one derivation); other workspaces' files
+ * and the <key>.lock are ignored. A record whose pid is alive is LIVE; one
+ * whose pid is gone is STALE (taken-over material, left on disk -- jichi ps
+ * counts it as evidence and removes nothing, so this never cleans it). Fills
+ * *most_live with the most recently started LIVE record -- the one a warning
+ * or a refusal should name -- on ties (same started) the lexicographically
+ * NEWEST name wins, so the answer is deterministic. *n_live / *n_stale may be
+ * NULL. Returns 1 when the directory was read (even if it held nothing), 0
+ * when `home` is NULL or the directory is absent/unreadable. I/O. */
+int jc_lease_scan(const char *home, const char *work_tree,
+                  struct jc_lease_info *most_live, int *n_live, int *n_stale);
 
 /* Render / parse the record. Pure; unit-tested as a round trip. `jc_lease_parse`
  * returns 1 on success, 0 on malformed input -- which is treated as "no lease"
@@ -105,9 +138,10 @@ enum jc_lease_verdict jc_lease_acquire(const char *home, const char *work_tree,
                                        enum jc_lease_mode mode,
                                        struct jc_lease_info *holder);
 
-/* Drop ours. Reads the file first and unlinks ONLY when the run id matches, so a
- * run that warned-and-proceeded past someone else's lease cannot delete it on the
- * way out. */
+/* Drop ours. M1101 (D-17): the NAME is the identity -- it removes
+ * <key>.<my_run>.json, which can only be our record (one file per holder), so it
+ * cannot touch a sibling's: a run that warned-and-proceeded past someone else's
+ * lease keeps ITS file on the way out. */
 void jc_lease_release(const char *home, const char *work_tree,
                       const char *my_run);
 

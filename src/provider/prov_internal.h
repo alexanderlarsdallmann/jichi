@@ -25,6 +25,15 @@
 #define JC_PROV_SB_KEEP_TEXT (64u * 1024u)
 #define JC_PROV_SB_KEEP_ARGS (8u * 1024u)
 
+/* A-07 / M1090: ceilings on the RUNNING TOTAL a single stream accumulates
+ * (the SSE field cap bounds one event's data, not the sum across the stream).
+ * 4 MiB of assistant text mirrors JC_SSE_FIELD_MAX; 1 MiB of arguments per tool
+ * call is generous for any legit single call (file contents travel through
+ * read_file, not inline args). Defaults for the two runtime caps the test
+ * lowers via jc_prov_set_max_text/args. */
+#define JC_PROV_MAX_TEXT (4L * 1024L * 1024L)
+#define JC_PROV_MAX_ARGS (1L * 1024L * 1024L)
+
 /* One in-progress tool call, keyed by stream index. */
 struct prov_call {
     int          used;             /* slot is an active tool call */
@@ -43,12 +52,17 @@ struct prov_state {
     int              text_started; /* any text emitted yet       */
     int              saw_reasoning;/* model emitted reasoning_content this turn */
     int              hit_length_cap;/* M334: response cut at the output ceiling */
+    /* A-07 / M1090: set by jc_prov_emit_text / jc_prov_append_args the first
+     * time a per-stream cap actually clips a byte. Carried to out->truncated by
+     * jc_prov_flush, alongside hit_length_cap -- different causes, separate flags. */
+    int              truncated_reply;
     struct prov_call calls[JC_PROV_MAX_CALLS];
     int              done;
     double           usage_in;     /* input tokens for this stream  */
     double           usage_out;    /* output tokens for this stream */
     double           cache_read_in;  /* input tokens served from cache (M31a) */
     double           cache_write_in; /* input tokens written to cache (Anthropic) */
+    char             stream_err[512]; /* M909: the server's in-stream error, or "" */
 };
 
 void jc_prov_state_init(struct prov_state *s);
@@ -58,9 +72,28 @@ void jc_prov_state_reset(struct prov_state *s); /* per-turn scratch only */
 /* Ensure slot `idx` exists; returns it or NULL if out of range. */
 struct prov_call *jc_prov_call_slot(struct prov_state *s, int idx);
 
-/* Stream a text delta: append to scratch and notify the sink. */
+/* Stream a text delta: append to scratch (bounded by the M1090/A-07 text cap)
+ * and notify the sink. Past-cap bytes are dropped and truncated_reply is set. */
 void jc_prov_emit_text(struct prov_state *s, struct jc_stream_sink *sink,
                        const char *delta, jc_size n);
+
+/* A-07 / M1090: append NUL-terminated tool-call arguments to `slot`, bounded
+ * by the per-call args cap; sets s->truncated_reply when a fragment is
+ * clipped. Shared by all four dialect append sites (openai stream + full,
+ * anthropic stream + full). */
+void jc_prov_append_args(struct prov_state *s, struct prov_call *slot,
+                         const char *args);
+
+/* A-07 / M1090: the two per-stream caps are runtime-adjustable so the test can
+ * lower them to a few bytes without a 4 MiB fixture. Defaults are
+ * JC_PROV_MAX_TEXT / JC_PROV_MAX_ARGS; getters report the live values, setters
+ * override, resetters restore the defaults. */
+size_t jc_prov_get_max_text(void);
+size_t jc_prov_get_max_args(void);
+void jc_prov_set_max_text(size_t n);
+void jc_prov_set_max_args(size_t n);
+void jc_prov_reset_max_text(void);
+void jc_prov_reset_max_args(void);
 
 /* Flush accumulated text + tool calls into `out`. Called on stream done. */
 void jc_prov_flush(struct prov_state *s, struct jc_message *out);
@@ -68,6 +101,16 @@ void jc_prov_flush(struct prov_state *s, struct jc_message *out);
 /* Shared get_usage vtable implementation (reads self->state). */
 void jc_prov_get_usage(struct jc_provider *self, double *in_tok,
                        double *out_tok);
+
+/* Shared stream_started vtable implementation (M897): text, reasoning or a
+ * tool call seen in the current stream. */
+int jc_prov_stream_started(struct jc_provider *self);
+
+/* M909: the shared stream_error vtable implementation, and the setter both
+ * dialects' error branches call: it keeps the server's message (cut to fit,
+ * on a UTF-8 boundary) and emits nothing as answer text. */
+const char *jc_prov_stream_error(struct jc_provider *self);
+void jc_prov_set_stream_error(struct prov_state *s, const char *msg);
 
 /* Shared get_cache_usage vtable implementation (reads self->state). */
 void jc_prov_get_cache_usage(struct jc_provider *self, double *read_in,

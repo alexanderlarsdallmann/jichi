@@ -1,8 +1,9 @@
 # The documentation map
 
-**167** pages sit beside this one at the top level, and **514** in all once
-`analysis/`, `plans/`, `proposals/`, `reading/`, `assignments/` and `curriculum/`
-are counted. They are not all for the same reader. This is the routing table: **[Start here](#start-here)** if you have just arrived, the
+**180** pages sit beside this one at the top level, and **823** once the
+whole tree is counted (including the translated pages and the working
+directories). They are not all for the same reader. This is the routing table:
+**[Start here](#start-here)** if you have just arrived, the
 group that matches your question otherwise.
 
 **The project record ships in full, on purpose.** [`analysis/`](analysis/),
@@ -39,24 +40,30 @@ most settled is the prose most worth checking against the code.
 
 ## Start here
 
-The shortest path from an empty terminal to a working session.
+The shortest path from an empty terminal to a working session. **Follow it in
+order** — each step names what you should see before you move to the next.
 
-- [`BUILD.md`](BUILD.md) — Building jichi from source
-- [`CJK.md`](CJK.md) — jichi in Japanese, Chinese and Korean
-- [`READING_THE_STANDARD.md`](READING_THE_STANDARD.md) — Reading the C standard — a method, with jichi as the instrument
-- [`DISTRIBUTED.md`](DISTRIBUTED.md) — jichi distributed: what works today, what does not, and what it would cost
-- [`COMPARED.md`](COMPARED.md) — jichi compared: Continue, opencode, Claude Code
-- [`CONFIG_TUTORIAL.md`](CONFIG_TUTORIAL.md) — Tutorial: configuring & using the model/agent options
-- [`DOCTOR.md`](DOCTOR.md) — `doctor` — setup health check
-- [`INSTALL.md`](INSTALL.md) — Installation & System Requirements
-- [`LICENSING.md`](LICENSING.md) — Copyright and licensing — who owns jichi, and under what terms
-- [`STATE.md`](STATE.md) — Where your state lives — config, secrets, caches, and what `make install` does not ship
-- [`PLAIN_LANGUAGE.md`](PLAIN_LANGUAGE.md) — jichi in plain language
-- [`PREPARE_AND_BUILD.md`](PREPARE_AND_BUILD.md) — Preparing your system and building jichi — the complete walkthrough
-- [`SETUP_WIZARD.md`](SETUP_WIZARD.md) — Setup wizard (`jichi setup`)
-- [`TUTORIAL_BEGINNER.md`](TUTORIAL_BEGINNER.md) — Beginner tutorial: your first jichi project
-- [`VOCABULARY.md`](VOCABULARY.md) — Vocabulary — the words this project uses, defined before use
-- [`WORKFLOWS.md`](WORKFLOWS.md) — Workflows — pick your journey
+1. [`PLAIN_LANGUAGE.md`](PLAIN_LANGUAGE.md) — **New, or unsure? Start here.** What jichi is, and a whole first session, in plain words.
+2. [`INSTALL.md`](INSTALL.md) — What you need first: system requirements and prerequisites — with [`install/`](install/README.md), a step-by-step walkthrough per platform (the Linux families, the BSDs, illumos, Guix, GNU/Hurd, Windows/WSL2, macOS).
+3. [`PREPARE_AND_BUILD.md`](PREPARE_AND_BUILD.md) — The complete build walkthrough, from a bare machine to a built binary. (Already at home with a compiler? [`BUILD.md`](BUILD.md) is the terser build reference.)
+4. [`SETUP_WIZARD.md`](SETUP_WIZARD.md) — `jichi setup`: create your config and store your key.
+5. [`DOCTOR.md`](DOCTOR.md) — `jichi doctor`: confirm every check passes before you start.
+6. [`TUTORIAL_BEGINNER.md`](TUTORIAL_BEGINNER.md) — Your first real jichi project, step by step.
+7. [`CONFIG_TUTORIAL.md`](CONFIG_TUTORIAL.md) — Once it works, tune the model and agent options.
+
+**Keep these open alongside** — they are references, not steps:
+[`VOCABULARY.md`](VOCABULARY.md) (the words this project uses, defined before use),
+[`WORKFLOWS.md`](WORKFLOWS.md) (pick the journey that matches why you are here), and
+[`STATE.md`](STATE.md) (where your config, secrets and caches live). **Note:
+`make install` installs the binary, not this documentation — so keep your source
+checkout** for the docs, the curriculum and the examples.
+
+Two signposts before you begin. The three build pages answer **different**
+questions: [`INSTALL.md`](INSTALL.md) the requirements and prerequisites,
+[`PREPARE_AND_BUILD.md`](PREPARE_AND_BUILD.md) the guided walkthrough, and
+[`BUILD.md`](BUILD.md) the build-system reference. And if you are still **deciding
+whether jichi fits at all**, [`COMPARED.md`](COMPARED.md) sets it beside Continue,
+opencode and Claude Code.
 
 
 ## Using jichi day to day
@@ -71,6 +78,7 @@ Modes, the things you can teach it, and what the terminal does.
 - [`COMMANDS.md`](COMMANDS.md) — Custom slash commands
 - [`CONSTRAINTS.md`](CONSTRAINTS.md) — Constraints — captured and enforced (M110)
 - [`DESIGN_INPUT.md`](DESIGN_INPUT.md) — Design input (`--design` / `--spec`)
+- [`CJK.md`](CJK.md) — jichi in Japanese, Chinese and Korean
 - [`ENCODING.md`](ENCODING.md) — Text encoding & internationalization
 - [`GLOSSARY.md`](GLOSSARY.md) — Glossary
 - [`LANGUAGE.md`](LANGUAGE.md) — Natural language (answers + UI)
@@ -78,12 +86,15 @@ Modes, the things you can teach it, and what the terminal does.
 - [`NOTIFY.md`](NOTIFY.md) — Completion notification
 - [`OUTPUT_STYLES.md`](OUTPUT_STYLES.md) — Output styles (M28)
 - [`REFERENCES.md`](REFERENCES.md) — References (@-context)
+- [`RESUME.md`](RESUME.md) — Resuming work: what a fresh session inherits (files, not conversation), and the six pieces of the prompt that bridges them
+- [`RELAY.md`](RELAY.md) — The context relay: one long task, more than one session — the loop the operator allowed for one shape, the two topologies, the use cases, and what a relay never does
 - [`RULES.md`](RULES.md) — Project rules (AGENTS.md)
 - [`SKILLS.md`](SKILLS.md) — Agent skills
 - [`TUI_RENDER.md`](TUI_RENDER.md) — TUI rendering: markdown, syntax, and the reply header
 - [`TUTORIAL_ADVANCED.md`](TUTORIAL_ADVANCED.md) — Advanced tutorial: power use
 - [`TYPE_AHEAD.md`](TYPE_AHEAD.md) — Type-ahead: typing while jichi works (M254, opt-in since M257)
 - [`VOICE.md`](VOICE.md) — Voice: speaking and listening
+- [`WORKBENCH.md`](WORKBENCH.md) — The terminal workbench: jichi with an editor, a browser, a PDF reader and a file manager — layouts, use cases per pack, and checking the model's answers
 
 
 ## Models, providers and cost
@@ -94,6 +105,7 @@ Which model, pointed where, and what each turn actually spends.
 - [`COMPACTION.md`](COMPACTION.md) — Auto-compaction
 - [`CONVERT.md`](CONVERT.md) — Converting Continue and opencode configs
 - [`GATEWAY_ADMIN.md`](GATEWAY_ADMIN.md) — Configuring an LLM gateway for agentic coding tools
+- [`HARNESS.md`](HARNESS.md) — jichi-harness: driving jichi or any agent on its own: what the harness protects, the commands as they land, and the modes
 - [`LOCAL_MODELS.md`](LOCAL_MODELS.md) — Local models: the offline study machine
 - [`MODELS.md`](MODELS.md) — Models, servers & fallback
 - [`PROMPT_CACHING.md`](PROMPT_CACHING.md) — Prompt caching
@@ -136,13 +148,17 @@ Running jichi unattended, and being able to say afterwards what it did.
 
 - [`AGENT_COLLABORATION.md`](AGENT_COLLABORATION.md) — Humans and agents, agents and agents: the collaboration map
 - [`AUTONOMOUS_LOOPS.md`](AUTONOMOUS_LOOPS.md) — Autonomous loops: running jichi unattended over a set of tasks
+- [`DRIVING_A_TEAM.md`](DRIVING_A_TEAM.md) — Driving a team of jichi agents: tasks, agent definitions, skills and supervision — what a 248-run drive taught, for learners and for the agents that drive jichi
+- [`QUEUE_PROTOCOL.md`](QUEUE_PROTOCOL.md) — A queue of tasks for several agents: the protocol, the POSIX rule each step relies on, and the experiment that will measure it
 - [`AUTONOMY.md`](AUTONOMY.md) — Autonomy envelope
+- [`CONTAINER_TUTORIAL.md`](CONTAINER_TUTORIAL.md) — Tutorial: a container around jichi's shell — rootless podman, a record the shell cannot delete, one network door, all measured, and five mistakes made along the way
 - [`CONTROL.md`](CONTROL.md) — The mid-run control channel (`--control`, M159)
 - [`DAEMON.md`](DAEMON.md) — Daemon (warm process)
 - [`GATE_INTEGRITY.md`](GATE_INTEGRITY.md) — Gate integrity: protecting the instrument, not just the product
 - [`HARDENING.md`](HARDENING.md) — Hardening & extension (M130–M134)
 - [`LEARNING.md`](LEARNING.md) — Learning loop (mentor)
 - [`OBSERVABILITY.md`](OBSERVABILITY.md) — Observability: what an autonomous jichi leaves behind, and how to read it
+- [`DISTRIBUTED.md`](DISTRIBUTED.md) — jichi distributed: what works today, what does not, and what it would cost (an analysis, not a feature)
 - [`PARALLEL.md`](PARALLEL.md) — Parallel agent swarm
 - [`REWIND.md`](REWIND.md) — Conversational rewind (`/rewind` / `rewind`)
 - [`SNAPSHOTS.md`](SNAPSHOTS.md) — Git snapshots & undo
@@ -166,9 +182,11 @@ Scripts, editors, other machines, other front ends.
 - [`EDITORS.md`](EDITORS.md) — Editor integrations
 - [`EMACS.md`](EMACS.md) — Emacs integration (`jichi.el`)
 - [`EMBEDDING.md`](EMBEDDING.md) — Embedding jichi as a component
+- [`CHATBOT.md`](CHATBOT.md) — jichi as a chatbot component for websites and applications: read-only, a fixed configuration, free local models
 - [`EXPORT.md`](EXPORT.md) — Session export (`export` / `/export`)
 - [`JUPYTERHUB.md`](JUPYTERHUB.md) — jichi under JupyterHub — what was measured, what was not, and how to decide
 - [`REMOTE_SSH.md`](REMOTE_SSH.md) — Driving jichi on a remote server over SSH (headless)
+- [`SCREEN.md`](SCREEN.md) — Working across machines with GNU screen: one program reached from two machines, copy mode that stops it, and a 4.9.1 crash to avoid
 - [`SCRIPTING.md`](SCRIPTING.md) — Scripting & pipes
 - [`TMUX.md`](TMUX.md) — Running jichi under tmux (on remote servers)
 - [`VIM.md`](VIM.md) — Vim / Neovim integration
@@ -179,11 +197,12 @@ Scripts, editors, other machines, other front ends.
 
 What has actually been compiled and run, and what it costs to build.
 
+- [`BUILD.md`](BUILD.md) — Building jichi from source — the build-system reference
 - [`CPP_BUILD.md`](CPP_BUILD.md) — Compiling jichi with a C++ compiler — and what it buys you, honestly
 - [`C_STANDARDS.md`](C_STANDARDS.md) — C89/90 vs modern C — and what portability really costs
 - [`LOW_MEMORY.md`](LOW_MEMORY.md) — Running jichi on low-RAM / embedded systems
 - [`MIGRATION.md`](MIGRATION.md) — Migrating from `jlu_continue` to `jichi`
-- [`PLATFORMS.md`](PLATFORMS.md) — Platforms — what has actually been compiled and run
+- [`PLATFORMS.md`](PLATFORMS.md) — Platforms — what has actually been compiled and run (the long per-platform porting histories are in [`platform-notes/`](platform-notes/README.md))
 - [`PLATFORM_RETEST.md`](PLATFORM_RETEST.md) — When a verified platform needs re-running — triggers, coverage debt, and the ladder
 - [`PORTING_WINDOWS.md`](PORTING_WINDOWS.md) — jichi on Windows: where POSIX ends
 - [`VERIFY_A_PLATFORM.md`](VERIFY_A_PLATFORM.md) — *Helping verify a platform.* For a self-learner or junior developer with a machine this project does not have: the tested commands, what each proves, what to send and never send, and how a report becomes a row (M716)
@@ -204,13 +223,16 @@ The curriculum, the reading guides, and the craft tutorials.
 - [`DRIVE_LOG.md`](DRIVE_LOG.md) — *Does this work when somebody uses it?* The counterpart to the page above, and the one that found the defects the gates could not: every gate in this tree is offline, so none of them can see what a caller is told. A recipe, the discipline of getting ground truth FIRST, and the log of drives — which is also the corpus two deferred questions are waiting on.
 - [`HAIKU.md`](HAIKU.md) — 自治の八句 — eight haiku for jichi
 - [`ILLUSTRATION.md`](ILLUSTRATION.md) — Pictures in this documentation: what may be captured and what may be generated. A generated screenshot is a fabricated record; the capture recipe, the LocalAI setup, and an honest measurement of what the image model actually produced (M680)
-- [`BIBLIOGRAPHY.md`](BIBLIOGRAPHY.md) — The reading jichi's documentation points at — 159 checked entries on the craft, C, C++, Zig, Rust, Python, Racket, Guile, Elixir, Haskell, Clojure and interfaces (M636, M650, M670, M671, M677)
+- [`BIBLIOGRAPHY.md`](BIBLIOGRAPHY.md) — The reading jichi's documentation points at — 194 checked entries on the craft, C, C++, Zig, Rust, Python, Racket, Guile, Elixir, Haskell, Clojure, Ada/SPARK, interfaces and human–computer interaction (M636, M650, M670, M671, M677, M754)
 - [`INTERFACE_TUTORIAL.md`](INTERFACE_TUTORIAL.md) — Interfaces — designing them, including the ones made of text — a tutorial
+- [`TUI_PRINCIPLES.md`](TUI_PRINCIPLES.md) — The TUI's principles, on one page — what five documents decided, each rule with its source, and where they disagree (M756)
+- [`LEARNER_STUDY.md`](LEARNER_STUDY.md) — A learner study — the protocol: five tasks, think-aloud, no coaching, consent first; not yet run (M756)
 - [`LANGUAGE_COURSE.md`](LANGUAGE_COURSE.md) — Learning a language with jichi, from its official tutorial
 - [`GAME_DEVELOPMENT.md`](GAME_DEVELOPMENT.md) — Learning game development with jichi — Godot's own docs as the corpus, and a gate that runs the game headless
 - [`CRAFT_AB_TUTORIAL.md`](CRAFT_AB_TUTORIAL.md) — Grading a craft A/B — a step-by-step tutorial
 - [`CURRICULUM.md`](CURRICULUM.md) — The curriculum — learning software development with an agent at your side
 - [`DATA_STRUCTURES.md`](DATA_STRUCTURES.md) — Choosing a data structure — jichi has one, and that is an argument (M636f)
+- [`ALGORITHMS.md`](ALGORITHMS.md) — Algorithms, read in the program you are using — four of jichi's own (hashing, edit distance, the SSE state machine, BM25), each measured on this tree; an ungraded reading page (M755)
 - [`FILE_HANDLING.md`](FILE_HANDLING.md) — Handling files — what jichi does, where it is wrong, and what else there is (M636f)
 - [`DOMAIN_MODELLING_TUTORIAL.md`](DOMAIN_MODELLING_TUTORIAL.md) — Domain modelling — a tutorial
 - [`ORG_MODE.md`](ORG_MODE.md) — Emacs org-mode for a software project
@@ -218,6 +240,7 @@ The curriculum, the reading guides, and the craft tutorials.
 - [`ADA_AND_C.md`](ADA_AND_C.md) — Ada, SPARK and C — proving what this project tests
 - [`PSEUDOCODE_TUTORIAL.md`](PSEUDOCODE_TUTORIAL.md) — Pseudocode — writing it, and turning it into real code — a tutorial
 - [`READING_OPEN_SOURCE.md`](READING_OPEN_SOURCE.md) — Reading open-source C — with the agent as your reading partner
+- [`READING_THE_STANDARD.md`](READING_THE_STANDARD.md) — Reading the C standard — a method, with jichi as the instrument
 - [`SDLC.md`](SDLC.md) — The software development lifecycle in jichi: five journeys
 - [`STATE_MACHINE_TUTORIAL.md`](STATE_MACHINE_TUTORIAL.md) — State machines — designing them, writing them, and knowing when not to — a tutorial
 - [`TEACHING.md`](TEACHING.md) — Teaching with jichi: walk it before you assign it — the teacher's progression
@@ -251,6 +274,7 @@ Why jichi is the way it is, including everything that went wrong. This ships on 
 
 - [`ANECDOTES.md`](ANECDOTES.md) — Anecdotes & debugging war stories
 - [`APPROACH.md`](APPROACH.md) — How jichi approaches building software
+- [`COMPARED.md`](COMPARED.md) — jichi compared: Continue, opencode, Claude Code — for deciding whether it fits
 - [`DECISIONS.md`](DECISIONS.md) — Decision register
 - [`DEFERRED.md`](DEFERRED.md) — Deferred register
 - [`DEFERRED_LOCAL_GPU.md`](DEFERRED_LOCAL_GPU.md) — Deferred until a local-model + GPU bench
@@ -259,6 +283,7 @@ Why jichi is the way it is, including everything that went wrong. This ships on 
 - [`GROUNDED_DISCOURSE.md`](GROUNDED_DISCOURSE.md) — Discussing with a model — five moves, and the record that makes them checkable
 - [`ARGUMENT.md`](ARGUMENT.md) — The argument you were already making — the house vernacular mapped to its names (rationale, warrant, defeater, qualifier), and `/predict` (M635)
 - [`DRIVING.md`](DRIVING.md) — Driving jichi at a real project: what 28 runs measured
+- [`LICENSING.md`](LICENSING.md) — Copyright and licensing — who owns jichi, and under what terms
 - [`JOURNEY.md`](JOURNEY.md) — The journey — from first step to master's rest
 - [`NOTICES.md`](NOTICES.md) — The bracketed tags — the registry
 - [`PHILOSOPHY.md`](PHILOSOPHY.md) — The philosophy of jichi

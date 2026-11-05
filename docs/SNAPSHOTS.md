@@ -26,8 +26,15 @@ not after.
 ## How it works
 
 - A shadow repo lives at `~/.jichi.d/checkpoints/<key>/`, where `<key>`
-  is derived from the workspace path. Its **work tree is your workspace**; every
+  is the 64-hex SHA-256 of the workspace's absolute path (M1097; one
+  derivation feeds the checkpoint dir, the run lease and the telemetry
+  log, so the same key names all three). The shadow repo also records
+  `jichi.worktree` in its config; a repo positively pinned to a different
+  work tree is disabled rather than trusted. Its **work tree is your workspace**; every
   git command runs as `git --git-dir=<shadow> --work-tree=<workspace> …`.
+  (Pre-M1097 the key was a `djb2` decimal, so a store left by an older jichi is
+  now never reached; start-up warns when such a numeric store still exists for
+  this workspace and names the orphaned path, M1097-c.)
 - A checkpoint is `git add -A` + `git commit` in the shadow repo. Because the
   work tree is your project, this records the project's current state without
   creating anything inside it. Your project's `.gitignore` is respected, and the
@@ -51,6 +58,13 @@ not after.
   followed by `git clean -fd` (so files the agent *created* after the checkpoint
   are removed too), then pops it off the stack. A second `/undo` steps back to
   the checkpoint before that, and so on.
+  > **M977 D-02 fix:** `git clean` now runs *before* `git reset --hard`. This
+  > matters because the current `.gitignore` may ignore files that were tracked
+  > at the checkpoint target. If clean ran after reset, it would read the restored
+  > (older) `.gitignore` and delete those files. Running clean first means it uses
+  > the same `.gitignore` rules as the dry-run preview, so a file ignored now is
+  > never touched; one the restored `.gitignore` no longer ignores survives as an
+  > untracked file - the documented promise.
 
 ## Using it (TUI)
 
@@ -121,6 +135,10 @@ repopulated from the shadow repo's history (most recent
   discard *all* changes since the checkpoint in the affected files — including
   any you made by hand in the meantime. Ignored files (per `.gitignore`) are
   left alone by `clean`, so build output isn't deleted.
+  > **M977 D-02 fix:** `git clean` runs *before* `git reset --hard`, so it uses
+  > the same `.gitignore` rules as the dry-run preview. A file ignored now is
+  > never touched; one the restored `.gitignore` no longer ignores survives as
+  > an untracked file.
 - **Per-user, so `/undo` is per-user.** The shadow repo lives under
   `~/.jichi.d/`, keyed by a hash of the *work tree*. Two **users** sharing one
   directory therefore hold **two independent checkpoint histories over one

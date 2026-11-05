@@ -7,9 +7,14 @@ back. This is the inverse of jichi's MCP/LSP roles, where jichi is the *client* 
 here jichi is the *server* and the editor is the client.
 
 ```sh
-jichi serve --acp      # speak ACP over stdin/stdout
-jichi --acp            # equivalent
+jichi --acp            # speak ACP over stdin/stdout
+jichi serve            # equivalent
 ```
+
+Use one or the other, not both: `jichi serve --acp` is refused today ("`--acp` and `-p/--print`
+are different run modes", exit 2), because `serve` is taken as a prompt when `--acp` is also
+given. That is a regression, listed as D1 in
+[the desktop-application design](proposals/2026-09-desktop-gui.md) §9.
 
 The editor spawns that command and exchanges newline-delimited JSON-RPC 2.0
 messages over the process's stdin/stdout. All of jichi's normal configuration
@@ -22,6 +27,12 @@ Transport is **newline-delimited JSON-RPC 2.0** (one compact message per line,
 never containing an embedded newline) over stdin/stdout — the same framing as
 the MCP stdio transport, with the roles reversed. jichi speaks protocol
 version **1**.
+
+Because stdin is the protocol, no program jichi starts may read it: a command
+the model runs, and every program jichi runs itself (verify, snapshots, git),
+gets `/dev/null` as its stdin. Before M844 such a command inherited the stream,
+and one that read stdin could swallow the client's next message, a
+`session/cancel` among them.
 
 ### Methods jichi handles (client → agent)
 
@@ -41,7 +52,9 @@ under `~/.jichi.d/sessions/<id>.json` — and **the ACP `sessionId` *is* the jic
 session id**. `session/new` creates a session and returns its id; after every
 `session/prompt` turn jichi saves the updated history (and auto-titles it from the
 first user message), exactly as the TUI/headless paths do. `--no-session`
-suppresses persistence here too.
+suppresses persistence here too. `session/load` validates the `sessionId`
+before touching the store: a malformed id is refused with an error and no
+content is loaded.
 
 Because the ids are unified, a session started in the TUI can be reloaded from an
 editor and vice-versa. On `session/load` jichi loads the stored history and
@@ -63,7 +76,11 @@ and the whole prior conversation reappears — no model call, no network.
 - **One id space.** Rather than invent ACP-only session ids and a parallel store,
   the ACP sessionId is the jichi session id, so the existing `jc_session`
   persistence (and the `ls`/`--continue`/`--session` CLI surfaces) just work for
-  editor-driven sessions. The session's saved *mode* is restored on load.
+  editor-driven sessions. The session's saved *mode* applies on load only when it is the
+  process's own or a stricter one: a saved mode never widens a run (M845). A `--plan`
+  process that loads a session saved in auto stays in plan and says so on stderr
+  (`session/load: mode: kept plan -- ...`); start `jichi --acp --auto` to run such a
+  session in auto.
 - **Replay is pure-data, never a model call.** Loading walks the saved history
   and emits notifications built by the same pure `jc_acp_proto` builders used for
   live streaming (`jc_acp_update_user_message_chunk` was added for the user side).
@@ -83,7 +100,11 @@ During a `session/prompt` turn, jichi streams `session/update` **notifications**
 | `tool_call_update` | The tool finished (`status:"completed"`/`"failed"` + its output as content). |
 
 When a tool needs approval (the same `jc_perm` policy as everywhere else — ASK
-in chat mode for mutating tools), jichi sends a `session/request_permission`
+in chat mode for mutating tools -- and an armed autonomy envelope does not
+change that: `--edit-scope`, `--max-tool-calls`, a config `verify` or `editScope`
+arm the envelope's budgets, scope and verifier, but never switch an ACP session
+to auto; before M850 they did, silently, because ACP's piped stdin read as
+headless), jichi sends a `session/request_permission`
 **request** and blocks until the client answers:
 
 ```jsonc
@@ -98,7 +119,9 @@ in chat mode for mutating tools), jichi sends a `session/request_permission`
 ```
 
 - `allow_once` → run the tool this time.
-- `allow_always` → run it, and auto-allow that tool for the rest of the session.
+- `allow_always` → run it, and auto-allow that tool, whatever its arguments, for the rest of the
+  **process**: the list survives `session/new` and `session/load` in the same jichi process
+  (measured). Privileged commands (`sudo`, `doas`, `pkexec`, `su`, `run0`) are still refused.
 - `reject_once` (or any non-selection) → refuse the tool (returned to the model
   as an error, so it can adjust).
 - `{"outcome":"cancelled"}` → treated as a cancel: the turn aborts.
@@ -218,14 +241,12 @@ See docs/TRANSCRIBE.md.
 
 ## What's not implemented
 
-- **Code fill-in-the-middle as an ACP method.** The headless `fim` subcommand
-  exists (editor "tab autocomplete"), but ACP defines no standard completion
-  method; exposing FIM would mean a non-portable vendor extension. It's left to
-  the `fim` subcommand (which an editor can shell out to) until ACP standardizes
-  one.
-- **Code fill-in-the-middle.** The roadmap's M9b (editor "tab autocomplete" via
-  prefix/suffix) is a natural next ACP method, reusing the `autocomplete` model
-  role and the one-shot call behind the headless `complete` subcommand.
+- **Code fill-in-the-middle.** The headless `fim` subcommand exists (editor "tab
+  autocomplete", the roadmap's M9b, reusing the `autocomplete` model role and the
+  one-shot call behind the headless `complete` subcommand), but ACP defines no
+  standard completion method, and exposing FIM would mean a non-portable vendor
+  extension. It's left to the `fim` subcommand (which an editor can shell out to)
+  until ACP standardizes one.
 
 ## Internals
 

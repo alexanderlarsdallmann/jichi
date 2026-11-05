@@ -37,7 +37,15 @@
  * Exit codes: 0 script completed; 2 usage / script parse error; 3 expect
  * timeout (the transcript tail is dumped to stderr) or --deadline hit;
  * 4 pty/spawn failure; 5 waitexit timeout (child SIGKILLed); 6 assertexit
- * mismatch. Test-only; never installed.
+ * mismatch; 7 the child was killed by a signal and no assertexit said so
+ * (M758). Test-only; never installed.
+ *
+ * WHY 7 EXISTS (M758). `waitexit` recorded the child's status and nothing read
+ * it unless an `assertexit` followed, and 27 of the 36 drivers that wait for an
+ * exit never assert one. So a jichi that segfaulted on its way out of the TUI
+ * -- every session with no model configured, from M718 to M757 -- passed all of
+ * them. An exit CODE is the driver's business to check or not; a death by a
+ * signal is never an outcome a driver meant without saying so.
  */
 
 #include "pd_core.h"
@@ -82,6 +90,7 @@
 #define PT_EXIT_SPAWN    4
 #define PT_EXIT_WAITEXIT 5
 #define PT_EXIT_ASSERT   6
+#define PT_EXIT_SIGNALED 7
 
 #define PT_TRANSCRIPT_MAX (256u * 1024u)
 #define PT_TAIL_DUMP 2048
@@ -421,6 +430,9 @@ int main(int argc, char **argv)
     pid_t child = -1;
     int have_status = 0;
     int child_status = -1;
+    int died_by = 0;     /* the signal that killed the child, if one did (M758) */
+    int asserted = 0;    /* an assertexit ran, so the script said what it wants */
+    int rc = TT_EXIT_OK;
     int eof_seen = 0;
     int i;
 
@@ -632,8 +644,10 @@ int main(int argc, char **argv)
                 if (w == child) {
                     if (WIFEXITED(st))
                         child_status = WEXITSTATUS(st);
-                    else if (WIFSIGNALED(st))
+                    else if (WIFSIGNALED(st)) {
                         child_status = 128 + WTERMSIG(st);
+                        died_by = WTERMSIG(st);
+                    }
                     else
                         child_status = -1;
                     have_status = 1;
@@ -661,6 +675,7 @@ int main(int argc, char **argv)
             break;
         }
         case PD_CMD_ASSERTEXIT:
+            asserted = 1;
             if (!have_status) {
                 fprintf(stderr,
                         "%s: line %d: assertexit before waitexit\n",
@@ -684,6 +699,16 @@ int main(int argc, char **argv)
         }
     }
 
+    /* M758: a death by a signal fails the script unless it was asserted. */
+    if (died_by != 0 && !asserted) {
+        fprintf(stderr,
+                "%s: the child was killed by signal %d (exit status %d); a "
+                "script that expects that says `assertexit %d`\n",
+                g_prog, died_by, 128 + died_by, 128 + died_by);
+        pt_dump_tail(&transcript);
+        rc = PT_EXIT_SIGNALED;
+    }
+
     /* script done; never leave a stray child behind */
     if (child > 0) {
         kill(child, SIGKILL);
@@ -694,5 +719,5 @@ int main(int argc, char **argv)
     close(master);
     free(transcript.data);
     pd_script_free(&script);
-    return TT_EXIT_OK;
+    return rc;
 }

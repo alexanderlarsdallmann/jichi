@@ -82,13 +82,13 @@ static void audit_write(struct jc_app *app, const char *file,
     /* Append-only, created 0600, flushed per line. A brand-new file must be
      * made private BEFORE the secret-bearing line is written. */
     if (!jc_file_exists(path)) {
-        f = fopen(path, "a");
+        f = fopen(path, "ab");
         if (f != NULL) {
             fclose(f);
         }
         jc_make_private(path); /* 0600 while still empty */
     }
-    f = fopen(path, "a");
+    f = fopen(path, "ab");
     if (f == NULL) {
         jc_logf(JC_LOG_WARN, "audit: could not append to %s (attempt NOT "
                 "recorded to jichi's log)", path);

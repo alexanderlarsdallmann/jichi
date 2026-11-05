@@ -7,7 +7,10 @@
 
 #include "jc_progress.h"
 #include "jc_mem.h"
+#include "jc_log.h"
 #include "jc_snprintf.h"
+#include "jc_path.h"
+#include "jc_json.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -52,8 +55,8 @@ static void scan_line(const char *line, const char *want_base,
     }
     pct = cJSON_GetObjectItem(o, "pct");
     if (pct != NULL && cJSON_IsNumber(pct) &&
-        (int)pct->valuedouble > out->best_pct) {
-        out->best_pct = (int)pct->valuedouble;
+        jc_json_clamp_int(pct->valuedouble) > out->best_pct) {
+        out->best_pct = jc_json_clamp_int(pct->valuedouble);
     }
     cJSON_Delete(o);
 }
@@ -138,13 +141,39 @@ jc_status jc_progress_append(const char *dir, const char *spec, int passed,
     cJSON *o;
     char *line;
     FILE *f;
+    jc_status st;
 
     if (dir == NULL || spec == NULL) {
         return JC_ERR_INVALID;
     }
     jc_snprintf(sub, sizeof(sub), "%s/.jichi", dir);
+    /* D-15: check that .jichi directory is safe before writing. */
+    st = jc_state_file_check(dir, sub);
+    if (st != JC_OK) {
+        if (st == JC_ERR_DENIED) {
+            jc_logf(JC_LOG_WARN, "progress: .jichi directory is a symlink");
+        } else {
+            jc_logf(JC_LOG_WARN, "progress: .jichi directory is a symlink or non-regular file");
+        }
+        return JC_ERR_DENIED;
+    }
     jc_mkdir_p(sub);
     jc_snprintf(path, sizeof(path), "%s/progress.jsonl", sub);
+    /* M997: the .jichi directory check above does not stop a symlinked LEAF.
+     * .jichi a real dir but progress.jsonl a link to an outside file would let
+     * fopen(path, "ab") append OUTSIDE the workspace. Lstat the leaf too; it
+     * returns JC_ERR_INVALID for a link, so refuse before the write. */
+    st = jc_state_file_check(dir, path);
+    if (st != JC_OK) {
+        if (st == JC_ERR_DENIED) {
+            jc_logf(JC_LOG_WARN, "progress: progress.jsonl path is a symlink");
+        } else {
+            jc_logf(JC_LOG_WARN,
+                    "progress: progress.jsonl path is a symlink or "
+                    "non-regular file");
+        }
+        return JC_ERR_DENIED;
+    }
 
     o = cJSON_CreateObject();
     if (o == NULL) {
@@ -164,7 +193,7 @@ jc_status jc_progress_append(const char *dir, const char *spec, int passed,
     if (line == NULL) {
         return JC_ERR_OOM;
     }
-    f = fopen(path, "a");
+    f = fopen(path, "ab");
     if (f == NULL) {
         free(line);
         return JC_ERR_IO;
@@ -192,13 +221,35 @@ jc_status jc_progress_hint_append(const char *dir, const char *spec, int rung)
     cJSON *o;
     char *line;
     FILE *f;
+    jc_status st;
 
     if (dir == NULL || spec == NULL || rung <= 0) {
         return JC_ERR_INVALID;
     }
     jc_snprintf(sub, sizeof(sub), "%s/.jichi", dir);
+    /* D-15: check that .jichi directory is safe before writing. */
+    st = jc_state_file_check(dir, sub);
+    if (st != JC_OK) {
+        if (st == JC_ERR_DENIED) {
+            jc_logf(JC_LOG_WARN, "hints: .jichi directory is a symlink");
+        } else {
+            jc_logf(JC_LOG_WARN, "hints: .jichi directory is a symlink or non-regular file");
+        }
+        return JC_ERR_DENIED;
+    }
     jc_mkdir_p(sub);
     jc_snprintf(path, sizeof(path), "%s/hints.jsonl", sub);
+    /* M997: guard the leaf too (a symlinked hints.jsonl would write outside). */
+    st = jc_state_file_check(dir, path);
+    if (st != JC_OK) {
+        if (st == JC_ERR_DENIED) {
+            jc_logf(JC_LOG_WARN, "hints: hints.jsonl path is a symlink");
+        } else {
+            jc_logf(JC_LOG_WARN,
+                    "hints: hints.jsonl path is a symlink or non-regular file");
+        }
+        return JC_ERR_DENIED;
+    }
 
     o = cJSON_CreateObject();
     if (o == NULL) {
@@ -212,7 +263,7 @@ jc_status jc_progress_hint_append(const char *dir, const char *spec, int rung)
     if (line == NULL) {
         return JC_ERR_OOM;
     }
-    f = fopen(path, "a");
+    f = fopen(path, "ab");
     if (f == NULL) {
         free(line);
         return JC_ERR_IO;
@@ -250,8 +301,8 @@ static void scan_hint_line(const char *line, const char *want_base,
     out->pulls++;
     rung = cJSON_GetObjectItem(o, "rung");
     if (rung != NULL && cJSON_IsNumber(rung) &&
-        (int)rung->valuedouble > out->max_rung) {
-        out->max_rung = (int)rung->valuedouble;
+        jc_json_clamp_int(rung->valuedouble) > out->max_rung) {
+        out->max_rung = jc_json_clamp_int(rung->valuedouble);
     }
     cJSON_Delete(o);
 }
@@ -296,16 +347,42 @@ static jc_status predict_write(const char *dir, cJSON *o)
     char path[1160];
     char *line;
     FILE *f;
+    jc_status st;
 
     jc_snprintf(sub, sizeof(sub), "%s/.jichi", dir);
+    /* D-15: check that .jichi directory is safe before writing. */
+    st = jc_state_file_check(dir, sub);
+    if (st != JC_OK) {
+        if (st == JC_ERR_DENIED) {
+            jc_logf(JC_LOG_WARN, "predictions: .jichi directory is a symlink");
+        } else {
+            jc_logf(JC_LOG_WARN, "predictions: .jichi directory is a symlink or non-regular file");
+        }
+        cJSON_Delete(o);
+        return JC_ERR_DENIED;
+    }
     jc_mkdir_p(sub);
     jc_snprintf(path, sizeof(path), "%s/predictions.jsonl", sub);
+    /* M997: guard the leaf too (a symlinked predictions.jsonl would write outside). */
+    st = jc_state_file_check(dir, path);
+    if (st != JC_OK) {
+        if (st == JC_ERR_DENIED) {
+            jc_logf(JC_LOG_WARN,
+                    "predictions: predictions.jsonl path is a symlink");
+        } else {
+            jc_logf(JC_LOG_WARN,
+                    "predictions: predictions.jsonl path is a symlink or "
+                    "non-regular file");
+        }
+        cJSON_Delete(o);
+        return JC_ERR_DENIED;
+    }
     line = cJSON_PrintUnformatted(o);
     cJSON_Delete(o);
     if (line == NULL) {
         return JC_ERR_OOM;
     }
-    f = fopen(path, "a");
+    f = fopen(path, "ab");
     if (f == NULL) {
         free(line);
         return JC_ERR_IO;

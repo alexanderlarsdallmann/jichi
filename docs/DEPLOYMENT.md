@@ -21,14 +21,14 @@ flowchart TD
   Q{"Who drives it?"}
   Q -->|"a human at a terminal"| TUI["TUI<br/>(default on a TTY)"]
   Q -->|"a script / CI / another agent"| HL["Headless<br/>jichi -p ..."]
-  Q -->|"an editor (Zed, etc.)"| ACP["ACP server<br/>jichi serve --acp"]
+  Q -->|"an editor (Zed, etc.)"| ACP["ACP server<br/>jichi --acp"]
 ```
 
 | Mode | Start it with | stdout is | Best for |
 | --- | --- | --- | --- |
 | **TUI** | `jichi` (on a TTY) | a rendered session | interactive humans |
 | **Headless** | `jichi -p "..."` (or piped stdin) | **the assistant answer only** | automation, SSH, agents |
-| **ACP** | `jichi serve --acp` | JSON-RPC frames | editor integration |
+| **ACP** | `jichi --acp` | JSON-RPC frames | editor integration |
 
 **The headless contract** (the property everything else relies on): in `-p` mode,
 **stdout carries the assistant's answer and nothing else** — no ANSI color, no
@@ -72,13 +72,13 @@ remotely:
 
 ```sh
 # One-shot remote query
-ssh host 'jichi -p "summarize CHANGES since last release" -q'
+ssh host 'jichi -p "summarize CHANGES since last release" -q < /dev/null'
 
 # Pipe a local file as the prompt (stdin IS the prompt when you pass `-`)
 cat patch.diff | ssh host 'jichi -p - -q'
 
 # Machine-readable result, parsed locally
-ssh host 'jichi -p "list TODOs in src/" --output json -q' | jq -r .text
+ssh host 'jichi -p "list TODOs in src/" --output json -q < /dev/null' | jq -r .text
 ```
 
 - **`-q` / `--quiet` / `--silent`** suppresses stderr diagnostics (tool logs,
@@ -140,17 +140,7 @@ memory:
 }
 ```
 
-```mermaid
-flowchart LR
-  subgraph saves["knob → what it saves"]
-    S["snapshots:false"] --> Sd["no shadow git repo<br/>(disk + git forks)"]
-    R["repoMap:false"] --> Rd["no startup workspace scan<br/>(CPU + RAM)"]
-    F["references:false"] --> Fd["no @file/@diff/@url I/O"]
-    M["markdown:false"] --> Md["no render passes (CPU)"]
-    P["maxParallelAgents:1"] --> Pd["single-threaded<br/>(no fork storm)"]
-    C["contextLimit:12000"] --> Cd["smaller history<br/>(RAM + tokens)"]
-  end
-```
+The lean knobs, and what each one saves, are the table below.
 
 What each one buys:
 
@@ -219,8 +209,12 @@ make HAVE_CURL= CC="zig cc -target aarch64-linux-musl" jichi
 ```
 
 For a fully self-contained binary, statically link a target-built libcurl
-(`make LDLIBS="-lm -lcurl -static"`, with a static libcurl available), or build
-offline and skip networking. Validate on the device with no network or key:
+(`make STATIC=1`, with a static libcurl available), or build offline and skip
+networking. Use the named `STATIC=1` mode rather than the old
+`LDLIBS="-lm -lcurl -static"` override: that override put `-static` AFTER
+`-pie`, so the binary was Type EXEC, not PIE, while `make info` still listed
+`-pie` (E-07). `STATIC=1` probes `-static-pie` and says which form it took in
+`make info` (`STATIC_MODE`). Validate on the device with no network or key:
 
 ```sh
 ./jichi --version
@@ -241,7 +235,7 @@ When *another program* calls jichi, treat it as a CLI with a stable contract.
 ### 4a. The output contract
 
 ```sh
-jichi -p "refactor foo() in src/x.c" --output json -q --no-session
+jichi -p "refactor foo() in src/x.c" --output json -q --no-session < /dev/null
 ```
 
 `--output json` prints exactly one object to stdout after the run:
@@ -311,7 +305,7 @@ The **autonomy envelope** turns `-p --auto` into a bounded, auditable run:
 | `--budget-tokens <n>` | Token cap (e.g. `200k`, `1m`). |
 | `--deadline <dur>` | Wall-clock cap (e.g. `30s`, `20m`, `2h`). |
 | `--max-tool-calls <n>` | Cap on tool executions. |
-| `--edit-scope <glob>` | Restrict edits to a path glob (repeatable); add `--strict-scope` to also forbid shell escape via `run_terminal_command`. |
+| `--edit-scope <glob>` | Restrict edits to a path glob (repeatable); add `--strict-scope` to also forbid shell escape via `run_terminal_command` or `run_tests` (M846). |
 | `--journal <path\|->` | JSONL audit log (default `~/.jichi.d/runs/<id>.jsonl`; `-` disables). |
 
 You can also pre-authorize or forbid specific tools regardless of mode with the
@@ -320,11 +314,14 @@ config `permissions.allow` / `permissions.deny` lists (tool names; deny wins). S
 
 ### 4c. A worked example (CI / cron)
 
+`./local/config.json` names the CI variable that holds the model's key: its model entry
+says `"apiKeyEnv": "CI_LLM_KEY"`. jichi reads the key from that variable, and removes
+that variable from every process it starts.
+
 ```sh
 #!/bin/sh
 # Bounded, verified, non-interactive task. Exit code drives the pipeline.
 set -e
-export OPENAI_API_KEY="$CI_LLM_KEY"
 
 jichi -p "make the failing test in tests/ pass; change only src/" \
     --auto \
@@ -332,18 +329,30 @@ jichi -p "make the failing test in tests/ pass; change only src/" \
     --edit-scope 'src/**' --strict-scope \
     --verify 'make test' --verify-timeout 5m \
     --budget-tokens 300k --deadline 20m \
-    --no-session --output json -q > result.json
+    --no-session --output json -q < /dev/null > result.json
 
 # Non-zero exit => verify failed (and the tree was rolled back). Inspect result.json.
 jq -r '.text' result.json
 ```
+
+**Name the key by the variable it lives in; never copy it.** jichi removes a model's key
+from every process it starts -- the model's shell commands, hooks, MCP servers, and the
+verify command, which runs code the model wrote -- but only under the names it knows:
+each configured `apiKeyEnv`, and a built-in list of the providers' usual names. Until
+M894 this example began with `export OPENAI_API_KEY="$CI_LLM_KEY"`. jichi removed the
+copy, and `make test` still saw the original. Nor did the copy reach a gateway: since
+M718 jichi sends a provider's usual variable only to that provider's own endpoint, so a
+config pointing anywhere else sent no key at all. Any other credential in the job's
+environment, such as a CI job token, is unknown to jichi in the same way, so the model's
+shell commands can read it. Run jichi in a job, or a step, whose environment holds only
+the key it needs. `tests/smoke/ci_recipe_secret.sh` runs this recipe as printed here.
 
 ### 4d. Editor integration (ACP)
 
 For editors, run jichi as an **Agent Client Protocol** server over stdin/stdout:
 
 ```sh
-jichi serve --acp     # or: jichi --acp
+jichi --acp           # or: jichi serve (not both: `serve --acp` exits 2 today)
 ```
 
 The editor sends `initialize` / `session/new` / `session/prompt` and renders the
@@ -366,7 +375,11 @@ this order, strongest first.
 the real boundary; everything below is defense in depth *behind* it. An agent
 that cannot escalate at the OS level cannot escalate, full stop — no heuristic
 in a userspace program is a substitute. For anything genuinely unattended,
-put it in a container or VM whose blast radius you accept. `jichi
+put it in a container or VM whose blast radius you accept.
+[CONTAINER_TUTORIAL.md](CONTAINER_TUTORIAL.md) walks through one, measured: a
+rootless podman container whose only writable mounts are the workspace and a
+fresh HOME, a record the model's shell cannot delete, and a network with one
+door to the model server. `jichi
 doctor` warns loudly if it finds itself running as root, because at that point
 the privileged-command policy below is moot.
 
@@ -380,8 +393,8 @@ allow the shell" grant can never cover it (that gap was a real incident):
 ```jsonc
 {
   "privilegedCommands": "deny",        // "ask" (default) | "deny" | "allow"
-  "privilegedCommandsAllow": [         // exact commands pre-approved under ask/deny
-    "sudo systemctl restart myapp"     // prefix-matched, chain-safe
+  "privilegedCommandsAllow": [         // commands pre-approved under ask/deny
+    "sudo systemctl restart myapp"     // a word PREFIX, chain-safe: list whole commands
   ]
 }
 ```
@@ -393,7 +406,12 @@ allow the shell" grant can never cover it (that gap was a real incident):
   commands are refused outright. Use `privilegedCommandsAllow` to permit only
   the specific commands you trust (a `sudo systemctl restart myapp` entry will
   not admit `sudo systemctl restart myapp ; sudo rm -rf /` — any chaining
-  disqualifies the match).
+  disqualifies the match). An entry matches by **word prefix**, so a short one is
+  wide: `sudo systemctl` admits every `sudo systemctl ...`, `disable --now sshd`
+  included — list whole commands. The list holds for your own turn and a
+  top-level unattended run, **never for a delegate** (a subagent or a parallel
+  task): a delegate's privileged command is refused and audited as
+  `delegate_refused` (M849).
 - **`allow`** — the model runs privileged commands unprompted. `doctor` warns
   about this; only choose it when the OS boundary above already contains the
   agent.
@@ -436,7 +454,7 @@ jichi -p "apply the migration in ./migrations and run the tests" \
   --auto --privileged-commands deny \
   --edit-scope 'src/**' --edit-scope 'migrations/**' \
   --verify 'make test' --budget-tokens 500k --deadline 30m \
-  --journal ./run.jsonl --output json -q
+  --journal ./run.jsonl --output json -q < /dev/null
 ```
 
 Run it as a non-root user, in a container if the work is untrusted. Afterwards,
@@ -530,7 +548,7 @@ account, not a weaker one. The risk is the shared *directory*, not the shared
 | Garbled glyphs or stray `[2m` codes over SSH | Non-UTF-8 locale and/or no color support. Use `NO_COLOR=1 --no-markdown`, set `LANG`. |
 | "Could not connect" / model calls fail | Endpoint unreachable or key missing. Run `jichi doctor`; check `apiBase`, the `apiKeyEnv` variable, and network egress. |
 | Tools never run in headless mode | Without `--auto`, mutating tools that need approval are refused. Add `--auto` (ideally with an envelope), or pre-allow them in `permissions.allow`. |
-| "privileged command refused" in an `--auto` run | Expected under the default `privilegedCommands: ask`: an unattended agent won't run sudo/doas/pkexec/su. Approve it interactively, set `privilegedCommands: allow`, or pre-approve it in `privilegedCommandsAllow` (§5). |
+| "privileged command refused" in an `--auto` run | Expected under the default `privilegedCommands: ask`: an unattended agent won't run sudo/doas/pkexec/su. Approve it interactively, set `privilegedCommands: allow`, or pre-approve it in `privilegedCommandsAllow` (§5) -- unless the refusal names a **delegate** (`delegate_refused`): the allowlist never applies to one (M849), so run the command in the main turn. |
 | Snapshots/undo unavailable | git not installed, not a repo, or a huge un-tracked tree (>20000 files). Install git / init a repo, or accept it's off. |
 | Broken pipe when piping to `head` | Expected and handled — jichi stops cleanly and exits `0`. |
 | TUI redraw looks wrong on a narrow remote terminal | `export COLUMNS=<width>` before launching if `TIOCGWINSZ` isn't honored. |

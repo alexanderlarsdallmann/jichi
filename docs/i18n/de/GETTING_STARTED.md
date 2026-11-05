@@ -56,7 +56,7 @@ das Programm zu beenden.
 Ohne Oberfläche (für Skripte und Automatisierung):
 
 ```sh
-jichi -p "erkläre, was src/main.c macht"
+jichi -p "erkläre, was src/main.c macht" < /dev/null
 ```
 
 ## 4. Die Kontrolle behalten

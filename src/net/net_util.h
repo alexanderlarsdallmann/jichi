@@ -33,4 +33,20 @@ jc_status jc_net_post_json(const struct jc_model_cfg *m, const char *path,
                            const char *body, long *http_status,
                            char **resp_out, volatile int *abort);
 
+/* M1131 (C-13): the clients' log-body cap. The five network clients (embed,
+ * rerank, imagegen, audiogen, transcribe) log a provider's HTTP-error body into
+ * one jc_logf line, and that body is only bounded by the transfer ceiling
+ * (~32 MiB) -- a multi-megabyte body formatted uncut is its own cost and would
+ * straddle jc_logf's redaction buffer. This returns a heap copy of the first
+ * `cap` bytes of `body`, NUL-terminated (the caller frees it) so the whole
+ * body cannot be written into a single log line. Returns NULL for a NULL body
+ * or on OOM.
+ *
+ * The cap the clients pass is 2048, matching the chat path's bounded error
+ * capture -- bridge.raw, char raw[2048] (src/chat/jc_agent.c:73) -- so the
+ * clients log no more than the chat path already does. That bridge.raw bound
+ * is the chat path's own and must NOT be widened here; this helper only caps
+ * the clients' bodies to it. */
+char *jc_log_err_body_cap(const char *body, jc_size cap);
+
 #endif /* JC_NET_UTIL_H */

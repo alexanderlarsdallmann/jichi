@@ -50,6 +50,7 @@ expect "mode:" 20
 delay 600
 send "/exit\r"
 waitexit 10
+assertexit 0
 EOF
 (cd "$ws" && "$SMOKE_TOOLS/ptydrive" --deadline 60 --cols 100 \
     --log "$tmp/hdr.log" "$tmp/hdr.pd" -- \

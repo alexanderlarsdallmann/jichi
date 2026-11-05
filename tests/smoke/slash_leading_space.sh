@@ -56,6 +56,7 @@ send "\t/markdown\r"
 delay 1200
 send " /exit\r"
 waitexit 20
+assertexit 0
 EOF
 (cd "$ws" && with_deadline 60 "$SMOKE_TOOLS/ptydrive" \
     --deadline 55 --cols 100 --log "$tmp/out.log" "$tmp/run.pd" -- \

@@ -1,6 +1,6 @@
 # M92 — budget-outcome clarity: distinguish "work kept" from "rolled back"
 
-**Status:** planned (this doc committed before implementation, per the loop).
+**Status:** shipped as **M92** (ROADMAP). This doc was committed before implementation, per the loop; the "planned" header is superseded now that the milestone has landed. The design below is the record of *how* it was built.
 **Grounded in:** the deeper telemetry-mining pass over the zigodot GDScript-codegen
 increments (28 runs). See docs/ANECDOTES.md #6–7.
 

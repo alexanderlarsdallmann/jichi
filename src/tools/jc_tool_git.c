@@ -17,6 +17,7 @@
 
 #include "jc_toolcaps.h"
 #include "jc_proc.h"
+#include "jc_spawn.h"   /* M832 */
 #include "tool_util.h"
 #include "jc_app.h"
 #include "jc_str.h"
@@ -30,11 +31,40 @@
 
 
 /* Run `git -C cwd <args>` capturing stdout+stderr into `out` (capped at `cap`).
- * Returns the child exit code, or -1 if it could not be run. */
+ * Returns the child exit code, or -1 if it could not be run.
+ *
+ * M2 (the 2026-10-16 plan; drive-readiness handoff of 2026-10-16, in docs/internal/, section 8.3): jichi's git children inherit the user environment, so a
+ * malicious repo (or a drive team writing /work/.git/config) can plant
+ * core.fsmonitor (an EXTERNAL process), alias.*.command / ext-diff, and hooks,
+ * and every `git` here would run them. Measured: a planted fsmonitor fired with
+ * the inherited env. The base neutralisation is injected at this ONE spawn site
+ * so every git child -- read or mutating -- carries it, and tests/smoke/
+ * git_neutralisation.sh holds it red-first:
+ *   -c core.fsmonitor=        empty value WINS over the planted config, so the
+ *                             fsmonitor script is never exec'd (the measured hole)
+ *   -c log.showSignature=false keep a planted gpg program out of log/show/blame
+ *                             (it stops the READ path from verifying signatures
+ *                             and invoking gpg.program; it does NOT stop commit)
+ *   -c commit.gpgsign=false    the COMMIT path: a planted commit.gpgsign=true +
+ *                             gpg.program would make jichi's git_commit EXECUTE
+ *                             that program, so force signing off
+ *   -c core.hooksPath=/dev/null  disable the hooks path.
+ *
+ * The plan scoped hooksPath to the read-only calls, but the hook vector actually
+ * fires on the MUTATING ones: a planted hooks/pre-commit runs when jichi's
+ * git_commit records a change, which is the higher-value hole. All four -c
+ * flags are safe on every git child jichi runs (they do not affect add/commit/
+ * checkout/stash/worktree), so they are applied uniformly here. The plan's
+ * read-only --no-ext-diff --no-textconv are diff-only (git rejects them on
+ * status/ls-files), so they are added at the git_diff call site only -- where
+ * an external diff program or textconv could be invoked. */
 static int git_capture(const char *cwd, const char *const *args, int nargs,
                        struct jc_sb *out, jc_size cap)
 {
-    char *argv[24];
+    /* 32 wide: "git" + the 8 M2 neutral flags + "-C" + cwd (11) + up to 20 args
+     * + NUL. The 20-arg copy budget is EXACTLY the pre-M2 one (argv was 24 wide
+     * then), so the neutralisation adds no truncation of the caller's command. */
+    char *argv[32];
     int fds[2];
     pid_t pid;
     int status = 0;
@@ -42,29 +72,42 @@ static int git_capture(const char *cwd, const char *const *args, int nargs,
     int i;
 
     argv[k++] = (char *)"git";
+    /* M2 base neutralisation: see the comment above this function. */
+    argv[k++] = (char *)"-c"; argv[k++] = (char *)"core.fsmonitor=";
+    argv[k++] = (char *)"-c"; argv[k++] = (char *)"log.showSignature=false";
+    argv[k++] = (char *)"-c"; argv[k++] = (char *)"commit.gpgsign=false";
+    argv[k++] = (char *)"-c"; argv[k++] = (char *)"core.hooksPath=/dev/null";
     argv[k++] = (char *)"-C";
     argv[k++] = (char *)cwd;
-    for (i = 0; i < nargs && k < 23; i++) {
+    for (i = 0; i < nargs && k < 31; i++) {
         argv[k++] = (char *)args[i];
     }
     argv[k] = NULL;
 
     if (jc_pipe_cloexec(fds) != 0) return -1;
-    pid = fork();
-    if (pid < 0) {
-        close(fds[0]);
-        close(fds[1]);
-        return -1;
-    }
-    if (pid == 0) {
-        dup2(fds[1], STDOUT_FILENO);
-        dup2(fds[1], STDERR_FILENO);
-        close(fds[0]);
-        close(fds[1]);
-        jc_proc_child_close_fds(); /* M472: and not our fds */
-        jc_proc_child_sigreset(); /* M461 */
-        execvp("git", argv);
-        _exit(127);
+    /* M832: through jc_spawn. M2: the git child scrubs the registered secret
+     * env (the plan's scrub_env=1). It was "no scrub, as ever" before M2, on the
+     * assumption git is first-party and never runs user code -- but a git child
+     * invokes programs NAMED IN THE REPO CONFIG (core.fsmonitor, ext-diff,
+     * alias.*.command, hooks), so a planted one would otherwise inherit the
+     * API keys. The -c neutralisation above stops those programs running; the
+     * scrub is the second layer if one still got through. */
+    {
+        struct jc_spawn_req sr;
+        memset(&sr, 0, sizeof sr);
+        sr.argv = argv;
+        sr.scrub_env = 1;
+        /* M844 (ACP-1): never jichi's own stdin -- over ACP it is the client's
+         * JSON-RPC stream, and a command that reads stdin ate its next message
+         * (a session/cancel). tests/smoke/acp_child_stdin.sh holds this. */
+        sr.fd_stdin = JC_SPAWN_DEVNULL;
+        sr.fd_stdout = fds[1];
+        sr.fd_stderr = fds[1];
+        if (jc_spawn(&sr, &pid) != JC_OK) {
+            close(fds[0]);
+            close(fds[1]);
+            return -1;
+        }
     }
     {
         char buf[1024];
@@ -253,13 +296,17 @@ static cJSON *diff_schema(void)
 static jc_status diff_run(const cJSON *args, struct jc_tool_result *out,
                           struct jc_app *app)
 {
-    const char *a[5];
+    const char *a[7];   /* M2: +2 for the diff-only flags; 7 holds the max below */
     const char *path = tu_arg_str(args, "path");
     int staged = tu_arg_bool(args, "staged", 0);
     struct jc_sb sb;
     int n = 0;
 
+    /* M2: diff-only flags -- never on status/ls-files, where git rejects them.
+     * --no-ext-diff keeps a planted external diff program out of this read. */
     a[n++] = "diff";
+    a[n++] = "--no-ext-diff";
+    a[n++] = "--no-textconv";
     if (staged) a[n++] = "--staged";
     if (path != NULL && path[0] != '\0') {
         a[n++] = "--";
@@ -485,6 +532,19 @@ static cJSON *branch_schema(void)
     return s;
 }
 
+/* branch_run -- switch to or create a branch via git checkout.
+ *
+ * The model may send a branch name that begins with `-`. A git branch name
+ * legitimately starting with `-` does not exist in practice (git check-ref-format
+ * rejects leading `-` for new refs), so REFUSING is the smaller correct fix.
+ *
+ * An alternative would be to insert `--` before the name (as the other git tools
+ * do). That alone is NOT sufficient: `git checkout -b -- -x` would still try to
+ * CREATE a branch with a leading dash, which git refuses via check-ref-format.
+ * The guard covers both create and switch cases with a single check.
+ *
+ * See docs/analysis/2026-10-17-hardening-03-processes-and-fences.md B-03
+ * (already recorded as R04-F8, 2026-10-08 review, still open). */
 static jc_status branch_run(const cJSON *args, struct jc_tool_result *out,
                             struct jc_app *app)
 {
@@ -495,6 +555,10 @@ static jc_status branch_run(const cJSON *args, struct jc_tool_result *out,
 
     if (git_blank(name)) {
         tu_err(out, "error: 'name' is required");
+        return JC_OK;
+    }
+    if (name[0] == '-') {
+        tu_err(out, "error: 'name' must not begin with a dash (it would be read as a git option); branch names in this run do not start with '-'");
         return JC_OK;
     }
     a[n++] = "checkout";

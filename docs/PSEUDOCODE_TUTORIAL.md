@@ -88,10 +88,10 @@ This is a strong use of the agent as a thinking partner:
 
 ```sh
 jichi -p "Write language-neutral pseudocode for <the tricky algorithm>. Real
-control flow, invented names, no language syntax. Then stop — do not implement yet."
+control flow, invented names, no language syntax. Then stop — do not implement yet." < /dev/null
 # read it, correct the logic while it is cheap, then resume the SAME session:
 jichi -c --auto -p "Implement that pseudocode in <language>. For each line, make the
-concrete choice it left open, and flag any line where the real code must diverge."
+concrete choice it left open, and flag any line where the real code must diverge." < /dev/null
 ```
 
 The two-step is the point: you review the *logic* when it is a paragraph you can

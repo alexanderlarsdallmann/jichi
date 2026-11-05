@@ -69,6 +69,7 @@ send "/status\r"
 delay 1200
 send "/exit\r"
 waitexit 15
+assertexit 0
 EOF
 
 run_arm() {   # run_arm <name> <extra-flags...>
@@ -96,6 +97,7 @@ expect "hello there" 25
 delay 1200
 send "/exit\r"
 waitexit 15
+assertexit 0
 EOF
 mm_start "$tmp/m.mm" "$tmp/cap.exp"
 write_config "$tmp/config.json" "$MM_PORT"

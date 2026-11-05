@@ -22,6 +22,7 @@ expect "/resume" 20
 delay 300
 send "\x03/exit\r"
 waitexit 10
+assertexit 0
 EOF
 (cd "$ws" && "$SMOKE_TOOLS/ptydrive" --deadline 40 --cols 100 \
     "$tmp/list.pd" -- "$BIN" --config "$tmp/config.json" --no-route); rc=$?
@@ -39,6 +40,7 @@ expect "@stackfile.txt" 20
 delay 300
 send "\x03/exit\r"
 waitexit 10
+assertexit 0
 EOF
 (cd "$ws" && "$SMOKE_TOOLS/ptydrive" --deadline 40 --cols 100 \
     "$tmp/file.pd" -- "$BIN" --config "$tmp/config.json" --no-route); rc=$?

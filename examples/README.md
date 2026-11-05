@@ -51,6 +51,7 @@ cp    /path/to/jichi/examples/<bench>/AGENTS.md .
 | [`academic-writing`](academic-writing/) | essays, reports, a thesis² | thesis → outline → feedback → cite → review → proofread |
 | [`research-notes`](research-notes/) | reading & organizing research² | annotate → summarize → matrix → synthesize → review |
 | [`web-basics`](web-basics/) | your first web page, online | page → style → responsive → accessible → live |
+| [`slm-lab`](slm-lab/) | training a small language model on a CPU, and reading it honestly | build → train → evaluate → sample → review |
 
 ¹ *Educational, not financial/business/legal advice* — these benches teach methods
 you apply to your own numbers, keep data local, and defer real decisions to a
@@ -65,6 +66,7 @@ policy) in your hands.
 |---|---|
 | [`self-hosting`](self-hosting/) | a "jichi reviews jichi" dev pack — read-only C89/arena reviewers + a write-enabled slice (fenced to tests/docs, `verify=make test`). See [`../docs/proposals/2026-08-self-hosting-dev-pack.md`](../docs/proposals/2026-08-self-hosting-dev-pack.md). |
 | [`autonomous-loop`](autonomous-loop/) | reference artifacts for running jichi as an unattended, supervised loop over a task queue (tmux/systemd/cron); the C89 supervisor is built by `make examples`. See [`../docs/AUTONOMOUS_LOOPS.md`](../docs/AUTONOMOUS_LOOPS.md). |
+| [`chatbot`](chatbot/) | a website chatbot with jichi as its engine: a chat page, a Python-stdlib server, a fixed read-only configuration and a sample knowledge folder. See [`../docs/CHATBOT.md`](../docs/CHATBOT.md). |
 | [`web-bridge`](web-bridge/) | a Python-stdlib sidecar (`bridge.py`) that drives headless jichi and streams events as SSE to a browser — the minimal web front-end track. See [`../docs/WEB_FRONTEND.md`](../docs/WEB_FRONTEND.md). |
 | [`robot-sim`](robot-sim/) | a simulated robot for the kinetic/robotics gate (`docs/ROBOTICS.md`) — jichi as the seconds-scale deliberative layer over an E-stop-protected device. |
 | [`sqlite`](sqlite/) | a practice database, a read-only SQLite **MCP server** in one file of standard-library Python, and a user-defined tool around `sqlite3 -safe -readonly` — the files for [`../docs/SQLITE.md`](../docs/SQLITE.md), which explains why a read-only database is not a read-only tool. Run by hand on 2026-09-24; no smoke driver yet (the tier is Python-free). |

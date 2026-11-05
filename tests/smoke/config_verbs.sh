@@ -14,7 +14,7 @@
 # gets usage rather than the gate's message.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 7
+t_plan 8
 smoke_home
 # This driver's SUBJECT is the config-resolution chain (a project local/
 # overlaying ~/.jichi), so the M376 ambient-config pin must not hijack it.
@@ -35,6 +35,11 @@ cat > "$ws/local/config.json" <<'EOF'
 {"models":[{"name":"proj","provider":"openai","model":"p",
 "apiBase":"http://127.0.0.1:1/v1"}],"lowResource":false}
 EOF
+# M851 (CFG-1): a project file's models merge only once it is trusted -- the
+# validate check below counts the MERGED models, so the file is trusted first,
+# as its author would have done (`jichi setup` records a file it creates). The
+# untrusted case is project_config_trust.sh's subject.
+(cd "$ws" && "$BIN" trust < /dev/null > /dev/null 2>&1)
 
 run_cfg() {
     (cd "$ws" && with_deadline 30 "$BIN" config "$@" < /dev/null \
@@ -96,5 +101,26 @@ if [ "$rc" != 0 ] && grep -qi 'config editing is off' "$tmp/err"; then
 else
     t_fail "editing gate lost: rc=$rc err=[$(head_bytes 160 "$tmp/err")]"
 fi
+
+# --- M1114 (SV:2220 #1): a FIFO at the project config path must NOT block ----
+# Pre-fix, config_parse_file jc_file_exists'd the FIFO (stat succeeds on a
+# FIFO) and jc_read_file's fopen blocked until the run's deadline: the lead
+# measured rc=124 with empty stderr on `jichi --non-interactive -p hi`.
+# This leg runs the DRIVER's own subject -- the config resolution chain --
+# with the project file replaced by a FIFO: it must name the non-regular
+# file and fall back to the global config, rc 0, well inside the deadline.
+rm -f "$ws/local/config.json"
+mkfifo "$ws/local/config.json"
+rc=$(run_cfg path)
+if [ "$rc" != 0 ]; then
+    t_fail "M1114: FIFO project config blocked/failed the run (rc=$rc; pre-fix it hung to the deadline, rc=124)"
+elif ! grep -q 'config path is a non-regular file (FIFO/device/socket); not read:' "$tmp/err"; then
+    t_fail "M1114: no non-regular-file message (stderr: [$(head_bytes 160 "$tmp/err")])"
+elif ! grep -q '\.jichi' "$tmp/out"; then
+    t_fail "M1114: did not fall back to the global config (out: [$(head_bytes 120 "$tmp/out")])"
+else
+    t_ok "M1114: FIFO at the project config path is refused before open, run falls back to the global config"
+fi
+rm -f "$ws/local/config.json"
 
 t_done

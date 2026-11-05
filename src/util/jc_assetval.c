@@ -58,7 +58,15 @@ static const char *const BUILTIN_CMDS[] = {
     "export", "fork", "grade", "hint", "language", "name", "output-style",
     "packages", "rewind", "route", "tea", "thanks", "thankyou", "timeouts",
     "chat", "listen", "voice",
-    "tutor", "wisdom", "zen", 0
+    "tutor", "wisdom", "zen",
+    /* M751: both were built in and missing, so doctor could not warn that the
+     * built-in /design hid the sdlc pack's commands/design.md in the TUI. The
+     * lint that should have said so had matched nothing since TUI_CMDS[] was
+     * renamed at M345; it reads the table again. */
+    "design", "predict",
+    "fences",   /* M757 */
+    "why",      /* M762 */
+    0
 };
 
 static int in_list(const char *const *list, const char *s)

@@ -115,8 +115,22 @@ rule
   text CMD_DONE
 EOF
 mm_start "$tmp/replies2.mm" "$tmp/cap2" 2
-write_config "$tmp/config2.json" "$MM_PORT"
-(cd "$ws" && with_deadline 60 "$BIN" --config "$tmp/config2.json" \
+# M994 (D-32) collateral: the probe is a PROJECT command whose body has a
+# shell block, and D-32 refuses that in an untrusted project. Trust it:
+# write the model to the GLOBAL config ($HOME/.jichi) and a minimal
+# local/config.json with the same non-model keys (no models, so discovery
+# finds the model only in the global), then `jichi trust`. Run without
+# --config/$JC_CONFIG: an explicit config load skips the project merge and
+# its trust gate entirely (project_trust stays NONE), so only the
+# discovery load sees the trusted project file.
+write_config "$HOME/.jichi" "$MM_PORT"
+mkdir -p "$ws/local"
+cat > "$ws/local/config.json" <<EOF
+{"lowResource":false,"snapshots":false,"repoMap":false,"references":false,"toolProfile":false,"maxRetries":0}
+EOF
+unset JC_CONFIG
+(cd "$ws" && with_deadline 60 "$BIN" trust </dev/null >/dev/null 2>&1)
+(cd "$ws" && with_deadline 60 "$BIN" \
     -q --no-session --auto -p "/probe" < /dev/null) > "$tmp/out2" 2> "$tmp/err2"
 mm_stop
 if grep -q C2_42 "$tmp/cap2/req.1" 2>/dev/null && grep -q C1_42 "$tmp/cap2/req.1" 2>/dev/null &&

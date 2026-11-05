@@ -44,15 +44,31 @@ fi
 
 bak=$(mktemp "${TMPDIR:-/tmp}/teeth.XXXXXX") || exit 2
 cp "$file" "$bak" || { rm -f "$bak"; exit 2; }
+# The restore runs ONCE, from the EXIT trap or from a signal's, which then exits
+# with that signal's conventional status (M770). It was trap'd on EXIT, INT and
+# TERM only, so SIGPIPE -- this script piped into `head` -- and SIGHUP -- a closed
+# terminal or ssh session -- killed it with the perturbation still in the tree:
+# the hazard the header says this script refuses. Found by doing it, to a smoke
+# driver, which the next run of that driver reported. And a trapped INT or TERM
+# ran restore and then CONTINUED, so the EXIT trap ran it again on the removed
+# backup and printed RESTORE FAILED about a file that had been restored.
+# tests/smoke/teeth_restore.sh stops this script each of those ways.
 restore() {
+    [ -n "$bak" ] || return 0
     if ! cp "$bak" "$file"; then
         echo "teeth: RESTORE FAILED -- $file is still perturbed; original in $bak" >&2
+        bak=
         trap - EXIT
         exit 2
     fi
     rm -f "$bak"
+    bak=
 }
-trap restore EXIT INT TERM
+trap restore EXIT
+trap 'restore; exit 129' HUP
+trap 'restore; exit 130' INT
+trap 'restore; exit 141' PIPE
+trap 'restore; exit 143' TERM
 
 # --- baseline: the command must be GREEN on the unperturbed file --------------
 # Run it before touching anything. Without this, an unrunnable command "proves"

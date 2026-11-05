@@ -193,6 +193,24 @@ struct jc_envelope {
     int           tool_calls_executed;
     int           reads;            /* M98: read-category tool calls so far   */
     int           retries_left;     /* armed to verify_retries each turn     */
+    int           changing_executed; /* M892: executed calls not in the READ
+                                     * category -- the ones that can change a
+                                     * file (a shell command, an edit, a batch) */
+    int           ff_armed;         /* M892: a fix-forward message went out; the
+                                     * next final answer is checked for a change */
+    int           ff_changing_mark; /* M892: changing_executed when it went out  */
+    int           ff_fp_ok;         /* M892: ff_fp holds the worktree's content
+                                     * fingerprint then (git could take one)    */
+    char          ff_fp[72];        /* M892                                     */
+    char          pre_edit_fail[JC_ENV_SIG_MAX]; /* M893: the failing line the check
+                                     * printed before this run's first change --
+                                     * in the run-start verify, or in a batch's
+                                     * worktree verify on the starting tree    */
+    char          pre_edit_from[160]; /* M893: where that line was seen          */
+    int           predates_spent;   /* M893: the free round was given (once)    */
+    int           start_fp_taken;   /* M893: start_fp was attempted (turn one)  */
+    int           start_fp_ok;      /* M893: ...and git could take it           */
+    char          start_fp[72];     /* M893: the worktree as the run found it   */
     long          verify_every_last;/* tool_calls at the last periodic verify */
     int           test_file_written; /* a test-looking path was written this run
                                      * (jc_env_is_test_path). Feeds the
@@ -225,6 +243,14 @@ struct jc_envelope {
      * (48 = SHA + NUL, rounded; "" = unset) -- M218: the strdup-per-passing-
      * verify onto the session arena was unbounded in count over a long run. */
     char          green_commit[48]; /* SHA of the last known-good checkpoint */
+    int           verifier_ran;     /* M1048 (G18): 1 the moment the completion
+                                     * verifier was CALLED (jc_env_run_verify),
+                                     * whatever it returned. GREEN IS A RUN-FACT,
+                                     * not an inference: "armed" and
+                                     * "outcome == JC_ENV_OK" said "verified ok"
+                                     * about a run whose check never ran. Zeroed
+                                     * by jc_env_init's memset, like every other
+                                     * field here. */
     int           green_verified;   /* M207: 1 once a verify actually PASSED in
                                      * this run, so green_commit is known-good
                                      * rather than assumed-good. The first
@@ -394,14 +420,20 @@ const char *jc_env_outcome_name(enum jc_env_outcome o);
  * Never NULL. Pure; unit-tested. */
 const char *jc_env_disposition_name(enum jc_env_outcome o, int rolled_back);
 
-/* Summarize a newline-separated file list (as jc_snapshot_changed_since produces:
- * one path per line, optional trailing newline) into a bounded, ", "-joined string
- * for a rollback disposition report. Appends up to `max` names to `out`, then
+/* Summarize a NUL-separated raw path list (the exact shape
+ * jc_snapshot_changed_since produces since M1095: one path per segment,
+ * optional trailing NUL) into a bounded, ", "-joined string
+ * for a rollback disposition report. names_len is the buffer length: with
+ * NUL separators strlen sees only the first segment, and a final segment with
+ * no trailing NUL is otherwise indistinguishable from an internal one (and an
+ * unbounded scan would read past the buffer). Appends up to `max` names to
+ * `out`, then
  * " (+K more)" when the total exceeds `max`. Returns the TOTAL count. Pure:
  * NULL/empty names -> 0 (out untouched); a NULL `out` still returns the count.
  * Used by the budget-revert transparency report (which files were kept vs
  * discarded) so a supervisor sees the post-revert reality, not just kept=false. */
-int jc_env_summarize_paths(const char *names, int max, struct jc_sb *out);
+int jc_env_summarize_paths(const char *names, jc_size names_len, int max,
+                           struct jc_sb *out);
 
 /* Policy (M80): should a budget/deadline/tool-call exhaustion roll the workspace
  * back to green? Budget exhaustion is NOT a broken state (unlike a verify
@@ -598,6 +630,12 @@ enum jc_env_baseline_verdict jc_env_baseline_check(int kind, int exit_code);
  * compile error at any location matches. Writes into `buf` (cap>0). Returns 1 if
  * a signature was found, else 0 (and `buf` is set to ""). Pure; unit-tested. */
 int jc_env_fail_signature(const char *output, char *buf, jc_size cap);
+
+/* M893: the whole line holding the first "error:" in `output`, its location
+ * included -- so two failures match only where the same place fails the same
+ * way -- trimmed, and cut at a character if longer than `cap`. Returns 1, or 0
+ * when there is none: no claim is made about a failure jichi cannot name. */
+int jc_env_fail_line(const char *output, char *buf, jc_size cap);
 
 /* M89: record a verify FAILURE's signature on the envelope and return how many
  * consecutive failures have now shared it -- 1 for a new/changed error, >=2 when

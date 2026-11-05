@@ -248,9 +248,34 @@ jc_size jc_compact_trim_superseded_reads(struct jc_history *hist,
  * the paired tool result are untouched. Args at or under ELIDE_MIN_BYTES are
  * skipped -- the idempotence guard (the marker itself is small), and it keeps
  * read_file/search_code arguments intact for the M94 dedup's path lookup.
- * Returns the number of calls elided. Pure; unit-tested. */
+ * Returns the number of calls elided. Pure; unit-tested. Ticketless: it
+ * forwards NULL to the `_ex` form below, which is the old behaviour exactly.
+ * (The M348 spill callback was added to the result pass first; def-317 R1 adds
+ * it to this one, via `_ex` -- see there.) */
 jc_size jc_compact_trim_tool_args(struct jc_history *hist, long budget_tokens,
                                   jc_size keep_recent);
+
+/* def-317 R1: the M348 claim ticket on the ARGS side. The args pass used to
+ * take NO spill callback, so elided arguments -- for write_file and
+ * apply_patch that IS the document body, the session's most irreplaceable
+ * material -- were replaced by a marker that says "cannot be recovered". The
+ * result pass (M348) offers every elision to the preservation store and names
+ * the 0600 file in its marker; the asymmetry is def-317, measured by the
+ * M901 baseline (112 `elided_placeholder` rejections over the corpus).
+ * `spill`/`spill_ctx` (both may be NULL) receive the FULL arguments_json; when
+ * the offer is accepted the marker NAMES the path (and the note no longer
+ * claims the content is unrecoverable), and `preserved_out` (may be NULL)
+ * counts those. spill NULL or declining leaves the marker byte-identical to
+ * the old ticketless text (the M348 no-op invariant: D3, never name a path
+ * that is not there). The base form above forwards NULLs, so its existing
+ * callers -- and the hermetic unit tests -- are unchanged. */
+jc_size jc_compact_trim_tool_args_ex(struct jc_app *app,
+                                     struct jc_history *hist,
+                                     long budget_tokens,
+                                     jc_size keep_recent,
+                                     jc_compact_spill_fn spill,
+                                     void *spill_ctx,
+                                     jc_size *preserved_out);
 
 /* Run mid-turn compaction if the in-flight history (plus a system/tools
  * overhead allowance) crosses a high-water fraction of the effective context

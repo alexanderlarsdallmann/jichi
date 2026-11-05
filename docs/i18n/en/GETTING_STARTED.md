@@ -52,7 +52,7 @@ Useful commands: `/help`, `/model`, `/mode`, `/constraints`, `/undo`. Press
 Headless (for scripts and automation):
 
 ```sh
-jichi -p "explain what src/main.c does"
+jichi -p "explain what src/main.c does" < /dev/null
 ```
 
 ## 4. Stay in control

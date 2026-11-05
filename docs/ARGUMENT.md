@@ -15,11 +15,11 @@ them:
 
 ```mermaid
 flowchart LR
-    G["<b>Grounds</b><br/>the evidence<br/><i>the test went red; the diff; the trace</i>"] --> C["<b>Claim</b><br/><i>this change is correct</i>"]
-    W["<b>Warrant</b><br/>why the grounds support the claim<br/><i>a red-then-green test shows the check can fire</i>"] -.-> G
-    B["<b>Backing</b><br/>why the warrant holds<br/><i>TEST_INTEGRITY.md's incidents</i>"] -.-> W
-    Q["<b>Qualifier</b><br/>how far the claim reaches<br/><i>'checked: verify green · not checked: no edit scope'</i>"] --- C
-    R["<b>Rebuttal</b><br/>when the claim would fail<br/><i>'Revisit when …'</i>"] -.-> C
+    G["<b>Grounds</b><br/>the evidence"] --> C["<b>Claim</b>"]
+    W["<b>Warrant</b><br/>why grounds support the claim"] -.-> G
+    B["<b>Backing</b><br/>why the warrant holds"] -.-> W
+    Q["<b>Qualifier</b><br/>how far the claim reaches"] --- C
+    R["<b>Rebuttal</b><br/>when the claim would fail"] -.-> C
 ```
 
 | The house word | The name elsewhere | Where you met it |

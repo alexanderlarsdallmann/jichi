@@ -157,7 +157,7 @@ es una función — para objetivos embebidos, para enseñar, y para la confianza
 
 ```sh
 make && ./jichi setup            # guided setup
-./jichi -p "explain this repo"   # headless
+./jichi -p "explain this repo" < /dev/null   # headless
 ./jichi                          # the TUI
 ```
 

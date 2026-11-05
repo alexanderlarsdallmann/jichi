@@ -215,8 +215,10 @@ jc_status jc_voice_say(struct jc_app *app, const char *text)
     }
     m = jc_app_model_for_role(app, JC_ROLE_AUDIO);
     http = 0;
+    /* C-06: max_bytes=0 -> the library default ceiling (32 MiB) bounds the
+     * transfer; out_overflow=NULL (this surface does not report the cap). */
     st = jc_audiogen_run(m, say.data, NULL, "wav", &bytes, &len,
-                         &app->abort_flag, &http);
+                         &app->abort_flag, &http, 0, NULL);
     jc_sb_free(&say);
     if (st != JC_OK || bytes == NULL || len == 0) {
         char why[300];

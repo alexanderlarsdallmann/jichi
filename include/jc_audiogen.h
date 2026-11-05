@@ -40,11 +40,23 @@ const char *jc_audiogen_format(const char *path);
  * 0 when none did. M500: it exists because the caller has to be able to tell a
  * server failure from a bad argument -- without it the tool reported the same
  * sentence for both and a model burned 428 tokens retrying variations of a call
- * the server was answering 500 to. */
+ * the server was answering 500 to.
+ *
+ * `max_bytes` (C-06) is passed down as the response's max_bytes: 0 means "no
+ * cap, use the library default ceiling" (JC_HTTP_DEFAULT_RESP_BYTES), a positive
+ * value is the caller's configured cap, applied to the TRANSFER so it aborts at
+ * the cap before the body fills memory (the caller's post-hoc len > cap check
+ * then only fires on the exact-cap rounding edge).
+ *
+ * `out_overflow` (may be NULL) receives 1 when the transfer was cut at that
+ * ceiling -- the response exceeded max_bytes and the transport aborted -- so
+ * the caller can report "over the cap" rather than a generic failure. 0
+ * otherwise (and 0 on any non-overflow failure). */
 jc_status jc_audiogen_run(const struct jc_model_cfg *m, const char *input,
                           const char *voice, const char *fmt,
                           unsigned char **out_bytes, jc_size *out_len,
-                          volatile int *abort, long *out_http);
+                          volatile int *abort, long *out_http,
+                          long max_bytes, int *out_overflow);
 
 #ifdef __cplusplus
 }

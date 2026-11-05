@@ -30,7 +30,8 @@ Add new tests by following that pattern and wiring them into `test_main.c`.
 `tests/smoke/` (M209) is the **Python-free smoke tier**: POSIX-sh drivers
 (TAP output, sourced `_smoke.sh` lib, listed in `tests/smoke/run.sh`, linted
 by `smoke_lint.sh`) backed by four test-only C89 helpers in `tests/tools/`
-(`mockmodel` — scripted HTTP/SSE mock model server with request capture;
+(`mockmodel` — scripted HTTP/SSE mock model server with request capture, and since M897 a
+`drip` modifier that sends an `sse-file` reply one event at a time;
 `ptydrive` — expect-lite PTY driver; `jsonq` — dot-path JSON asserts via the
 in-tree cJSON; `sockq` — one-shot AF_UNIX line client for the daemon/control
 sockets). The M209–M217 port moved the whole portable e2e suite here (71

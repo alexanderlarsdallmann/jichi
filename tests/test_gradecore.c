@@ -20,7 +20,7 @@
 static void write_spec(const char *path, const char *verify,
                        const char *setup)
 {
-    FILE *f = fopen(path, "w");
+    FILE *f = fopen(path, "wb");
     if (f == NULL) {
         return;
     }
@@ -66,7 +66,7 @@ void test_gradecore(void)
 
     /* NO_TASK: frontmatter only, no body. */
     {
-        FILE *f = fopen("notask.md", "w");
+        FILE *f = fopen("notask.md", "wb");
         if (f != NULL) { fputs("---\ntitle: X\n---\n", f); fclose(f); }
     }
     jc_grade_core("notask.md", a, &g);

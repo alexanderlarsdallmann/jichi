@@ -60,7 +60,7 @@ jichi
 헤드리스(스크립트와 자동화용):
 
 ```sh
-jichi -p "explain what src/main.c does"
+jichi -p "explain what src/main.c does" < /dev/null
 ```
 
 ## 4. 통제권 유지하기

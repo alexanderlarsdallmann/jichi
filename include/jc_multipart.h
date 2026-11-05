@@ -31,10 +31,12 @@ void jc_multipart_field(struct jc_multipart *mp, const char *name,
                         const char *value);
 
 /* Append a file field: name="<name>"; filename="<filename>" with the given
- * Content-Type and `len` bytes of `data` (binary-safe; may contain NULs). */
-void jc_multipart_file(struct jc_multipart *mp, const char *name,
-                       const char *filename, const char *content_type,
-                       const unsigned char *data, jc_size len);
+ * Content-Type and `len` bytes of `data` (binary-safe; may contain NULs).
+ * Returns JC_OK, or JC_ERR_INVALID if the payload still contained the
+ * boundary after regeneration (C-10, M1121). */
+jc_status jc_multipart_file(struct jc_multipart *mp, const char *name,
+                            const char *filename, const char *content_type,
+                            const unsigned char *data, jc_size len);
 
 /* Finish the body (appends the closing boundary) and detach it: returns the
  * malloc'd bytes (caller frees) and writes the length to *out_len. The builder

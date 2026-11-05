@@ -7,6 +7,7 @@
 # Binaries (and the deprecated pre-rename aliases the build symlinks, M170)
 /jichi
 /jichi-convert
+/jichi-harness
 /jlu_continue
 /jlu-convert
 /run_tests
@@ -21,7 +22,12 @@
 /tests/tools/ptydrive
 /tests/tools/jsonq
 /tests/tools/sockq
+/tests/tools/mocklsp
 /tests/tools/xdrive
+/tests/tools/lo_up
+/tests/tools/udpblack
+/tests/tools/rsshwm
+/tests/tools/keyprobe
 
 # Local, untracked working files (e.g. a copy of the real Continue config)
 /local/
@@ -33,7 +39,10 @@
 # NOTE, because the rule and the tree disagreed silently for months (M485):
 # .jichi/agents/ holds two agent profiles that ARE tracked, deliberately --
 # they are jichi's own dogfood assets and are useful to a reader as worked
-# examples. A tracked file is never ignored, so this pattern does not and
+# examples. So do examples/chatbot/knowledge/.jichi/agents/helpdesk.md and
+# .../.jichi/commands/ask.md, the chatbot example's persona (M841): they were
+# ignored by this rule at first, the commit shipped without them, and only the
+# clean checkout of `make ci` showed it (tests/smoke/chatbot_example.sh check 1). A tracked file is never ignored, so this pattern does not and
 # cannot protect them; what protects them is that they are prose and are read
 # before release (tests/smoke/snapshot_lint.sh scans the publishable tree).
 # The rule below still earns its place for everything ELSE under .jichi/ --
@@ -110,3 +119,7 @@ results-*.txt
 
 # Generated build stamp (M495): the commit this binary came from.
 include/jc_buildrev_stamp.h
+
+# Stray probe binary from a `cc` relink that dropped the -o (M453/M454 precedent:
+# committed by accident, removed + ignored so it cannot recur; SV:2118).
+a.out

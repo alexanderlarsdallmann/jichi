@@ -29,16 +29,21 @@ tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
 
 # Same script shape as learn_on_stop.sh: the main turn answers DONE; the mentor
-# turn (its user prompt names lessons.draft.md) writes the draft.
-cat > "$tmp/replies.mm" <<'EOF'
+# turn (its user prompt names lessons.draft.md) answers with the draft, which
+# /learn's `output:` saves -- the read-only mentor's protocol since M848.
+cat > "$tmp/draft.sse" <<'EOF'
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"## Memory notes\n- learned X from the run\n"},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+
+EOF
+cat > "$tmp/replies.mm" <<EOF
 wire openai
 rule
   match "lessons.draft.md"
-  match "\"role\":\"tool\""
-  text drafted
-rule
-  match "lessons.draft.md"
-  tool write_file {"path":".jichi/lessons.draft.md","content":"## Memory notes\n- learned X from the run\n"}
+  sse-file $tmp/draft.sse
 rule
   text DONE
 EOF
@@ -98,10 +103,36 @@ fi
 # without one gets nothing rather than a "[could not read]" note the model might
 # echo into a lesson. The mentor writes in the words the notes and the analyze
 # report use, instead of paying the private-vocabulary tax blind.
-if [ -n "$mreq" ] && grep -q "Glossary - jichi" "$mreq"; then
+#
+# M994 (D-32) collateral: learn.md's glossary shell block is refused in an
+# untrusted project, so the first (untrusted) run's mentor request carries no
+# glossary. Trust the project -- a minimal local/config.json (same non-model
+# keys as the driver's global config, no models) plus `jichi trust` -- then
+# re-run. The model comes from the GLOBAL config ($HOME/.jichi); the re-run
+# uses discovery, not --config: an explicit --config/$JC_CONFIG load skips the
+# project merge and its trust gate entirely (project_trust stays NONE), so the
+# shell block would still be refused.
+mm_start "$tmp/replies.mm" "$tmp/cap2"
+write_config "$HOME/.jichi" "$MM_PORT" '"learnOnStop":true'
+mkdir -p "$ws/local"
+cat > "$ws/local/config.json" <<EOF
+{"lowResource":false,"snapshots":false,"repoMap":false,"references":false,"toolProfile":false,"maxRetries":0}
+EOF
+unset JC_CONFIG
+(cd "$ws" && with_deadline 60 "$BIN" trust </dev/null >/dev/null 2>&1)
+(cd "$ws" && with_deadline 60 "$BIN" \
+    -q --no-session --auto -p "do the task" \
+    < /dev/null > /dev/null 2>"$tmp/err2"); rc=$?
+mm_stop
+mreq_trusted=""
+for f in "$tmp/cap2"/req.*; do
+    [ -f "$f" ] || continue
+    if grep -q "lessons.draft.md" "$f"; then mreq_trusted="$f"; break; fi
+done
+if [ $rc -eq 0 ] && [ -n "$mreq_trusted" ] && grep -q "Glossary - jichi" "$mreq_trusted"; then
     t_ok "the starter glossary reaches the mentor's request"
 else
-    t_fail "no glossary in the mentor's request -- the mentor reads lessons in words it was never given"
+    t_fail "no glossary in the mentor's request (rc=$rc) -- the mentor reads lessons in words it was never given"
 fi
 
 t_done

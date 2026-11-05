@@ -118,7 +118,7 @@ f = fopen(path, "w");   /* TRUNCATES path to zero, immediately */
 
 Between that call and a successful `fclose`, the old contents are **gone**. Crash
 there, fill the disk there, get killed there — the user's file is empty. jichi's
-answer is `jc_write_file_atomic` (`src/platform/jc_platform_posix.c:300`), and it
+answer is `jc_write_file_atomic` (`src/platform/jc_platform_posix.c:jc_write_file_atomic`), and it
 is worth reading whole:
 
 ```c
@@ -169,6 +169,31 @@ says which is which (M141/M146):
 > mode/symlink/hard-link semantics.
 
 **Two write functions is not duplication. It is two different promises.**
+
+### The third promise: `config set` edits a file the user owns
+
+`jichi config set` writes *your* config, so it must not lose the file, and it
+must not follow links or change its mode. Its write (M1107) carries three
+promises the smoke driver `config_set_safe` checks by behaviour:
+
+- the pre-edit original is **copied** to `<path>.bak` *before* the write, so a
+  failed save still leaves the config exactly as it was — and the copy is
+  tightened to the original's mode (a 0600 config's `.bak` does not come back
+  wider);
+- the write is **temp-first** (`<path>.tmp<pid>`, then rename), so a crash or a
+  full disk never leaves the path empty;
+- a config that is a **symlink is refused** — the name and its target are both
+  left untouched, rather than the edit following the link.
+
+```console
+$ jichi config set --config-editable snapshots false
+set snapshots = false (bool) in local/config.json -- restart or /resume to apply
+$ ls -l local/config.json
+-rw------- ... local/config.json        # the mode the file already had
+```
+
+Offline and model-free: `config set` is a local verb, so this runs with no
+provider configured — the same command the driver runs.
 
 ### The honest part: jichi never calls `fsync`
 
@@ -298,6 +323,134 @@ For any file your program reads:
 - [ ] What is the largest input you accept, and what do you do above it?
 - [ ] Could this path be a FIFO, a device, or a directory?
 - [ ] Did the user name this path, or did you find it? (Different policies.)
+
+---
+
+## 6. Files with NUL bytes: tools detect and refuse
+
+### What jichi does
+
+Files in jichi's workspace are typically text (source code, Markdown, JSON, etc.).
+Binary files with embedded NUL bytes (`\0`) break the assumption that the content
+can be treated as a NUL-terminated C string. To avoid silent truncation and
+misleading output:
+
+- **read_file**: After reading a file, compares the actual byte count (`len`) to
+  what `strlen(data)` returns. If they differ, appends a marker to the output:
+  ```
+  (file contains NUL bytes; content truncated at byte <offset> in the display)
+  ```
+  The file is still readable, but the output makes it clear the content is
+  truncated.
+
+- **edit_file**: Before attempting an edit, verifies the read file has no NUL
+  bytes (`len == strlen(text)`). If NUL bytes are detected, refuses with:
+  ```
+  error: '<path>' contains NUL bytes (file is <actual> bytes, readable as <visible>); edit it with a script
+  ```
+  The file is unchanged, and the model is told it must use a binary-aware tool.
+
+- **apply_patch**: In `get_file()`, after reading, applies the same NUL check.
+  If found, sets an error and returns NULL; the per-edit error reporting handles
+  the message.
+
+- **write_file**: This tool receives its `content` argument from a model tool
+  call, which is decoded from JSON. When JSON contains `\u0000`, the cJSON parser
+  decodes it to an actual NUL byte in memory. The C string returned by `tu_arg_str`
+  is truncated at that NUL, so `strlen(content)` gives the *visible* length, not
+  the JSON string's true length. **This makes NUL detection from the C string
+  alone impossible**. The cJSON library in this codebase stores only the
+  NUL-terminated `valuestring` without a separate length field. The write_file
+  NUL check described in D-01 is therefore UNREACHABLE and not implemented.
+
+### When jichi's approach is wrong
+
+- **Truly binary files** (images, compressed archives, executables) are not meant
+  to be read or edited by these tools. The tools are for text files. If you need
+  to work with binary files, use specialized tools (e.g., `base64` encoding).
+
+- **The write_file limitation**: The write_file tool cannot detect NUL bytes
+  passed via `\u0000` in JSON arguments. This is a limitation of the cJSON API
+  in this codebase. If a model passes binary content via `\u0000`, it will be
+  truncated at the first NUL in the stored file.
+
+### What you should take from it
+
+The read_file and edit_file tools now detect NUL bytes because text-editing
+content with embedded NULs is misleading at best and corrupting at worst. The
+message tells the user: "use a script" — a reference to the fact that binary
+files require programmatic tools, not interactive text editing.
+
+If your application needs to detect NUL bytes in JSON strings, you will need to
+extend the JSON parser to store the decoded length on each string node, or use
+a different approach (e.g., validate before parsing, or use a length-aware JSON
+library).
+
+> **Something to do.** Look at `src/tools/jc_tool_read.c`, `jc_tool_edit.c`,
+> and `jc_tool_apply_patch.c` and trace the `len` vs `strlen(text)` check in
+> each. Then read `src/json/cJSON.c` and verify there is no `stringlen` field
+> on the `cJSON` struct. Explain why write_file's NUL check is unreachable.
+
+---
+
+## 7. Write failure restore: when the write fails, put it back
+
+### What jichi does
+
+When a write operation fails (not due to a fence denial), jichi attempts to
+restore the original file content:
+
+- **edit_file**: On `jc_app_write_file` failure, if the file pre-existed
+  (we have `text`/`len` from the pre-read), attempts `jc_app_write_file(app, path, text, len)`.
+  - If restore succeeds: reports "error: could not write '<path>' (original restored)"
+  - If restore also fails: reports "error: could not write '<path>' (restore also failed; the file may be corrupt)"
+
+- **write_file**: One pre-read before the write captures the original content
+  and TRUE length. On write failure:
+  - If original was captured: attempts restore using the TRUE length (`oldlen`)
+  - Same two-tier reporting as edit_file
+
+- **apply_patch**: Already had M138 revert-in-place logic in phase 2, which
+  restores any files already written when a later file fails. This was verified
+  to exist and handled I/O failures with restore attempts.
+
+- **Fault injection (D-04/M979)**: The fault injection system (`jc_fault.h`)
+  supports `JC_FAULT_WRITE` for write failures. When `JC_FAULT=1` is defined,
+  `jc_write_file` checks `JC_FAULT_HIT(JC_FAULT_WRITE)` after `fopen` and
+  returns `JC_ERR_IO` to simulate a partial write that leaves the file
+  truncated. This allows testing the restore logic deterministically.
+
+### When jichi's restore is wrong
+
+- **The restore is best-effort.** If the restore write also fails, the file may
+  be left truncated or in an inconsistent state. The message says so explicitly.
+
+- **Fence denials are NOT restored.** A `JC_ERR_DENIED` failure means the fence
+  blocked the write before any byte was written, so there's nothing to restore.
+  The error is reported as a policy refusal, not an I/O failure.
+
+- **The pre-read in write_file uses `jc_read_file` (not `jc_app_read_file`)**
+  to capture the original content before the write. This is a new design that
+  replaces the M615 block's dedicated read, sharing the same data for both the
+  pre-read and the test-assertion gate.
+
+### What you should take from it
+
+The restore logic exists because a failed write that truncates a file is a
+worse failure than a failed write that leaves the file intact. By attempting
+to restore, we at least preserve the original content. The two-tier message
+reports both the failure and the restore outcome.
+
+The fault injection (`JC_FAULT_WRITE`) allows testing this logic without
+manually simulating disk failures. When running with `JICHI_FAULT_WRITE_AFTER=0`,
+every write fails immediately after truncation, and the restore logic should
+run.
+
+> **Something to do.** Read `src/tools/jc_tool_write.c` and trace the one
+> pre-read (`jc_read_file`) before the write. Verify it is used for both the
+> D-04 restore and the M615 test-assertion gate. Then read `src/platform/jc_platform_posix.c`
+> and verify the fault check in `jc_write_file` is after `fopen` and before
+> `fwrite`.
 
 ---
 

@@ -35,7 +35,7 @@ process per box** over SSH and collects structured results.
 # supervisor.sh — fan one task out to N hosts, collect JSON results
 for host in build-a build-b gpu-1; do
   ssh "$host" 'cd ~/project && jichi -p "run the test suite and report \
-    failures" --auto --output json --budget-tokens 1M' > "result.$host.json" &
+    failures" --auto --output json --budget-tokens 1M < /dev/null' > "result.$host.json" &
 done
 wait
 # merge: each result.$host.json has { text, stop_reason, cost, ... }

@@ -10,16 +10,23 @@ Design history: [proposals/2026-07-control-channel.md](proposals/2026-07-control
 (the accepted design, including the alternatives considered). This page is the
 operator manual.
 
+**Not on every build.** The channel is a Unix socket, so a jichi built on a
+system without sockets has none. Today that is DJGPP on FreeDOS, where
+`make info` reports `SOCKET_LIBS = none`. There `--control` prints a warning
+naming the reason and the run continues without a channel, and `jichi control`
+refuses with exit 2 (M835).
+
 ## Quick start
 
 ```sh
 # Start a bounded run with a control socket (off by default):
 jichi --auto --control \
     --budget-tokens 400k --deadline 30m \
-    -p "refactor the parser" &
+    -p "refactor the parser" < /dev/null &
 # stderr prints: [control] listening on ~/.jichi.d/control/<pid>.sock
 
-# From any other shell (same user), steer it:
+# From any other shell (same user), find it (M759) and steer it:
+jichi ps                     # every live run, with its socket
 jichi control ~/.jichi.d/control/<pid>.sock status
 jichi control <sock> inject "skip the tests; write the report now"
 jichi control <sock> pause            # deadline keeps running
@@ -29,14 +36,19 @@ jichi control <sock> abort
 ```
 
 `--control` takes an optional explicit path (`--control /run/jichi/task.sock`);
-config `control: true` (or a path string) does the same per project. The
+config `control: true` (or a path string) does the same per project (`1`, `"on"` and `"yes"`
+mean true and `"off"` false since M843; before, an `"on"` or `"off"` was taken as a socket path). The
 socket is unlinked at teardown.
 
 ## The six verbs
 
+A program can read the same six, with their fields, from `jichi describe --output json`
+under `control` (M752). That list is generated from the codec's own verb table, so it cannot
+fall behind this one.
+
 | Verb | Effect | Answered |
 |---|---|---|
-| `status` | one JSON snapshot: run id, **`mode`** (M304), elapsed, `tokens_used`/`budget_tokens`, `tool_calls`/`max_tool_calls`, `deadline_secs`, outcome-so-far, `last_tool`, `paused` | at the next tool boundary |
+| `status` | one JSON snapshot: run id, **`mode`** (M304), elapsed, `tokens_used`/`budget_tokens`, `tool_calls`/`max_tool_calls`, `deadline_secs`, outcome-so-far, `last_tool`, `paused`, and the **inject delivery state** `injected`/`queued_injects` (M1045, always emitted) | at the next tool boundary |
 | `inject <text>` | queued; lands as **one user-role message prefixed `[operator]`** before the next model call | ack at the boundary; applied at the next model call |
 | `pause` | the loop blocks at the boundary until `resume`/`abort` — **the deadline clock keeps running** | at the boundary |
 | `pause --extend` | as `pause`, but the paused time is **credited back to the deadline** on exit (M162) — for a deliberate human inspection that shouldn't burn the run's budgeted time | at the boundary |
@@ -64,12 +76,21 @@ sequenceDiagram
 
 ## Semantics that matter (the accepted design decisions)
 
-- **Boundary-only.** Commands are served at **tool-call boundaries** — the
-  same safe point where budgets are checked and background processes are
-  reaped. A command never interleaves with a streaming response or a
-  half-applied tool, and there are no threads. The price: behind a slow model
-  call, a reply can take as long as that call. The client waits up to 300s
-  and says so; the command is still queued on the listen backlog either way.
+- **Boundary-served, with two mid-call exceptions.** Commands are served at
+  **tool-call boundaries** — the same safe point where budgets are checked and
+  background processes are reaped — so a command never interleaves with a
+  streaming response or a half-applied tool, and there are no threads. Two verbs
+  are now answered without waiting for the boundary, so a supervisor is not left
+  waiting out a slow call: since **M801** `status` is answered **mid-call**, in
+  the shell wait loop and inside a `spawn_parallel` batch; and since **M804**
+  `abort` is served **inside a batch** (the pool stops it in ~200 ms, preserving
+  each worker's work) and `pause` there means "launch no new task" while the
+  running workers finish. Everything else still waits for the boundary, so behind
+  a slow model call an `inject` or a `mode` reply can take as long as that call.
+  The client waits up to 300 s (override with `JC_CONTROL_CLIENT_SECS`) and, if
+  the reply does not come, exits **3** (delivered, queued) rather than 1 (not
+  delivered), so the command's fate is scriptable; it is queued on the listen
+  backlog either way. See the exit-code list below.
 - **Injection is history, not prompt.** Steering lands as a normal
   **user-role message** with an explicit `[operator] ` prefix — visible to the
   model, preserved in the session transcript, compacted like any turn, and
@@ -142,11 +163,16 @@ Two things follow.
 - **`--control` suits long, tool-heavy runs** — the ones you actually want to steer. On
   a short or read-then-answer run, expect the channel to be unreachable in practice, and
   do not read a client timeout as a hung agent.
-- **The client's error message is the thing to trust.** It says *"no reply within 300s
-  (the run may be inside a long model call; the command was still queued if the connect
-  succeeded)"* — which is precisely the right diagnosis, including the part where a
-  queued command may still land later. Nothing in that sentence needed changing; it is
-  quoted here so the limit is findable before you hit it rather than after.
+- **The client's error message — and its exit status — are the things to trust.** When the
+  wait elapses with no reply it says *"no reply within the wait (the run may be inside a long
+  model call; the command was delivered and is queued for the next tool boundary) [exit 3]"* and
+  **exits 3**, which is distinct from the **1** a failed connect returns (M823). So a supervisor
+  script can tell *delivered-and-queued, wait and re-check* from *the run is gone* without parsing
+  the message. The client's exit codes: **0** the command was answered `ok`; **1** it was not
+  delivered (connect/send failed) or the server answered `ok:false`; **2** a usage error (a bad
+  verb or mode); **3** delivered but not answered within the wait (queued). The wait defaults to
+  300 s and is overridable with **`JC_CONTROL_CLIENT_SECS`** (≥ 1) — lower it for a supervisor
+  that polls and re-checks rather than blocking. `abort` still exits 130.
 
 This is the same boundary-granularity property that makes `--deadline` a
 notice-time rather than a wall-clock bound (see
@@ -174,6 +200,17 @@ from libcurl's progress callback, where a `pause` would block the HTTP read and 
 time the request out. For liveness across that window, use `--heartbeat` (M165) or tail
 the journal — which since M438 carries an `open` record with the run's pid from the
 moment the file exists, so it is never an empty file while the process lives.
+
+**Mid-subagent, since M1103.** An in-process `spawn_subagent` runs the child's turn in
+the same process that owns the socket, so `status`, `pause` and `abort` are answered
+at the child's service points while it runs (previously the run went dark for the whole
+child -- measured 300 s of unanswered `status` on a 12-minute child). An `inject`
+sent during the child is still queued for the **lead's** next top-level boundary, never
+folded into the child's history. (The child's own long model call stays unserved, like
+any model call; a child's shell tool call is a service point.) A `--daemon` run
+refuses to open a control socket at startup (M1103-b): the daemon forks a worker per
+prompt, and after M1103's owner-process rule no worker answers -- a bound socket
+nobody serves is worse than none, so the combination is a startup refusal.
 
 ## What the channel deliberately cannot do
 

@@ -106,7 +106,7 @@ teacher: /check reverse-list.md student.py  → rubric-keyed feedback (read-only
 ```sh
 jichi init assignments        # 搭起这个 pack
 # 在 config 中加  "assignments": true ，然后：
-jichi -p "/assign implementation 'sum a list'"
+jichi -p "/assign implementation 'sum a list'" < /dev/null
 ```
 
 完整演练：`docs/TEACHING_ASSIGNMENTS.md`（课堂、辅导、

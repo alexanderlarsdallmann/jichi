@@ -38,15 +38,50 @@ libc, libm, and — when present — libcurl):
 sudo apt-get install libcurl4-openssl-dev
 make
 
-# 2. Point it at a model (minimal config + API key) — see "First-run setup"
-printf '{"model":{"provider":"anthropic","model":"claude-opus-4-8",'\
-'"apiKeyEnv":"ANTHROPIC_API_KEY","roles":["chat"]}}\n' > ~/.jichi
-export ANTHROPIC_API_KEY=sk-...
+# 2. Point it at a model. The simplest free option is a local
+#    OpenAI-compatible server (e.g. LM Studio at http://localhost:1234)
+#    — no API key needed. For a hosted model, see "First-run setup".
+printf '{"model":{"provider":"openai","model":"local-model",'\
+'"apiBase":"http://localhost:1234/v1","roles":["chat"]}}\n' > ~/.jichi
 
 # 3. Check the setup, then talk to it
 ./jichi doctor
-./jichi -p "say hello in one line"
+./jichi -p "say hello in one line" < /dev/null
 ```
+
+---
+
+## Find your platform
+
+The quick start above is the generic build. For the exact packages, the exact
+commands, and — the part a generic guide cannot give — **what has actually gone
+wrong on your platform and what to do about it**, there is a page per platform under
+[`docs/install/`](install/):
+
+| Platform | Page |
+|---|---|
+| Debian / Ubuntu (the reference build) | [install/debian-ubuntu.md](install/debian-ubuntu.md) |
+| Fedora / RHEL / Arch | [install/fedora.md](install/fedora.md) |
+| Alpine Linux (musl) | [install/alpine.md](install/alpine.md) |
+| An old Linux release (Debian 5–9, CentOS 6–7) | [install/old-linux.md](install/old-linux.md) |
+| Raspberry Pi and other small boards | [install/raspberry-pi.md](install/raspberry-pi.md) |
+| Guix System | [install/guix.md](install/guix.md) |
+| GNU/Hurd | [install/gnu-hurd.md](install/gnu-hurd.md) |
+| FreeBSD | [install/freebsd.md](install/freebsd.md) |
+| OpenBSD | [install/openbsd.md](install/openbsd.md) |
+| NetBSD | [install/netbsd.md](install/netbsd.md) |
+| illumos / Solaris (OmniOS) | [install/illumos.md](install/illumos.md) |
+| Windows (WSL2, Cygwin, MSYS2) | [install/wsl2.md](install/wsl2.md) |
+| macOS (partly verified, driven) | [install/macos.md](install/macos.md) |
+
+[install/README.md](install/README.md) lists these and the nine-section shape they
+share. The full matrix and what each verdict means is [`PLATFORMS.md`](PLATFORMS.md).
+
+**FreeMiNT (Atari) / ARAnyM** is a *cross-compile-and-emulate* target, not a system a
+user installs jichi on — it is cross-built and run under emulation, not compiled on the
+machine — so it has no walkthrough here. Its build, verdict and the rig live in
+[`PLATFORMS.md`](PLATFORMS.md) and
+[`plans/2026-09-freemint-aranym.md`](plans/2026-09-freemint-aranym.md).
 
 ---
 
@@ -69,14 +104,16 @@ LSP servers, user tools, the parallel fork pool, and verifiers), `termios` +
   and on-device by Termux. Between them the BSD rows found ten real defects — an
   inherited `SIGPIPE` that hung pipelines on *every* platform among them — which is
   the argument for the rows: they are a defect detector, not compatibility work.
-- **Partly verified (3 rows):** **illumos / Solaris** — fully driven and green
-  since M703 — plus **Windows + Cygwin** and **Windows + MSYS2**. Each carries a
-  named gap; [`PLATFORMS.md`](PLATFORMS.md) owns the verdicts and the numbers.
-- **Never compiled:** **macOS** alone (one Darwin-specific path exists —
-  `sysctl(HW_MEMSIZE)` — and it was un-compilable under this project's own flags
-  until M400; the older claim of "no Darwin-specific code" was simply wrong).
-  Plain POSIX with a C89 compiler and libcurl is a good reason to expect
-  success, not evidence of it.
+- **Partly verified:** among others **illumos / Solaris** — fully driven and green
+  since M703 — **macOS** on Apple Silicon (driven since M817; `make ci` has never run
+  on a Mac), **GNU/Hurd**, **Haiku**, **Windows + Cygwin** and **Windows + MSYS2**.
+  Each carries a named gap; [`PLATFORMS.md`](PLATFORMS.md) owns the verdicts, the
+  full list and the numbers.
+- **Never compiled** on the system itself: **FreeMiNT (Atari)** and **FreeDOS**, both
+  cross-compiled and run under an emulator.
+
+*Corrected 2026-10-04: this list said macOS was "never compiled" and named three
+partly verified rows; both were out of date.*
 - **Not supported today:** Windows natively (no POSIX layer — WSL is the intended
   path, and [PORTING_WINDOWS.md](PORTING_WINDOWS.md) maps exactly where POSIX
   ends).
@@ -110,7 +147,7 @@ It does now. **The kernel is not the constraint** — jichi uses `fork`, `exec`,
 
 | Component | Minimum | What sets the floor |
 | --- | --- | --- |
-| **libcurl** | **7.19.4** (Feb 2009) | `CURLOPT_PROTOCOLS` / `CURLOPT_REDIR_PROTOCOLS`, used in the pre-7.85 branch of the SSRF guard. `CURLOPT_SEEKFUNCTION` needs 7.18.0. The newer options are `#if`-guarded with fallbacks: `CURLOPT_XFERINFOFUNCTION` (7.32.0) falls back to `CURLOPT_PROGRESSFUNCTION`, the `_STR` protocol options (7.85.0) to the bitmask form, and the TLS minimum `CURL_SSLVERSION_TLSv1_2` (7.34.0) to `CURL_SSLVERSION_TLSv1` -- any TLS, never an SSL fallback, the most such a libcurl can ask for. `CURL_SOCKOPT_OK` (7.21.5) and `CURL_SEEKFUNC_CANTSEEK` (7.19.5) have fallback definitions. Until 2026-09-24 those last three were used bare, and nothing at this floor compiled (see below); `portability_lint` check 34 now holds every libcurl identifier newer than 7.19.4 to a guard or a fallback. A distribution's older libcurl can still meet the floor where the vendor backported the protocol options: Debian 5's 7.18.2 does. |
+| **libcurl** | **7.19.4** (Feb 2009) | `CURLOPT_PROTOCOLS` / `CURLOPT_REDIR_PROTOCOLS`, used in the pre-7.85 branch of the SSRF guard. `CURLOPT_SEEKFUNCTION` needs 7.18.0. The newer options are `#if`-guarded with fallbacks: `CURLOPT_XFERINFOFUNCTION` (7.32.0) falls back to `CURLOPT_PROGRESSFUNCTION`, the `_STR` protocol options (7.85.0) to the bitmask form, `CURLOPT_RESOLVER_START_FUNCTION` (7.59.0) -- FAULT-build-only, the resolver-stall hook (M1062-e) -- falls back to nothing, so below it the `#if` compiles out and a non-FAULT binary is byte-identical, and the TLS minimum `CURL_SSLVERSION_TLSv1_2` (7.34.0) to `CURL_SSLVERSION_TLSv1` -- any TLS, never an SSL fallback, the most such a libcurl can ask for. `CURLOPT_CLOSESOCKETFUNCTION` (7.21.7) has no fallback: below it jichi cannot ask a closing socket whether TCP was up, so a TLS handshake that times out is named from the connect time alone, as before M880. `CURL_SOCKOPT_OK` (7.21.5) and `CURL_SEEKFUNC_CANTSEEK` (7.19.5) have fallback definitions. `CURLINFO_CAINFO` (7.84.0), the default-CA-path query in the capability snapshot (M1133), is `#if`-guarded: below it the snapshot reports no default path and the doctor's CA line says so. Until 2026-09-24 those last three were used bare, and nothing at this floor compiled (see below); `portability_lint` check 34 now holds every libcurl identifier newer than 7.19.4 to a guard or a fallback. A distribution's older libcurl can still meet the floor where the vendor backported the protocol options: Debian 5's 7.18.2 does. |
 | **glibc** | **2.7** (2007), measured | POSIX.1-2001 throughout. Two glibc extensions are used and both are `#if defined`-guarded: `_SC_PHYS_PAGES` and `_SC_NPROCESSORS_ONLN`. On glibc **< 2.17** `clock_gettime` lives in **librt**, and the build probes for that and adds `-lrt` — see below. On an older glibc `snprintf` is declared under `-std=c89` only at the X/Open level, so the build asks there too before it settles for its own C89 formatter, which has no width, precision or flags. |
 | **musl / uClibc-ng** | any current | `clock_gettime` is in libc; nothing else applies. |
 | **C compiler** | any C89 | Not the binding constraint. GNU make **3.82** is supported (the `\043` escape in the probes exists for it). Every warning flag a compiler may lack is probed — except `-Walloca` from M472 to M722, when no gcc before 7 could compile the tree at all. The oldest compiler measured since is gcc 4.6.4, cross-compiling (M722). |
@@ -290,37 +327,40 @@ picked up automatically by bash/zsh from the standard directories above.
 
 ## First-run setup
 
-jichi needs one configured model. The smallest possible `~/.jichi`:
+jichi needs one configured model. The smallest possible `~/.jichi` points at a
+**local OpenAI-compatible server** — the simplest free way to start, and it needs
+**no API key**:
 
 ```json
 {
   "model": {
-    "provider": "anthropic",
-    "model": "claude-opus-4-8",
-    "apiKeyEnv": "ANTHROPIC_API_KEY",
+    "provider": "openai",
+    "model": "local-model",
+    "apiBase": "http://localhost:1234/v1",
     "roles": ["chat"]
   }
 }
 ```
 
-- `provider` is `anthropic` or `openai` (OpenAI-compatible servers like vLLM,
-  llama.cpp, LM Studio, or Ollama's OpenAI endpoint all use `"openai"` + an
-  `apiBase`).
-- `apiKeyEnv` names the environment variable holding the key, so the key never
-  lives in the file. `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` are also read as
-  provider defaults.
+- This uses a local server — **LM Studio**, llama.cpp, vLLM, or Ollama's OpenAI
+  endpoint. Replace `"local-model"` with the model name your server reports.
+  `apiBase` is the server's address and **ends in `/v1`** so chat and embeddings
+  resolve.
+- **For a hosted model instead**, set `provider` to `anthropic` or `openai`, drop
+  `apiBase`, and add `apiKeyEnv` naming the environment variable that holds your key,
+  so the key never lives in the file (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` are read
+  as provider defaults). A hosted model may be **paid**: jichi defaults to no model
+  and never spends on its own, and `doctor` warns when the active model has no pricing
+  set — so choosing a priced one is your decision, not an accident.
 
 **Config file resolution** (first match wins):
 
-```mermaid
-flowchart TD
-  A["--config PATH"] -->|set| Z["use it"]
-  A -->|unset| B["$JC_CONFIG"]
-  B -->|set| Z
-  B -->|unset| C["./local/config.json"]
-  C -->|exists| Z
-  C -->|missing| D["~/.jichi"]
-```
+jichi uses the **first** of these that is set or exists (highest priority first):
+
+1. `--config PATH` — the flag
+2. `$JC_CONFIG` — the environment variable
+3. `./local/config.json` — the project-local, git-ignored layer
+4. `~/.jichi` — your global config
 
 `./local/config.json` is a convenient **project-local** override (git-ignore it).
 Then validate everything:
@@ -396,7 +436,7 @@ ls -l $(command -v jichi)         # its date -- older than your build?
 **Fix — install where your `PATH` already looks, and drop `sudo` entirely:**
 
 ```sh
-rm -f ~/.local/bin/jichi ~/.local/bin/jichi-convert       ~/.local/bin/jlu_continue ~/.local/bin/jlu-convert
+rm -f ~/.local/bin/jichi ~/.local/bin/jichi-convert
 make install PREFIX="$HOME/.local"
 ```
 
@@ -413,7 +453,7 @@ install -m755 jichi jichi-convert /home/you/.local/bin          <- succeeded
 install -d /home/you/.local/share/man/man1
 install: /home/you/.local/share/man/man1: chmod failed with error
          Operation not permitted (os error 1)
-make: *** [Makefile:311: install] Error 1
+make: *** [Makefile:NNN: install] Error 1
 ```
 
 The cause is not permissions on the *files* but ownership of the
@@ -447,10 +487,10 @@ strings $(command -v jichi) | grep -c 'advice: is this'   # 1 = the M280 keys ar
 ## Verifying the install
 
 ```sh
-jichi --version          # e.g. "jichi 0.2.0-dev"
+jichi --version          # prints the version and the build hash
 jichi --help             # full flag + subcommand reference
 jichi doctor             # setup health check (exit 1 if a check fails)
-jichi -p "reply with OK" # a tiny end-to-end smoke test (needs a model)
+jichi -p "reply with OK" < /dev/null # a tiny end-to-end smoke test (needs a model)
 ```
 
 From a source checkout you can also run the test suite and the full gate:

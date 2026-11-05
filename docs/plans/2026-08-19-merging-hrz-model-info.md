@@ -119,10 +119,9 @@ machinery.
 on this gateway"**. **Remove the census.**
 
 At **M485**, on the operator's instruction, the 2026-08-09 gateway findings report was
-withheld: it was written *to* that gateway's administrators, it describes another
-organisation's configuration, and those matters are under active correspondence with
-them. The model census was scrubbed from `docs/ROADMAP.md` in the same pass; this note
-reintroduces it in a new file.
+withheld: it describes another organisation's configuration — its upstreams, an auth
+misconfiguration, and a model census. The model census was scrubbed from `docs/ROADMAP.md`
+in the same pass; this note reintroduces it in a new file.
 
 What **stays**, and should — this is the M485 rule, not a request to prune:
 

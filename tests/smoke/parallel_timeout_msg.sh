@@ -17,8 +17,17 @@ smoke_home
 tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
 
-# The child is told to run a command that outlives the 1-second watchdog. The
-# parent's rule fires first (count 1), then every later request is a subagent's.
+# The child's model call stalls (SSE headers, then nothing) and outlives the
+# 1-second watchdog; the HTTP stall timeout is set far above it, so the watchdog --
+# not the transport -- is what fires. The parent's rule fires first (count 1), then
+# every later request is a subagent's.
+#
+# Until M750 the child ran `sleep 30` through run_terminal_command instead. That
+# only worked because a read-only task's gate was open: its menu withheld the
+# shell and nothing refused the call. With the gate closed the command is refused,
+# the child never sleeps, and this driver measured nothing. The watchdog does not
+# care what a child is blocked on, so the stall keeps the subject and drops the
+# dependency on the hole.
 cat > "$tmp/p.mm" <<'EOF'
 wire openai
 rule
@@ -26,14 +35,14 @@ rule
   tool spawn_parallel {"tasks":[{"task":"sleep for a while"}]}
 rule
   match "focused sub-agent"
-  tool run_terminal_command {"command":"sleep 30"}
+  stall header
 rule
   match "\"role\":\"tool\""
   text PARENT_DONE
 EOF
 mm_start_unbounded "$tmp/p.mm" "$tmp/cap"
 write_config "$tmp/c.json" "$MM_PORT" \
-    '"parallelTaskTimeout":1,"maxParallelAgents":1,"toolProfile":"full"'
+    '"parallelTaskTimeout":1,"maxParallelAgents":1,"toolProfile":"full","timeouts":{"stall":30}'
 
 out=$( (cd "$ws" && with_deadline 120 "$BIN" --config "$tmp/c.json" --auto \
         --no-lite --no-session --output jsonl -p "run them in parallel" \

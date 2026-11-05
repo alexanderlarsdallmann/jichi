@@ -108,7 +108,7 @@ teacher: /check reverse-list.md student.py  → rubric-keyed feedback (read-only
 ```sh
 jichi init assignments        # scaffold the pack
 # add  "assignments": true  to config, then:
-jichi -p "/assign implementation 'sum a list'"
+jichi -p "/assign implementation 'sum a list'" < /dev/null
 ```
 
 完全な手引き：`docs/TEACHING_ASSIGNMENTS.md`（教室、個別指導、自習、コホート/TA）。

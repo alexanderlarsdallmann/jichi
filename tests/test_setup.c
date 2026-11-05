@@ -668,6 +668,7 @@ static void test_merge_config(void)
 {
     struct jc_setup_answers a;
     struct jc_sb sb;
+    struct jc_arena *arena = jc_arena_new(0);
     cJSON *root;
     cJSON *models;
 
@@ -684,7 +685,7 @@ static void test_merge_config(void)
     jc_sb_init(&sb);
     JC_CHECK(jc_setup_merge_config(
         "{\"mode\":\"plan\",\"models\":[{\"name\":\"mine\","
-        "\"model\":\"local\",\"roles\":[\"chat\"]}]}", &a, &sb) == JC_OK);
+        "\"model\":\"local\",\"roles\":[\"chat\"]}]}", &a, &sb, arena) == JC_OK);
     root = jc_json_parse(sb.data);
     JC_CHECK(root != NULL);
     JC_CHECK_STR(jc_json_get_str(root, "mode", ""), "plan"); /* kept, not "auto" */
@@ -697,7 +698,7 @@ static void test_merge_config(void)
     /* A config with models but no chat role: the chat model is added. */
     jc_sb_init(&sb);
     JC_CHECK(jc_setup_merge_config(
-        "{\"models\":[{\"model\":\"e\",\"roles\":[\"embed\"]}]}", &a, &sb)
+        "{\"models\":[{\"model\":\"e\",\"roles\":[\"embed\"]}]}", &a, &sb, arena)
         == JC_OK);
     root = jc_json_parse(sb.data);
     models = cJSON_GetObjectItem(root, "models");
@@ -707,24 +708,70 @@ static void test_merge_config(void)
 
     /* Malformed existing config => JC_ERR_PARSE. */
     jc_sb_init(&sb);
-    JC_CHECK(jc_setup_merge_config("not json", &a, &sb) == JC_ERR_PARSE);
+    JC_CHECK(jc_setup_merge_config("not json", &a, &sb, arena) == JC_ERR_PARSE);
     jc_sb_free(&sb);
 
-    /* Missing required answer fields => JC_ERR_INVALID. */
-    jc_setup_answers_init(&a);
+    /* JSONC with comments and trailing commas merges OK */
     jc_sb_init(&sb);
-    JC_CHECK(jc_setup_merge_config("{}", &a, &sb) == JC_ERR_INVALID);
+    JC_CHECK(jc_setup_merge_config(
+        "{\n"
+        "  // a comment\n"
+        "  \"mode\": \"plan\", /* inline */\n"
+        "  \"models\": [{\"model\": \"local\", \"roles\": [\"chat\"]},],\n"
+        "}", &a, &sb, arena) == JC_OK);
+    root = jc_json_parse(sb.data);
+    if (JC_REQUIRE(root != NULL)) {
+        JC_CHECK_STR(jc_json_get_str(root, "mode", ""), "plan");
+        models = cJSON_GetObjectItem(root, "models");
+        JC_CHECK(cJSON_GetArraySize(models) == 1); /* kept, not duplicated */
+        JC_CHECK(cJSON_IsTrue(cJSON_GetObjectItem(root, "references")));
+    }
+    cJSON_Delete(root);
     jc_sb_free(&sb);
+
+    /* Clean JSON still works (strip is idempotent on clean input) */
+    jc_sb_init(&sb);
+    JC_CHECK(jc_setup_merge_config(
+        "{\"mode\":\"plan\",\"models\":[{\"model\":\"local\",\"roles\":[\"chat\"]}]}", &a, &sb, arena) == JC_OK);
+    root = jc_json_parse(sb.data);
+    if (JC_REQUIRE(root != NULL)) {
+        JC_CHECK_STR(jc_json_get_str(root, "mode", ""), "plan");
+    }
+    cJSON_Delete(root);
+    jc_sb_free(&sb);
+
+    /* Missing required answer fields => JC_ERR_INVALID (separate arena to avoid interference) */
+    {
+        struct jc_arena *arena2 = jc_arena_new(0);
+        jc_setup_answers_init(&a);
+        jc_sb_init(&sb);
+        JC_CHECK(jc_setup_merge_config("{}", &a, &sb, arena2) == JC_ERR_INVALID);
+        jc_sb_free(&sb);
+        jc_arena_free(arena2);
+    }
+
+    jc_arena_free(arena);
 }
 
 static void test_inherit_config(void)
 {
     struct jc_setup_answers a;
     struct jc_sb sb;
-    cJSON *root, *models;
+    struct jc_arena *arena = jc_arena_new(0);
+    cJSON *root, *models, *search, *m0;
     const char *GLOBAL =
         "{\"models\":[{\"name\":\"g\",\"model\":\"gpt\",\"roles\":[\"chat\"]}],"
         "\"routing\":{\"enabled\":true,\"fast\":\"g\"},"
+        "\"snapshots\":true}";
+    /* A global config carrying a LITERAL apiKey on the model and on search,
+     * alongside the legitimate apiKeyEnv (the env-var NAME). D-24: inherit used
+     * to copy the literal key verbatim into a 0644 project config, under a
+     * _comment promising "apiKeyEnv only, never a literal key". */
+    const char *GLOBKEYS =
+        "{\"models\":[{\"name\":\"kg\",\"model\":\"m1\",\"apiKey\":\"LITMODEL\","
+        "\"apiKeyEnv\":\"ENVVAR\",\"roles\":[\"chat\"]}],"
+        "\"search\":{\"url\":\"http://x\",\"apiKey\":\"LITSEARCH\","
+        "\"apiKeyEnv\":\"SENV\"},"
         "\"snapshots\":true}";
 
     /* Pure inheritance: no --model needed; the whole global config carries over,
@@ -732,7 +779,7 @@ static void test_inherit_config(void)
     jc_setup_answers_init(&a);
     a.mode = "plan";
     jc_sb_init(&sb);
-    JC_CHECK(jc_setup_inherit_config(GLOBAL, NULL, &a, &sb) == JC_OK);
+    JC_CHECK(jc_setup_inherit_config(GLOBAL, NULL, &a, &sb, arena) == JC_OK);
     root = jc_json_parse(sb.data);
     JC_CHECK(root != NULL);
     models = cJSON_GetObjectItem(root, "models");
@@ -746,7 +793,7 @@ static void test_inherit_config(void)
     /* Subset: --inherit "models" copies only the models key. */
     jc_setup_answers_init(&a);
     jc_sb_init(&sb);
-    JC_CHECK(jc_setup_inherit_config(GLOBAL, "models", &a, &sb) == JC_OK);
+    JC_CHECK(jc_setup_inherit_config(GLOBAL, "models", &a, &sb, arena) == JC_OK);
     root = jc_json_parse(sb.data);
     JC_CHECK(cJSON_GetObjectItem(root, "models") != NULL);
     JC_CHECK(cJSON_GetObjectItem(root, "routing") == NULL); /* not selected */
@@ -756,8 +803,155 @@ static void test_inherit_config(void)
 
     /* Non-object source => JC_ERR_PARSE. */
     jc_sb_init(&sb);
-    JC_CHECK(jc_setup_inherit_config("not json", NULL, &a, &sb) == JC_ERR_PARSE);
+    JC_CHECK(jc_setup_inherit_config("not json", NULL, &a, &sb, arena) == JC_ERR_PARSE);
     jc_sb_free(&sb);
+
+    /* JSONC with comments inherits OK */
+    jc_sb_init(&sb);
+    JC_CHECK(jc_setup_inherit_config(
+        "{\n"
+        "  // comment\n"
+        "  \"models\": [{\"model\":\"g\",\"roles\":[\"chat\"]},],\n"
+        "  /* block */ \"routing\": {\"enabled\": true},\n"
+        "}", "models", &a, &sb, arena) == JC_OK);
+    root = jc_json_parse(sb.data);
+    if (JC_REQUIRE(root != NULL)) {
+        JC_CHECK(cJSON_GetObjectItem(root, "models") != NULL);
+        JC_CHECK(cJSON_GetObjectItem(root, "routing") == NULL); /* not selected */
+    }
+    cJSON_Delete(root);
+    jc_sb_free(&sb);
+
+    /* D-24, whole-config arm: a literal apiKey is dropped, apiKeyEnv kept, and
+     * the rest of the config (snapshots) still inherits. RED before the fix
+     * (leg 1's apiKey == NULL assert fails). */
+    jc_setup_answers_init(&a);
+    jc_sb_init(&sb);
+    JC_CHECK(jc_setup_inherit_config(GLOBKEYS, NULL, &a, &sb, arena) == JC_OK);
+    root = jc_json_parse(sb.data);
+    JC_CHECK(root != NULL);
+    if (JC_REQUIRE(root != NULL)) {
+        models = cJSON_GetObjectItem(root, "models");
+        m0 = cJSON_GetArrayItem(models, 0);
+        JC_CHECK(cJSON_GetObjectItem(m0, "apiKey") == NULL);   /* the fix */
+        JC_CHECK_STR(jc_json_get_str(m0, "apiKeyEnv", ""), "ENVVAR"); /* kept */
+        JC_CHECK_STR(jc_json_get_str(m0, "name", ""), "kg");
+        search = cJSON_GetObjectItem(root, "search");
+        JC_CHECK(cJSON_GetObjectItem(search, "apiKey") == NULL);   /* the fix */
+        JC_CHECK_STR(jc_json_get_str(search, "apiKeyEnv", ""), "SENV"); /* kept */
+        JC_CHECK(cJSON_IsTrue(cJSON_GetObjectItem(root, "snapshots"))); /* still inherits */
+        /* the literal value must not appear anywhere in the emitted text */
+        JC_CHECK(strstr(sb.data, "LITMODEL") == NULL);
+        JC_CHECK(strstr(sb.data, "LITSEARCH") == NULL);
+    }
+    cJSON_Delete(root);
+    jc_sb_free(&sb);
+
+    /* D-24, subset arm (--inherit "models,search"): the same drop applies to the
+     * re-parsed copy. RED before the fix (leg 2's apiKey == NULL assert fails). */
+    jc_setup_answers_init(&a);
+    jc_sb_init(&sb);
+    JC_CHECK(jc_setup_inherit_config(GLOBKEYS, "models,search", &a, &sb, arena)
+             == JC_OK);
+    root = jc_json_parse(sb.data);
+    JC_CHECK(root != NULL);
+    if (JC_REQUIRE(root != NULL)) {
+        models = cJSON_GetObjectItem(root, "models");
+        m0 = cJSON_GetArrayItem(models, 0);
+        JC_CHECK(cJSON_GetObjectItem(m0, "apiKey") == NULL);   /* the fix */
+        JC_CHECK_STR(jc_json_get_str(m0, "apiKeyEnv", ""), "ENVVAR"); /* kept */
+        search = cJSON_GetObjectItem(root, "search");
+        JC_CHECK(cJSON_GetObjectItem(search, "apiKey") == NULL);   /* the fix */
+        JC_CHECK_STR(jc_json_get_str(search, "apiKeyEnv", ""), "SENV"); /* kept */
+        JC_CHECK(cJSON_GetObjectItem(root, "snapshots") == NULL); /* not selected */
+    }
+    cJSON_Delete(root);
+    jc_sb_free(&sb);
+
+    jc_arena_free(arena);
+}
+
+/* M1106-b (the D-24 neighbour): a global config carrying literal secret members
+ * on its mcpServers/tools entries -- mcpServers[].env (an object),
+ * mcpServers[].headers (an array) and tools[].env (an object) -- must not be
+ * copied into the project config: the entries themselves (name/command/args)
+ * survive, only the literal secret members are dropped. The global top-level
+ * env is deliberately NOT covered -- that is the user's own data, and
+ * --inherit's job is to carry settings over. RED before the fix: the
+ * env/headers members are still present in the output (asserts below fail). */
+static void test_inherit_config_secret_members(void)
+{
+    struct jc_setup_answers a;
+    struct jc_sb sb;
+    struct jc_arena *arena = jc_arena_new(0);
+    cJSON *root, *servers, *tools, *s0, *t0;
+    const char *GLOBSECRET =
+        "{\"mcpServers\":[{\"name\":\"srv\",\"command\":\"node\","
+        "\"args\":[\"-e\",\"x\"],"
+        "\"env\":{\"MCP_TOK\":\"LIT-MKE-U\"},"
+        "\"headers\":[\"Authorization: Bearer LIT-MKH-U\"]}],"
+        "\"tools\":[{\"name\":\"tool\",\"env\":{\"TOOL_TOK\":\"LIT-MKT-U\"}}],"
+        "\"snapshots\":true}";
+
+    /* Whole-config arm: the secret members are gone, the entries survive. */
+    jc_setup_answers_init(&a);
+    a.mode = "plan";
+    jc_sb_init(&sb);
+    JC_CHECK(jc_setup_inherit_config(GLOBSECRET, NULL, &a, &sb, arena) == JC_OK);
+    root = jc_json_parse(sb.data);
+    JC_CHECK(root != NULL);
+    if (JC_REQUIRE(root != NULL)) {
+        servers = cJSON_GetObjectItem(root, "mcpServers");
+        JC_CHECK(cJSON_IsArray(servers));
+        JC_CHECK(cJSON_GetArraySize(servers) == 1);
+        s0 = cJSON_GetArrayItem(servers, 0);
+        JC_CHECK(cJSON_GetObjectItem(s0, "env") == NULL);      /* the fix */
+        JC_CHECK(cJSON_GetObjectItem(s0, "headers") == NULL);  /* the fix */
+        JC_CHECK_STR(jc_json_get_str(s0, "name", ""), "srv");   /* survives */
+        JC_CHECK_STR(jc_json_get_str(s0, "command", ""), "node");
+        JC_CHECK(cJSON_GetArraySize(cJSON_GetObjectItem(s0, "args")) == 2);
+        tools = cJSON_GetObjectItem(root, "tools");
+        JC_CHECK(cJSON_IsArray(tools));
+        JC_CHECK(cJSON_GetArraySize(tools) == 1);
+        t0 = cJSON_GetArrayItem(tools, 0);
+        JC_CHECK(cJSON_GetObjectItem(t0, "env") == NULL);      /* the fix */
+        JC_CHECK_STR(jc_json_get_str(t0, "name", ""), "tool"); /* survives */
+        JC_CHECK(cJSON_IsTrue(cJSON_GetObjectItem(root, "snapshots")));
+        /* no literal value may appear anywhere in the emitted text */
+        JC_CHECK(strstr(sb.data, "MKE-U") == NULL);
+        JC_CHECK(strstr(sb.data, "MKH-U") == NULL);
+        JC_CHECK(strstr(sb.data, "MKT-U") == NULL);
+    }
+    cJSON_Delete(root);
+    jc_sb_free(&sb);
+
+    /* Subset arm (--inherit "mcpServers,tools"): the re-parsed copy is
+     * stripped the same way. */
+    jc_setup_answers_init(&a);
+    jc_sb_init(&sb);
+    JC_CHECK(jc_setup_inherit_config(GLOBSECRET, "mcpServers,tools", &a, &sb, arena)
+             == JC_OK);
+    root = jc_json_parse(sb.data);
+    JC_CHECK(root != NULL);
+    if (JC_REQUIRE(root != NULL)) {
+        servers = cJSON_GetObjectItem(root, "mcpServers");
+        JC_CHECK(cJSON_IsArray(servers));
+        s0 = cJSON_GetArrayItem(servers, 0);
+        JC_CHECK(cJSON_GetObjectItem(s0, "env") == NULL);
+        JC_CHECK(cJSON_GetObjectItem(s0, "headers") == NULL);
+        JC_CHECK_STR(jc_json_get_str(s0, "command", ""), "node");
+        tools = cJSON_GetObjectItem(root, "tools");
+        JC_CHECK(cJSON_IsArray(tools));
+        t0 = cJSON_GetArrayItem(tools, 0);
+        JC_CHECK(cJSON_GetObjectItem(t0, "env") == NULL);
+        JC_CHECK(strstr(sb.data, "MKE-U") == NULL);
+        JC_CHECK(strstr(sb.data, "MKH-U") == NULL);
+        JC_CHECK(strstr(sb.data, "MKT-U") == NULL);
+    }
+    cJSON_Delete(root);
+    jc_sb_free(&sb);
+
+    jc_arena_free(arena);
 }
 
 static void test_lang_for_ext(void)
@@ -824,6 +1018,7 @@ void test_setup(void)
     test_build_config();
     test_merge_config();
     test_inherit_config();
+    test_inherit_config_secret_members();
     test_start_script();
     test_measurement_presets();
     test_preset_axes();

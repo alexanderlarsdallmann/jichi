@@ -63,15 +63,28 @@ struct jc_constraint {
     char *subject; /* tool name (DENY_TOOL) or canonical cmd key (DENY_CMD); else NULL */
     char *text;    /* human phrasing for the prompt + display (arena-owned)            */
     enum jc_constraint_origin origin; /* M169: persisted vs session-scoped           */
+    /* M872 (N45 (b)): the sentence an INFERRED rule was read from, as the request
+     * wrote it -- blanks collapsed to one space, at most JC_CONSTRAINT_SOURCE_MAX
+     * bytes, "..." where cut. NULL for an authored rule. `text` is canonical
+     * ("do not commit"), so without this a misparse could not be seen in the
+     * notice that announced it: the words responsible were in no message. */
+    char *source;
 };
 
 #define JC_CONSTRAINT_MAX 64
+#define JC_CONSTRAINT_SOURCE_MAX 200
 
 /* Scan a user message for constraint statements (a negation cue + a known target,
  * e.g. "do not run the build, nor the tests"). Appends the recognized constraints
  * to out[] (up to `max`; strings arena-allocated via `a`) and returns the count
  * appended. Conservative: skips conversational "don't you/we ..." and requires an
- * explicit negation. Pure; unit-tested. */
+ * explicit negation. Each result carries its `source` sentence.
+ *
+ * M872 (N45 (a)): a cue the request QUOTES or ASKS about is not an order. A cue
+ * inside a quoted span -- a fenced code block, an inline code span, or a closed
+ * pair of double, single or typographic quotes within one paragraph -- infers
+ * nothing, and neither does a cue in a sentence that ends in '?'. A target quoted
+ * after an unquoted cue still counts ("never invoke `make`"). Pure; unit-tested. */
 int jc_constraint_scan(const char *msg, struct jc_constraint *out, int max,
                        struct jc_arena *a);
 
@@ -96,6 +109,19 @@ int jc_constraint_source_line(const char *msg, const struct jc_constraint *c,
  * (build/test/commit/push/deploy/install)? Word/synonym match, case-insensitive.
  * 0 for NULL/unknown key. Pure; unit-tested. */
 int jc_constraint_cmd_hits(const char *key, const char *command);
+
+/* M873 (the demos drive's N40): does `command` RUN what the key names -- as a
+ * segment's command word after assignments and wrappers (`make`, `pytest`,
+ * `./install.sh`, `python3 -m pytest`, inside `sh -c '...'`), as the action of a
+ * program that takes one (`pip install`, `git -C d commit`, `cargo test`, `npm
+ * run build`, `zig build test`), or as a target runner's target (`make install`)
+ * -- rather than mention it? `grep -n install build.zig` runs grep; the bare
+ * `test` and `[` are the shell's conditional. The privilege key asks
+ * jc_priv_detect (M152). jc_constraint_blocks_ex uses this for an INFERRED
+ * rule, whose note is only worth its precision, and jc_constraint_cmd_hits for
+ * an AUTHORED one, since a fence errs toward refusing. A miss is silent: the
+ * rule stays in the system prompt. Pure; unit-tested. */
+int jc_constraint_cmd_runs(const char *key, const char *command);
 
 /* The enforcement predicate. Given the active constraints, a tool name, the shell
  * command (or NULL if the tool isn't a shell tool), and whether the tool is
@@ -193,6 +219,13 @@ int jc_constraint_has(const struct jc_constraint *cs, int n,
  * later run in a directory. */
 void jc_constraint_join_text(const struct jc_constraint *cs, int from, int n,
                              char *buf, jc_size cap);
+
+/* M872 (N45 (b)): as jc_constraint_join_text, and each run of rules read from one
+ * sentence ends with that sentence: `do not use the tool `git_commit`, do not
+ * commit (from "Do not commit.")`; runs are separated by "; ". A rule with no
+ * source is joined as join_text joins it. Pure. */
+void jc_constraint_join_sourced(const struct jc_constraint *cs, int from, int n,
+                                char *buf, jc_size cap);
 
 #ifdef __cplusplus
 }

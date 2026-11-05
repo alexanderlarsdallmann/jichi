@@ -6,6 +6,7 @@
 #include "jc_memory.h"
 #include "jc_app.h"
 #include "jc_log.h"
+#include "jc_path.h"
 #include "jc_str.h"
 #include "jc_utf8.h"
 #include "jc_snprintf.h"
@@ -74,14 +75,98 @@ static void memory_path(struct jc_app *app, char *buf, jc_size cap)
     jc_snprintf(buf, cap, "%s/.jichi/memory.md", app->cwd);
 }
 
+void jc_memory_dropped_summary(const char *buf, jc_size n, char *out, jc_size cap)
+{
+    jc_size i = 0;
+    jc_size w = 0;
+    int nfound = 0;
+
+    if (out == NULL || cap == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (buf == NULL || n == 0) {
+        return;
+    }
+    /* Collect up to five markdown headings from the dropped region. */
+    while (i < n && nfound < 5) {
+        jc_size ls = i;
+        jc_size le;
+        jc_size p;
+        while (i < n && buf[i] != '\n') {
+            i++;
+        }
+        le = i;
+        if (i < n) {
+            i++;   /* step over the newline */
+        }
+        p = ls;
+        while (p < le && (buf[p] == ' ' || buf[p] == '\t')) {
+            p++;
+        }
+        if (p < le && buf[p] == '#') {
+            jc_size hs;
+            jc_size he = le;
+            while (p < le && buf[p] == '#') {
+                p++;
+            }
+            while (p < le && (buf[p] == ' ' || buf[p] == '\t')) {
+                p++;
+            }
+            hs = p;
+            while (he > hs && (buf[he - 1] == ' ' || buf[he - 1] == '\t' ||
+                               buf[he - 1] == '\r')) {
+                he--;
+            }
+            if (he > hs) {
+                if (nfound > 0 && w + 2 < cap) {
+                    out[w++] = ';';
+                    out[w++] = ' ';
+                }
+                while (hs < he && w + 1 < cap) {
+                    out[w++] = buf[hs++];
+                }
+                nfound++;
+            }
+        }
+    }
+    /* No headings: name the first words of the dropped text instead. */
+    if (nfound == 0) {
+        jc_size p = 0;
+        while (p < n && (buf[p] == ' ' || buf[p] == '\n' || buf[p] == '\r' ||
+                         buf[p] == '\t')) {
+            p++;
+        }
+        while (p < n && w + 1 < cap && w < 48) {
+            char c = buf[p++];
+            out[w++] = (c == '\n' || c == '\r') ? ' ' : c;
+        }
+    }
+    while (w > 0 && out[w - 1] == ' ') {
+        w--;
+    }
+    out[w] = '\0';
+}
+
 char *jc_memory_load(struct jc_app *app)
 {
     char path[1200];
     char *data;
     jc_size len = 0;
     char *result;
+    jc_status st;
 
     memory_path(app, path, sizeof(path));
+    /* D-15: check that .jichi/memory.md is safe to read. */
+    st = jc_state_file_check(app->root, path);
+    if (st != JC_OK) {
+        if (st == JC_ERR_DENIED) {
+            jc_logf(JC_LOG_WARN, "memory: .jichi/memory.md directory is a symlink");
+        } else {
+            jc_logf(JC_LOG_WARN, "memory: .jichi/memory.md is a symlink or non-regular file");
+        }
+        return NULL;
+    }
     /* M197: scratch for the raw file; the tail we KEEP is strdup'd onto
      * app->arena below, so only the bounded note text becomes session state. */
     if (jc_read_file(path, &data, &len, jc_app_tool_scratch(app)) != JC_OK ||
@@ -99,13 +184,31 @@ char *jc_memory_load(struct jc_app *app)
          * notes (not adding more) is exactly what this situation calls for, so
          * the message can once again name the narrow command -- this time one
          * that runs. */
+        /* M825 (N1): name WHAT is dropped. The tail is kept, so a file ordered by
+         * importance loses its most important notes first; the warning now lists the
+         * headings (or first words) of the skipped head, so the loss is visible. */
+        jc_size cut = jc_utf8_resync(data, len, len - JC_MEMORY_MAX);
+        char dropped[200];
+        jc_memory_dropped_summary(data, cut, dropped, sizeof dropped);
         jc_logf(JC_LOG_WARN, "memory: .jichi/memory.md is %lu KB; only the most "
                 "recent %d KB is loaded into the prompt -- older notes are "
-                "skipped. Prune the file, or supersede stale notes: add a "
-                "'## Corrections' section to .jichi/lessons.draft.md (via "
-                "/learn) and run `learn corrections`",
-                (unsigned long)(len / 1024), JC_MEMORY_MAX / 1024);
-        data = data + jc_utf8_resync(data, len, len - JC_MEMORY_MAX);
+                "skipped (dropped: %s). The KEPT part is the tail, so notes at the "
+                "TOP fall out first; put lasting rules in a rules file or an agent "
+                "profile, and prune or supersede stale notes: add a '## Corrections' "
+                "section to .jichi/lessons.draft.md (via /learn) and run "
+                "`learn corrections`",
+                (unsigned long)(len / 1024), JC_MEMORY_MAX / 1024,
+                dropped[0] != '\0' ? dropped : "older notes");
+        /* M965 (D5 delta): copy the dropped summary to app so the sysmsg can use it.
+         * The copy is into app->memory_dropped[200] (the same bound as dropped[200]),
+         * so no truncation occurs (199 max chars from dropped fits the 200-byte field). */
+        jc_snprintf(app->memory_dropped, sizeof(app->memory_dropped), "%s",
+                    dropped[0] != '\0' ? dropped : "older notes");
+        data = data + cut;
+        app->memory_truncated = 1;  /* M933 (D5): the loaded block states this */
+    } else {
+        app->memory_truncated = 0;
+        app->memory_dropped[0] = '\0';
     }
     /* Skip leading whitespace so an all-blank file reads as empty. */
     while (*data == ' ' || *data == '\n' || *data == '\r' || *data == '\t') {
@@ -162,16 +265,50 @@ jc_status jc_memory_add(struct jc_app *app, const char *note, int *was_new)
     }
 
     memory_path(app, path, sizeof(path));
-    /* Best-effort: load existing content (missing file is fine). */
-    if (jc_read_file(path, &existing, &elen,
-                     jc_app_tool_scratch(app)) != JC_OK) { /* M197: scratch */
-        existing = NULL;
+    /* D-15: check that .jichi/memory.md is safe before reading/writing. */
+    st = jc_state_file_check(app->root, path);
+    if (st != JC_OK) {
+        if (st == JC_ERR_DENIED) {
+            jc_logf(JC_LOG_WARN, "memory: .jichi/memory.md directory is a symlink");
+        } else {
+            jc_logf(JC_LOG_WARN, "memory: .jichi/memory.md is a symlink or non-regular file");
+        }
+        return JC_ERR_DENIED;
+    }
+    /* D-16/M1100: read existing content, distinguishing a GENUINE does-not-
+     * exist from a present-but-unreadable file. The old code collapsed every
+     * read error to existing=NULL ("missing file is fine") and then WROTE a
+     * fresh file, silently replacing what it could not read (run 0106: a
+     * 67109888-byte memory.md became 8 bytes). The M533 board rule, here for
+     * the file tools: proceed only on a genuine does-not-exist. */
+    st = jc_read_existing(path, &existing, &elen,
+                          jc_app_tool_scratch(app)); /* M197: scratch */
+    if (st == JC_ERR_NOTFOUND) {
+        existing = NULL; /* genuinely absent: create the file fresh */
+    } else if (st != JC_OK) {
+        /* Present but unreadable (JC_ERR_TOOBIG over the 64 MiB cap,
+         * JC_ERR_IO, JC_ERR_OOM): the M533 board rule -- refuse, NEVER
+         * write a file jichi could not read. */
+        jc_logf(JC_LOG_WARN, "memory: .jichi/memory.md is present but could "
+                "not be read (e.g. over the 64 MiB read cap) -- refusing to "
+                "replace a file jichi could not read (M533 rule; D-16)");
+        return JC_ERR_UNREADABLE;
     }
     if (existing != NULL && jc_memory_has_line(existing, clean)) {
         return JC_OK; /* already remembered; was_new stays 0 */
     }
 
     jc_snprintf(dir, sizeof(dir), "%s/.jichi", app->cwd);
+    /* D-15: check that .jichi directory is safe before creating anything. */
+    st = jc_state_file_check(app->root, dir);
+    if (st != JC_OK) {
+        if (st == JC_ERR_DENIED) {
+            jc_logf(JC_LOG_WARN, "memory: .jichi directory is a symlink");
+        } else {
+            jc_logf(JC_LOG_WARN, "memory: .jichi directory is a symlink or non-regular file");
+        }
+        return JC_ERR_DENIED;
+    }
     jc_mkdir_p(dir);
 
     jc_sb_init(&sb);
@@ -185,7 +322,15 @@ jc_status jc_memory_add(struct jc_app *app, const char *note, int *was_new)
     jc_sb_append(&sb, clean);
     jc_sb_append_char(&sb, '\n');
 
-    st = jc_write_file(path, sb.data != NULL ? sb.data : "", sb.len);
+    /* D-18/M1104 + M1104-c: a MODE-preserving replace that KEEPS a hard link
+     * -- the D-15 jc_state_file_check above already verified the target is a
+     * regular file. The in-place branch of preserve_link is the accepted
+     * M141 trade for a shared inode; otherwise the atomic replace, so a
+     * failed write never truncates a single-link file. The was_new/
+     * st-propagation semantics are unchanged: a failed write still returns the
+     * JC_ERR_IO and was_new stays 0. */
+    st = jc_write_file_preserve_link(path, sb.data != NULL ? sb.data : "",
+                                     sb.len);
     jc_sb_free(&sb);
     if (st == JC_OK && was_new != NULL) {
         *was_new = 1;
@@ -283,6 +428,16 @@ jc_status jc_memory_correct(struct jc_app *app, const char *match,
         return JC_ERR_INVALID;
     }
     memory_path(app, path, sizeof(path));
+    /* D-15: check that .jichi/memory.md is safe to read. */
+    st = jc_state_file_check(app->root, path);
+    if (st != JC_OK) {
+        if (st == JC_ERR_DENIED) {
+            jc_logf(JC_LOG_WARN, "memory: .jichi/memory.md directory is a symlink for correction");
+        } else {
+            jc_logf(JC_LOG_WARN, "memory: .jichi/memory.md is a symlink or non-regular file for correction");
+        }
+        return JC_ERR_DENIED;
+    }
     if (jc_read_file(path, &existing, &elen, /* M197: scratch */
                      jc_app_tool_scratch(app)) != JC_OK || existing == NULL) {
         return JC_OK; /* no memory file: nothing to correct */
@@ -293,7 +448,23 @@ jc_status jc_memory_correct(struct jc_app *app, const char *match,
         jc_sb_free(&sb); /* match not found: leave the file untouched */
         return JC_OK;
     }
-    st = jc_write_file(path, sb.data != NULL ? sb.data : "", sb.len);
+    /* D-15: check again before write, as the state could have changed. */
+    st = jc_state_file_check(app->root, path);
+    if (st != JC_OK) {
+        if (st == JC_ERR_DENIED) {
+            jc_logf(JC_LOG_WARN, "memory: .jichi/memory.md directory is a symlink for correction write");
+        } else {
+            jc_logf(JC_LOG_WARN, "memory: .jichi/memory.md is a symlink or non-regular file for correction write");
+        }
+        jc_sb_free(&sb);
+        return JC_ERR_DENIED;
+    }
+    /* D-18/M1104 + M1104-c: mode-preserving replace that keeps a hard link
+     * (the D-15 re-check above already verified the target is a regular
+     * file). The st-propagation and changed-semantics are unchanged: a failed
+     * write still returns JC_ERR_IO and *changed stays 0. */
+    st = jc_write_file_preserve_link(path, sb.data != NULL ? sb.data : "",
+                                     sb.len);
     jc_sb_free(&sb);
     if (st == JC_OK) {
         jc_memory_refresh(app); /* refresh for the rest of the run */

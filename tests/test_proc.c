@@ -7,7 +7,7 @@
 #include "jc_snprintf.h"
 #include <sys/types.h> /* pid_t: MiNTLib's <unistd.h> declares it only under an X/Open level (M723) */
 #include <stdio.h>
-#include <sys/select.h>
+#include "jc_select.h"  /* M834: <sys/select.h> where it exists */
 #include <sys/time.h> /* struct timeval: MiNTLib's <sys/select.h> only forward-declares it (M723) */
 #include <signal.h>
 #include "jc_proc.h"
@@ -16,7 +16,348 @@
 
 #include <string.h>
 #include <stdlib.h>
-#include <unistd.h> /* getpgrp */
+#include <unistd.h> /* getpgrp, pid_t */
+#include <sys/wait.h> /* waitpid, WIFEXITED, WEXITSTATUS, WNOHANG, WIFSIGNALED, WTERMSIG */
+#include <errno.h> /* errno, ECHILD */
+#include <time.h> /* struct timespec: the passthrough poll below needs a sub-second pause (usleep is not in C89) */
+
+/* E-01: a reaper that retries on EINTR and returns -1 on any failure
+ * (including ECHILD when SIGCHLD was inherited ignored). */
+static void test_waitpid_helper(void);
+
+/* M989 (B-01, B-06): bounded, interrupt-aware reap helper unit tests. */
+static void test_reap_bounded_passthrough(void);
+static void test_reap_bounded_deadline(void);
+static void test_reap_bounded_echild_unknown(void);
+static void test_reap_bounded_abort(void);
+static void test_capture_closes_then_lives(void);
+
+static void test_waitpid_helper(void)
+{
+    int st;
+    int dummy;
+    int rc;
+
+    /* (a) the helper on a normal child: fork a child that exits 1;
+     * after jc_proc_waitpid, check that it returned 0 AND that
+     * WIFEXITED(*st) and WEXITSTATUS(*st)==1 (the control proving
+     * the helper passes a real status through). */
+    {
+        pid_t pid = fork();
+        if (pid == 0) {
+            _exit(1);
+        } else if (pid > 0) {
+            rc = jc_proc_waitpid(pid, &st);
+            JC_CHECK(rc == 0);
+            JC_CHECK(WIFEXITED(st));
+            JC_CHECK(WEXITSTATUS(st) == 1);
+        }
+    }
+
+    /* (b) the helper under ignored SIGCHLD. Deterministic construction:
+     * ignore SIGCHLD (the inherited-supervisor state), fork a child that
+     * exits 1, then POLL with WNOHANG until the child is gone -- reaped by
+     * the kernel (the usual case) or collected by this probe (a ~1-in-2000
+     * kernel race measured on this box; both are "gone"). After the child is
+     * gone the disposition is RESTORED to SIG_DFL, so every subsequent
+     * blocking waitpid on that pid fails ECHILD by contract, not by timing:
+     * the teeth below hold on any conforming system. */
+    {
+        void (*old)(int);
+        pid_t pid;
+        int i;
+        int st0;
+
+        old = signal(SIGCHLD, SIG_IGN);
+        pid = fork();
+        if (pid == 0) {
+            _exit(1);
+        } else if (pid > 0) {
+            for (i = 0; i < 1000; i++) {
+                struct timespec one_ms;
+                if (waitpid(pid, NULL, WNOHANG) == -1 && errno == ECHILD) {
+                    break;   /* gone: kernel-reaped or collected by the probe */
+                }
+                one_ms.tv_sec = 0;
+                one_ms.tv_nsec = 1000000;   /* 1 ms; a 1s poll bound is generous */
+                nanosleep(&one_ms, NULL);
+            }
+            /* The child is gone; restore SIG_DFL. A blocking waitpid on a
+             * pid with no child left is now ECHILD by contract. */
+            signal(SIGCHLD, old);
+
+            /* THE DEFECT this helper removes: the pre-fix shape
+             * (`int status = 0; waitpid(pid, &status, 0);` unchecked, then
+             * WIFEXITED on the zero) decodes "no child" as "exited normally
+             * with code 0" -- a failing verifier read as passing. */
+            st0 = 0;
+            (void)waitpid(pid, &st0, 0);
+            JC_CHECK(st0 == 0);
+            JC_CHECK(WIFEXITED(st0) && WEXITSTATUS(st0) == 0);
+
+            /* The helper says UNKNOWN instead, and leaves the status
+             * untouched. */
+            dummy = 999;
+            rc = jc_proc_waitpid(pid, &dummy);
+            JC_CHECK(rc == -1);
+            JC_CHECK(dummy == 999);
+        }
+    }
+}
+
+/* M989 (B-01, B-06): test_reap_bounded_passthrough -- normal exit passes
+ * through with its real status, not reported as deadline exceeded. */
+static void test_reap_bounded_passthrough(void)
+{
+    char sh[] = "/bin/sh";
+    char dashc[] = "-c";
+    char prog[] = "exit 1";
+    char *argv[4];
+    pid_t pid;
+    int st;
+    int rc;
+
+    /* Ensure SIGCHLD is SIG_DFL. */
+    signal(SIGCHLD, SIG_DFL);
+
+    /* Fork a child using exec like the M987 test to exercise the helper. */
+    pid = fork();
+    if (pid == 0) {
+        argv[0] = sh; argv[1] = dashc; argv[2] = prog; argv[3] = NULL;
+        execvp(argv[0], argv);
+        _exit(127);
+    } else if (pid > 0) {
+        /* Wait for child to start (50ms delay). */
+        struct timeval tv;
+        tv.tv_sec = 0; tv.tv_usec = 50000;
+        select(0, NULL, NULL, NULL, &tv);
+        rc = jc_proc_reap_bounded(pid, jc_now_millis() + 5000.0, NULL, &st);
+        JC_CHECK(rc == 0);
+        JC_CHECK(WIFEXITED(st));
+        /* The shell exits with the exit code. */
+        JC_CHECK(WEXITSTATUS(st) == 1);
+    }
+}
+
+/* M989 (B-01): test_reap_bounded_deadline -- deadline actually kills. */
+static void test_reap_bounded_deadline(void)
+{
+    char sh[] = "/bin/sh";
+    char dashc[] = "-c";
+    /* Child that closes its output then sleeps 5s (EOF+alive is the B-01 trigger). */
+    char prog[] = "exec >/dev/null 2>&1; sleep 5";
+    char *argv[4];
+    pid_t pid;
+    int st;
+    int rc;
+    int i;
+
+    /* Ensure SIGCHLD is SIG_DFL. */
+#ifdef SIGCHLD
+    signal(SIGCHLD, SIG_DFL);
+#endif
+
+    pid = fork();
+    if (pid == 0) {
+        argv[0] = sh; argv[1] = dashc; argv[2] = prog; argv[3] = NULL;
+        execvp(argv[0], argv);
+        _exit(127);
+    } else if (pid > 0) {
+        /* A short 200 ms bound against a child that lives 5 s: the deadline
+         * must fire and stop it (not wait out the 5 s). */
+        rc = jc_proc_reap_bounded(pid, jc_now_millis() + 200.0, NULL, &st);
+        JC_CHECK(rc == -2);  /* stopped by deadline */
+        /* Confirm the child is dead. */
+        for (i = 0; i < 40 && kill(pid, 0) == 0; i++) {
+            struct timeval tv;
+            tv.tv_sec = 0; tv.tv_usec = 50000;
+            select(0, NULL, NULL, NULL, &tv);
+        }
+        JC_CHECK(kill(pid, 0) != 0);  /* child must be gone */
+    }
+}
+
+/* M989 (M987): test_reap_bounded_echild_unknown -- SIGCHLD=SIG_IGN -> ECHILD -> -1. */
+static void test_reap_bounded_echild_unknown(void)
+{
+    pid_t pid;
+    int st;
+    int rc;
+    int i;
+
+    /* Set SIGCHLD=SIG_IGN as the inherited state. */
+    signal(SIGCHLD, SIG_IGN);
+
+    pid = fork();
+    if (pid == 0) {
+        _exit(1);
+    } else if (pid > 0) {
+        /* Let the child exit and be auto-reaped by the kernel under SIG_IGN.
+         * Poll kill(pid, 0) until it reports ESRCH -- the child FULLY reaped --
+         * so the helper's FIRST waitpid deterministically hits ECHILD. kill does
+         * NOT waitpid, so it does not consume the ECHILD state this test needs.
+         * A fixed 10 ms sleep was here; it assumed the kernel reaps within 10 ms,
+         * which a native run does but valgrind does not -- under valgrind the child
+         * is still a zombie at 10 ms, so the helper reaped it (rc 0, not -1):
+         * `FAIL tests/test_proc.c:211` in make ci's valgrind stage (supervisor
+         * 2026-10-19 20:40, measured: valgrind + 10 ms gives waitpid=0; polling
+         * to gone gives ECHILD). 1 ms steps, 5 s bound, a plain JC_CHECK on the
+         * bound. */
+        for (i = 0; i < 5000 && kill(pid, 0) == 0; i++) {
+            struct timeval tv;
+            tv.tv_sec = 0;
+            tv.tv_usec = 1000;
+            select(0, NULL, NULL, NULL, &tv);
+        }
+        JC_CHECK(kill(pid, 0) != 0);  /* child must be fully reaped before the helper */
+
+        /* Restore disposition BEFORE calling the helper, so the helper sees
+         * SIGCHLD=SIG_DFL and waitpid returns ECHILD on its first poll. */
+        signal(SIGCHLD, SIG_DFL);
+
+        /* Now call the bounded reap. The child is already gone (auto-reaped
+         * by the kernel under SIG_IGN), so the helper's FIRST waitpid returns
+         * ECHILD, which the helper's ECHILD arm maps to -1 (UNKNOWN). */
+        rc = jc_proc_reap_bounded(pid, 5000.0, NULL, &st);
+        /* ECHILD -> -1 (UNKNOWN), NOT 0 and NOT a decodable exit. */
+        JC_CHECK(rc == -1);
+    }
+}
+
+/* M989 (B-06): test_reap_bounded_abort -- abort flag stops the child. */
+static void test_reap_bounded_abort(void)
+{
+    pid_t pid;
+    int st;
+    int i;
+    int rc;
+    volatile int abort_flag = 0;
+
+    /* Ensure SIGCHLD is SIG_DFL. */
+#ifdef SIGCHLD
+    signal(SIGCHLD, SIG_DFL);
+#endif
+
+    pid = fork();
+    if (pid == 0) {
+        sleep(5);  /* long sleep */
+        _exit(0);
+    } else if (pid > 0) {
+        /* Deadline 0 = no time bound, only abort can stop. */
+        abort_flag = 1;  /* set BEFORE calling */
+        rc = jc_proc_reap_bounded(pid, 0.0, &abort_flag, &st);
+        JC_CHECK(rc == -3);  /* stopped by abort */
+        /* Confirm child is dead. */
+        for (i = 0; i < 40 && kill(pid, 0) == 0; i++) {
+            struct timeval tv;
+            tv.tv_sec = 0; tv.tv_usec = 50000;
+            select(0, NULL, NULL, NULL, &tv);
+        }
+        JC_CHECK(kill(pid, 0) != 0);
+    }
+}
+
+/* M989 (R06-#3): test_capture_closes_then_lives -- pins the capture site.
+ *
+ * The child closes its output (EOF) then sleeps past the deadline. The
+ * read-loop detects EOF and then fires the deadline; the deterministic -2
+ * branch (not the post-EOF bounded helper) is what stops it. */
+static void test_capture_closes_then_lives(void)
+{
+    char sh[] = "/bin/sh";
+    char dashc[] = "-c";
+    /* Child that closes output then sleeps 3s. 1s deadline means the
+     * read-loop's deadline fires while the child is still alive. */
+    char prog[] = "exec >/dev/null 2>&1; sleep 3";
+    char *argv[4];
+    struct jc_sb out;
+    int code;
+
+    /* Ensure SIGCHLD is SIG_DFL. */
+#ifdef SIGCHLD
+    signal(SIGCHLD, SIG_DFL);
+#endif
+
+    argv[0] = sh; argv[1] = dashc; argv[2] = prog; argv[3] = NULL;
+    jc_sb_init(&out);
+    /* 1s deadline, child lives 3s, so the read-loop's deadline fires and the
+     * deterministic -2 branch (not the slow post-EOF helper) is what stops it. */
+    code = jc_proc_capture(argv, NULL, NULL, &out, 4096, 1, NULL);
+    /* Must return -2 (stopped), NOT 0 (would mean child ran to completion). */
+    JC_CHECK(code == -2);
+    jc_sb_free(&out);
+}
+
+
+/* E-01: the start-up signal normaliser resets SIGCHLD to SIG_DFL and
+ * unblocks inherited signals. */
+static void test_signal_reset_inherited(void)
+{
+    void (*old_sigint)(int);
+    void (*old_sigterm)(int);
+    void (*old_sighup)(int);
+#ifdef SIGCHLD
+    void (*old_sigchld)(int);
+#endif
+    sigset_t oldset, newset, checkset;
+
+    /* Save current dispositions. */
+    old_sigint = signal(SIGINT, SIG_IGN);
+    signal(SIGINT, old_sigint);
+    old_sigterm = signal(SIGTERM, SIG_IGN);
+    signal(SIGTERM, old_sigterm);
+    old_sighup = signal(SIGHUP, SIG_IGN);
+    signal(SIGHUP, old_sighup);
+#ifdef SIGCHLD
+    old_sigchld = signal(SIGCHLD, SIG_IGN);
+    signal(SIGCHLD, old_sigchld);
+#endif
+
+    /* Block all four signals to verify unblocking. */
+    sigemptyset(&newset);
+    sigaddset(&newset, SIGINT);
+    sigaddset(&newset, SIGTERM);
+    sigaddset(&newset, SIGHUP);
+#ifdef SIGCHLD
+    sigaddset(&newset, SIGCHLD);
+#endif
+    sigprocmask(SIG_BLOCK, &newset, &oldset);
+
+    /* Set SIGCHLD to IGNORE to verify reset. */
+#ifdef SIGCHLD
+    signal(SIGCHLD, SIG_IGN);
+#endif
+
+    /* Run the normaliser. */
+    jc_signal_reset_inherited();
+
+    /* Verify SIGCHLD is SIG_DFL. */
+#ifdef SIGCHLD
+    {
+        struct sigaction sa;
+        sigaction(SIGCHLD, NULL, &sa);
+        JC_CHECK(sa.sa_handler == SIG_DFL);
+    }
+#endif
+
+    /* Verify signals are unblocked. */
+    sigprocmask(SIG_UNBLOCK, NULL, &checkset);
+    JC_CHECK(sigismember(&checkset, SIGINT) == 0);
+    JC_CHECK(sigismember(&checkset, SIGTERM) == 0);
+    JC_CHECK(sigismember(&checkset, SIGHUP) == 0);
+#ifdef SIGCHLD
+    JC_CHECK(sigismember(&checkset, SIGCHLD) == 0);
+#endif
+
+    /* Restore original dispositions. */
+    signal(SIGINT, old_sigint);
+    signal(SIGTERM, old_sigterm);
+    signal(SIGHUP, old_sighup);
+#ifdef SIGCHLD
+    signal(SIGCHLD, old_sigchld);
+#endif
+    sigprocmask(SIG_SETMASK, &oldset, NULL);
+}
 
 static void test_memwatch(void)
 {
@@ -207,14 +548,78 @@ static void test_secret_env_many_names(void)
     JC_CHECK(jc_proc_secret_env_count() == n0);
 }
 
+/* M1043-a (plan 2026-10-03, 4.2): the secretEnv register. A name configured via
+ * the "secretEnv" key is registered through the SAME jc_proc_secret_env_add the
+ * apiKeyEnv loop uses, so it is listed by jc_proc_env_name_is_secret and carried
+ * in the popen unset-prefix (and dropped by the fork+exec scrub). The four
+ * built-in CI/forge names are listed with NO registration -- the M608 shape,
+ * dropped even when unconfigured. The registry is process-wide, so this test
+ * records the count, adds, then truncates back to it (the M724 pattern). */
+static void test_secret_env_register(void)
+{
+    int n0;
+
+    n0 = jc_proc_secret_env_count();
+    JC_CHECK(jc_proc_secret_env_add("MYCORP_X_TOKEN") == 0);
+    /* the registered name is now a secret: listed, and in the popen prefix */
+    JC_CHECK(jc_proc_env_name_is_secret("MYCORP_X_TOKEN", 14) == 1);
+    {
+        char pfx[1024];
+        JC_CHECK(jc_proc_secret_env_prefix(pfx, sizeof(pfx)) == 1);
+        JC_CHECK(strstr(pfx, "MYCORP_X_TOKEN") != NULL);
+        JC_CHECK(strncmp(pfx, "unset ", 6) == 0);
+    }
+    jc_proc_secret_env_truncate(n0);          /* leave it as it was found */
+    JC_CHECK(jc_proc_secret_env_count() == n0);
+
+    /* the four M1043-a built-ins are listed with NO add (the M608 shape) */
+    JC_CHECK(jc_proc_env_name_is_secret("CI_JOB_TOKEN", 12) == 1);
+    JC_CHECK(jc_proc_env_name_is_secret("GITLAB_TOKEN", 12) == 1);
+    JC_CHECK(jc_proc_env_name_is_secret("GITHUB_TOKEN", 12) == 1);
+    JC_CHECK(jc_proc_env_name_is_secret("GH_TOKEN", 8) == 1);
+    {
+        char pfx[1024];
+        JC_CHECK(jc_proc_secret_env_prefix(pfx, sizeof(pfx)) == 1);
+        JC_CHECK(strstr(pfx, "CI_JOB_TOKEN") != NULL);
+        JC_CHECK(strstr(pfx, "GITLAB_TOKEN") != NULL);
+        JC_CHECK(strstr(pfx, "GITHUB_TOKEN") != NULL);
+        JC_CHECK(strstr(pfx, "GH_TOKEN") != NULL);
+    }
+}
+
+static void test_null_out_is_a_discard(void)
+{
+    char *argv[] = { (char *)"sh", (char *)"-c", (char *)"yes line | head -n 200", (char *)0 };
+    int code;
+    /* M929 (R06-#1): `out` NULL is a discard path, not a crash. Before this
+    * every append dereferenced the NULL (SIGSEGV, exit 139, verified against
+    * the pre-fix tree). The drain still runs -- a `yes`-fed child would
+    * block on a full pipe and eat the 5 s timeout -- so both the exit code
+    * and the no-timeout path are the check.
+    */
+    code = jc_proc_capture(argv, NULL, NULL, NULL, 0, 5, NULL);
+    JC_CHECK(code == 0);
+}
+
 void test_proc(void)
 {
     char sh[] = "/bin/sh";
     char dashc[] = "-c";
 
+    /* M989: run the new bounded reap tests first, before the existing blocks. */
+    test_reap_bounded_passthrough();
+    test_reap_bounded_deadline();
+    test_reap_bounded_echild_unknown();
+    test_reap_bounded_abort();
+    test_capture_closes_then_lives();
+
     test_memwatch();
     test_secret_env_scrub();
     test_secret_env_many_names();
+    test_secret_env_register();   /* M1043-a: the secretEnv register + 4 built-ins */
+    test_null_out_is_a_discard();
+    test_waitpid_helper();
+    test_signal_reset_inherited();
 
     /* Basic capture + exit code. */
     {
@@ -338,7 +743,7 @@ void test_proc(void)
         JC_CHECK(jc_proc_capture(argv, NULL, NULL, &out, 4096, 1, NULL) == -2);
         jc_sb_free(&out);
 
-        fh = fopen(pidf, "r");
+        fh = fopen(pidf, "rb");
         if (fh != NULL) {
             if (fscanf(fh, "%ld", &victim) != 1) { victim = 0; }
             fclose(fh);

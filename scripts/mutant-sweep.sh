@@ -28,6 +28,9 @@
 # SCOPE. By default it sweeps only the drivers git reports as added or modified,
 # because that is when a vacuous check is INTRODUCED and the cost is seconds.
 # MUTANT_ALL=1 sweeps everything (~9 minutes, and worth running before a release).
+# MUTANT_BASE=<commit> also sweeps every driver changed since that commit, which
+# is how a batch of commits gated by one `make ci` gets all of its new drivers
+# swept, not only the last commit's (M842).
 set -e
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -75,8 +78,23 @@ else
     # HEAD's own diff too, so a driver committed a moment ago is still covered.
     head_diff=$(git diff-tree --no-commit-id --name-only -r HEAD 2>/dev/null \
                 | grep '^tests/smoke/.*\.sh$' || true)
+    # M842: MUTANT_BASE=<commit> adds every driver changed since that commit. A
+    # batch of milestones gated by one `make ci` on a clean checkout has no
+    # working-tree changes, and HEAD's diff is only the batch's LAST commit, so a
+    # driver added two commits earlier was never swept -- measured on the
+    # M840-M841 batch, whose two new drivers the gate reported as "no changed
+    # drivers to sweep". Pass the last pushed master to cover the whole batch.
+    base_diff=""
+    if [ -n "${MUTANT_BASE:-}" ]; then
+        if ! git rev-parse --verify --quiet "$MUTANT_BASE^{commit}" > /dev/null; then
+            printf 'mutant: MUTANT_BASE=%s is not a commit here\n' "$MUTANT_BASE" >&2
+            exit 2
+        fi
+        base_diff=$(git diff --name-only "$MUTANT_BASE" HEAD -- tests/smoke 2>/dev/null \
+                    | grep '^tests/smoke/.*\.sh$' || true)
+    fi
     list=""
-    for f in $changed $head_diff; do
+    for f in $changed $head_diff $base_diff; do
         [ -f "$f" ] || continue
         uses_bin "$f" || continue
         case " $list " in *" $f "*) continue ;; esac
@@ -95,7 +113,7 @@ for f in $list; do
     # been a permanent false positive here.
     case "$b" in _smoke|run) continue ;; esac
     case " $EXCLUDE " in *" $b "*) nskip=$((nskip + 1)); continue ;; esac
-    out=$(JC_SMOKE_BIN="$mutant" timeout "${MUTANT_TIMEOUT:-120}" sh "$f" 2>&1 || true)
+    out=$(JC_SMOKE_BIN="$mutant" JC_SMOKE_HBIN="$mutant" timeout "${MUTANT_TIMEOUT:-120}" sh "$f" 2>&1 || true)
 
     # A SKIP IS NOT A PASS (M698), and counting it as one is this sweep making
     # the very mistake it exists to catch, one level up.

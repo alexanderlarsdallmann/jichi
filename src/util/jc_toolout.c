@@ -58,20 +58,46 @@ int jc_toolout_preserve(struct jc_app *app, const char *tag,
     const char *dir;
     char dirbuf[512];
     static int seq;
+    char *red = NULL;
 
     if (text == NULL || path_out == NULL || path_cap == 0) {
         return 0;
     }
     path_out[0] = '\0';
     dir = jc_toolout_dir(app, dirbuf, sizeof(dirbuf));
-    if (dir == NULL || jc_mkdir_p(dir) != JC_OK) {
+    /* C-04 (M1118): the store directory is owner-only where jichi creates it
+     * (0755 untouched where it pre-existed) -- the owner-only directory the
+     * session store gives (M132/M488); the request dump gives redaction, its own directory is 0755. */
+    if (dir == NULL || jc_mkdir_p_private(dir) != JC_OK) {
         return 0;
     }
     seq++;
     jc_snprintf(path_out, path_cap, "%s/%s-%d.txt", dir,
                 (tag != NULL && tag[0] != '\0') ? tag : "output", seq);
     /* 0600 via the atomic writer: this is jichi's private sink, and it can
-     * hold anything a command printed. */
+     * hold anything a command printed. A spill can hold anything a command
+     * printed, so write it through the secret scrub (C-04, M1118) -- the
+     * redactor scrubs registered values only (the model API keys), the same
+     * guarantee the dump writer (jc_toolout_dump_request) and the session
+     * file give (M802). With no secret registered the redacted copy is a
+     * NUL-terminated prefix of the input, byte-identical for NUL-free text:
+     * the buffer is malloc'd only to hold that (possibly shorter) copy.
+     * M1137 (C-19): the scrub now goes through the shared helper and fails
+     * CLOSED -- on allocation failure (or the JC_FAULT_REDACT probe) the
+     * unredacted text is discarded, never written to the store file. */
+    red = jc_redact_scrub(text, len);
+    if (red == NULL) {
+        /* D3: a redaction failure must not spill unredacted text to disk.
+         * Discard the remainder (as a storage failure already does) and tell
+         * the OPERATOR, never the model -- it must not be given a path that
+         * is not there. */
+        jc_logf(JC_LOG_WARN, "tool output: redaction failed (allocation) -- "
+                "the remainder is discarded, not spilled unredacted");
+        path_out[0] = '\0';
+        return 0;
+    }
+    text = red;
+    len = (jc_size)strlen(red);
     if (jc_write_file_atomic(path_out, text, len) != JC_OK) {
         /* D3: a storage failure must not turn a working tool into a failed
          * one. Fall back to exactly the old behaviour and tell the OPERATOR,
@@ -79,9 +105,11 @@ int jc_toolout_preserve(struct jc_app *app, const char *tag,
         jc_logf(JC_LOG_WARN, "tool output: could not preserve %lu bytes to "
                 "%s; the remainder is discarded as before",
                 (unsigned long)len, path_out);
+        free(red);
         path_out[0] = '\0';
         return 0;
     }
+    free(red);
     return 1;
 }
 
@@ -142,12 +170,21 @@ int jc_toolout_dump_request(const char *dir, const char *url,
     jc_snprintf(path, sizeof(path), "%s/req-%04d.json", dir, nreq);
 
     /* A body can hold anything jichi read. Redact into a scratch buffer sized
-     * from the input -- the redactor only ever shortens or keeps length. */
-    red = (char *)malloc((size_t)len + 1);
-    if (red != NULL && jc_redact_secrets(body, red, len + 1)) {
-        body = red;
-        len = (jc_size)strlen(red);
+     * from the input -- the redactor only ever shortens or keeps length.
+     * M1137 (C-19): via the shared helper, failing CLOSED -- if the scrub
+     * cannot allocate, the body is not dumped unredacted (a dump is
+     * regenerable; dropping it loses nothing). nreq already incremented, so a
+     * failed dump leaves a gap in the sequence -- acceptable, as the existing
+     * write-failure arm does the same. */
+    red = jc_redact_scrub(body, len);
+    if (red == NULL) {
+        jc_logf(JC_LOG_WARN,
+                "dump-requests: redaction failed (allocation) -- the request "
+                "body is not dumped unredacted");
+        return 0;
     }
+    body = red;
+    len = (jc_size)strlen(red);
 
     /* One file per call, with the endpoint on a leading comment line: JSON has
      * no comments, so it goes in a sibling header the reader can strip, rather

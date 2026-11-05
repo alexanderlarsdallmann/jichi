@@ -51,8 +51,8 @@ jichi --config local/config.json doctor   # 验证一切
 - **`/auto`**——自主；不经提示地运行其沙盒化工具。
 
 ```sh
-jichi --plan -p "how would you add feature X?"    # 一份计划
-jichi --auto -p "add feature X and make tests pass"  # 直接干
+jichi --plan -p "how would you add feature X?" < /dev/null    # 一份计划
+jichi --auto -p "add feature X and make tests pass" < /dev/null  # 直接干
 ```
 
 <!-- Plan 模式是探索一个不熟悉或共享仓库时的安全默认。 -->
@@ -106,7 +106,7 @@ jichi --auto \
   --budget-tokens 500k --deadline 30m \
   --edit-scope "src/**" \
   --journal run.jsonl --control \
-  -p "fix the failing ring-buffer tests"
+  -p "fix the failing ring-buffer tests" < /dev/null
 ```
 
 通过 → 前进；失败 → 修正 N 次，否则回退到上一个绿色点。

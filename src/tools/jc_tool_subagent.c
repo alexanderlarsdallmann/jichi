@@ -20,9 +20,31 @@
 #include "jc_sysmsg.h"
 #include "jc_message.h"
 #include "jc_snprintf.h"
+#include "jc_dispatch.h"  /* M1006: the dirty-tree dispatch probe */
 
 #include <stdlib.h>
 #include <string.h>
+
+/* Forward declarations for functions defined later in the file. */
+static jc_status subagent_run(const cJSON *args, struct jc_tool_result *out,
+                              struct jc_app *app);
+
+/* Case-insensitive whole-string equality with a lowercase literal. */
+static int word_is_ci(const char *s, const char *lit)
+{
+    while (*s != '\0' && *lit != '\0') {
+        char c = *s;
+        if (c >= 'A' && c <= 'Z') {
+            c = (char)(c - 'A' + 'a');
+        }
+        if (c != *lit) {
+            return 0;
+        }
+        s++;
+        lit++;
+    }
+    return *s == '\0' && *lit == '\0';
+}
 
 struct jc_model_cfg *jc_subagent_resolve_model(struct jc_config *cfg,
                                                const char *selector, int *found)
@@ -47,6 +69,15 @@ struct jc_model_cfg *jc_subagent_resolve_model(struct jc_config *cfg,
         if (m != NULL) {
             return m;
         }
+        /* M745: a real role nobody holds. The schema's own example was
+         * "summarize", and a config without that role refused it. */
+        if (found != NULL) {
+            *found = 2;
+        }
+        return jc_config_model_at(cfg, cfg->active);
+    }
+    if (word_is_ci(selector, "default") || word_is_ci(selector, "current")) {
+        return jc_config_model_at(cfg, cfg->active);
     }
     if (found != NULL) {
         *found = 0;
@@ -54,18 +85,74 @@ struct jc_model_cfg *jc_subagent_resolve_model(struct jc_config *cfg,
     return NULL;
 }
 
-static cJSON *subagent_schema(void)
+void jc_subagent_model_menu(const struct jc_config *cfg, struct jc_sb *sb)
 {
+    int i;
+    int n;
+    if (cfg == NULL || sb == NULL) {
+        return;
+    }
+    n = jc_config_model_count(cfg);
+    if (n <= 0) {
+        jc_sb_append(sb, "(none configured)");
+        return;
+    }
+    for (i = 0; i < n && i < 12; i++) {
+        const struct jc_model_cfg *m = (const struct jc_model_cfg *)
+            jc_vec_at((struct jc_vec *)&cfg->models, (jc_size)i);
+        char num[16];
+        if (i > 0) {
+            jc_sb_append(sb, ", ");
+        }
+        jc_snprintf(num, sizeof num, "%d '", i + 1);
+        jc_sb_append(sb, num);
+        jc_sb_append(sb, (m->name != NULL && m->name[0] != '\0') ? m->name
+                         : (m->model != NULL ? m->model : "(unnamed)"));
+        jc_sb_append(sb, "'");
+        if (m->model != NULL && m->name != NULL && strcmp(m->model, m->name) != 0) {
+            jc_sb_append(sb, " (");
+            jc_sb_append(sb, m->model);
+            jc_sb_append(sb, ")");
+        }
+    }
+    if (n > 12) {
+        jc_sb_append(sb, ", ...");
+    }
+}
+
+/* schema_ctx version that names the configured models in the model description. */
+static cJSON *subagent_schema_ctx(void *ctx)
+{
+    struct jc_app *app = (struct jc_app *)ctx;
     cJSON *s = tu_schema_begin();
+    struct jc_sb desc;
+    int has_models;
+
     tu_schema_string(s, "task",
         "The subtask for the sub-agent to complete autonomously and report "
         "a concise final answer on.", 1);
-    tu_schema_string(s, "model",
-        "Optional model selector: a name/id substring, a 1-based index, or a "
-        "role such as \"summarize\". Defaults to the current model.", 0);
+
+    /* Build the model description with the configured models list. */
+    jc_sb_init(&desc);
+    jc_sb_append(&desc, "Optional; omit it to use the current model. Otherwise one of the "
+        "configured models: its name (or a substring of it) or its 1-based "
+        "number, or a role one of them declares. A role no configured model "
+        "declares runs on the current model.");
+
+    has_models = (app != NULL && app->config.models.len > 0);
+    if (has_models) {
+        jc_sb_append(&desc, " The configured models are: ");
+        jc_subagent_model_menu(&app->config, &desc);
+    }
+
+    tu_schema_string(s, "model", desc.data != NULL ? desc.data : "", 0);
+    jc_sb_free(&desc);
+
     tu_schema_bool(s, "readonly",
-        "If true, restrict the sub-agent to read-only tools (good for research "
-        "or review). Default false.", 0);
+        "If true, the sub-agent is offered read-only tools only: no shell (no "
+        "run_terminal_command, no run_tests) and no editing tools, so do not "
+        "brief it to run a command. Good for research or review. Default "
+        "false.", 0);
     tu_schema_string(s, "agent",
         "Optional named agent profile (from .jichi/agents/*.md): uses its system "
         "prompt, model, and readonly setting. Explicit model/readonly override "
@@ -74,8 +161,16 @@ static cJSON *subagent_schema(void)
         "Optional skill name (from load_skill's catalog): the sub-agent starts "
         "with that skill's full instructions loaded. If the skill declares "
         "restrict-tools, the sub-agent is fenced to the skill's allowed-tools "
-        "for its whole run.", 0);
+        "for the whole run.", 0);
     return s;
+}
+
+/* M745: the delegate ran, on a model other than the role it asked for. */
+static void role_fallback_note(struct jc_sb *sb, const char *role)
+{
+    jc_sb_append(sb, "\n[delegate] no configured model declares the role '");
+    jc_sb_append(sb, role != NULL ? role : "");
+    jc_sb_append(sb, "', so the sub-agent ran on the current model");
 }
 
 static jc_status subagent_run(const cJSON *args, struct jc_tool_result *out,
@@ -99,11 +194,15 @@ static jc_status subagent_run(const cJSON *args, struct jc_tool_result *out,
     struct jc_model_cfg *active;
     struct jc_provider *prov;
     char *answer = NULL;
+    const char *dirty_warn_paths = NULL;  /* M1006: dirty paths when mode=warn */
+    int dd_unknown_note = 0;             /* M1006-a: the probe FAILED (unknown) */
     struct jc_history sub;
     int include_mutating;
     int ro;
     int temp = 0;
     int found = 1;
+    const char *tm_name_save = NULL;   /* M922: the lead's override, restored after */
+    const char *tm_id_save = NULL;
     jc_status st;
     struct jc_delegate_report rep;      /* M437 */
     double tok_before = 0.0;
@@ -134,10 +233,18 @@ static jc_status subagent_run(const cJSON *args, struct jc_tool_result *out,
 
     mc = jc_subagent_resolve_model(&app->config, model_sel, &found);
     if (!found) {
-        char msg[256];
-        jc_snprintf(msg, sizeof(msg), "error: no model matches '%s'",
-                    model_sel != NULL ? model_sel : "");
-        tu_err(out, msg);
+        /* M745: name the choices. The bare miss left the parent guessing again,
+         * and on the 2026-09-24 drive its next guess was to drop the argument. */
+        struct jc_sb msg;
+        jc_sb_init(&msg);
+        jc_sb_append(&msg, "error: no model matches '");
+        jc_sb_append(&msg, model_sel != NULL ? model_sel : "");
+        jc_sb_append(&msg, "'. The configured models are: ");
+        jc_subagent_model_menu(&app->config, &msg);
+        jc_sb_append(&msg, ". Pass one of those names or numbers, or omit "
+                           "`model` to use the current model.");
+        tu_err(out, msg.data != NULL ? msg.data : "error: no model matches");
+        jc_sb_free(&msg);
         return JC_OK;
     }
 
@@ -167,6 +274,86 @@ static jc_status subagent_run(const cJSON *args, struct jc_tool_result *out,
 
     /* A readonly subagent (or a readonly parent) sees only read-only tools. */
     include_mutating = ro ? 0 : !app->readonly;
+
+    /* M1006: the dirty-tree dispatch guard, on a WRITE subagent.
+     *
+     * UNIVERSE: only write subagents are checked. A WRITE subagent (include_mutating
+     * set) edits the LIVE workspace directly, so a dirty tree is mixed into whatever it
+     * writes. READ-ONLY DISPATCHES ARE NOT CHECKED in any mode: a read-only subagent
+     * (include_mutating 0) changes nothing and its review of an uncommitted diff must
+     * stay possible, so it is outside the guard's stated universe. The check reads the
+     * LIVE workspace (`git -C '<root>'`), never the shadow snapshot repo. `off` skips
+     * the whole check -- no probe, no telemetry event.
+     *
+     * Placed before any allocation below, so a refuse frees only the possibly-temp
+     * provider. */
+    if (include_mutating) {
+        int dd_mode = app->config.strictness.dirty_dispatch;
+        if (dd_mode != JC_DIRTYDISPATCH_OFF) {
+            int dd_state = JC_DISPATCH_CLEAN;
+            int dd_npaths = 0;
+            char dd_paths[512];
+            cJSON *de;
+            jc_dispatch_dirty_probe(app->root, &dd_state, &dd_npaths, dd_paths,
+                                    sizeof dd_paths, 5);
+            de = jc_app_telem_begin(app, "dirty_dispatch");
+            if (de != NULL) {
+                cJSON_AddStringToObject(de, "mode",
+                                        dd_mode == JC_DIRTYDISPATCH_REFUSE
+                                            ? "refuse" : "warn");
+                /* The dirty field is a STRING: yes / no / unknown. A failed
+                 * probe (UNKNOWN) is never "no" -- the classifier's
+                 * else-branch says unknown (M519/M628). */
+                cJSON_AddStringToObject(de, "dirty",
+                                        dd_state == JC_DISPATCH_DIRTY
+                                            ? "yes"
+                                            : dd_state == JC_DISPATCH_UNKNOWN
+                                            ? "unknown" : "no");
+                cJSON_AddNumberToObject(de, "npaths", dd_npaths);
+            }
+            if (dd_state == JC_DISPATCH_DIRTY &&
+                dd_mode == JC_DIRTYDISPATCH_REFUSE) {
+                char msg[1000];
+                if (de != NULL) {
+                    cJSON_AddStringToObject(de, "outcome", "refused");
+                }
+                jc_app_telem_end(app, de);
+                jc_snprintf(msg, sizeof msg,
+                            "error: the workspace is dirty before a write "
+                            "subagent (uncommitted: %s). commit, then dispatch "
+                            "-- a write subagent edits the LIVE workspace "
+                            "directly, so it would build on a tree that is not "
+                            "a committed base.",
+                            dd_paths[0] != '\0' ? dd_paths : "(see git status)");
+                tu_err_policy(out, msg);
+                if (temp) { prov->vt->free(prov); }
+                return JC_OK;
+            }
+            /* M1006-a: UNKNOWN proceeds in EVERY mode (an infra failure must
+             * not block work) but says so -- the result carries the note and
+             * the telemetry outcome is proceeded_unknown. */
+            if (dd_state == JC_DISPATCH_UNKNOWN) {
+                if (de != NULL) {
+                    cJSON_AddStringToObject(de, "outcome", "proceeded_unknown");
+                }
+                jc_app_telem_end(app, de);
+                dirty_warn_paths = NULL;   /* the note below is the unknown one */
+                dd_unknown_note = 1;
+            } else {
+                if (de != NULL) {
+                    cJSON_AddStringToObject(de, "outcome", "proceeded");
+                }
+                jc_app_telem_end(app, de);
+                if (dd_state == JC_DISPATCH_DIRTY) {
+                    /* warn: the subagent runs; the result below carries the
+                     * dirty-paths note. */
+                    dirty_warn_paths =
+                        jc_arena_strdup(jc_app_scratch(app), dd_paths);
+                }
+            }
+        }
+    }
+
     /* A profile body becomes the subagent system prompt; else the generic one. */
     /* M596: a profile body is the identity paragraph, and the sections jichi
      * enforces at depth (untrusted rule, constraints, edit scope -- M434) are
@@ -210,10 +397,30 @@ static jc_status subagent_run(const cJSON *args, struct jc_tool_result *out,
                 /* Both a profile and the skill fence: the effective fence is the
                  * intersection (tools common to both). */
                 jc_vec_init(&skill_isect, sizeof(char *));
-                jc_tool_allow_intersect(allow_fence, &sk->tools,
-                                        jc_app_scratch(app), &skill_isect);
-                allow_fence = &skill_isect;
                 have_isect = 1;
+                if (jc_tool_allow_intersect(allow_fence, &sk->tools,
+                                            jc_app_scratch(app),
+                                            &skill_isect) == 0) {
+                    /* M848: the two fences share no tool. Before M848 the empty
+                     * result read as "no fence" and the child ran with every
+                     * tool; the helper now returns a fence that admits nothing.
+                     * A child with no tools cannot do the task either, so say
+                     * which two fences collided instead of running it. */
+                    char msg[400];
+                    jc_snprintf(msg, sizeof(msg),
+                                "error: agent profile '%s' and skill '%s' share "
+                                "no tool (the profile's tools: and the skill's "
+                                "allowed-tools do not overlap), so the subagent "
+                                "would have no tools. Pick a skill whose tools "
+                                "the profile allows, or omit one of them.",
+                                agent_name != NULL ? agent_name : "",
+                                skill_name);
+                    tu_err(out, msg);
+                    jc_vec_free(&skill_isect);
+                    if (temp) { prov->vt->free(prov); }
+                    return JC_OK;
+                }
+                allow_fence = &skill_isect;
             } else {
                 allow_fence = &sk->tools;
             }
@@ -253,14 +460,59 @@ static jc_status subagent_run(const cJSON *args, struct jc_tool_result *out,
     jc_history_init(&sub);
     jc_history_add(&sub, JC_ROLE_USER, seed_task);
 
-    /* Forward the live callbacks into the nested run only when the front-end
-     * opted in (the TUI; headless/ACP leave stream_subagents 0 → silent, exactly
-     * as before). */
+    /* M1047: forward the live callbacks into the nested run. The TUI opts in
+     * (stream_subagents) and forwards the full cb unchanged. Headless/ACP leave
+     * it 0: the subagent must stay SILENT about its content (no text, no tool
+     * events, no status -- the headless silent-subagent contract), but its model
+     * calls should still keep the lead's jsonl alive. Before M1047 they set
+     * cb_fwd=NULL, so an in-process subagent's model calls carried no on_progress
+     * and the lead's --heartbeat stream was silent for the whole subagent (run
+     * 0075: ~4.5 s of model calls, zero heartbeat rows in the window).
+     *
+     * So when stream_subagents==0, build a LOCAL callback struct carrying ONLY
+     * on_progress and user, taken from the lead's app->cb (when both non-NULL).
+     * Safe: the nested jc_agent_run_subagent call is synchronous and the lead
+     * blocks in it, so the local lives for the whole window. The subagent's
+     * model calls are sequential with the lead's, so the shared hb_last_ms
+     * throttle in hl_progress is correct: at most one heartbeat per interval
+     * across both. Nothing else is forwarded, so the on_status banner below (the
+     * only other cb member the code below touches) is suppressed headless, and
+     * no subagent content leaks into the lead's stream. */
     {
-        const struct jc_agent_callbacks *cb_fwd =
-            app->stream_subagents ? app->cb : NULL;
+        struct jc_agent_callbacks sub_hb_cb;
+        const struct jc_agent_callbacks *cb_fwd;
         int sub_iters;
+        memset(&sub_hb_cb, 0, sizeof(sub_hb_cb));
+        if (app->stream_subagents) {
+            cb_fwd = app->cb;   /* TUI: full streaming as before */
+        } else {
+            cb_fwd = NULL;
+            if (app->hb_forward_subagents &&
+                app->cb != NULL && app->cb->on_progress != NULL) {
+                sub_hb_cb.on_progress = app->cb->on_progress;
+                sub_hb_cb.user = app->cb->user;
+                cb_fwd = &sub_hb_cb;   /* headless: heartbeat only */
+            }
+        }
         app->agent_depth++;
+        /* M922 (F-J8): attribute this child's model_call telemetry to the model
+         * it actually calls. spawn_parallel already sets the M800 override fields,
+         * but it is a COW fork, so the set dies with the child. spawn_subagent runs
+         * IN-PROCESS: the nested loop shares app->agent_depth (bumped above), and
+         * until now it never set the fields, so every depth-1 row fell through to
+         * app->config.model -- which mirrors the LEAD's model, mislabelling the
+         * child in telemetry, cost reports and the run journal (the 2026-10-08
+         * zigodot drive measured this with --dump-requests). Set them for the
+         * window of the nested run and restore the caller's values after: in the
+         * lead (depth 0) the caller's values are NULL, so restoring also repairs
+         * the field's "NULL in the lead" invariant for a model switch; in a nested
+         * child the caller's values are that child's own, preserved intact. */
+        tm_name_save = app->telem_model_name;
+        tm_id_save = app->telem_model_id;
+        if (mc != NULL) {
+            app->telem_model_name = mc->name;
+            app->telem_model_id = mc->model;
+        }
         /* Per-depth taper: a deeper synchronous chain gets a smaller iteration
          * budget so nesting shares, not multiplies, the total tool-call budget. */
         sub_iters = jc_subagent_iters_at_depth(app->config.max_subagent_iters,
@@ -292,12 +544,16 @@ static jc_status subagent_run(const cJSON *args, struct jc_tool_result *out,
         st = jc_agent_run_subagent(app, &sub, prov, sysmsg, include_mutating,
                                    sub_iters, allow_fence, cb_fwd, &answer);
         app->agent_depth--;
+        app->telem_model_name = tm_name_save;   /* M922: the child's label dies with it */
+        app->telem_model_id = tm_id_save;
     }
     jc_delegreport_init(&rep);
     rep.stop = jc_delegreport_stop_from(st == JC_OK, st == JC_ERR_ABORTED,
                                         app->last_run_capped,
                                         app->last_run_budget_stopped,
                                         answer != NULL && answer[0] != '\0');
+    rep.cut = app->last_response_truncated;   /* M858 (N42): its last reply */
+    rep.looped = app->last_run_looped;        /* M869: a loop stop, not a cap */
     if (app->env != NULL) {
         rep.tokens = app->env->tokens_used - tok_before;
         /* EXECUTED, not attempted: this report tells a parent what the
@@ -315,7 +571,17 @@ static jc_status subagent_run(const cJSON *args, struct jc_tool_result *out,
         jc_snprintf(rep.fail_msg, sizeof rep.fail_msg, "%s",
                     app->last_fail_msg);
         rep.fail_cls = (enum jc_fail_class)app->last_fail_cls;
+        rep.fail_stopped = app->last_fail_stopped;   /* M885 */
+        if (app->last_fail_cls >= 0 && app->last_fail_cls < JC_FAIL_CLASS_COUNT) {
+            rep.fail_count = app->fail_cls_count[app->last_fail_cls];  /* M876 */
+        }
     }
+    /* M876 (N47 (a)): the nested run's own model failure, which the render
+     * names first when the stop is `error` */
+    jc_snprintf(rep.run_error, sizeof rep.run_error, "%s", app->last_model_error);
+    rep.run_error_attempts = app->last_model_attempts;
+    rep.run_error_t0 = app->last_model_t0;
+    rep.run_error_t1 = app->last_model_t1;
 
     /* M437: ONE shape for every outcome. The two old failure strings ("error:
      * sub-agent interrupted" / "error: sub-agent run failed") told a parent
@@ -326,11 +592,37 @@ static jc_status subagent_run(const cJSON *args, struct jc_tool_result *out,
     {
         struct jc_sb sb;
         jc_sb_init(&sb);
+        /* M1006 (mode warn): the subagent ran from a DIRTY tree. Prepend the
+         * warning once, at the top, the M852 "say it once" shape -- the result
+         * itself is unchanged below. A clean tree or mode `off` leaves
+         * dirty_warn_paths NULL, so nothing is added. */
+        if (dirty_warn_paths != NULL) {
+            jc_sb_append(&sb,
+                "[jichi] the workspace was dirty when this write subagent "
+                "started (uncommitted: ");
+            jc_sb_append(&sb, dirty_warn_paths);
+            jc_sb_append(&sb,
+                "). It edited the LIVE workspace on an uncommitted base -- "
+                "commit, then dispatch, so the changes are not mixed into "
+                "work that was never verified.\n\n");
+        } else if (dd_unknown_note) {
+            /* M1006-a: the probe FAILED -- git could not report the tree
+             * state. The dispatch proceeded (an infra failure must not block
+             * work), but the note says the tree state is UNKNOWN, not clean. */
+            jc_sb_append(&sb,
+                "[jichi] the workspace tree state is unknown when this write "
+                "subagent started: the dirty-check probe (git status) failed, "
+                "so the tree could not be read. The dispatch proceeded, but "
+                "verify the tree is committed before relying on this work.\n\n");
+        }
         if (rep.stop == JC_DELEG_DONE || rep.stop == JC_DELEG_MAX_ITERS ||
-            rep.stop == JC_DELEG_BUDGET) {
-            /* An answer exists on all three; the note is an addendum to it. */
+            rep.stop == JC_DELEG_BUDGET || rep.stop == JC_DELEG_TASK_BUDGET) {
+            /* An answer exists on all four; the note is an addendum to it. */
             jc_sb_append(&sb, (answer != NULL) ? answer : "");
             jc_delegreport_render(&rep, &sb);
+            if (found == 2) {
+                role_fallback_note(&sb, model_sel);
+            }
             tu_ok_owned(out, jc_sb_finish(&sb));
         } else {
             jc_sb_append(&sb, (rep.stop == JC_DELEG_ABORTED)
@@ -339,6 +631,9 @@ static jc_status subagent_run(const cJSON *args, struct jc_tool_result *out,
                                 ? "error: sub-agent produced no final answer"
                                 : "error: sub-agent run failed");
             jc_delegreport_render(&rep, &sb);
+            if (found == 2) {
+                role_fallback_note(&sb, model_sel);
+            }
             /* tu_err copies, so the buffer is freed below like the ok path's
              * would be if it did not take ownership. */
             tu_err(out, (sb.data != NULL) ? sb.data : "error: sub-agent failed");
@@ -356,25 +651,73 @@ static jc_status subagent_run(const cJSON *args, struct jc_tool_result *out,
     return JC_OK;
 }
 
+/* run_ctx wrapper that calls subagent_run with the app context.
+ * Called by jc_tool_execute when run_ctx is set. */
+static jc_status subagent_run_ctx(void *ctx, const cJSON *args,
+                                  struct jc_tool_result *out,
+                                  struct jc_app *app)
+{
+    (void)ctx; /* unused - app is in app parameter */
+    return subagent_run(args, out, app);
+}
+
+/* The static tool for backward compatibility with tests that only call
+ * jc_tool_register_builtins. Its schema uses the same helper as the dynamic
+ * version, but without app context it shows "(none configured)". */
+static cJSON *subagent_schema_static(void)
+{
+    return subagent_schema_ctx(NULL);
+}
+
 static const struct jc_tool SUBAGENT_TOOL = {
     "spawn_subagent",
     "Delegate a self-contained subtask to a fresh sub-agent that works "
     "autonomously and returns one final answer. Reach for it when the subtask "
-    "needs no back-and-forth with you, when its detail would flood your "
-    "context (read many files, return a short synthesis), or when a named "
-    "agent profile (reviewer, tester) fits the job better than you. "
-    "Optionally a different model, or read-only. Not for work that depends "
-    "on this conversation's context: the sub-agent starts fresh and sees "
-    "only the task you write.",
-    subagent_schema,
+    "needs no back-and-forth, when its detail would flood your context, or when "
+    "a named agent profile fits. Optionally a different model, or read-only. It "
+    "starts fresh and sees only the task you write, so not for context-dependent "
+    "work. A WRITE sub-agent edits your LIVE workspace directly (no worktree); "
+    "use spawn_parallel write:true for isolated or parallel edits.",
+    subagent_schema_static,
     0, /* mutating: spawning an autonomous agent is a significant action */
     subagent_run,
-    NULL, NULL, NULL, /* not a dynamic (MCP) tool */
+    NULL, subagent_schema_ctx, NULL, /* dynamic tool support, no ctx */
     0 /* main_agent_only (M436) */,
     0  /* plan_allowed (M631): only write_plan sets this */
 };
 
+/* The static tool for backward compatibility. */
 const struct jc_tool *jc_tool_subagent(void)
 {
     return &SUBAGENT_TOOL;
+}
+
+/* Dynamic tool that includes the configured models in the schema description. */
+const struct jc_tool *jc_tool_subagent_with_app(struct jc_app *app)
+{
+    struct jc_tool *t;
+
+    if (app == NULL || app->arena == NULL) {
+        return NULL;
+    }
+
+    t = (struct jc_tool *)jc_arena_calloc(app->arena, sizeof(*t));
+    if (t == NULL) {
+        return NULL;
+    }
+
+    t->name = "spawn_subagent";
+    t->description =
+        "Delegate a self-contained subtask to a fresh sub-agent that works "
+        "autonomously and returns one final answer. Reach for it when the subtask "
+        "needs no back-and-forth, when its detail would flood your context, or when "
+        "a named agent profile fits. Optionally a different model, or read-only. It "
+        "starts fresh and sees only the task you write, so not for context-dependent "
+        "work. A WRITE sub-agent edits your LIVE workspace directly (no worktree); "
+        "use spawn_parallel write:true for isolated or parallel edits.";
+    t->readonly = 0; /* mutating: spawning an autonomous agent is a significant action */
+    t->ctx = app;
+    t->schema_ctx = subagent_schema_ctx;
+    t->run_ctx = subagent_run_ctx;
+    return t;
 }

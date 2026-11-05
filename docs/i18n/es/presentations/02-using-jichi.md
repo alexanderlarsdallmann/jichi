@@ -50,8 +50,8 @@ sin límite de `ARG_MAX`.
 - **`/auto`** — autónomo; corre sus herramientas en sandbox sin preguntar.
 
 ```sh
-jichi --plan -p "how would you add feature X?"    # a plan
-jichi --auto -p "add feature X and make tests pass"  # do it
+jichi --plan -p "how would you add feature X?" < /dev/null    # a plan
+jichi --auto -p "add feature X and make tests pass" < /dev/null  # do it
 ```
 
 <!-- El modo plan es el default seguro para explorar un repo desconocido o
@@ -109,7 +109,7 @@ jichi --auto \
   --budget-tokens 500k --deadline 30m \
   --edit-scope "src/**" \
   --journal run.jsonl --control \
-  -p "fix the failing ring-buffer tests"
+  -p "fix the failing ring-buffer tests" < /dev/null
 ```
 
 Pasa → avanza; falla → fix-forward N veces, si no, revierte al último verde.

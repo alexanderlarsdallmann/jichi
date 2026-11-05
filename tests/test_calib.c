@@ -103,7 +103,7 @@ void test_calib(void)
     {
         const char *path = jc_test_tmp("jichi_test_calib_v1.json");
         struct jc_calib c4;
-        FILE *f = fopen(path, "w");
+        FILE *f = fopen(path, "wb");
         JC_CHECK(f != NULL);
         if (f != NULL) {
             /* Shaped exactly like a real pre-M286 file: no "v" key. */
@@ -125,7 +125,7 @@ void test_calib(void)
     {
         const char *path = jc_test_tmp("jichi_test_calib_v2.json");
         struct jc_calib c5;
-        FILE *f = fopen(path, "w");
+        FILE *f = fopen(path, "wb");
         JC_CHECK(f != NULL);
         if (f != NULL) {
             fprintf(f, "{\"v\":%d,\"qwen\":{\"ratio\":1.19,\"samples\":900}}",

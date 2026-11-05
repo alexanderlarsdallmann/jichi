@@ -10,7 +10,7 @@ Three steps:
 
 ```
 jichi learn analyze        # 1. evidence: what keeps going wrong (offline)
-/learn        (or jichi -p "/learn")# 2. mentor: draft lessons from that evidence
+/learn        (or jichi -p "/learn" < /dev/null)# 2. mentor: draft lessons from that evidence
 jichi learn apply          # 3. commit the reviewed draft to memory/skills
 ```
 
@@ -83,9 +83,19 @@ its stderr channel there, so stdout stays the record of what was committed.
 `/learn` is a scaffolded command (`init` writes `.jichi/commands/learn.md` +
 `.jichi/agents/mentor.md`). It runs the **mentor** agent as an isolated subtask:
 the command injects the `learn analyze` report and the current `.jichi/memory.md`,
-and the mentor — after investigating root causes in the code — writes a
-**proposal** to `.jichi/lessons.draft.md` and nothing else. Run it in the TUI
-(`/learn`) or headless (`jichi -p "/learn"`).
+and the mentor — after investigating root causes in the code — answers with a
+**proposal**, which `/learn`'s `output:` saves to `.jichi/lessons.draft.md`. Run it
+in the TUI (`/learn`) or headless (`jichi -p "/learn"`).
+
+**The mentor is read-only since M848**, and the subtask runs under your posture.
+Before M848 the mentor was offered every tool and asked nothing, in chat mode too.
+Now it reads, and its answer is the draft. If `.jichi/lessons.draft.md` already
+exists, the new draft is written **beside** it as `lessons.draft.md.answer` (M423:
+a fallback never overwrites a file someone may have reviewed); merge or replace
+it, then `learn apply`. A project initialized before M848 keeps its writable
+mentor (`init` never overwrites a file): there, `/learn` asks before it writes the
+draft in chat mode, and headless without `--auto` the write is refused and the
+answer saved instead.
 
 **The mentor's own prompt reaches it since M596.** `mentor.md` carries the format
 block the parser below depends on (`FORMAT IS STRICT`, the five headings, the
@@ -330,7 +340,7 @@ automatically at the end of a **completed `--auto` run**, set `learnOnStop`
 that turned it on):
 
 ```
-jichi --auto --learn-on-stop -p "implement X"
+jichi --auto --learn-on-stop -p "implement X" < /dev/null
 ```
 
 After the run finishes successfully, the mentor runs once (the same `/learn`

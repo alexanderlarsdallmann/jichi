@@ -19,7 +19,7 @@
 # the warning does NOT raise the exit code.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 8
+t_plan 9
 tmp=$(smoke_tmp)
 smoke_home
 
@@ -144,6 +144,44 @@ if grep -q "skill probe" "$tmp/out"; then
     t_ok "skill fences are linted alongside agent profiles"
 else
     t_fail "a skill's fence was not linted"
+fi
+
+# --- M1048 (G18): a verifier armed in the config meets snapshots OFF ----------
+# run_doctor warns (not fails) that a red verify can no longer roll the tree
+# back to a green checkpoint, because none is kept. Refusing --verify without
+# snapshots was rejected (D12), so this is a WARN and must NOT raise the
+# problem count: arming verify on top of the snapshots-off baseline adds a
+# warning, not a problem. Two-sided, so a config that quietly stops warning
+# (the line disappears) or one that escalates to a FAIL (the count rises)
+# both read. $base is the snapshots-off, no-verify problem count above.
+cat > "$tmp/armed.json" <<'EOF'
+{"models":[{"name":"m","provider":"openai","model":"mock",
+ "apiBase":"http://127.0.0.1:9/v1","apiKey":"x","roles":["chat"]}],
+"toolProfile":"full","snapshots":false,"repoMap":false,"references":false,
+"lowResource":false,"maxRetries":0,"verify":"true"}
+EOF
+cat > "$tmp/armed_on.json" <<'EOF'
+{"models":[{"name":"m","provider":"openai","model":"mock",
+ "apiBase":"http://127.0.0.1:9/v1","apiKey":"x","roles":["chat"]}],
+"toolProfile":"full","snapshots":true,"repoMap":false,"references":false,
+"lowResource":false,"maxRetries":0,"verify":"true"}
+EOF
+doctor_run "$tmp/armed.json" > /dev/null
+if grep -q "verify is armed but snapshots are off" "$tmp/out" &&
+   [ "$(sed -n 's/.*, \([0-9][0-9]*\) problem.*/\1/p' "$tmp/out")" -eq "$base" ]; then
+    :
+    doctor_run "$tmp/armed_on.json" > /dev/null
+    if ! grep -q "verify is armed but snapshots are off" "$tmp/out"; then
+        t_ok "an armed verify meeting snapshots off is a warning, not a problem ($base)"
+    else
+        t_fail "the armed-verify warning fired even though snapshots are ON -- the \
+warning must not print when checkpoints are kept"
+    fi
+else
+    t_fail "an armed verify with snapshots off did not warn (or escalated to a \
+problem): out=$(head_bytes 120 "$tmp/out") -- run_doctor must print \
+'verify is armed but snapshots are off' as a WARN, keeping the problem \
+count at $base (D12 rejected refusing --verify)"
 fi
 
 t_done

@@ -119,9 +119,9 @@ grade whether a model doc has entities and relations, but not whether the model 
 ```sh
 jichi -p "@docs/USE_CASES.md From these use cases, list the candidate entities. For
 each, say whether it is an entity or a value and why, and name one invariant it
-must preserve."
+must preserve." < /dev/null
 jichi -c -p "Draw the domain model as a classDiagram: composition for aggregates,
-plain references for values. State each invariant in prose and which root enforces it."
+plain references for values. State each invariant in prose and which root enforces it." < /dev/null
 ```
 
 Two mechanics there: `@docs/USE_CASES.md` inlines that file into the message

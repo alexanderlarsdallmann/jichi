@@ -11,11 +11,16 @@
 #include "jc_snprintf.h"
 #include "jc_log.h"
 #include "jc_perm.h"
+#include "jc_proc.h"           /* M1043-a: jc_proc_secret_env_add's charset rule */
 #include "jc_str.h"
+#include "jc_config_trust.h"   /* M851 */
+#include "jc_path.h"
+#include "jc_sha256.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <sys/stat.h>   /* M1114: the config path's follow-stat guard */
 
 /* JICHI CHOOSES NO VENDOR. A provider the user NAMED gets its conventional
  * endpoint, because that is a convenience for a decision already taken. A
@@ -149,6 +154,25 @@ const char *jc_config_convention_key_env(const char *provider,
 /* The sentence for a config that names no model at all -- doctor's FAIL, the
  * refused turn and `config validate` print this one text (M709; shared at M718
  * so the three cannot drift apart). */
+const char *jc_config_no_model_advice_cfg(const struct jc_config *c)
+{
+    jc_size i;
+    if (c != NULL && c->project_trust == JC_PROJ_TRUST_UNTRUSTED) {
+        for (i = 0; i < c->project_ignored.len; i++) {
+            const char *s =
+                *(char **)jc_vec_at((struct jc_vec *)&c->project_ignored, i);
+            if (s != NULL && (strncmp(s, "models:", 7) == 0 ||
+                              strncmp(s, "model:", 6) == 0)) {
+                return "this directory's project config names a model, but it "
+                       "is not trusted, so its models are not applied -- run "
+                       "`jichi doctor` to see what it would do, then "
+                       "`jichi trust` here to apply it";
+            }
+        }
+    }
+    return jc_config_no_model_advice();
+}
+
 const char *jc_config_no_model_advice(void)
 {
     return "jichi chooses no provider and no model for you. Run `jichi setup`, "
@@ -343,24 +367,57 @@ static cJSON *config_parse_file(const char *path, struct jc_arena *a)
 {
     char *text;
     cJSON *root;
+    struct stat st;
     if (!jc_file_exists(path)) {
         return NULL; /* absent is not an error: the caller falls back */
     }
-    if (jc_read_file(path, &text, NULL, a) != JC_OK) {
-        /* Present but unreadable. M198 made jc_read_file REJECT a directory
-         * rather than return an empty string -- turning a silent wrong answer
-         * into an error -- but this branch then dropped that error on the
-         * floor, and main's config-load caller returns 1 without a word. The
-         * two together made `doctor`/`context`/`map`/`status` exit 1 with
-         * nothing on either stream when ~/.jichi was a DIRECTORY, which is the
-         * shape an operator actually creates (a stray file copied into it).
-         * Name the cause here, at the chokepoint that knows it. */
-        if (jc_is_dir(path)) {
+    /* M1114 (SV:2220 #1, D-33 at the CONFIG choke): a non-regular file at
+     * the config path would block jc_read_file's fopen until the run's
+     * deadline; the lead measured rc=124 with a planted FIFO at
+     * local/config.json. Same following-stat idiom as M1108/M1110-b: stat
+     * (not lstat), so a SYMLINK that resolves to a regular config still
+     * reads, and a symlink to a FIFO is caught; a missing or broken link
+     * gives stat != 0 and falls through, unchanged. This one site covers
+     * BOTH chokes -- the project (local/config.json) and the global
+     * (~/.jichi) read through here. NULL, so the project/global caller
+     * falls back (to the other file or the built-in defaults) and an
+     * explicit --config takes the config-load error path -- never a hang.
+     *
+     * M1114-b (the M1108-b pattern, at the config choke): give each shape
+     * its TRUE text. The M1114 message's parenthetical "(FIFO/device/
+     * socket)" is FALSE for a directory -- a directory is neither a FIFO
+     * nor a device nor a socket. So a directory keeps the M198 message it
+     * always had ("config path is a directory, not a file"), and a
+     * FIFO/device/socket (the M1114 case) gets the non-regular text. This
+     * guard now owns ALL non-regular shapes (a directory is caught here,
+     * before jc_read_file); the M198 jc_is_dir re-check that used to live in
+     * the jc_read_file-failure branch below is dead for a directory and was
+     * removed (that branch now names a present-but-unreadable REGULAR file).
+     */
+    if (stat(path, &st) == 0 && !S_ISREG(st.st_mode)) {
+        if (S_ISDIR(st.st_mode)) {
             jc_logf(JC_LOG_ERROR,
                     "config path is a directory, not a file: %s", path);
         } else {
-            jc_logf(JC_LOG_ERROR, "config file unreadable: %s", path);
+            jc_logf(JC_LOG_ERROR,
+                    "config path is a non-regular file (FIFO/device/socket); "
+                    "not read: %s",
+                    path);
         }
+        return NULL;
+    }
+    if (jc_read_file(path, &text, NULL, a) != JC_OK) {
+        /* Present but unreadable: name the cause here, at the chokepoint that
+         * knows it (a regular config jc_read_file refused -- permission, over
+         * JC_READ_FILE_MAX, a simulated JC_FAULT_READ -- since the DIRECTORY
+         * shape is now caught by the M1114-b guard above, before the read).
+         * M198 made jc_read_file REJECT a directory rather than return an
+         * empty string -- turning a silent wrong answer into an error -- and
+         * this branch used to name that cause by re-checking jc_is_dir; the
+         * M1114-b guard now owns every non-regular shape (and a directory
+         * keeps M198's message, emitted there), so that re-check is dead and
+         * was removed rather than left as an unreachable fallback. */
+        jc_logf(JC_LOG_ERROR, "config file unreadable: %s", path);
         return NULL;
     }
     /* JSONC, because that is what the documentation has always shown. Fifteen
@@ -454,6 +511,25 @@ static long clamp_timeout(double v)
     return n < 0 ? -1 : n;
 }
 
+/* M1006: case-insensitive whole-string equality with a lowercase literal.
+ * The strictness dial is read leniently, so "Refuse" and "refuse" mean the
+ * same mode; the comparison must not depend on the operator's case. */
+static int jc_ci_eq(const char *s, const char *lit)
+{
+    while (*s != '\0' && *lit != '\0') {
+        char c = *s;
+        if (c >= 'A' && c <= 'Z') {
+            c = (char)(c - 'A' + 'a');
+        }
+        if (c != *lit) {
+            return 0;
+        }
+        s++;
+        lit++;
+    }
+    return *s == '\0' && *lit == '\0';
+}
+
 /* Parse a "timeouts" object (connect/stall/request, in seconds) into `t`,
  * resetting it first so an absent block/key leaves -1 (unset). */
 static void parse_timeouts(const cJSON *obj, struct jc_timeouts_cfg *t)
@@ -512,26 +588,36 @@ static void parse_model(const cJSON *model, struct jc_model_cfg *out,
                            ? jc_arena_strdup(a, envn) : NULL;
     }
     out->temperature = jc_json_get_num(model, "temperature", -1.0);
-    out->max_tokens = (long)jc_json_get_num(model, "maxTokens", 0.0);
+    out->max_tokens = jc_json_clamp_long(jc_json_get_num(model, "maxTokens", 0.0));
     out->input_cost = jc_json_get_num(model, "inputCostPer1M", 0.0);
     out->output_cost = jc_json_get_num(model, "outputCostPer1M", 0.0);
     out->cache_read_cost = jc_json_get_num(model, "cacheReadCostPer1M", 0.0);
     out->cache_write_cost = jc_json_get_num(model, "cacheWriteCostPer1M", 0.0);
-    out->context_limit = (long)jc_json_get_num(model, "contextLength", 0.0);
+    out->context_limit = jc_json_clamp_long(jc_json_get_num(model, "contextLength", 0.0));
     out->roles = parse_roles(model);
     out->vision = jc_json_get_bool_lenient(model, "vision", 0);
-    /* M149: tool-calling capability. "native" (default) | "none"; "text" is
-     * reserved for a future prompt-based fallback and reads as native. */
+    /* M949: per-model opt-in for the text-call recovery pass. Model-written
+     * JSON, read leniently like every other human/model config boolean. */
+    out->text_tool_calls =
+        jc_json_get_bool_lenient(model, "textToolCalls", 0);
+    /* M149: tool-calling capability. "native" (default) | "none" | "text"
+     * (M949: the reserved value, now live -- tools are advertised and the
+     * recovery pass runs; equivalent to "textToolCalls": true). */
     {
         const char *tc = jc_json_get_str(model, "toolCalling", "native");
         if (strcmp(tc, "none") == 0) {
             out->tool_calling = 1;
         } else {
-            if (strcmp(tc, "native") != 0) {
-                jc_logf(JC_LOG_WARN, "config: toolCalling \"%s\" is unknown/"
-                        "reserved; treating as \"native\"", tc);
+            if (strcmp(tc, "text") == 0) {
+                out->tool_calling = 0;
+                out->text_tool_calls = 1;
+            } else {
+                if (strcmp(tc, "native") != 0) {
+                    jc_logf(JC_LOG_WARN, "config: toolCalling \"%s\" is "
+                            "unknown; treating as \"native\"", tc);
+                }
+                out->tool_calling = 0;
             }
-            out->tool_calling = 0;
         }
     }
     /* Per-model "promptCache" is a raw override: -1 unset (inherit the global)
@@ -593,7 +679,16 @@ static void parse_env_object(const cJSON *obj, struct jc_vec *vec,
 }
 
 /* Parse an approval-policy field, which is either a string array of tool
- * names, the string "*", or boolean true (the latter two meaning "all"). */
+ * names, the string "*", or a boolean (the latter two meaning "all").
+ *
+ * M843 (PAR-3): the boolean is read LENIENTLY -- 1, "true", "on" and "yes"
+ * mean all -- because a human writes the config (CLAUDE.md's M519 rule). It
+ * used to accept only a JSON `true`, so `"deny": 1` read as absent and the
+ * fence did not apply: with a real model and --auto, write_file wrote. This
+ * reader also serves the widening fields (`permissions.allow`,
+ * `autoApprove`); the rule is who wrote the JSON, not which way it points, so
+ * `"allow": 1` now means allow-all, as its writer meant. Prose still reads as
+ * "not all". */
 static void parse_policy_field(const cJSON *srv, const char *key,
                                struct jc_vec *list, int *all,
                                struct jc_arena *a)
@@ -605,8 +700,8 @@ static void parse_policy_field(const cJSON *srv, const char *key,
     } else if (cJSON_IsString(item) && item->valuestring != NULL &&
                strcmp(item->valuestring, "*") == 0) {
         *all = 1;
-    } else if (cJSON_IsTrue(item)) {
-        *all = 1;
+    } else if (item != NULL) {
+        *all = jc_json_get_bool_lenient(srv, key, 0);
     }
 }
 
@@ -797,7 +892,7 @@ static void push_user_tool(struct jc_config *out, const cJSON *t,
     cfg.shell = (s != NULL) ? jc_arena_strdup(a, s) : NULL;
     parse_str_array(jc_json_get_obj(t, "args"), &cfg.args, a);
     parse_env_object(jc_json_get_obj(t, "env"), &cfg.env, a);
-    cfg.timeout = (long)jc_json_get_num(t, "timeout", 0.0);
+    cfg.timeout = jc_json_clamp_long(jc_json_get_num(t, "timeout", 0.0));
     cfg.readonly = jc_json_get_bool_lenient(t, "readonly", 0);
     cfg.kinetic = jc_json_get_bool_lenient(t, "kinetic", 0);
     if (cfg.kinetic && cfg.readonly) {
@@ -855,7 +950,7 @@ static void push_hook_cmd(struct jc_vec *cmds, const cJSON *c,
     s = jc_json_get_str(c, "shell", NULL);
     cfg.shell = (s != NULL) ? jc_arena_strdup(a, s) : NULL;
     parse_str_array(jc_json_get_obj(c, "args"), &cfg.args, a);
-    cfg.timeout = (long)jc_json_get_num(c, "timeout", 0.0);
+    cfg.timeout = jc_json_clamp_long(jc_json_get_num(c, "timeout", 0.0));
     if (cfg.command == NULL && cfg.shell == NULL) {
         jc_logf(JC_LOG_WARN, "hooks: skipping command with no command/shell");
         jc_vec_free(&cfg.args);
@@ -917,6 +1012,38 @@ static void parse_hooks(struct jc_config *out, const cJSON *hooks,
  * (inline text). When `inline_json` is non-NULL it is parsed as THE config --
  * a single explicit source, no global/project merge -- and the file-discovery
  * path is skipped; otherwise `path_or_null` drives the usual file logic. */
+/* M851 (CFG-1): the trust step for the project file the implicit discovery
+ * merges. Records the file's absolute path and content hash; when the store
+ * does not hold that pair, filters `proj` IN PLACE to its safe keys and returns
+ * the parked narrowing keys for after the parse (NULL when the file is
+ * trusted). */
+static cJSON *project_trust_gate(struct jc_config *out, const char *ppath,
+                                 cJSON *proj, struct jc_arena *a)
+{
+    char *raw = NULL;
+    jc_size rawlen = 0;
+    cJSON *narrow;
+
+    if (jc_path_resolve(ppath, out->project_config_path,
+                        sizeof out->project_config_path) != JC_OK) {
+        jc_snprintf(out->project_config_path, sizeof out->project_config_path,
+                    "%s", ppath);
+    }
+    if (jc_read_file(ppath, &raw, &rawlen, a) == JC_OK && raw != NULL) {
+        jc_sha256_hex(raw, rawlen, out->project_config_sha256);
+    }
+    if (out->project_config_sha256[0] != '\0' &&
+        jc_cfgtrust_is_trusted(out->project_config_path,
+                               out->project_config_sha256)) {
+        out->project_trust = JC_PROJ_TRUST_TRUSTED;
+        return NULL;
+    }
+    out->project_trust = JC_PROJ_TRUST_UNTRUSTED;
+    narrow = cJSON_CreateObject();
+    jc_cfgtrust_filter(proj, narrow, &out->project_ignored, a);
+    return narrow;
+}
+
 static jc_status config_load_impl(const char *path_or_null,
                                   const char *inline_json, int low_resource,
                                   struct jc_config *out, struct jc_arena *a)
@@ -926,6 +1053,7 @@ static jc_status config_load_impl(const char *path_or_null,
     cJSON *models;
     cJSON *model;
     int explicit_path = 0;
+    cJSON *trust_narrow = NULL;   /* M851: an untrusted project's parked keys */
     /* Did the config TEXT carry a contextLimit, or is the number below
      * lite's default? The audibility check at the end of this function
      * must not warn an operator about a cap they chose themselves. */
@@ -942,6 +1070,8 @@ static jc_status config_load_impl(const char *path_or_null,
     jc_vec_init(&out->user_tools, sizeof(struct jc_user_tool_cfg));
     jc_vec_init(&out->docs, sizeof(struct jc_docs_cfg));
     jc_vec_init(&out->aliases, sizeof(struct jc_alias_cfg));
+    jc_vec_init(&out->shell_fence_allow, sizeof(char *));
+    jc_vec_init(&out->project_ignored, sizeof(char *));   /* M851 */
     {
         int hi;
         for (hi = 0; hi < JC_HOOK_EVENT_COUNT; hi++) {
@@ -971,6 +1101,7 @@ static jc_status config_load_impl(const char *path_or_null,
     jc_vec_init(&out->ignore_dirs, sizeof(char *));
     jc_vec_init(&out->design_docs, sizeof(char *));
     jc_vec_init(&out->reference_roots, sizeof(char *));
+    jc_vec_init(&out->secret_env, sizeof(char *));      /* M1043-a */
     out->verify = NULL;
     out->verify_kind = NULL;
     out->test_command = NULL;
@@ -993,10 +1124,12 @@ static jc_status config_load_impl(const char *path_or_null,
     out->type_ahead = 0;
     out->wisdom = 1;
     out->board = 0;
+    out->input_history = 1;   /* M763 */
     out->fuzzy_edit = 1; /* cheap + pure, so on even in lite */
     out->assignments = 0; /* opt-in: off unless the user enables it */
     out->self_review = -1; /* default: on in AUTO mode only */
     out->path_fence = -1;  /* default: on in autonomous postures only */
+    out->shell_fence = -1; /* default: on where Landlock is available (M831) */
     /* M338: -1 = unset. Interactive destroys (undo/rewind/revert) then preserve
      * and the envelope's rollback does not -- the two have different risk, and
      * one key with per-mechanism defaults beats two keys that can contradict. */
@@ -1035,6 +1168,12 @@ static jc_status config_load_impl(const char *path_or_null,
     out->timeouts.connect = out->timeouts.stall = out->timeouts.request = -1;
     out->timeouts_cli.connect = out->timeouts_cli.stall =
         out->timeouts_cli.request = -1;
+    /* M1006: the dirty-tree dispatch guard's mode. Provisional `warn` -- visible
+     * in every write dispatch, but no hard stop (see the enum's comment). */
+    out->strictness.dirty_dispatch = JC_DIRTYDISPATCH_WARN;
+    out->dead_stream_secs = 900;         /* M-L2: the dead-stream fence default */
+    out->disk_floor_mb = 10.0;           /* M813: the disk fence (provisional) */
+    out->disk_floor_files = 0.0;         /* M813: inode floor off by default   */
     out->permissions.allow_all = 0;
     out->permissions.deny_all = 0;
     out->default_mode = JC_MODE_CHAT;
@@ -1051,6 +1190,10 @@ static jc_status config_load_impl(const char *path_or_null,
     out->context_limit = lite ? 16384 : 0;
     out->snapshots = lite ? 0 : 1;
     out->snapshot_limit = 100;
+    out->constraints_auto_adopt = 1;   /* M874: on unless a config says otherwise */
+    out->parallel_test_edits = JC_TESTEDITS_HOLD;   /* M875: M865's hold */
+    out->parallel_metric_higher = 1;
+    jc_vec_init(&out->parallel_metric_pins, sizeof(char *));
     /* M599: metrics ON by default -- the operator's decision (2026-08-27): "a
      * learner forgets otherwise". Measured that day: no telemetry existed for
      * jichi's own workspace, so `learn analyze` had nothing to read. `metrics`
@@ -1133,6 +1276,12 @@ static jc_status config_load_impl(const char *path_or_null,
         }
         root = have_g ? config_parse_file(path, a) : NULL;
         proj = have_p ? config_parse_file(ppath, a) : NULL;
+        /* M851 (CFG-1): a project file is merged only after the trust step.
+         * Untrusted, it keeps its safe keys; the narrowing ones are parked
+         * and applied after the parse, where they can only tighten. */
+        if (proj != NULL) {
+            trust_narrow = project_trust_gate(out, ppath, proj, a);
+        }
         if (root != NULL && proj != NULL) {
             jc_config_merge_json(root, proj);
             cJSON_Delete(proj);
@@ -1150,6 +1299,9 @@ static jc_status config_load_impl(const char *path_or_null,
             /* Present but none usable: malformed JSON, unreadable, or a
              * directory where a file must be. config_parse_file has already
              * named which, per path. */
+            if (trust_narrow != NULL) {
+                cJSON_Delete(trust_narrow);
+            }
             return JC_ERR_PARSE;
         }
     }
@@ -1195,16 +1347,59 @@ static jc_status config_load_impl(const char *path_or_null,
             out->system_prompt_extra = jc_arena_strdup(a, extra);
         }
     }
-    out->max_tool_iters = (int)jc_json_get_num(root, "maxToolIters",
-                                               lite ? 12.0 : 25.0);
+    out->max_tool_iters = jc_json_clamp_int(jc_json_get_num(root, "maxToolIters",
+                                               lite ? 12.0 : 25.0));
     if (out->max_tool_iters <= 0) {
         out->max_tool_iters = lite ? 12 : 25;
     }
-    out->max_retries = (int)jc_json_get_num(root, "maxRetries", lite ? 2.0 : 4.0);
+    /* D6 scoped edit check (M975): N = 2, configurable, 0 = off. */
+    out->scoped_edit_max = jc_json_clamp_int(jc_json_get_num(root, "scopedEditMax", 2.0));
+    if (out->scoped_edit_max < 0) {
+        out->scoped_edit_max = 2;
+    }
+    out->max_retries = jc_json_clamp_int(jc_json_get_num(root, "maxRetries", lite ? 2.0 : 4.0));
     if (out->max_retries < 0) {
         out->max_retries = 0;
     }
     out->auto_compact = jc_json_get_bool_lenient(root, "autoCompact", 1);
+    /* M920: the relay's off-by-default switch. A human writes 1, so lenient.
+     * M920 ships the DECISION (the pure core in src/util/jc_relay.c) and the
+     * honest exit (stop_reason "handover"); the baton and the next leg are
+     * the follow-up milestone, which is why this stays off: a handover
+     * without notes is a stop reason, not a handover. */
+    out->relay = jc_json_get_bool_lenient(root, "relay", 0);
+    /* M921: the baton's byte budget (6.4: "at most relayNotesBytes, 8 KB by
+     * default"). The mechanical part of the notes is bounded by construction
+     * (top-N lists), so the cap only ever bites the model's account; the call
+     * site derives the account's room from it (the header's formula in
+     * jc_relay.h). A human writes 1, so lenient; the floor-clamp idiom of
+     * contextLimit -- a 0 or negative value would silently cut every account
+     * to nothing, which is not what a bare key means. */
+    out->relay_notes_bytes =
+        jc_json_clamp_long(jc_json_get_num(root, "relayNotesBytes", 8192.0));
+    if (out->relay_notes_bytes <= 0) {
+        /* the max_tool_iters idiom: a bare or negative key reverts to the
+         * documented default rather than meaning "no cap" -- 0 would cut every
+         * account to nothing, which is not what an operator typing the key
+         * means. */
+        out->relay_notes_bytes = 8192;
+    }
+    /* M952 (topology B): the in-process leg loop's opt-in. Lenient, like the
+     * other relay keys: config files are operator- or model-typed JSON. */
+    out->relay_in_process =
+        jc_json_get_bool_lenient(root, "relayInProcess", 0);
+    /* M952 (topology B): the in-process leg ceiling. Same floor-clamp idiom as
+     * relayNotesBytes: a bare or 0 key means the documented default (5), not
+     * "one leg". The 32 ceiling is a guard against a typo (a relayMaxLegs of
+     * 32000000000 would loop a process for hours) -- the value is a process
+     * bound, and a mis-keyed one should not be a runaway. */
+    out->relay_max_legs = jc_json_clamp_long(jc_json_get_num(root, "relayMaxLegs", 5.0));
+    if (out->relay_max_legs < 1) {
+        out->relay_max_legs = 5;
+    }
+    if (out->relay_max_legs > 32) {
+        out->relay_max_legs = 32;
+    }
     /* M318: OFF under --lite, measured. The M299 section costs 329-386 tokens on
      * EVERY model call (4-6% of a small prompt), and an 18-run A/B on a 31B local
      * model found ZERO difference: same pass rate on three graded tasks (18/18
@@ -1226,6 +1421,9 @@ static jc_status config_load_impl(const char *path_or_null,
      * cannot see is input you cannot correct or compose against. Opt in per
      * project with `typeAhead: true`, or per run with --type-ahead. */
     out->type_ahead = jc_json_get_bool_lenient(root, "typeAhead", 0);
+    /* M763: typed input kept across TUI runs, in ~/.jichi.d/input_history (0600;
+     * a line holding a secret jichi can recognise is never written). */
+    out->input_history = jc_json_get_bool_lenient(root, "inputHistory", 1);
     out->wisdom = jc_json_get_bool_lenient(root, "wisdom", 1);
     out->board = jc_json_get_bool_lenient(root, "board", 0);
     out->fuzzy_edit = jc_json_get_bool_lenient(root, "fuzzyEdit", 1);
@@ -1236,6 +1434,11 @@ static jc_status config_load_impl(const char *path_or_null,
     if (jc_json_get_obj(root, "pathFence") != NULL) {
         out->path_fence = jc_json_get_bool_lenient(root, "pathFence", 0) ? 1 : 0;
     }
+    if (jc_json_get_obj(root, "shellFence") != NULL) {
+        out->shell_fence = jc_json_get_bool_lenient(root, "shellFence", 1) ? 1 : 0;
+    }
+    parse_str_array(jc_json_get_obj(root, "shellFenceAllow"),
+                    &out->shell_fence_allow, a);
     if (jc_json_get_obj(root, "promptCache") != NULL) {
         out->prompt_cache = jc_json_get_bool_lenient(root, "promptCache", 1) ? 1 : 0;
     }
@@ -1246,38 +1449,38 @@ static jc_status config_load_impl(const char *path_or_null,
         const char *ttl = jc_json_get_str(root, "promptCacheTtl", NULL);
         out->prompt_cache_1h = (ttl != NULL && strcmp(ttl, "1h") == 0) ? 1 : 0;
     }
-    out->repo_map_limit = (long)jc_json_get_num(root, "repoMapLimit", 0.0);
+    out->repo_map_limit = jc_json_clamp_long(jc_json_get_num(root, "repoMapLimit", 0.0));
     if (out->repo_map_limit < 0) {
         out->repo_map_limit = 0;
     }
-    out->context_limit = (long)jc_json_get_num(root, "contextLimit",
-                                               lite ? 16384.0 : 0.0);
+    out->context_limit = jc_json_clamp_long(jc_json_get_num(root, "contextLimit",
+                                               lite ? 16384.0 : 0.0));
     ctx_limit_explicit = (cJSON_GetObjectItem(root, "contextLimit") != NULL);
     if (out->context_limit < 0) {
         out->context_limit = 0;
     }
     out->snapshots = jc_json_get_bool_lenient(root, "snapshots", lite ? 0 : 1);
-    out->snapshot_limit = (int)jc_json_get_num(root, "snapshotLimit", 100.0);
+    out->snapshot_limit = jc_json_clamp_int(jc_json_get_num(root, "snapshotLimit", 100.0));
     if (out->snapshot_limit < 0) {
         out->snapshot_limit = 0;
     }
     /* Tool output caps (0 => the tool's built-in default); lite shrinks them. */
     out->read_max_bytes =
-        (long)jc_json_get_num(root, "readMaxBytes", lite ? 65536.0 : 0.0);
+        jc_json_clamp_long(jc_json_get_num(root, "readMaxBytes", lite ? 65536.0 : 0.0));
     out->run_max_bytes =
-        (long)jc_json_get_num(root, "runMaxBytes", lite ? 16384.0 : 0.0);
+        jc_json_clamp_long(jc_json_get_num(root, "runMaxBytes", lite ? 16384.0 : 0.0));
     out->fetch_max_bytes =
-        (long)jc_json_get_num(root, "fetchMaxBytes", lite ? 32768.0 : 0.0);
+        jc_json_clamp_long(jc_json_get_num(root, "fetchMaxBytes", lite ? 32768.0 : 0.0));
     out->search_max_bytes =
-        (long)jc_json_get_num(root, "searchMaxBytes", lite ? 16384.0 : 0.0);
+        jc_json_clamp_long(jc_json_get_num(root, "searchMaxBytes", lite ? 16384.0 : 0.0));
     out->git_max_bytes =
-        (long)jc_json_get_num(root, "gitMaxBytes", lite ? 8192.0 : 0.0);
+        jc_json_clamp_long(jc_json_get_num(root, "gitMaxBytes", lite ? 8192.0 : 0.0));
     out->image_gen_max_bytes =
-        (long)jc_json_get_num(root, "imageGenMaxBytes", 0.0);
+        jc_json_clamp_long(jc_json_get_num(root, "imageGenMaxBytes", 0.0));
     out->audio_gen_max_bytes =
-        (long)jc_json_get_num(root, "audioGenMaxBytes", 0.0);
+        jc_json_clamp_long(jc_json_get_num(root, "audioGenMaxBytes", 0.0));
     out->transcribe_max_bytes =
-        (long)jc_json_get_num(root, "transcribeMaxBytes", 0.0);
+        jc_json_clamp_long(jc_json_get_num(root, "transcribeMaxBytes", 0.0));
     if (out->read_max_bytes < 0) { out->read_max_bytes = 0; }
     if (out->run_max_bytes < 0) { out->run_max_bytes = 0; }
     if (out->fetch_max_bytes < 0) { out->fetch_max_bytes = 0; }
@@ -1303,12 +1506,12 @@ static jc_status config_load_impl(const char *path_or_null,
         }
     }
     out->max_subagent_depth =
-        (int)jc_json_get_num(root, "maxSubagentDepth", lite ? 0.0 : 2.0);
+        jc_json_clamp_int(jc_json_get_num(root, "maxSubagentDepth", lite ? 0.0 : 2.0));
     if (out->max_subagent_depth < 0) {
         out->max_subagent_depth = 0;
     }
-    out->max_subagent_iters = (int)jc_json_get_num(root, "maxSubagentIters",
-                                                   (double)out->max_tool_iters);
+    out->max_subagent_iters = jc_json_clamp_int(jc_json_get_num(root, "maxSubagentIters",
+                                                   (double)out->max_tool_iters));
     if (out->max_subagent_iters <= 0) {
         out->max_subagent_iters = out->max_tool_iters;
     }
@@ -1383,13 +1586,22 @@ static jc_status config_load_impl(const char *path_or_null,
     parse_hooks(out, jc_json_get_obj(root, "hooks"), a);
     out->hooks_enabled = jc_json_get_bool_lenient(root, "hooksEnabled", 0);
     out->config_editable = jc_json_get_bool_lenient(root, "configEditable", 0);
-    out->mem_budget_mb = (long)jc_json_get_num(root, "memBudgetMb", 0.0);
-    out->run_timeout = (long)jc_json_get_num(root, "runTimeout", 0.0);
+    out->mem_budget_mb = jc_json_clamp_long(jc_json_get_num(root, "memBudgetMb", 0.0));
+    out->run_timeout = jc_json_clamp_long(jc_json_get_num(root, "runTimeout", 0.0));
     if (out->run_timeout < 0) { out->run_timeout = 0; }
     out->run_timeout_cli = 0; /* set from --run-timeout in main */
     out->accessible = jc_json_get_bool_lenient(root, "accessible", 0);
     out->output_style = jc_json_dup_str(root, "outputStyle", a);
     out->language = jc_json_dup_str(root, "language", a);
+    /* C-15 (M1133): the CA bundle. dup so the config owns the string on the
+     * session arena (the process-global read in jc_http's apply_common holds a
+     * pointer into it and must outlive every transfer). An empty value is
+     * treated as absent -- the doctor then reports the library default, and
+     * main.c does not arm CURLOPT_CAINFO. */
+    {
+        char *ca = jc_json_dup_str(root, "caBundle", a);
+        out->ca_bundle = (ca != NULL && ca[0] != '\0') ? ca : NULL;
+    }
 
     {
         cJSON *search = jc_json_get_obj(root, "search");
@@ -1401,7 +1613,7 @@ static jc_status config_load_impl(const char *path_or_null,
             s = jc_json_get_str(search, "provider", NULL);
             out->search.provider = (s != NULL) ? jc_arena_strdup(a, s) : NULL;
             out->search.max_results =
-                (long)jc_json_get_num(search, "maxResults", 0.0);
+                jc_json_clamp_long(jc_json_get_num(search, "maxResults", 0.0));
             /* Key: literal apiKey, else getenv(apiKeyEnv). */
             lit = jc_json_get_str(search, "apiKey", NULL);
             if (lit != NULL && lit[0] != '\0') {
@@ -1467,9 +1679,11 @@ static jc_status config_load_impl(const char *path_or_null,
         out->budget_panel =
             jc_json_get_bool_lenient(root, "budgetPanel", 0);      /* M431f: OFF */
         out->budget_panel_every =
-            (int)jc_json_get_num(root, "budgetPanelEvery", 5.0); /* M431f */
+            jc_json_clamp_int(jc_json_get_num(root, "budgetPanelEvery", 5.0)); /* M431f */
         out->strict_green =
             jc_json_get_bool_lenient(root, "strictGreen", 0);      /* M332 */
+        out->constraints_auto_adopt =
+            jc_json_get_bool_lenient(root, "constraintsAutoAdopt", 1); /* M874 */
         /* M338: tri-state, following pathFence/promptCache/selfReview. Unset
          * (-1) is NOT "off": it means each mechanism takes its own default,
          * because the risk differs. See jc_config.h. */
@@ -1479,6 +1693,43 @@ static jc_status config_load_impl(const char *path_or_null,
         }
         parse_str_array(jc_json_get_obj(root, "referenceRoots"),
                         &out->reference_roots, a);
+        /* M1043-a (plan 2026-10-03, 4.2): "secretEnv" -- a list of env-var
+         * NAMES, each removed from every child jichi forks, on top of the
+         * configured apiKeyEnv names and the built-in list. Unlike the plain
+         * string arrays, an entry that is not a valid variable NAME is a
+         * WARN and a SKIP, not a parse error: a typo'd name must not take the
+         * run down, and the scrub is best-effort per name. Validation is the
+         * same rule jc_proc_secret_env_add applies (jc_envvar_name_valid), so
+         * the config and the registry cannot disagree about a name's shape.
+         * Missing key or empty array adds nothing (default off). */
+        {
+            const cJSON *se = jc_json_get_obj(root, "secretEnv");
+            if (se != NULL && !cJSON_IsArray(se)) {
+                jc_logf(JC_LOG_WARN,
+                        "config: \"secretEnv\" must be an array of "
+                        "environment-variable names; ignoring the value");
+            } else if (se != NULL) {
+                cJSON *en;
+                cJSON_ArrayForEach(en, se) {
+                    const char *nm = NULL;
+                    if (cJSON_IsString(en) && en->valuestring != NULL) {
+                        nm = en->valuestring;
+                    }
+                    if (nm == NULL || nm[0] == '\0' ||
+                        !jc_envvar_name_valid(nm)) {
+                        jc_logf(JC_LOG_WARN,
+                                "config: secretEnv entry \"%s\" is not a "
+                                "valid environment-variable name; skipping it",
+                                nm != NULL ? nm : "(not a string)");
+                        continue;
+                    }
+                    {
+                        char *copy = jc_arena_strdup(a, nm);
+                        jc_vec_push(&out->secret_env, &copy);
+                    }
+                }
+            }
+        }
         /* M462: `design` is a LIST, and the CLI appends to it rather than
          * replacing it -- see docs/DESIGN_INPUT.md for why replacement would
          * silently drop a project's pinned doc while still labelling the
@@ -1503,6 +1754,80 @@ static jc_status config_load_impl(const char *path_or_null,
                             &out->privileged_allow, a);
             out->privileged_audit =
                 jc_json_get_bool_lenient(root, "privilegedAudit", 1);
+        }
+        /* M875: the metric gate (docs/proposals/2026-10-metric-gate.md). An
+         * unknown mode, or "metric" without a command or pins, holds -- said
+         * once, here, since a gate that silently does not apply looks applied. */
+        {
+            const char *te = jc_json_get_str(root, "parallelTestEdits", "hold");
+            const cJSON *pm = jc_json_get_obj(root, "parallelMetric");
+            if (strcmp(te, "metric") == 0) {
+                out->parallel_test_edits = JC_TESTEDITS_METRIC;
+            } else {
+                if (strcmp(te, "hold") != 0) {
+                    jc_logf(JC_LOG_WARN, "config: parallelTestEdits \"%s\" "
+                            "unknown; using \"hold\"", te);
+                }
+                out->parallel_test_edits = JC_TESTEDITS_HOLD;
+            }
+            if (pm != NULL && cJSON_IsObject(pm)) {
+                const char *s = jc_json_get_str(pm, "command", NULL);
+                if (s != NULL && s[0] != '\0') {
+                    out->parallel_metric_cmd = jc_arena_strdup(a, s);
+                }
+                s = jc_json_get_str(pm, "label", NULL);
+                if (s != NULL && s[0] != '\0') {
+                    out->parallel_metric_label = jc_arena_strdup(a, s);
+                }
+                s = jc_json_get_str(pm, "better", "higher");
+                if (strcmp(s, "lower") == 0) {
+                    out->parallel_metric_higher = 0;
+                } else {
+                    if (strcmp(s, "higher") != 0) {
+                        jc_logf(JC_LOG_WARN, "config: parallelMetric.better \"%s\" "
+                                "unknown; using \"higher\"", s);
+                    }
+                    out->parallel_metric_higher = 1;
+                }
+                parse_str_array(jc_json_get_obj(pm, "pins"),
+                                &out->parallel_metric_pins, a);
+                out->parallel_metric_timeout =
+                    jc_json_clamp_long(jc_json_get_num_lenient(pm, "timeoutSecs", 0.0));
+                if (out->parallel_metric_timeout < 0) {
+                    out->parallel_metric_timeout = 0;
+                }
+            }
+            if (out->parallel_test_edits == JC_TESTEDITS_METRIC &&
+                (out->parallel_metric_cmd == NULL ||
+                 out->parallel_metric_pins.len == 0)) {
+                jc_logf(JC_LOG_WARN, "config: parallelTestEdits is \"metric\" but "
+                        "parallelMetric declares no %s; a moved test assertion "
+                        "is held, as with \"hold\"",
+                        out->parallel_metric_cmd == NULL ? "command" : "pins");
+            }
+        }
+        /* M859 (N42 (d), the operator's choice of 2026-10-02; M965: when nothing
+         * is set, the default becomes headless semantics in a headless top-level
+         * run): one continuation after a reply cut at the output ceiling -- for
+         * delegates (the default when nothing is set and headless_run is false),
+         * also for a headless top-level run, or never. */
+        {
+            const char *cc = jc_json_get_str(root, "continueCutReply",
+                                             "delegates");
+            if (cJSON_GetObjectItem(root, "continueCutReply") != NULL) {
+                out->has_continue_cut_reply = 1;
+            }
+            if (strcmp(cc, "headless") == 0) {
+                out->continue_cut_reply = JC_CUTCONT_HEADLESS;
+            } else if (strcmp(cc, "off") == 0) {
+                out->continue_cut_reply = JC_CUTCONT_OFF;
+            } else {
+                if (strcmp(cc, "delegates") != 0) {
+                    jc_logf(JC_LOG_WARN, "config: continueCutReply \"%s\" "
+                            "unknown; using \"delegates\"", cc);
+                }
+                out->continue_cut_reply = JC_CUTCONT_DELEGATES;
+            }
         }
         /* M163a: kinetic (physical-actuation) posture -- mirrors the M153
          * privileged block. Default ask => an unattended run refuses. */
@@ -1552,42 +1877,48 @@ static jc_status config_load_impl(const char *path_or_null,
                                     &out->sound.record_args, a);
                 }
                 out->sound.play_timeout =
-                    (long)jc_json_get_num(snd, "playTimeoutSeconds", 0.0);
+                    jc_json_clamp_long(jc_json_get_num(snd, "playTimeoutSeconds", 0.0));
                 out->sound.record_max =
-                    (long)jc_json_get_num(snd, "recordMaxSeconds", 0.0);
+                    jc_json_clamp_long(jc_json_get_num(snd, "recordMaxSeconds", 0.0));
             }
         }
         /* M159: `control` opens the mid-run control socket -- boolean true
-         * (default path) or a string socket path. Off by default. */
+         * (default path) or a string socket path. Off by default.
+         * M843: the boolean is read leniently. A `1` used to be ignored, and
+         * an "on" or "off" became a socket PATH of that name -- "off" turned
+         * the socket on. A string that is a bool word is the bool; any other
+         * string is still a path. */
         {
             const cJSON *cv = jc_json_get_obj(root, "control");
-            if (cJSON_IsBool(cv)) {
-                out->control_on = cJSON_IsTrue(cv) ? 1 : 0;
-            } else if (cJSON_IsString(cv) && cv->valuestring != NULL &&
-                       cv->valuestring[0] != '\0') {
+            int word = 0;
+            if (cJSON_IsString(cv) && cv->valuestring != NULL &&
+                cv->valuestring[0] != '\0' &&
+                !jc_bool_from_word(cv->valuestring, &word)) {
                 out->control_on = 1;
                 out->control_path = jc_arena_strdup(a, cv->valuestring);
+            } else if (cv != NULL) {
+                out->control_on = jc_json_get_bool_lenient(root, "control", 0);
             }
         }
         out->max_parallel_agents =
-            (int)jc_json_get_num(root, "maxParallelAgents", lite ? 1.0 : 0.0);
+            jc_json_clamp_int(jc_json_get_num(root, "maxParallelAgents", lite ? 1.0 : 0.0));
         out->parallel_verify =
             jc_json_get_bool_lenient(root, "parallelVerify", 0); /* M144 */
         if (out->max_parallel_agents < 0) {
             out->max_parallel_agents = 0;
         }
         out->parallel_task_timeout =
-            (long)jc_json_get_num(root, "parallelTaskTimeout", 0.0);
+            jc_json_clamp_long(jc_json_get_num(root, "parallelTaskTimeout", 0.0));
         if (out->parallel_task_timeout < 0) {
             out->parallel_task_timeout = 0;
         }
         out->daemon_workers =
-            (int)jc_json_get_num(root, "daemonWorkers", 0.0);
+            jc_json_clamp_int(jc_json_get_num(root, "daemonWorkers", 0.0));
         if (out->daemon_workers < 0) {
             out->daemon_workers = 0;
         }
         out->daemon_worker_timeout =
-            (long)jc_json_get_num(root, "daemonWorkerTimeout", 0.0);
+            jc_json_clamp_long(jc_json_get_num(root, "daemonWorkerTimeout", 0.0));
         if (out->daemon_worker_timeout < 0) {
             out->daemon_worker_timeout = 0;
         }
@@ -1605,18 +1936,27 @@ static jc_status config_load_impl(const char *path_or_null,
                 out->routing.escalate_on_stall =
                     jc_json_get_bool_lenient(route, "escalateOnStall", 1);
                 /* M288: accepts a percentage, or a bool for convenience --
-                 * `false` disables, `true` selects the default threshold. */
+                 * `false` disables, `true` selects the default threshold.
+                 * M843: the bool in any lenient spelling. A "false" used to
+                 * fall to the number reader, which returned the DEFAULT
+                 * percentage -- escalation on. A number is still a
+                 * percentage. */
                 {
                     cJSON *ec = cJSON_GetObjectItem(route,
                                                     "escalateOnContext");
-                    if (cJSON_IsBool(ec)) {
+                    int word = 0;
+                    if (cJSON_IsBool(ec) ||
+                        (cJSON_IsString(ec) && ec->valuestring != NULL &&
+                         jc_bool_from_word(ec->valuestring, &word))) {
                         out->routing.escalate_on_context =
-                            cJSON_IsTrue(ec) ? JC_ROUTE_CONTEXT_PCT : 0;
+                            jc_json_get_bool_lenient(route, "escalateOnContext",
+                                                     0)
+                                ? JC_ROUTE_CONTEXT_PCT : 0;
                     } else if (ec != NULL) {
                         out->routing.escalate_on_context =
-                            (int)jc_json_get_num_lenient(route,
+                            jc_json_clamp_int(jc_json_get_num_lenient(route,
                                                          "escalateOnContext",
-                                                         JC_ROUTE_CONTEXT_PCT);
+                                                         JC_ROUTE_CONTEXT_PCT));
                     }
                 }
             }
@@ -1630,7 +1970,7 @@ static jc_status config_load_impl(const char *path_or_null,
                         jc_json_get_bool_lenient(ret, "hybrid", 1) ? 1 : 0;
                 }
                 out->retrieval.rrf_k =
-                    (int)jc_json_get_num(ret, "rrfK", 0.0);
+                    jc_json_clamp_int(jc_json_get_num(ret, "rrfK", 0.0));
                 {
                     const char *qr = jc_json_get_str(ret, "queryRewrite", NULL);
                     if (qr != NULL) {
@@ -1661,9 +2001,9 @@ static jc_status config_load_impl(const char *path_or_null,
         /* Auto-context injection (M61): opt-in auto-RAG. */
         out->auto_context = jc_json_get_bool_lenient(root, "autoContext", 0);
         out->auto_context_top_k =
-            (int)jc_json_get_num(root, "autoContextTopK", 0.0);
+            jc_json_clamp_int(jc_json_get_num(root, "autoContextTopK", 0.0));
         out->auto_context_max_tokens =
-            (long)jc_json_get_num(root, "autoContextMaxTokens", 0.0);
+            jc_json_clamp_long(jc_json_get_num(root, "autoContextMaxTokens", 0.0));
         {
             const char *src = jc_json_get_str(root, "autoContextSources", NULL);
             if (src != NULL) {
@@ -1679,8 +2019,79 @@ static jc_status config_load_impl(const char *path_or_null,
         out->learn_on_stop = jc_json_get_bool_lenient(root, "learnOnStop", 0);
         /* Global model-call timeouts (M22); per-model blocks override this. */
         parse_timeouts(jc_json_get_obj(root, "timeouts"), &out->timeouts);
+        /* M1006: the strictness dials -- the dirty-tree dispatch guard's mode.
+         * `jc_json_get_obj(root, "strictness")` is the read the config-trust
+         * lint holds against the table. The value is read LENIENTLY: a real
+         * `off`/`warn`/`refuse` string (case-insensitive) wins; anything else --
+         * a number, prose, a typo, a missing key or a non-object -- falls
+         * through to the init default (WARN). That is the M519/M168 rule: a
+         * typo must never silently tighten OR loosen a fence. */
+        {
+            const cJSON *st = jc_json_get_obj(root, "strictness");
+            if (cJSON_IsObject(st)) {
+                const char *dm = jc_json_get_str(st, "dirtyDispatch", NULL);
+                if (dm != NULL && dm[0] != '\0') {
+                    if (jc_ci_eq(dm, "off")) {
+                        out->strictness.dirty_dispatch = JC_DIRTYDISPATCH_OFF;
+                    } else if (jc_ci_eq(dm, "warn")) {
+                        out->strictness.dirty_dispatch = JC_DIRTYDISPATCH_WARN;
+                    } else if (jc_ci_eq(dm, "refuse")) {
+                        out->strictness.dirty_dispatch = JC_DIRTYDISPATCH_REFUSE;
+                    } else {
+                        /* M1006-a: the typo must be LOUD, not just keep the
+                         * fence. The M519 fall-through stands (a typo does not
+                         * tighten or loosen the guard -- `warn` stays in
+                         * effect), but a present-but-unrecognised value is an
+                         * operator mistake nobody can see until a dirty
+                         * dispatch is refused or never refused. Name it at
+                         * load, in the tree's unknown-value idiom (the
+                         * continueCutReply / kineticCommands `unknown; using`
+                         * notices). `jichi doctor` prints the effective mode
+                         * from the config file, so the operator checks the
+                         * drive by effect. */
+                        jc_logf(JC_LOG_WARN,
+                                "config: strictness.dirtyDispatch \"%s\" is "
+                                "unknown (expect \"off\", \"warn\" or "
+                                "\"refuse\"); \"warn\" is in effect", dm);
+                    }
+                }
+            }
+        }
+        /* M-L2: the dead-stream fence lives in the same "timeouts" block but is
+         * NOT a -1-unset precedence tier -- it has a real default (900) and stays
+         * on. Absent key => keep the 900 set at init; a present value wins. */
+        {
+            const cJSON *to = jc_json_get_obj(root, "timeouts");
+            double ds = jc_json_get_num(to, "deadStream", -1.0);
+            if (ds >= 0.0) {   /* key present (absent => keep the 900 default) */
+                out->dead_stream_secs = clamp_timeout(ds);
+                if (out->dead_stream_secs < 0) {
+                    out->dead_stream_secs = 0;   /* explicit off */
+                }
+            }
+        }
+        /* M813 (P4b): the disk-fence floors. Absent => keep the defaults. */
+        {
+            double fm = jc_json_get_num(root, "diskFloorMb", -1.0);
+            double ff = jc_json_get_num(root, "diskFloorFiles", -1.0);
+            if (fm >= 0.0) {
+                out->disk_floor_mb = fm;
+            }
+            if (ff >= 0.0) {
+                out->disk_floor_files = ff;
+            }
+        }
     }
 
+    /* M851: an untrusted project file's narrowing keys, applied now that the
+     * user's own values (and the machine-aware defaults) are parsed -- each
+     * only where it is stricter; the rest are listed as ignored. */
+    if (trust_narrow != NULL) {
+        jc_cfgtrust_apply_narrowing(out, trust_narrow, &out->project_ignored,
+                                    a);
+        cJSON_Delete(trust_narrow);
+        trust_narrow = NULL;
+    }
     cJSON_Delete(root);
     jc_config_set_active(out, 0);
     /* Lite CAPS the context budget at 16384 and that is deliberate:
@@ -1724,6 +2135,7 @@ jc_status jc_config_load_json(const char *json_text, int low_resource,
 void jc_config_free(struct jc_config *c)
 {
     jc_size i;
+    jc_vec_free(&c->project_ignored);   /* M851: the strings are on the arena */
     for (i = 0; i < c->mcp_servers.len; i++) {
         struct jc_mcp_server_cfg *s =
             (struct jc_mcp_server_cfg *)jc_vec_at(&c->mcp_servers, i);
@@ -1749,6 +2161,7 @@ void jc_config_free(struct jc_config *c)
     }
     jc_vec_free(&c->user_tools);
     jc_vec_free(&c->docs); /* entries are arena strings; just free the vec (M34a) */
+    jc_vec_free(&c->shell_fence_allow); /* arena strings; free the vec only (M831) */
     {
         int hi;
         for (hi = 0; hi < JC_HOOK_EVENT_COUNT; hi++) {
@@ -1778,8 +2191,10 @@ void jc_config_free(struct jc_config *c)
     jc_vec_free(&c->instructions);
     jc_vec_free(&c->edit_scope);
     jc_vec_free(&c->ignore_dirs);
+    jc_vec_free(&c->parallel_metric_pins);   /* M875 */
     jc_vec_free(&c->design_docs);
     jc_vec_free(&c->reference_roots);
+    jc_vec_free(&c->secret_env);        /* M1043-a: arena strings; free the vec */
     jc_vec_free(&c->models);
 }
 

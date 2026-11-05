@@ -8,26 +8,11 @@ places. This is the one map. Every cell names a shipped mechanism, its
 document, and a runnable entry point; nothing here is planned or
 speculative.
 
-```mermaid
-flowchart TB
-    subgraph LEARN["learning"]
-        HL["human learns, agent tutors\n(the curriculum)"]
-        AL["agent learns, mechanics referee\n(attempt / improve)"]
-        AT["agent teaches agent\n(mentor loop / authored specs)"]
-    end
-    subgraph WORK["working"]
-        HW["human drives, agent works\n(TUI / headless / editors)"]
-        AW["agent assists human mid-task\n(ask_user / approvals / board)"]
-        AA["agent delegates to agents\n(subagents / parallel / workflow)"]
-    end
-    subgraph SUPER["supervising"]
-        HS["human supervises fleets\n(journals / runs / control socket)"]
-        AS["agent supervises agents\n(supervisor layer 3 / jsonl contract)"]
-    end
-    HL --- HW
-    AL --- AA
-    AT --- AS
-```
+| | Human ↔ agent | Agent ↔ agent |
+|---|---|---|
+| **Learning** | human learns, agent tutors (the curriculum) | agent learns, mechanics referee (`attempt` / `improve`); agent teaches agent (mentor loop / authored specs) |
+| **Working** | human drives, agent works (TUI / headless / editors); agent assists mid-task (`ask_user` / approvals / board) | agent delegates to agents (subagents / parallel / workflow) |
+| **Supervising** | human supervises fleets (journals / runs / control socket) | agent supervises agents (supervisor layer 3 / jsonl contract) |
 
 ## Learning
 
@@ -105,7 +90,10 @@ both parties read and mutate.
 ([OBSERVABILITY.md](OBSERVABILITY.md)), the mid-run control socket
 (`jichi control <sock> inject|pause|abort`, [CONTROL.md](CONTROL.md)),
 `doctor --unattended` for loop gates, and
-[AUTONOMOUS_LOOPS.md](AUTONOMOUS_LOOPS.md) for the standing-loop patterns.
+[AUTONOMOUS_LOOPS.md](AUTONOMOUS_LOOPS.md) for the standing-loop patterns. The
+file half of this stance, a queue several agents share, is written down as a
+protocol in [QUEUE_PROTOCOL.md](QUEUE_PROTOCOL.md), with the experiment that will
+measure it (M765).
 
 **Agent supervises agents** ([SUPERVISOR_OF_MANY.md](SUPERVISOR_OF_MANY.md),
 layer 3): a jichi agent dispatches workers by running

@@ -25,7 +25,7 @@
 # It bans a specific, checked list of flags -- not "all non-POSIX usage".
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 28
+t_plan 31
 tmp=$(smoke_tmp)
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 
@@ -190,6 +190,23 @@ else
 jichi's ignored SIGPIPE and a piped producer will hang instead of exiting"
 fi
 
+# ---- 6a (M834): nothing includes <sys/select.h> directly but jc_select.h --------
+# DJGPP has no <sys/select.h> (select() is in <time.h>, fd_set in <sys/types.h>, the
+# placement before POSIX 2001); the DJGPP step 0 found ten files failing on it.
+# include/jc_select.h includes it only where the Makefile's HAVE_SYS_SELECT_H says it
+# exists, so a new direct include would bring the gap back on that row alone, where
+# no gate runs. The universe is the product's own sources and the unit tests --
+# tests/tools/ are host-only helpers that are never cross-built.
+_sel=$(grep -ln '^[[:space:]]*#[[:space:]]*include[[:space:]]*<sys/select\.h>' \
+       "$ROOT"/src/*.c "$ROOT"/src/*/*.c "$ROOT"/include/*.h "$ROOT"/tests/*.c 2>/dev/null \
+       | grep -v '/include/jc_select\.h$')
+if [ -z "$_sel" ]; then
+    t_ok "<sys/select.h> is included only through include/jc_select.h"
+else
+    t_fail "direct <sys/select.h> include(s) -- DJGPP has no such header; include \"jc_select.h\":
+$(printf '%s\n' "$_sel" | sed "s#^$ROOT/##")"
+fi
+
 # ---- 6b (M472): nothing calls pipe() directly except the wrapper ------------
 # Same shape as the popen rule below, and for a neighbouring reason: a bare pipe()
 # hands both ends to every child jichi execs, and one of those children is
@@ -223,6 +240,43 @@ else
 jichi's sinks and sockets; see docs/analysis/2026-08-17-source-hardening-audit.md"
 fi
 
+# ---- 6d (M835): every socket-header include sits under #ifndef JC_NO_SOCKETS --
+# DJGPP has no <sys/socket.h>, <sys/un.h>, <netinet/in.h> or <arpa/inet.h>, and the
+# Makefile defines JC_NO_SOCKETS there. `fallbacks-compile` builds the guarded files
+# with the flag, but on a system WITH the headers an UNGUARDED include still
+# compiles -- so only this check can see one. The awk keeps a stack of open
+# conditionals and counts an include as guarded when any enclosing branch is the
+# true branch of `#ifndef JC_NO_SOCKETS`. Same universe as 6a. FLOORED at today's
+# exact count of guarded includes (9, in jc_http.c, jc_control.c, main.c and
+# test_http.c): an awk that matches nothing would otherwise report "no bare
+# includes" over an empty set.
+_sk=$(awk '
+    FNR == 1 { depth = 0 }
+    /^[ \t]*#[ \t]*if/ {
+        depth++
+        g[depth] = ($0 ~ /^[ \t]*#[ \t]*ifndef[ \t]+JC_NO_SOCKETS([ \t]|$)/) ? 1 : 0
+        next
+    }
+    /^[ \t]*#[ \t]*el(se|if)/ { g[depth] = 0; next }
+    /^[ \t]*#[ \t]*endif/ { if (depth > 0) depth--; next }
+    /^[ \t]*#[ \t]*include[ \t]*<(sys\/socket|sys\/un|netinet\/[a-z_]+|arpa\/inet|netdb)\.h>/ {
+        ok = 0
+        for (i = 1; i <= depth; i++) if (g[i]) ok = 1
+        n = FILENAME; sub(/.*\//, "", n)
+        print (ok ? "guarded " : "BARE ") n ":" FNR
+    }' "$ROOT"/src/*.c "$ROOT"/src/*/*.c "$ROOT"/include/*.h "$ROOT"/tests/*.c </dev/null 2>/dev/null)
+_skg=$(printf '%s\n' "$_sk" | grep -c '^guarded ')
+_skb=$(printf '%s\n' "$_sk" | grep '^BARE ')
+if [ -z "$_skb" ] && [ "$_skg" -ge 9 ]; then
+    t_ok "socket headers only under #ifndef JC_NO_SOCKETS ($_skg guarded, in: $(printf '%s\n' "$_sk" | sed 's/^guarded //; s/:.*//' | sort -u | tr '\n' ' ' | sed 's/ $//'))"
+elif [ -n "$_skb" ]; then
+    t_fail "socket header(s) included outside #ifndef JC_NO_SOCKETS -- DJGPP has none of them:
+$_skb"
+else
+    t_fail "only $_skg guarded socket include(s) found, floor 9 -- the extraction broke, or the guards moved:
+$_sk"
+fi
+
 # ---- 7: nothing calls popen() directly except the wrapper -------------------
 # A popen'd child cannot fix this itself: POSIX forbids a non-interactive shell
 # from trapping or resetting a signal ignored on entry, so `trap - PIPE` in the
@@ -235,6 +289,22 @@ if [ "$_p" -eq 0 ]; then
 else
     t_fail "$_p direct popen() call(s) outside jc_proc.c:
 $(grep -rn "[^_a-zA-Z]popen(" "$ROOT/src" 2>/dev/null | grep -v "jc_proc.c:" | head -n 5)"
+fi
+
+# ---- 7b (M832): and nothing closes such a stream with libc pclose() ----------
+# jc_proc_popen no longer wraps libc popen -- its FILE* is fdopen'd over a
+# jc_spawn'd child -- so pclose(3) on it is UNDEFINED BEHAVIOUR, not merely the
+# wrong count: libc would search its own popen chain, find nothing, and the
+# child would leak as a zombie besides. The pair is jc_proc_popen/jc_proc_pclose,
+# and this check keeps a future caller from reaching for the libc half from
+# muscle memory. Same exclusion shape as check 7.
+_pc=$(grep -rn "[^_a-zA-Z]pclose(" "$ROOT/src" 2>/dev/null \
+      | grep -v "jc_proc.c:" | grep -v "jc_proc_pclose" | wc -l | tr -d '[:space:]')
+if [ "$_pc" -eq 0 ]; then
+    t_ok "pclose() is called only through jc_proc_pclose"
+else
+    t_fail "$_pc libc pclose() call(s) on a jc_proc_popen stream (undefined behaviour -- use jc_proc_pclose):
+$(grep -rn "[^_a-zA-Z]pclose(" "$ROOT/src" 2>/dev/null | grep -v "jc_proc.c:" | grep -v "jc_proc_pclose" | head -n 5)"
 fi
 
 # ---- 7c: a directory is made private only through jc_mkdir_p_private -------

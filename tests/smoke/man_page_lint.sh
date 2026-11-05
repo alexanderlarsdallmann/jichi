@@ -44,7 +44,7 @@
 # hide, so the floor is simply "all of them".
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 7
+t_plan 8
 smoke_home
 tmp=$(smoke_tmp)
 G=/usr/bin/grep
@@ -65,6 +65,12 @@ sed -n '/^Commands:/,/^Exit codes/p' "$tmp/help.txt" \
     | "$G" -oE '^  [a-z][a-z-]*' | sed 's/^  //' | sort -u > "$tmp/help.c"
 awk '/^\.SH COMMANDS/,/^\.SH INTERACTIVE/' "$tmp/man.txt" \
     | "$G" -oE '^\.B [a-z][a-z-]*' | sed 's/^\.B //' | sort -u > "$tmp/man.c"
+# The project env vars the code reads (JICHI_* / JC_*), from EVERY translation
+# unit: the seven the man page was missing are read from the TUI, the config
+# loader, the platform layer and spawn, not from main.c.
+"$G" -rho 'getenv("[A-Z][A-Z0-9_]*")' "$SMOKE_ROOT/src" \
+    | sed 's/getenv("//; s/")//' | sort -u \
+    | "$G" -E '^(JICHI_|JC_)' > "$tmp/env.code"
 
 # ---- 1: the extractions found something (the floor) -----------------------
 # Every check below is a set difference, and a set difference against an EMPTY set
@@ -198,6 +204,31 @@ if [ -z "$warn" ] && [ "$th" = "1" ]; then
     fi
 else
     t_fail "roff warnings ($_renderer): ${warn:-none}; dated .TH found: $th (want 1)"
+fi
+
+# ---- 8: every project env var the code reads is in the man page ------------
+# The code reads nine JICHI_*/JC_* variables (measured 2026-10-07); the man
+# page named five of them. The seven that were missing were read from the TUI
+# (JICHI_LANG), the config loader (JC_PROVIDER), the platform layer
+# (JICHI_SHELL), the spawn layer (JICHI_SPAWN_BACKEND) and the daemon
+# (JICHI_DAEMON_SOCK, JICHI_DUMP_REQUESTS, JC_CONTROL_CLIENT_SECS) -- none
+# from main.c, which is why the flag extraction above never caught them. A
+# supervisor reading only this page would not know the knobs exist.
+nenv=$("$G" -c . "$tmp/env.code")
+# de-roff the ENVIRONMENT section once and tokenize it with tr -c (the
+# portable word boundary; \b is a GNU extension the M466 family refuses),
+# so a var is "present" only as a whole token, never as a substring.
+awk '/^\.SH ENVIRONMENT/,/^\.SH EXIT STATUS/' "$tmp/man.txt" \
+    | tr -c '0-9A-Z_' '\n' | sort -u > "$tmp/env.man"
+envmiss=""
+for v in $(cat "$tmp/env.code"); do
+    "$G" -qxF "$v" "$tmp/env.man" || envmiss="$envmiss $v"
+done
+if [ -z "$envmiss" ] && [ "$nenv" -ge 9 ]; then
+    t_ok "all $nenv project env vars the code reads are in the man page (floor 9)"
+else
+    t_fail "project env vars the code reads and the man page does not document: \
+${envmiss:- (none) }-- and only $nenv were extracted (floor 9)"
 fi
 
 t_done

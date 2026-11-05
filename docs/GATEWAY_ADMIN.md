@@ -5,9 +5,8 @@ command to verify it. Written from measurements against one liteLLM deployment, 
 requirements are vendor-neutral: they apply to liteLLM, LiteLLM-compatible gateways, vLLM
 behind a router, or a hand-rolled proxy.*
 
-*The findings were reported to that gateway's operators privately and **that report is not
-published** — it describes another organisation's configuration. This page is the part that
-generalises, and
+*The report on those findings is **not published** — it describes another
+organisation's configuration. This page is the part that generalises, and
 [analysis/2026-08-09-hrz-gateway-findings.md](analysis/2026-08-09-hrz-gateway-findings.md)
 keeps what the same measurements taught **jichi**, in full.*
 

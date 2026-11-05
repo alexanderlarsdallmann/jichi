@@ -10,6 +10,7 @@
 #include "jc_session.h"
 #include "jc_message.h"
 #include "jc_json.h"
+#include "jc_log.h"
 #include "jc_path.h"
 #include "jc_snprintf.h"
 #include "jc_app.h"
@@ -716,7 +717,8 @@ int jc_learn_rules_correct(const char *text, const char *match,
 
 /* M601: apply one correction to the rules file's learned conventions. Returns
  * the number of bullets removed/added there (0 when nothing matched or the file
- * or section is absent). Effectful shell around jc_learn_rules_correct. */
+ * or section is absent). On guard refusal, returns -1 to signal denial to caller.
+ * Effectful shell around jc_learn_rules_correct. */
 static int learn_rules_apply_correction(struct jc_app *app, const char *match,
                                         const char *replacement)
 {
@@ -724,8 +726,20 @@ static int learn_rules_apply_correction(struct jc_app *app, const char *match,
     char *existing = NULL;
     struct jc_sb out;
     int n;
+    jc_status st;
 
     learn_rules_path(app, path, sizeof(path));
+    /* D-15: check that the rules file (AGENTS.md or CLAUDE.md, M533) is safe
+     * before reading/writing. The target was never .jichi/rules.md (M1102). */
+    st = jc_state_file_check(app->root, path);
+    if (st != JC_OK) {
+        if (st == JC_ERR_DENIED) {
+            jc_logf(JC_LOG_WARN, "learn: %s directory is a symlink", path);
+        } else {
+            jc_logf(JC_LOG_WARN, "learn: %s is a symlink or non-regular file", path);
+        }
+        return -1;  /* signal denial to caller */
+    }
     if (!jc_file_exists(path) ||
         jc_read_file(path, &existing, NULL, jc_app_tool_scratch(app)) != JC_OK ||
         existing == NULL) {
@@ -734,8 +748,18 @@ static int learn_rules_apply_correction(struct jc_app *app, const char *match,
     jc_sb_init(&out);
     n = jc_learn_rules_correct(existing, match, replacement, &out);
     if (n > 0) {
-        if (jc_write_file(path, out.data != NULL ? out.data : "", out.len)
-                != JC_OK) {
+        /* Check again before write, as the state could have changed. */
+        st = jc_state_file_check(app->root, path);
+        if (st != JC_OK) {
+            if (st == JC_ERR_DENIED) {
+                jc_logf(JC_LOG_WARN, "learn: %s directory is a symlink for write", path);
+            } else {
+                jc_logf(JC_LOG_WARN, "learn: %s is a symlink or non-regular file for write", path);
+            }
+            return -1;
+        } else if (jc_write_file_preserve_link(path,
+                                               out.data != NULL ? out.data : "",
+                                               out.len) != JC_OK) {
             n = 0;
         }
     }
@@ -752,14 +776,42 @@ static int learn_apply_rules(struct jc_app *app, struct jc_vec *rules)
     struct jc_sb full;
     jc_size i;
     int added = 0;
+    jc_status st;
 
     if (rules->len == 0) {
         return 0;
     }
     learn_rules_path(app, path, sizeof(path));
-    have_existing = (jc_read_file(path, &existing, NULL,
-                                  jc_app_tool_scratch(app)) == JC_OK &&
-                     existing != NULL);
+    /* D-15: check that the rules file (AGENTS.md or CLAUDE.md, M533) is safe
+     * before reading/writing. The target was never .jichi/rules.md (M1102). */
+    st = jc_state_file_check(app->root, path);
+    if (st != JC_OK) {
+        if (st == JC_ERR_DENIED) {
+            jc_logf(JC_LOG_WARN, "learn: %s directory is a symlink for rules read", path);
+        } else {
+            jc_logf(JC_LOG_WARN, "learn: %s is a symlink or non-regular file for rules read", path);
+        }
+        return -1;  /* signal denial to caller */
+    }
+    /* D-16/M1100: the same tri-state as jc_memory_add -- a GENUINE
+     * does-not-exist is fine (the file gets a fresh header), but a
+     * PRESENT-but-unreadable rules file is refused, never replaced (the
+     * M533 board rule). The old line collapsed every read error to
+     * have_existing=0 and then wrote a fresh "# Project rules" file over it. */
+    st = jc_read_existing(path, &existing, NULL,
+                          jc_app_tool_scratch(app));
+    if (st == JC_ERR_NOTFOUND) {
+        existing = NULL; /* genuinely absent: the file gets a fresh header */
+    } else if (st != JC_OK) {
+        /* Present but unreadable (JC_ERR_TOOBIG over the 64 MiB cap,
+         * JC_ERR_IO, JC_ERR_OOM): the M533 board rule -- refuse, never
+         * overwrite a file jichi could not read. */
+        jc_logf(JC_LOG_WARN, "learn: %s is present but could not be read "
+                "(e.g. over the 64 MiB read cap) -- refusing to overwrite "
+                "a file jichi could not read (M533 rule; D-16)", path);
+        return -1;  /* signal refusal to caller */
+    }
+    have_existing = (existing != NULL);
     jc_sb_init(&add);
     for (i = 0; i < rules->len; i++) {
         const char *rule = *(char **)jc_vec_at(rules, i);
@@ -788,8 +840,17 @@ static int learn_apply_rules(struct jc_app *app, struct jc_vec *rules)
         jc_sb_append(&full, "\n## Learned conventions\n\n");
     }
     jc_sb_append(&full, add.data != NULL ? add.data : "");
-    if (jc_write_file(path, full.data != NULL ? full.data : "", full.len)
-            != JC_OK) {
+    /* D-15: check again before write, as the state could have changed. */
+    st = jc_state_file_check(app->root, path);
+    if (st != JC_OK) {
+        if (st == JC_ERR_DENIED) {
+            jc_logf(JC_LOG_WARN, "learn: %s directory is a symlink for rules write", path);
+        } else {
+            jc_logf(JC_LOG_WARN, "learn: %s is a symlink or non-regular file for rules write", path);
+        }
+        return -1;
+    } else if (jc_write_file_preserve_link(path, full.data != NULL ? full.data : "",
+                                           full.len) != JC_OK) {
         added = 0;
     }
     jc_sb_free(&full);
@@ -830,7 +891,20 @@ jc_status jc_learn_apply(struct jc_app *app, unsigned sections, int force,
      * /learn apply for the life of the process, and the draft text plus every
      * parsed string is consumed before this function returns (the arena rules in
      * CLAUDE.md -- the M197/M198/M199 bug class). */
+    /* D-15: check that .jichi/lessons.draft.md is safe before reading. */
     scratch = jc_app_scratch(app);
+    {
+        jc_status st_check;
+        st_check = jc_state_file_check(app->root, draft);
+        if (st_check != JC_OK) {
+            if (st_check == JC_ERR_DENIED) {
+                jc_logf(JC_LOG_WARN, "learn: .jichi/lessons.draft.md directory is a symlink");
+            } else {
+                jc_logf(JC_LOG_WARN, "learn: .jichi/lessons.draft.md is a symlink or non-regular file");
+            }
+            return JC_ERR_DENIED;
+        }
+    }
     if (jc_read_file(draft, &text, NULL, scratch) != JC_OK || text == NULL) {
         return JC_ERR_NOTFOUND;
     }
@@ -863,12 +937,27 @@ jc_status jc_learn_apply(struct jc_app *app, unsigned sections, int force,
             char dir[1200];
             char path[1320];
             struct jc_sb sb;
+            jc_status st_skill;
             learn_slug(sk->name, slug, sizeof(slug));
             if (slug[0] == '\0') {
                 continue;
             }
             jc_snprintf(dir, sizeof(dir), "%s/.jichi/skills/%s", app->cwd, slug);
             jc_snprintf(path, sizeof(path), "%s/SKILL.md", dir);
+            /* D-15: check that .jichi/skills/<name>/SKILL.md is safe before writing. */
+            st_skill = jc_state_file_check(app->root, path);
+            if (st_skill != JC_OK) {
+                if (st_skill == JC_ERR_DENIED) {
+                    jc_logf(JC_LOG_WARN, "learn: .jichi/skills/%s/SKILL.md directory is a symlink", slug);
+                } else {
+                    jc_logf(JC_LOG_WARN, "learn: .jichi/skills/%s/SKILL.md is a symlink or non-regular file", slug);
+                }
+                st->skills_skipped++;
+                if (detail != NULL) {
+                    jc_sb_append_fmt(detail, "  skill '%s' path denied or symlink; skipping\n", slug);
+                }
+                continue;
+            }
             if (!force && jc_file_exists(path)) {
                 st->skills_skipped++;
                 if (detail != NULL) {
@@ -930,6 +1019,12 @@ jc_status jc_learn_apply(struct jc_app *app, unsigned sections, int force,
                 }
             } else if (rchanged > 0) {
                 /* Matched a convention and no memory note: not "unmatched". */
+            } else if (rchanged == -1) {
+                /* Guard refusal: path denied or symlink. Do not count as unmatched. */
+                if (detail != NULL) {
+                    jc_sb_append_fmt(detail, "  correction skipped: .jichi/rules.md "
+                                     "denied or symlink\n");
+                }
             } else {
                 st->corrections_unmatched++;
                 if (detail != NULL) {
@@ -976,6 +1071,20 @@ jc_status jc_learn_apply(struct jc_app *app, unsigned sections, int force,
             /* M533: name the file actually written -- it may be CLAUDE.md. */
             jc_sb_append_fmt(detail, "  wrote %d project rule(s) to the rules file\n",
                              st->rules_added);
+        } else if (st->rules_added == -1) {
+            /* Refusal: path denied or symlink (D-15), or a present but
+             * unreadable rules file (D-16/M1100: never overwrite what could
+             * not be read -- the M533 rule). Name the file actually targeted
+             * -- AGENTS.md or CLAUDE.md (M533: write where the reader reads),
+             * not the .jichi/rules.md that was never the target (M1102). */
+            char rpath[1200];
+            learn_rules_path(app, rpath, sizeof(rpath));
+            if (detail != NULL) {
+                jc_sb_append_fmt(detail, "  rules skipped: %s denied, "
+                                 "symlink, or unreadable\n", rpath);
+            }
+            /* Reset to 0 for the success-check below (st->rules_added == 0). */
+            st->rules_added = 0;
         }
     }
 

@@ -42,7 +42,7 @@ flowchart LR
     P -->|"spawn + read jsonl events"| H1["jichi -p ... --output jsonl<br/>(autonomous task, envelope-bounded)"]
     P -->|"tail (append-only JSONL)"| T[("~/.jichi.d/telemetry/*.jsonl<br/>~/.jichi.d/runs/*.jsonl")]
     P -->|"exec, parse exit + JSON"| D["jichi doctor --output json"]
-    P -->|"read-only, torn-read tolerant"| S[("~/.continue/sessions/*.json")]
+    P -->|"read-only, torn-read tolerant"| S[("~/.jichi.d/sessions/*.json")]
     A1 --> W1[(workspace A)]
     A2 --> W2[(workspace B)]
     H1 --> W2
@@ -133,10 +133,12 @@ The pieces, each for a verified reason:
 - **`2>>log`, never `:stderr_to_stdout`** — jichi's diagnostics go to stderr;
   merging them into stdout would corrupt the JSON-RPC framing. The per-session
   stderr log is also your crash forensics.
-- **`setsid`** — jichi traps only SIGINT in this path (SIGTERM is untrapped and
-  would leak background children and parallel worktrees). A process *group*
-  lets the supervisor sweep everything with one `kill -- -PGID` at the end of
-  the termination ladder.
+- **`setsid`** — a process *group* lets the supervisor signal jichi and what it
+  starts with one `kill -- -PGID` at the end of the termination ladder. (This
+  said SIGTERM was untrapped; since M146 jichi traps it. Checked 2026-09-29: over
+  ACP neither SIGINT nor SIGTERM ends the server on the first signal, and a shell
+  command with a time limit or memory budget, or a background job, leads a group
+  of its own, which the sweep does not reach.)
 - **Cancel is in-band first**: the `session/cancel` notification is polled
   mid-turn (even while jichi blocks in a permission round-trip), and — verified
   in `src/acp/jc_acp.c` (`acp_poll_cancel`) — **a client-closed stdin
@@ -188,12 +190,12 @@ sequenceDiagram
     S->>J: session/prompt {prompt:[{type:"text",...}]}
     J-->>S: session/update agent_message_chunk (streamed)
     S-->>B: PubSub -> LiveView stream append
+    J-->>S: session/update tool_call {toolCallId, title, kind, rawInput, status:"in_progress"}
     J->>S: session/request_permission {toolCall, options} (blocks)
     S-->>B: {:permission_request, id, tool_call, options}
     Note over B: modal - Allow / Always / Reject
     B->>S: {:permission_reply, id, "allow_once"}
     S->>J: JSON-RPC result {outcome:{outcome:"selected",optionId:"allow_once"}}
-    J-->>S: session/update tool_call {toolCallId, title, kind, rawInput}
     J-->>S: session/update tool_call_update {status:"completed", content}
     S-->>B: tool card updates in place (keyed by toolCallId)
     J->>S: response {stopReason:"end_turn"}
@@ -285,7 +287,13 @@ therefore *supervisor invariants*, not suggestions:
    → `SIGKILL` to the **process group** as the orphan sweep. (This document
    originally said "never SIGTERM" — M146 made it graceful, so standard
    supervisor kills now work; the pgroup SIGKILL rung remains the backstop.)
-6. **Torn-read discipline**: direct reads of `~/.continue/sessions/*.json`
+   *Checked 2026-09-29, against an ACP server:* the SIGINT and SIGTERM rungs do
+   not end it on the first signal (a second SIGTERM kills it by the signal, not
+   with exit 143), and the sweep reaches the shell commands that share jichi's
+   group but not those with a time limit or memory budget, or background jobs,
+   which lead their own; the supervisor must record and kill those itself.
+6. **Torn-read discipline**: direct reads of `~/.jichi.d/sessions/*.json` (the
+   store moved there from `~/.continue/sessions` at M204)
    must tolerate a mid-write file (retry on parse failure); the supervisor
    never writes those files. (Since **M146** session saves are atomic
    temp+rename, so torn reads no longer occur from jichi's own writes; keep

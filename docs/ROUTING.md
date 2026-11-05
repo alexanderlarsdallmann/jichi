@@ -100,7 +100,8 @@ Two guards keep it from firing pointlessly:
   obsoleted — see [COMPACTION.md](COMPACTION.md).)
 
 Set it as a percentage (`"escalateOnContext": 60`), or as a bool for convenience:
-`false` disables, `true` picks the default. The estimate it compares is the
+`false` disables, `true` picks the default -- in any spelling a person writes (`"false"`,
+`"off"`, `"on"`; before M843 a `"false"` was read as a percentage and switched it on). The estimate it compares is the
 calibrated one (M286), the same quantity the compaction trigger evaluates, so 75%
 really does come before 80%.
 

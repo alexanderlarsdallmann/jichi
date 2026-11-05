@@ -1,6 +1,6 @@
 <!-- tracks: ../../PROJECT_TIMELINE.md @ 34a65b7 -->
-<!-- figures-behind: 0 (that many numbers of three digits or more appear here and not
-     in the English page). It was 7, rose to 25 when M646 re-counted the English page,
+<!-- figures-behind: 8 (that many (re-counted at M1038; the table mirror carried the new English figures across, 12 -> 8)
+     numbers of three digits or more appear here and not in the English page). It was 7, rose to 25 when M646 re-counted the English page,
      and is 0 at M651. What changed the answer was noticing WHICH HALF of the debt was
      translation and which was arithmetic -- the distinction the previous version of
      this note drew correctly and then did not act on.
@@ -19,6 +19,37 @@
        - the LANGUAGE/TARGET row said the dependencies are "libcurl + cJSON". That is
          wrong in the same direction as the row deleted below: `src/json/cJSON.c` is
          this project's original code (M171), not a dependency. Corrected here.
+
+     CARRIED ACROSS A FOURTH TIME AT M750 (2026-09-25), same rule, and forced this
+     time: docs_counts_lint check 12 fired on the English page at 41 milestones of
+     drift. Substituted here: the whole summary table (span, commits, milestones,
+     source, tests with its breakdown, documentation), the total authored line, all
+     eighteen subsystem pie slices (fifteen moved), the proportion table with its
+     SHARES and BARS redrawn (41/31/28 -> 42/30/28, one block per 1.6 points), the
+     ratio sentence (1 : 0.94 : 1.41) and the commit count in the AI-hours paragraph.
+     The fuzz-target count also moves 22 -> 23, which English has said since M725.
+
+     CARRIED ACROSS A SIXTH TIME AT M865 (2026-10-02), same rule, forced again,
+     this time by check 13: the English page's smoke-driver count was 26 behind
+     the tree (398 against 372; the bound is 25). The same places as at M832: the
+     summary table, the total, every pie slice (fifteen of eighteen moved), the
+     proportion table with its BARS redrawn (the shares stay 43/29/28), the ratio
+     (1 : 0.96 : 1.48) and the commit count. STILL OWED, as at M832: section 7's
+     effort table (~5 weeks, 19 active days), the September commit bars, and the
+     English page's recount notes and delta columns, all prose or older than these
+     carries.
+
+     CARRIED ACROSS A FIFTH TIME AT M832 (2026-09-28), same rule, forced again:
+     check 12 fired at 41 milestones when M832's own ROADMAP entry landed. The same
+     places as at M750: the summary table, the total, every pie slice that moved
+     (twelve of eighteen), the proportion table with its SHARES and BARS redrawn
+     (42/30/28 -> 43/29/28), the ratio (1 : 0.94 : 1.47) and the commit count. The
+     smoke-driver figure goes 331 -> 372 here as a MEASURED count; the English page
+     had carried 372 in its M750 column by incrementing, which M832 corrected.
+     STILL OWED, all prose or older than these carries: section 7's effort table here
+     still reads ~5 weeks and 19 active days, as it has since before M579, and English
+     gained a recount note, a fourth delta column and three corrected sentences about
+     the September commit bars.
 
      CARRIED ACROSS A THIRD TIME AT v0.10.0, same rule: the English page was
      re-counted at the release and the summary table moved with it. Note what
@@ -95,18 +126,18 @@
 
 | 指標 | 値 |
 |---|---|
-| カレンダー期間 | 2026-06-18 → 2026-09-22（**97日**、**うち59日稼働**） |
-| コミット | **1,303** |
-| マイルストーン | **M1 – M709**（`docs/ROADMAP.md` に701件を記録） |
-| 自作ソース（`src` + `include`） | **約110,600行**（326個の `.c`/`.h` ファイル） |
-| テスト | **約100,000行**（ユニット130ファイル + smoke ドライバ317 + e2e 9モジュール + fuzz ターゲット22）、**13,470ユニットチェック**、smoke **1,854チェック** |
-| ドキュメント | **約149,300行**、513個の英語markdownページ（設計提案45件）。翻訳分は含めず、別途**約8,000行**。 |
+| カレンダー期間 | 2026-06-18 → 2026-11-04（**139日**、**うち101日稼働**） |
+| コミット | **3,194** |
+| マイルストーン | **M1 – M1129**（`docs/ROADMAP.md` に1,106件を記録、all-`###` は1,115 -- ピン注記を参照） |
+| 自作ソース（`src` + `include`） | **約153,500行**（367個の `.c`/`.h` ファイル） |
+| テスト | **約162,000行**（ユニット143ファイル + smoke ドライバ538 + e2e 10モジュール + fuzz ターゲット24）、**15,343ユニットチェック**、smoke **2,651チェック** |
+| ドキュメント | **約225,300行**、673個の英語markdownページ（設計提案50件）。翻訳分は含めず、別途**約8,300行**。 |
 | サブシステム | **20**（`src/*`） |
 | 言語 / ターゲット | C89 / ANSI C、Linux-POSIX。依存は **libcurl のみ**（`src/json/cJSON.c` は本プロジェクトのオリジナルコードであり、第三者ソースではない——M171） |
 | 品質ゲート | `-Wall -Wextra -Werror`（gcc + clang）、ASan/UBSan、valgrind、fuzz、smoke、e2e |
 
-**自作**行数の合計（コード + テスト + 英語ドキュメント）：**約359,900**、
-これに加えて `docs/i18n/` の翻訳**約8,200行**。両者は重複しない。
+**自作**行数の合計（コード + テスト + 英語ドキュメント）：**約541,000**、
+これに加えて `docs/i18n/` の翻訳**約8,300行**。両者は重複しない。
 
 ---
 
@@ -215,35 +246,35 @@ xychart-beta
 %%{init: {'theme':'base','themeVariables':{'pie1':'#0d47a1','pie2':'#1b5e20','pie3':'#b71c1c','pie4':'#4a148c','pie5':'#e65100','pie6':'#006064','pie7':'#880e4f','pie8':'#311b92','pie9':'#33691e','pie10':'#bf360c','pie11':'#004d40','pie12':'#1a237e','pie13':'#3e2723','pie14':'#263238','pie15':'#4e342e','pie16':'#01579b','pie17':'#37474f','pieStrokeColor':'#ffffff','pieStrokeWidth':'2px','pieOuterStrokeWidth':'2px','pieSectionTextColor':'#ffffff','pieSectionTextSize':'14px','pieTitleTextColor':'#111111','pieLegendTextColor':'#111111'}}}%%
 pie showData
     title サブシステム別の自作ソース（src の .c 行数）
-    "main.c (CLIシェル)" : 16048
-    "util (ヘルパー、純粋コア)" : 16498
-    "chat (エージェント/app/エンベロープ/制御)" : 14276
-    "include (公開ヘッダ)" : 15238
-    "tools (コア17 + 条件付23)" : 9579
-    "tui (ラインエディタ + 描画)" : 6551
-    "scaffold + setup" : 7075
-    "index (RAG)" : 3082
-    "convert (インポータ)" : 2984
-    "snapshot + session" : 3117
-    "config" : 2351
-    "net" : 2455
-    "platform + json" : 2286
-    "lsp" : 2112
-    "mcp" : 2043
-    "acp" : 1696
-    "command + skill" : 1602
-    "provider" : 1471
+    "main.c (CLIシェル)" : 17793
+    "util (ヘルパー、純粋コア)" : 18848
+    "chat (エージェント/app/エンベロープ/制御)" : 17906
+    "include (公開ヘッダ)" : 17191
+    "tools (コア17 + 条件付23)" : 12612
+    "tui (ラインエディタ + 描画)" : 6877
+    "scaffold + setup" : 7113
+    "index (RAG)" : 3099
+    "convert (インポータ)" : 3078
+    "snapshot + session" : 3738
+    "config" : 3643
+    "net" : 2758
+    "platform + json" : 2574
+    "lsp" : 2107
+    "mcp" : 2024
+    "acp" : 1706
+    "command + skill" : 1605
+    "provider" : 1526
 ```
 
 自作行数を3種類の成果物に分けた内訳：
 
 | 種類 | 行数 | 割合 | |
 |------|------:|------:|--|
-| ドキュメント（英語のみ） | ~149,300 | 41% | `█████████████████████████▉` |
-| ソース（`src`+`include`） | ~110,600 | 31% | `███████████████████▋` |
-| テスト | ~100,000 | 28% | `█████████████████▊` |
+| ドキュメント（英語のみ） | ~211,500 | 45% | `████████████████████████████▏` |
+| ソース（`src`+`include`） | ~130,100 | 28% | `███████████████████▎` |
+| テスト | ~129,100 | 27% | `██████████████████▏` |
 
-**約1 : 0.90 : 1.31** のコード : テスト : ドキュメント比——C プロジェクトとしては
+**約1 : 0.99 : 1.63** のコード : テスト : ドキュメント比——C プロジェクトとしては
 異例に多いドキュメントと重いテスト量で、いずれも意図的なもの（リリース準備、そして
 教材としての成果物）。テストとドキュメントの割合は P4–P5 を通じて*増加*した：
 後半のバンド（セキュリティ、自律性、ロボティクス）はそれぞれ設計提案、運用マニュアル、
@@ -421,7 +452,7 @@ pie showData
 選ぶ、設計を承認する、レビューで誤った前提を捉える、実行を一時停止または方向転換
 する。*チーム*をスケールさせる規律——引き締まったマイルストーン、コードの前の設計
 メモ、純粋コアのテスト可能性、厳しい品質ゲート、作業単位ごとのドキュメント +
-コミット——こそが、AI を**1,264コミット**にわたってリグレッションなく正しく保った
+コミット——こそが、AI を**1,587コミット**にわたってリグレッションなく正しく保った
 ものだ。これが転用可能な教訓である：**AI 支援は、優れたチームがすでに実践している
 のと同じエンジニアリング衛生に報いる。**
 

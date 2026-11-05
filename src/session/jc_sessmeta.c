@@ -214,6 +214,16 @@ int jc_sessmeta_scan(const char *text, jc_size len, struct jc_sessmeta *out)
                     } else if (strcmp(key, "workspaceDirectory") == 0) {
                         dst = out->workspace; cap = sizeof(out->workspace);
                         flag = &out->has_workspace;
+                    } else if (strcmp(key, "relay_id") == 0) {
+                        dst = out->relay_id; cap = sizeof(out->relay_id);
+                        flag = &out->has_relay_id;
+                    } else if (strcmp(key, "prev_session") == 0) {
+                        dst = out->prev_session;
+                        cap = sizeof(out->prev_session);
+                        flag = &out->has_prev_session;
+                    } else if (strcmp(key, "notes_path") == 0) {
+                        dst = out->notes_path; cap = sizeof(out->notes_path);
+                        flag = &out->has_notes_path;
                     }
                     after = read_string(text, len, i, dst, cap);
                     if (after == 0) {
@@ -231,6 +241,21 @@ int jc_sessmeta_scan(const char *text, jc_size len, struct jc_sessmeta *out)
                     depth++;
                     hist_depth = depth; /* messages are objects at this depth */
                     i++;
+                    expect_key = 0;
+                    continue;
+                }
+                /* M954 (store v3): "leg" is a number at depth 1. Capture it in
+                 * place (no allocation); anything else falls through to the
+                 * main loop, which walks the value. */
+                if (strcmp(key, "leg") == 0) {
+                    long v;
+                    v = 0;
+                    while (i < len && text[i] >= '0' && text[i] <= '9') {
+                        v = v * 10 + (text[i] - '0');
+                        i++;
+                    }
+                    out->leg = v;
+                    out->has_leg = 1;
                     expect_key = 0;
                     continue;
                 }

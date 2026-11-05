@@ -19,31 +19,57 @@ typedef char jc_perm_enum_check[
      JC_APPROVAL_ALLOW == (int)JC_MCP_APPROVAL_ALLOW &&
      JC_APPROVAL_DENY == (int)JC_MCP_APPROVAL_DENY) ? 1 : -1];
 
+enum jc_approval jc_perm_for_tool_why(enum jc_agent_mode mode, int tool_readonly,
+                                      int in_allow, int in_deny,
+                                      enum jc_approval mcp_policy,
+                                      const char **why)
+{
+    const char *w;
+    enum jc_approval v;
+
+    /* 1. deny dominates (config deny list or an MCP deny). */
+    if (in_deny) {
+        w = "your deny list (permissions.deny) names it";
+        v = JC_APPROVAL_DENY;
+    } else if (mcp_policy == JC_APPROVAL_DENY) {
+        w = "its MCP server's policy denies it";
+        v = JC_APPROVAL_DENY;
+    /* 2. plan mode forbids mutation, even if allow-listed. */
+    } else if (mode == JC_MODE_PLAN && !tool_readonly) {
+        w = "plan mode runs no tool that changes anything";
+        v = JC_APPROVAL_DENY;
+    /* 3. explicit allow-list overrides the mode baseline. */
+    } else if (in_allow) {
+        w = "your allow list (permissions.allow) names it";
+        v = JC_APPROVAL_ALLOW;
+    /* 4. an MCP autoApprove. */
+    } else if (mcp_policy == JC_APPROVAL_ALLOW) {
+        w = "its MCP server is set to autoApprove";
+        v = JC_APPROVAL_ALLOW;
+    /* 5. mode baseline. */
+    } else if (mode == JC_MODE_AUTO) {
+        w = "auto mode runs every tool without asking";
+        v = JC_APPROVAL_ALLOW;
+    } else if (tool_readonly) {
+        w = "it only reads, and chat mode runs a tool that only reads "
+            "without asking";
+        v = JC_APPROVAL_ALLOW;
+    } else {
+        w = "chat mode asks before a tool that changes something";
+        v = JC_APPROVAL_ASK;
+    }
+    if (why != NULL) {
+        *why = w;
+    }
+    return v;
+}
+
 enum jc_approval jc_perm_for_tool(enum jc_agent_mode mode, int tool_readonly,
                                   int in_allow, int in_deny,
                                   enum jc_approval mcp_policy)
 {
-    /* 1. deny dominates (config deny list or an MCP deny). */
-    if (in_deny || mcp_policy == JC_APPROVAL_DENY) {
-        return JC_APPROVAL_DENY;
-    }
-    /* 2. plan mode forbids mutation, even if allow-listed. */
-    if (mode == JC_MODE_PLAN && !tool_readonly) {
-        return JC_APPROVAL_DENY;
-    }
-    /* 3. explicit allow-list overrides the mode baseline. */
-    if (in_allow) {
-        return JC_APPROVAL_ALLOW;
-    }
-    /* 4. an MCP autoApprove. */
-    if (mcp_policy == JC_APPROVAL_ALLOW) {
-        return JC_APPROVAL_ALLOW;
-    }
-    /* 5. mode baseline. */
-    if (mode == JC_MODE_AUTO) {
-        return JC_APPROVAL_ALLOW;
-    }
-    return tool_readonly ? JC_APPROVAL_ALLOW : JC_APPROVAL_ASK;
+    return jc_perm_for_tool_why(mode, tool_readonly, in_allow, in_deny,
+                                mcp_policy, NULL);
 }
 
 int jc_perm_mode_rank(enum jc_agent_mode mode)
@@ -62,6 +88,29 @@ int jc_perm_mode_rank(enum jc_agent_mode mode)
 int jc_perm_mode_narrows(enum jc_agent_mode from, enum jc_agent_mode to)
 {
     return jc_perm_mode_rank(to) > jc_perm_mode_rank(from) ? 1 : 0;
+}
+
+enum jc_agent_mode jc_perm_saved_mode(enum jc_agent_mode current, int pinned,
+                                      enum jc_agent_mode saved,
+                                      enum jc_saved_mode_outcome *outcome)
+{
+    enum jc_saved_mode_outcome o;
+    enum jc_agent_mode to = current;
+
+    if (saved == current) {
+        o = JC_SAVED_MODE_SAME;
+    } else if (!jc_perm_mode_narrows(current, saved)) {
+        o = JC_SAVED_MODE_KEPT_WIDER;
+    } else if (pinned) {
+        o = JC_SAVED_MODE_KEPT_PINNED;
+    } else {
+        o = JC_SAVED_MODE_NARROWED;
+        to = saved;
+    }
+    if (outcome != NULL) {
+        *outcome = o;
+    }
+    return to;
 }
 
 int jc_agent_mode_parse(const char *name, enum jc_agent_mode *out)

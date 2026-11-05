@@ -30,8 +30,8 @@
  * 2026-09-19) the third, 0.10.0 (the M709 state, 2026-09-22) the fourth,
  * 0.10.1 (the M716 state, 2026-09-23) the fifth, 0.11.0 (the M732
  * state, 2026-09-24) the sixth -- cut, and never published on its own --
- * and 0.12.0 (the M740 state, 2026-09-24) the seventh. See CHANGELOG.md's
- * honesty note.
+ * and 0.12.0 (the M740 state, 2026-09-24) the seventh, and 0.13.0 (the M1122
+ * state, 2026-11-03) the eighth. See CHANGELOG.md's honesty note.
  */
 #ifndef JC_VERSION_H
 #define JC_VERSION_H
@@ -40,7 +40,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define JC_VERSION "0.12.0"
+#define JC_VERSION "0.13.0"
 
 #ifdef __cplusplus
 }

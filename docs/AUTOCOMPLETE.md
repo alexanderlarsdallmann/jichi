@@ -29,9 +29,7 @@ greyed-out continuation press Tab to keep it.
 ### What you actually get depends on the model (read this before relying on it)
 
 jichi **asks** for a continuation and nothing else. The system prompt behind
-Ctrl-G (`tui_suggest`, `src/tui/jc_tui.c`) says: *"Continue the user's partial
-line naturally and briefly. Output ONLY the continuation that should follow it —
-no preamble, no quotes, no repetition of their text."*
+Ctrl-G (`tui_suggest`; the prompt body moved to `src/util/jc_suggest.c` at M280) demonstrates rather than only instructs: three worked continuations plus an anti-example, on the ground that "an instruction a model may ignore is a weaker signal than an example it can pattern-match."
 
 **The prompt now demonstrates rather than only instructs (M280).** Because an
 instruction a model may ignore is a weaker signal than an example it can

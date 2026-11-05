@@ -2,9 +2,13 @@ jichi
 Copyright (c) 2026 Justus-Liebig-Universität Gießen
 Author: Alexander-Lars Dallmann
 
-Claude (Anthropic) was the implementing agent throughout and is credited as a
-tool and collaborator, not as a copyright holder -- copyright generally
-requires human authorship.
+The code was implemented with AI coding agents as collaborators. Claude
+(Anthropic) wrote the bulk of it; the more recent work was done in the
+project's own self-development -- jichi running the institution's
+jlu/qwen3.8-27b model on this tree, those commits co-authored as jichi. Both
+are credited as tools and collaborators, not as copyright holders: copyright
+generally requires human authorship, and the human author named above stands
+behind the code.
 
 This product includes no third-party source code. The file src/json/cJSON.c
 implements a subset of the cJSON *API* from scratch and is not derived from

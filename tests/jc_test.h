@@ -132,16 +132,22 @@ int jc_test_rm_rf_allowed(const char *path);
 
 /* Test entry points (one per tests/test_*.c). */
 void test_harness(void);
+void test_harness_config(void);   /* M1051 */
 void test_str(void);
 void test_sb_reserve_bounds(void);
 void test_suggest(void);
 void test_vec(void);
 void test_json(void);
 void test_json_number_range(void);
+void test_json_clamp_helpers(void);
 void test_json_depth_limit(void);
 void test_json_string_alloc(void);
 void test_json_bool_lenient(void);
+void test_cjson_append_linear(void);   /* M1085 (F-05) */
 void test_walk_skip_dir(void);
+void test_walk(void);
+void test_repomap(void);
+void test_repomap_peak_is_one_file(void);   /* M1081 (F-01) */
 void test_priv_verdict(void);
 void test_assign_name_ok(void);
 void test_tu_arg_bool_numbers(void);
@@ -162,7 +168,13 @@ void test_session_store_version(void); /* M606 */
 void test_tool(void);
 void test_tool_unstring(void);
 void test_tool_nameless(void);
+void test_tool_finish_alias(void);   /* M853 */
+void test_tool_git_stash_cmd(void);  /* M855 */
+void test_tool_git_discards_cmd(void);  /* M863 */
+void test_toolloop_long_key(void);      /* M868 */
+void test_noprogress_rotation(void);    /* M870 */
 void test_toolcall_scan(void);
+void test_toolcall_recover(void);  /* M949 */
 void test_jsonrepair(void);
 void test_args_repair_execute(void);
 void test_priv(void);
@@ -180,8 +192,11 @@ void test_neterr(void);
 void test_argpath(void);
 void test_multipart(void);
 void test_multipart_header_injection(void);
+void test_multipart_payload_boundary(void);
 void test_transcribe(void);
 void test_platform(void);
+void test_disk_space(void);
+void test_localtime_checked(void);
 void test_bounds(void);
 void test_escape_ctrl(void);
 void test_sessmeta(void);
@@ -223,9 +238,11 @@ void test_cli(void);
 void test_agentjson(void);
 void test_lsp(void);
 void test_lsp_frame_bounds(void);
+void test_scopededit(void);
 void test_compact(void);
 void test_compact_message_estimate(void);
 void test_snapshot(void);
+void test_spawn(void);
 void test_skill(void);
 void test_envelope(void);
 void test_parallel(void);
@@ -233,7 +250,6 @@ void test_routing(void);
 void test_fallback(void);
 void test_lsp_nav(void);
 void test_testparse(void);
-void test_repomap(void);
 void test_git(void);
 void test_user_tools(void);
 void test_refs(void);
@@ -246,6 +262,9 @@ void test_diff(void);
 void test_reread(void);
 void test_memory(void);
 void test_glossary(void);
+void test_glossary_symlink_escape(void);
+void test_glossary_symlink_control(void);
+void test_glossary_tail_cut(void);
 void test_constraint(void);
 void test_doctor(void);
 void test_scaffold(void);
@@ -297,6 +316,9 @@ void test_msg(void);
 void test_width(void);
 void test_arena(void);
 void test_auditview(void);
+void test_sha256(void);   /* M851 */
+void test_config_trust(void);   /* M851 */
+void test_landlock(void);       /* M852 */
 void test_runsview(void);
 void test_control(void);
 void test_kinetic(void);
@@ -306,10 +328,16 @@ void test_voice(void);
 void test_perm_mode_narrow(void);
 void test_ttools(void);
 void test_lease(void);
+void test_inhist(void);
 void test_env_panel(void);
 void test_delegreport(void);
 void test_toolloop(void);
+void test_toolloop_atbound(void);
+void test_relay(void);   /* M920: the context relay's decision core */
+void test_diskguard(void);
 void test_noprogress(void);
 void test_constraint_source_line(void);
+void test_cjson_print_parity(void);     /* M1084 (F-06) */
+void test_utf8_sanitize_parity(void);   /* M1084 (F-06) */
 
 #endif /* JC_TEST_H */

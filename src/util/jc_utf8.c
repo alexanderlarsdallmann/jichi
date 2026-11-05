@@ -207,6 +207,40 @@ jc_size jc_utf8_resync(const char *s, jc_size len, jc_size off)
     return off;
 }
 
+jc_size jc_utf8_stream_prefix(const char *s, jc_size len)
+{
+    const unsigned char *p = (const unsigned char *)s;
+    jc_size i;
+
+    if (s == NULL || len == 0) {
+        return 0;
+    }
+    /* Walk forward from 0 with the STRICT seq_ok predicate (the same one
+     * jc_utf8_valid uses). A complete sequence advances by its length; a byte
+     * that begins no well-formed sequence -- a stray continuation byte, an
+     * invalid lead, OR the lead of a sequence truncated at `len` -- stops the
+     * walk. Stopping exactly there means the returned prefix is the largest
+     * one that is well-formed, and an incomplete trailing sequence (its 1-3
+     * bytes) is left OUT for the caller to carry to the next chunk.
+     *
+     * A forward walk (rather than stepping back from len) is the right shape
+     * here because the tail is the interesting part: jc_utf8_trunc_len steps
+     * back over continuation bytes but assumes s[len] is readable (a
+     * fixed-buffer cut, not a stream), and jc_utf8_resync SKIPS a stray tail
+     * instead of holding it. Neither does "largest well-formed prefix of a
+     * streaming chunk". The walk is O(len) but len is at most the carried tail
+     * plus one provider delta, so it stays small. */
+    i = 0;
+    while (i < len) {
+        jc_size n = seq_ok(p + i, len - i);
+        if (n == 0) {
+            break;
+        }
+        i += n;
+    }
+    return i;
+}
+
 int jc_utf8_sanitize(const char *s, jc_size len, char **out, jc_size *out_len)
 {
     const unsigned char *p = (const unsigned char *)s;
@@ -220,7 +254,16 @@ int jc_utf8_sanitize(const char *s, jc_size len, char **out, jc_size *out_len)
     }
     i = 0;
     while (i < len) {
-        jc_size n = seq_ok(p + i, len - i);
+        jc_size n;
+        /* Fast path (M1084, F-06): a byte < 0x80 is ALWAYS a well-formed
+         * one-byte sequence -- seq_ok(p, avail) returns 1 for it (above,
+         * :123-124), for any avail > 0 -- so skipping it without the call
+         * changes no verdict. */
+        if (p[i] < 0x80) {
+            i++;
+            continue;
+        }
+        n = seq_ok(p + i, len - i);
         if (n == 0) {
             bad++;
             i++;

@@ -155,7 +155,7 @@ lauffähig" ein Feature ist — für Embedded-Ziele, für die Lehre und fürs Ve
 
 ```sh
 make && ./jichi setup            # geführtes Setup
-./jichi -p "explain this repo"   # headless
+./jichi -p "explain this repo" < /dev/null   # headless
 ./jichi                          # die TUI
 ```
 

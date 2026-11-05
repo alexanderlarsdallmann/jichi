@@ -10,6 +10,7 @@
 #include "jc_agent.h"
 #include "jc_provider.h"
 #include "jc_http.h"
+#include "jc_net.h"
 #include "jc_json.h"
 #include "jc_str.h"
 #include "jc_mem.h"
@@ -446,6 +447,10 @@ static long summarizer_output_tokens(const struct jc_model_cfg *sm)
     return o;
 }
 
+/* M1093 (C-09): the compaction summarizer's named TOTAL cap (a CAP, not a
+ * fence). The connect + dead-stream FENCES come from jc_net_side_fences. */
+#define JC_COMPACT_SUMMARY_TIMEOUT_SECS 60
+
 /* One non-streaming summarizer call over `transcript` against the already-built
  * `prov`. Returns JC_OK with *out (arena-owned) on success, JC_ERR_TOOBIG on an
  * HTTP 400 (context overflow -- the caller can shrink and retry), or another
@@ -483,8 +488,10 @@ static jc_status summarize_call(struct jc_app *app, struct jc_provider *prov,
     req.headers = &headers;
     req.body = body;
     req.body_len = strlen(body);
-    req.timeout_secs = 60;
+    req.timeout_secs = JC_COMPACT_SUMMARY_TIMEOUT_SECS;
     req.abort_flag = &app->abort_flag;
+    /* M1093: `app` is in scope, so the real config's fences apply. */
+    jc_net_side_fences(&req, &app->config);
 
     st = jc_http_perform(&req, &http_status, &resp, NULL);
     jc_http_headers_free(&headers);
@@ -872,6 +879,83 @@ static int elide_tool_msg(struct jc_message *m, jc_compact_spill_fn spill,
  * another read_file. Defaults match read_file's own (offset 1, limit 0 = to the
  * end) and use the shared lenient numeric parse, so `{"limit": "100.0"}` keys
  * the same as `{"limit": 100}`. */
+/* def-317 skip policy (M912): is this a whole-file write_file call whose
+ * body still equals the file on disk? Then the file IS the preserved
+ * artifact: eliding the argument to a compact pointer (path + "re-read the
+ * file") costs less than a ticket that would name a copy of bytes already
+ * at the named path. Every no -- file changed, missing, unreadable,
+ * oversized, fence-denied (def-323: a read the fence would refuse), or
+ * not a whole-file write -- falls back to the M909 ticket. */
+static int args_is_on_disk_write(const struct jc_app *app,
+                                 const char *tool_name,
+                                 const char *args_json,
+                                 struct jc_arena *arena)
+{
+    const char *path;
+    const char *content;
+    char *file;
+    jc_size flen = 0;
+    char abs[500];
+
+    if (app == NULL || tool_name == NULL || args_json == NULL ||
+        arena == NULL) {
+        return 0;
+    }
+    if (strcmp(tool_name, "write_file") != 0) {
+        return 0;
+    }
+    {
+        cJSON *o = jc_json_parse(args_json);
+        if (o == NULL) {
+            return 0;
+        }
+        path = jc_json_get_str(o, "path", NULL);
+        /* M912: get_str borrows from o -- it must outlive the reads below. */
+        content = jc_json_get_str(o, "content", NULL);
+        if (path == NULL || content == NULL || path[0] == '\0') {
+            cJSON_Delete(o);
+            return 0;
+        }
+        /* Resolve exactly as the executor sees it: the agent runs with cwd ==
+         * app->cwd, so a relative path is relative to that; absolute as-is. */
+        if (path[0] == '/') {
+            if (jc_snprintf(abs, sizeof(abs), "%s", path)
+                >= (int)sizeof(abs)) {
+                cJSON_Delete(o);
+                return 0;
+            }
+        } else {
+            if (jc_snprintf(abs, sizeof(abs), "%s/%s", app->cwd, path)
+                >= (int)sizeof(abs)) {
+                cJSON_Delete(o);
+                return 0;
+            }
+        }
+        /* def-323 (M913): the identity read must open no file the path fence's
+         * READ intent would refuse -- exact parity with read_file, which
+         * consults the same guard (jc_tool_read.c) before it opens. A
+         * fence-denied path falls back to the M909 ticket below, like a
+         * missing one: the pointer would name a file the model cannot
+         * re-read, and making a read the tool layer refuses is the parity
+         * gap, not a leak (the fence closes both at once). */
+        if (jc_app_path_denied_ex(app, abs, 0)) {
+            cJSON_Delete(o);
+            return 0;
+        }
+        if (jc_read_file(abs, &file, &flen, arena) != JC_OK) {
+            cJSON_Delete(o);
+            return 0;
+        }
+        {
+            int ok = (flen == (jc_size)strlen(content) &&
+                      strncmp(file, content, flen) == 0);
+            cJSON_Delete(o);
+            return ok;
+        }
+    }
+}
+
+
 static char *read_path_dup(struct jc_history *hist, jc_size i,
                            long *off_out, long *lim_out)
 {
@@ -914,8 +998,8 @@ static char *read_path_dup(struct jc_history *hist, jc_size i,
                 const char *p = jc_json_get_str(o, "path", NULL);
                 char *out = (p != NULL) ? jc_strdup(p) : NULL;
                 if (out != NULL) {
-                    *off_out = (long)jc_json_get_num_lenient(o, "offset", 1.0);
-                    *lim_out = (long)jc_json_get_num_lenient(o, "limit", 0.0);
+                    *off_out = jc_json_clamp_long(jc_json_get_num_lenient(o, "offset", 1.0));
+                    *lim_out = jc_json_clamp_long(jc_json_get_num_lenient(o, "limit", 0.0));
                 }
                 if (o != NULL) {
                     cJSON_Delete(o);
@@ -991,7 +1075,8 @@ jc_size jc_compact_trim_tool_output_ex(struct jc_history *hist,
  * through cJSON is the only escaping guaranteed to round-trip. No UTF-8
  * boundary risk here (M191 doesn't apply): the arguments are replaced
  * wholesale, never split. */
-static char *elide_args_marker(const char *old_args, jc_size old_len)
+static char *elide_args_marker(const char *old_args, jc_size old_len,
+                               const char *ticket, int on_disk)
 {
     cJSON *o;
     cJSON *marker;
@@ -1008,13 +1093,44 @@ static char *elide_args_marker(const char *old_args, jc_size old_len)
      * a field value, and the model copied the whole object back as arguments.
      * Say plainly that these are not arguments and what to do instead -- the
      * ~60 extra bytes are nothing beside the kilobytes elided, and beside the
-     * round-trip a copied marker wastes. */
-    jc_snprintf(note, sizeof(note),
-                "PLACEHOLDER, not arguments: %lu bytes of arguments were "
-                "dropped from your context to save space and cannot be "
-                "recovered. To repeat this call, send its real arguments.",
-                (unsigned long)old_len);
-    cJSON_AddStringToObject(marker, JC_COMPACT_ELIDED_KEY, note);
+     * round-trip a copied marker wastes.
+     *
+     * def-317 R1: when `ticket` is present the note MUST NOT say the arguments
+     * "cannot be recovered" -- they were just written to the file the `ticket`
+     * field names, so that wording would be a lie beside a working path (the
+     * exact M348 asymmetry this fixes). The two wordings are fixed strings (no
+     * path embedded), so `note[]` stays bounded; the path rides its own field
+     * and cJSON does the escaping + length. With no ticket the text is the old
+     * string byte for byte, which is the invariant the ticketless unit tests
+     * assert. */
+    if (ticket != NULL && ticket[0] != '\0') {
+        jc_snprintf(note, sizeof(note),
+                    "PLACEHOLDER, not arguments: %lu bytes of arguments were "
+                    "dropped to save space; the complete arguments are "
+                    "preserved -- read the file named by \"ticket\" to "
+                    "recover them instead of re-sending.",
+                    (unsigned long)old_len);
+        cJSON_AddStringToObject(marker, JC_COMPACT_ELIDED_KEY, note);
+        cJSON_AddStringToObject(marker, "ticket", ticket);
+    } else if (on_disk) {
+        /* def-317 skip policy: the file the write targets still holds the
+         * body byte for byte, so the file IS the preserved artifact. The
+         * note shares the M289 prefix ("bytes of arguments were ") with the
+         * other two flavours -- the M910 idempotence guard matches it. */
+        jc_snprintf(note, sizeof(note),
+                    "PLACEHOLDER, not arguments: %lu bytes of arguments were "
+                    "dropped to save space; the body is still on disk at \"path\" -- "
+                    "re-read it instead of re-sending.",
+                    (unsigned long)old_len);
+        cJSON_AddStringToObject(marker, JC_COMPACT_ELIDED_KEY, note);
+    } else {
+        jc_snprintf(note, sizeof(note),
+                    "PLACEHOLDER, not arguments: %lu bytes of arguments were "
+                    "dropped from your context to save space and cannot be "
+                    "recovered. To repeat this call, send its real arguments.",
+                    (unsigned long)old_len);
+        cJSON_AddStringToObject(marker, JC_COMPACT_ELIDED_KEY, note);
+    }
     /* Keep the target path: top-level `path` (write_file/edit_file), else the
      * first edit's path (apply_patch). Absent/foreign shapes just omit it. */
     o = jc_json_parse(old_args);
@@ -1038,10 +1154,26 @@ static char *elide_args_marker(const char *old_args, jc_size old_len)
 jc_size jc_compact_trim_tool_args(struct jc_history *hist, long budget_tokens,
                                   jc_size keep_recent)
 {
+    return jc_compact_trim_tool_args_ex(NULL, hist, budget_tokens, keep_recent,
+                                        NULL, NULL, NULL);
+}
+
+jc_size jc_compact_trim_tool_args_ex(struct jc_app *app,
+                                     struct jc_history *hist,
+                                     long budget_tokens,
+                                     jc_size keep_recent,
+                                     jc_compact_spill_fn spill,
+                                     void *spill_ctx,
+                                     jc_size *preserved_out)
+{
     jc_size n;
     jc_size i;
     jc_size elided = 0;
+    jc_size preserved = 0;
 
+    if (preserved_out != NULL) {
+        *preserved_out = 0;
+    }
     if (hist == NULL) {
         return 0;
     }
@@ -1059,23 +1191,67 @@ jc_size jc_compact_trim_tool_args(struct jc_history *hist, long budget_tokens,
         for (k = 0; k < nc; k++) {
             struct jc_tool_call *tc = jc_msg_tool_call_at(m, k);
             jc_size len;
+            char ticket[700];
             char *marker;
+            int on_disk = 0;
             if (tc == NULL || tc->arguments_json == NULL) {
                 continue;
             }
             len = (jc_size)strlen(tc->arguments_json);
-            /* <= ELIDE_MIN_BYTES is skipped: the idempotence guard (a marker
-             * is ~100 B), and it keeps read_file/search_code arguments intact
-             * for the M94 dedup's path lookup (read_path_dup parses them). */
+            /* <= ELIDE_MIN_BYTES is skipped: it keeps read_file/search_code
+             * arguments intact for the M94 dedup's path lookup
+             * (read_path_dup parses them). */
             if (len <= (jc_size)ELIDE_MIN_BYTES) {
                 continue;
             }
-            marker = elide_args_marker(tc->arguments_json, len);
+            /* M910: the idempotence guard on the ARGS side. M348/M354 set it
+             * for results: the claim-ticket marker carries a path, and a deep
+             * enough $HOME pushes it back over the floor -- a second pass
+             * would then elide the marker itself and preserve a ticket
+             * pointing at a ticket. Match the SHARED prefix of both marker
+             * flavours, as the result-side guard does. */
+            if (strstr(tc->arguments_json, "bytes of arguments were ")
+                != NULL) {
+                continue;
+            }
+            /* def-317 skip policy (M912): a whole-file write_file whose
+             * body still equals the file on disk is elided to a compact
+             * pointer, and the spill is skipped -- the file IS the
+             * preserved artifact, so ticketing a copy of it would be a
+             * redundant on-disk duplicate of on-disk data. Every miss
+             * (changed / missing / unreadable / oversized / fence-denied /
+             * not a whole-file write) falls through to the ticket below. */
+            if (app != NULL && tc->name != NULL &&
+                args_is_on_disk_write(app, tc->name,
+                                      tc->arguments_json,
+                                      jc_app_tool_scratch(app))) {
+                on_disk = 1;
+            }
+            /* def-317 R1: the M348 claim ticket on the ARGS side. Offer the
+             * FULL arguments_json to the preservation store; when accepted the
+             * marker names the file and stops claiming the content is
+             * unrecoverable. On decline (or with no spiller) the marker is the
+             * old ticketless text byte for byte -- D3: never name a path that
+             * is not there. The ticket stays in its own field (cJSON escapes
+             * and bounds it), so the note string never embeds a path. */
+            ticket[0] = '\0';
+            if (!on_disk && spill != NULL) {
+                /* M912: on_disk skips the spill -- the file is the artifact */
+                if (!spill(spill_ctx, tc->arguments_json, len,
+                           ticket, sizeof(ticket))) {
+                    ticket[0] = '\0';
+                }
+            }
+            marker = elide_args_marker(tc->arguments_json, len, ticket,
+                                       on_disk);
             if (marker == NULL) {
                 continue;
             }
             if (jc_msg_tool_call_set_args(tc, marker) == JC_OK) {
                 elided++;
+                if (ticket[0] != '\0') {
+                    preserved++;
+                }
             }
             free(marker);
         }
@@ -1087,6 +1263,9 @@ jc_size jc_compact_trim_tool_args(struct jc_history *hist, long budget_tokens,
     }
     if (elided > 0) {
         hist->gen++; /* M218: content changed; the next session save must write */
+    }
+    if (preserved_out != NULL) {
+        *preserved_out = preserved;
     }
     return elided;
 }
@@ -1430,18 +1609,33 @@ jc_size jc_compact_midturn(struct jc_app *app, struct jc_history *hist,
      * re-reads). The superseded-read dedup above stays ticketless on
      * purpose: it is zero-loss by construction (the newest read of the same
      * range is still in context), so a ticket would duplicate the store. */
-    elided = dup + jc_compact_trim_tool_output_ex(hist, target_est,
-                                                  (jc_size)MIDTURN_KEEP_RECENT,
-                                                  midturn_spill, app,
-                                                  &local.preserved);
+    {
+        jc_size kept;
+        elided = dup + jc_compact_trim_tool_output_ex(hist, target_est,
+                                                      (jc_size)MIDTURN_KEEP_RECENT,
+                                                      midturn_spill, app, &kept);
+        local.preserved = kept;
+    }
     /* M218: if the result-side trims were not enough, the bulk lives on the
      * ARGUMENTS side (write_file/apply_patch bodies in the assistant
      * messages) -- the vector the result trims cannot reach. Same target,
-     * same keep-recent window; reported separately (`args_out`) because it is
-     * lossy in a different way than result elision. */
+     * same keep-recent window; reported separately (`args`) because it is
+     * lossy in a different way than result elision.
+     *
+     * def-317 R1: the ARGS trims get the M348 claim ticket too -- `app` is
+     * the same context as the result trims above, and the preserved count
+     * feeds `mrep.preserved` (R6: the report side that was missing). The
+     * marker only names a real file when the spill was accepted, and the
+     * ticketless text is byte-identical to the pre-R1 form (D3). */
     if (jc_compact_estimate_tokens(hist) + SYS_TOOLS_OVERHEAD > target_est) {
-        jc_size nargs = jc_compact_trim_tool_args(hist, target_est,
-                                                  (jc_size)MIDTURN_KEEP_RECENT);
+        jc_size kept;
+        jc_size nargs = jc_compact_trim_tool_args_ex(app, hist, target_est,
+                                                     (jc_size)MIDTURN_KEEP_RECENT,
+                                                     midturn_spill, app, &kept);
+        /* `_ex` overwrites its out-param (it starts at 0), so ACCUMULATE the
+         * args-side preserved onto the result-side count: `rep->preserved` is
+         * the total claim tickets written this pass, both sides (R6). */
+        local.preserved += kept;
         local.args = nargs;
         elided += nargs;
     }

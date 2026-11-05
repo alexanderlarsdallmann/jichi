@@ -45,7 +45,7 @@ vendor, no model id and no endpoint, and `jichi doctor` will tell you so:
 
 ```
 ! no config file -- running on built-in defaults
-x no model is configured
+✗ no model is configured
 ```
 
 That is not a broken install. Until M709 jichi *did* choose — it resolved to
@@ -76,7 +76,8 @@ world speak that dialect, which is why `jichi setup` offers it first.
 2. **Run `jichi setup`.** Choose the first provider option, give it the endpoint,
    and **it will ask the endpoint which models it serves** and let you pick from
    that list. It does not suggest one — it cannot know what you have.
-3. **Check it:** `jichi doctor`. You want `ok configuration loaded` and no `x`.
+3. **Check it:** `jichi doctor`. You want `✓ configuration loaded` and no `✗`
+   (`doctor` prints `✓` for pass, `!` for a warning, `✗` for a failure).
 
 If you would rather write the file yourself, this is the whole of it:
 
@@ -131,6 +132,20 @@ says so. That is deliberate; see §0a. The overlay rule (`jc_config_merge_json`)
 `jichi doctor` prints which happened, e.g.
 `~/.jichi + local/config.json (merged)`.
 
+**The project file must be trusted (M851).** A project config can arrive with a
+`git clone`, so until you trust it, it applies only its safe settings -- display
+and behaviour, and anything that only tightens (`mode: "plan"`, a
+`permissions.deny`, a smaller bound). Settings that add models or endpoints,
+start programs (`mcpServers`, `hooks`, `verify`, `testCommand`, ...), pre-approve
+tools, or read outside the project wait until you run **`jichi trust`** in that
+directory; the TUI asks you once instead, and `jichi doctor` lists what each
+withheld setting would do. Trust is bound to the file's content: edit it outside
+jichi and it is untrusted again (`jichi config set` keeps a trusted file trusted);
+`jichi untrust` drops it. A config `jichi setup` creates is trusted for you, and
+`--config` / `$JC_CONFIG` are your explicit choice and never need it. A
+`config set` also keeps the file's mode and leaves the pre-edit original in
+`<path>.bak` (M1107).
+
 > **The merge has one sharp edge:** because `models` unions rather than
 > replaces, a project entry that repeats a model already in `~/.jichi` yields
 > **two** entries with the same name. Selectors are substring matches, so
@@ -148,9 +163,11 @@ template:
 mkdir -p local
 cp examples/config.multi-server.json local/config.json
 nano local/config.json         # or your editor of choice: set model ids / apiBase to match yours
+jichi trust                   # you wrote it: apply all of it (M851)
 ```
 
-The config is JSON. Verify it loads:
+The config is JSON — and jichi also accepts `//` and `/* */` comments (JSONC), which
+some examples below use. Verify it loads:
 
 ```sh
 jichi models            # lists models; also a no-network sanity check of the file
@@ -408,7 +425,7 @@ safe to paste into a bug report.
 request can do that. The cheapest one:
 
 ```sh
-jichi -p "reply with the single word: ok"
+jichi -p "reply with the single word: ok" < /dev/null
 ```
 
 ### 1.7 Your key does not reach the commands the agent runs
@@ -421,9 +438,21 @@ of well-known provider variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
 `GEMINI_API_KEY`, `TAVILY_API_KEY`, and others), so a stray export in your shell
 cannot leak either. Everything else in your environment passes through untouched.
 
-- **The good half:** a model that decides to run `env` or `curl` cannot exfiltrate
-  your key, and neither can a command it was tricked into running by a malicious
-  file it read.
+- **The good half:** a model that decides to run `env` finds no key there. Since
+  M770 it cannot read one back out of jichi either. On Linux, jichi's own
+  environment, key included, used to be readable by any process of yours through
+  `/proc/<pid>/environ`, and jichi now makes itself *non-dumpable*, so that file
+  refuses the command (`jichi doctor`: *keys are hidden from other same-user
+  processes*). The same goes for a command the model was tricked into running by a
+  malicious file it read.
+- **What that does not cover:** the command still runs as *you*, and can read
+  whatever you can. That includes the file you keep the key in: `~/.jichi.env` is
+  mode 600, private to your account, and the model's shell *is* your account. It
+  also includes the environment of any other program you started from a shell that
+  exported the key, such as an editor or a `tmux` server. jichi can hide its own
+  copy of the key, not yours. Where that matters, as in an unattended run or a
+  repository you do not trust, run the model's shell as another user, or in a
+  container that mounts no key ([CONTAINER_TUTORIAL.md](CONTAINER_TUTORIAL.md)).
 - **The half that surprises people:** if your *build* needs that key — a test
   suite hitting the same gateway, a deploy script — it will not find it. Pass it
   in deliberately for that one command, e.g. have the script read it from
@@ -445,6 +474,11 @@ The complete list — jichi reads no others:
 | `JC_PROVIDER` | default provider when a model entry doesn't name one |
 | `JICHI_LANG` | UI language (`en`, `de`, `es`, `ja`, `zh`) |
 | `JICHI_DAEMON_SOCK` | socket path for the daemon mode |
+| `JICHI_KEEP_DUMPABLE` | `1` keeps jichi dumpable, for a core dump or a debugger, and so exposes its keys to the commands it runs (M770, §1.7) |
+| `JICHI_SHELL` | the shell jichi runs commands with, if it is executable (default `/bin/sh`) |
+| `JICHI_SPAWN_BACKEND` | `spawn` starts children with `posix_spawn` instead of `fork` where built in (M832); default `fork`; `doctor` names the one in use |
+| `JICHI_DUMP_REQUESTS` | a directory that receives every request body, like `--dump-requests` ([DOCTOR.md](DOCTOR.md)) |
+| `PREFIX` | Termux's prefix: jichi looks for `sh` there when `/bin/sh` is missing |
 | `NO_COLOR`, `COLUMNS`, `LANG`, `LC_ALL`, `LC_CTYPE`, `HOME`, `PATH` | the usual POSIX/terminal conventions |
 
 > `JICHI_API_KEY` is **not** in this table, and that is not an omission. It is
@@ -467,7 +501,10 @@ The complete list — jichi reads no others:
 4. **Never put a key on a command line.** `/proc/<pid>/cmdline` is
    world-readable (mode `0444`) and `ps -ef` shows every user's arguments;
    `/proc/<pid>/environ` is owner-only (`0400`). An environment variable is
-   private to your account, an argument is public to the machine.
+   private to your account, an argument is public to the machine. *Private to
+   your account* includes every process of yours, the model's shell among them.
+   jichi hides its own environment from it (M770, §1.7), and that is all it can
+   hide.
 5. **Run `jichi doctor` after any change.** It is offline, instant, and prints
    which config file it read — which is the other half of every "why isn't it
    picking up my key" question.
@@ -584,7 +621,7 @@ reviewable in a way a shell-history recall is not:
 # ask.sh -- read-only question answering. Cannot modify the project.
 set -eu; cd "$(dirname "$0")"
 . "$HOME/.jichi.env"; export JICHI_API_KEY
-exec jichi --config ./local/config.json --readonly -p "$*"
+exec jichi --config ./local/config.json --readonly -p "$*" < /dev/null
 ```
 
 ```sh
@@ -605,7 +642,7 @@ exec jichi --config ./local/config.json --auto \
     --budget-tokens 200k --deadline 20m --max-tool-calls 60 \
     --edit-scope 'src/**' --edit-scope 'tests/**' \
     --journal "$HOME/.jichi.d/runs/fixtests-$(date +%Y%m%d-%H%M%S).jsonl" \
-    -p "${1:-run the tests and fix any failures}"
+    -p "${1:-run the tests and fix any failures}" < /dev/null
 ```
 
 > Note `--journal` writes **outside** the project. A verifier failure rolls the
@@ -648,7 +685,7 @@ Beware the obvious form:
 
 ```sh
 # DON'T: the entire config, key included, is visible to every user via `ps`.
-jichi --config-json '{"models":[{"model":"x","apiKey":"sk-secret"}]}' -p "hi"
+jichi --config-json '{"models":[{"model":"x","apiKey":"sk-secret"}]}' -p "hi" < /dev/null
 ```
 
 Pass it on **stdin** instead — and keep using `apiKeyEnv`, so the key is not in
@@ -732,7 +769,7 @@ can mix remote + local in one config:
 ```json
 {
   "models": [
-    { "name": "jichi-gemma", "provider": "openai", "model": "jlu/gemma-4-31b-it",
+    { "name": "jichi-gemma", "provider": "openai", "model": "jlu/gemma-4-26b-it",
       "apiBase": "https://api.hrz.uni-giessen.de/v1", "apiKeyEnv": "JICHI_API_KEY" },
     { "name": "local-gemma", "provider": "openai", "model": "google/gemma-4-e4b",
       "apiBase": "http://127.0.0.1:1234/v1" }
@@ -760,7 +797,7 @@ On the CLI, `--model <selector>` overrides for one run.
 
 A **selector** (used everywhere a model is named) is a **name** or **model-id**
 substring (case-insensitive), a **1-based index**, or a **role** name. Pick
-substrings that are unambiguous — e.g. `e4b` for the local gemma vs `31b` for the
+substrings that are unambiguous — e.g. `e4b` for the local gemma vs `26b` for the
 remote one.
 
 ---
@@ -858,8 +895,8 @@ Behaviour:
 Override per run / interactively:
 
 ```sh
-jichi --route-fast e4b --route-strong qwen3-coder -p "..."   # set tiers
-jichi --no-route --model qwen3-coder -p "..."                # pin one model
+jichi --route-fast e4b --route-strong qwen3-coder -p "..." < /dev/null   # set tiers
+jichi --no-route --model qwen3-coder -p "..." < /dev/null                # pin one model
 ```
 
 ```
@@ -955,7 +992,7 @@ jichi --auto \
   --verify 'make && make test' \
   --budget-tokens 200k --deadline 20m --max-tool-calls 60 \
   --edit-scope 'src/**' --edit-scope 'tests/**' \
-  -p "Fix the failing parser tests"
+  -p "Fix the failing parser tests" < /dev/null
 ```
 
 What each does:
@@ -1000,16 +1037,85 @@ the CPU. Cap it:
 Read-only tasks fan out for investigation; `write:true` tasks each edit an
 isolated git worktree merged back file-level. See [PARALLEL.md](PARALLEL.md).
 
+A `write:true` child's **file tools** are path-fenced to its worktree, but its
+**shell** is not — a `run_terminal_command` can write anywhere the process can, and
+guarding the command *text* is not a fence (an absolute path, a `cd` out of the
+worktree, a variable holding a path, or a script the child writes then runs all
+reach the live tree the same way). On Linux ≥ 5.13 with Landlock, jichi confines the
+child's shell to its worktree with a kernel write fence — the child and every command
+it starts can write only under the worktree, the shadow repo (so `git` works), its own
+temp dir, jichi's own tool-output store for that child (`~/.jichi.d/tool-output/<pid>`,
+M857: where an over-long output is kept and named by path), and `/dev/null`. Since M852
+each write child gets a private `$TMPDIR` inside
+the shadow repo, outside its worktree (so a temp file is never merged), removed with
+the worktree; a compiler or `mktemp` works without a grant:
+
+```json
+"shellFence": true,                       // default; false turns the fence off
+"shellFenceAllow": ["/home/me/.cache/go-build"]  // extra dirs the shell may write
+```
+
+- **`shellFence`** — `true` (the default) applies the fence wherever Landlock is
+  available; `false` disables it. Where Landlock is absent (not Linux, or a kernel
+  without it) the child runs **unfenced but never silently**: it logs a warning and
+  a telemetry `shell_fence` event, and `doctor` reports `shell fence: unavailable`.
+  Where Landlock **is** present and the fence still cannot be applied, the write task
+  is **refused** and its result says why (M852; before it, the child ran unfenced).
+- **`shellFenceAllow`** — extra **absolute directories that exist** when the batch
+  starts, for a build tool that needs an external cache (Zig's global cache, `~/.npm`,
+  a Go build cache). `/tmp` is deliberately **not** granted by default (it is
+  world-writable and a project can live there); the child's own `$TMPDIR` covers temp
+  files. An entry that is not absolute, or does not exist, grants nothing — the fence
+  still holds and writes there are refused — and the batch result says so once, at
+  the top (M852). An entry that is a file, not a directory, refuses the write tasks.
+  Run `jichi doctor` to see whether the fence is available on your kernel.
+- **A granted directory is shared by every write child (M896).** Writable includes
+  removable. On the demos drive a worker that suspected a stale build ran `rm -rf` on the
+  Zig global cache the drive had granted, twice in a minute, and every build in the
+  container started cold until the cache refilled. The fence bounds the damage to the
+  grants, so a grant several children share is damage they share. Where the tool allows
+  it, give each child its own copy inside its own `$TMPDIR`, which the fence grants
+  already -- for Zig, `ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-cache"` in the commands the task
+  runs (a profile line can say so) -- and keep a shared grant for a cache whose loss
+  costs only a refill. A per-child cache starts cold, so each child pays one full build.
+- **A write child's file tools follow the same grants (M887).** In a write child,
+  `write_file`, `read_file` and the other file tools also reach its own `$TMPDIR` and,
+  with `shellFence` on, the `shellFenceAllow` directories. A task told to write
+  `/tmp/x.tsv`, with `/tmp` granted, can then do it with `write_file`, not only with the
+  shell. Elsewhere, and at the top level, they stay inside the workspace (and
+  `referenceRoots`, for reads).
+- **When a fenced command fails** with "Permission denied" (or Zig's `AccessDenied`),
+  jichi adds one line to its result naming the fence, and the batch result counts
+  such commands per task (M852): the kernel refuses the write, so the tool's own
+  error is otherwise all anyone sees.
+
+**A reply cut off at the output ceiling** (the model's `maxTokens`, or a fifth of its
+`contextLength` capped at 16,384 when unset) stops mid-sentence. A delegate whose reply is
+cut with no tool call is asked once to continue and to keep each reply short (M859); a
+second cut ends its turn, and a write child then merges only after a green worktree
+verify (M858). `continueCutReply` says who is asked:
+
+```json
+"continueCutReply": "delegates"   // default for delegates; a headless top-level run
+                                  // (-p) with nothing set gets "headless" semantics
+                                  // since M965; "off" asks nobody
+```
+
+In chat the top level is never asked automatically: you can say "continue" yourself, and in
+an editor (ACP) the editor's user can. The continuation is one more model call per cut turn.
+
 ---
 
 ## 11. A complete dev config
 
-Putting it together (this is `examples/config.multi-server.json`, secret-free):
+Putting it together, secret-free. `examples/config.multi-server.json` has the same shape with
+placeholder model ids (`your-provider/…`) and its own model names; this is it filled in for the
+HRZ gateway's `jlu/` models:
 
 ```jsonc
 {
   "models": [
-    { "name": "jichi-gemma",  "provider": "openai", "model": "jlu/gemma-4-31b-it",
+    { "name": "jichi-gemma",  "provider": "openai", "model": "jlu/gemma-4-26b-it",
       "apiBase": "https://api.hrz.uni-giessen.de/v1", "apiKeyEnv": "JICHI_API_KEY",
       "roles": ["chat", "edit", "apply"] },
     { "name": "jichi-qwen",   "provider": "openai", "model": "jlu/qwen3-coder-next",
@@ -1038,7 +1144,7 @@ cp examples/config.multi-server.json local/config.json   # then edit + export th
 export JICHI_API_KEY=...                                    # not stored in the file
 jichi models                                      # confirm reachability
 jichi index --reindex                             # build the index with local embeddings
-jichi -p "explain the agent loop"                 # routine -> local; hard -> remote
+jichi -p "explain the agent loop" < /dev/null                 # routine -> local; hard -> remote
 ```
 
 ---
@@ -1061,9 +1167,11 @@ jichi -p "explain the agent loop"                 # routine -> local; hard -> re
 | Parallel cap | `maxParallelAgents` | — | — |
 | Parallel child timeout | `parallelTaskTimeout` | — | — |
 | Shell memory watchdog | `memBudgetMb` | `--mem-budget <MB>` | — |
+| CA bundle (network TLS) | `caBundle` | — | — |
 | Shell command timeout | `runTimeout` | `--run-timeout <s>` | — |
 | Config location | — | `--config`, `$JC_CONFIG`, `./local/config.json` | — |
 | Config inline / on stdin | — | `--config-json`, `--config-json-b64`, `--config-stdin` | — |
+| Scoped edit check N | `scopedEditMax` | — | — |
 
 Other long-standing knobs (`maxToolIters`, `maxRetries`, `maxSubagentDepth`,
 `maxSubagentIters`, `autoCompact`, `contextLimit`, `snapshots`, `snapshotLimit`,
@@ -1098,6 +1206,8 @@ roadmap as "documented", which is how they stayed hidden.
   `--run-timeout`.
 - **`wisdom`** — whether the TUI occasionally prints a short craft note. Cosmetic; `/wisdom`
   toggles it for a session.
+- **`scopedEditMax`** — scoped edit check N (0=off, default 2): the Nth edit of a worker-owned
+  path by the lead is refused.
 
 `"systemPrompt": "..."` appends free text to the system prompt — both the
 top-level one **and** every subagent's. It is the bluntest of the four ways to shape

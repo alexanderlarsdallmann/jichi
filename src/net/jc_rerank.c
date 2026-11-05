@@ -68,7 +68,7 @@ jc_status jc_rerank_parse(const char *json, int n, double *out_scores)
         if (!cJSON_IsNumber(score_node)) {
             score_node = cJSON_GetObjectItem(item, "score");
         }
-        idx = cJSON_IsNumber(idx_node) ? (int)idx_node->valuedouble : -1;
+        idx = cJSON_IsNumber(idx_node) ? jc_json_clamp_int(idx_node->valuedouble) : -1;
         if (idx >= 0 && idx < n && cJSON_IsNumber(score_node)) {
             out_scores[idx] = score_node->valuedouble;
         }
@@ -101,8 +101,12 @@ jc_status jc_rerank_score(const struct jc_model_cfg *m, const char *query,
         return st;
     }
     if (status >= 400 || resp == NULL) {
+        /* M1131 (C-13): cap the error body to 2048 before logging (see
+         * jc_log_err_body_cap); resp NULL -> cap NULL -> just the status. */
+        char *cap = jc_log_err_body_cap(resp, 2048);
         jc_logf(JC_LOG_ERROR, "rerank: HTTP %ld%s%s", status,
-                resp != NULL ? " " : "", resp != NULL ? resp : "");
+                cap != NULL ? " " : "", cap != NULL ? cap : "");
+        free(cap);
         free(resp);
         return JC_ERR_PROVIDER;
     }

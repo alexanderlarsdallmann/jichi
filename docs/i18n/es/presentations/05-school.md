@@ -117,7 +117,7 @@ No hay tooling nuevo que aprender — es el mismo binario `jichi`.
 ```sh
 jichi init assignments        # scaffold the pack
 # add  "assignments": true  to config, then:
-jichi -p "/assign implementation 'sum a list'"
+jichi -p "/assign implementation 'sum a list'" < /dev/null
 ```
 
 Guía completa: `docs/TEACHING_ASSIGNMENTS.md` (aula, tutoría, autoestudio,

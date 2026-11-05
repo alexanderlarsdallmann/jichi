@@ -22,12 +22,17 @@ int jc_vsnprintf(char *buf, jc_size cap, const char *fmt, va_list ap)
 
 #include <limits.h> /* ULONG_MAX -- bound the float->integer conversion */
 
-/* Minimal output sink that tracks how many characters WOULD be written. */
+/* Minimal output sink that tracks how many characters WOULD be written.
+ * content/len carry ONE conversion's full text (width/precision aside),
+ * so a renderer can measure it first and then pad, instead of writing to
+ * the cap-bounded buffer before it knows how long the conversion is. */
 struct sink {
     char   *buf;
     jc_size cap;   /* total buffer size including space for NUL */
     jc_size pos;   /* bytes written so far (not counting NUL)   */
     jc_size want;  /* bytes that would be written if unbounded  */
+    char   *content;
+    jc_size len;
 };
 
 static void sink_putc(struct sink *s, char c)
@@ -47,129 +52,367 @@ static void sink_puts(struct sink *s, const char *str)
     }
 }
 
-/* Render an unsigned long in the given base (10 or 16). */
-static void sink_putul(struct sink *s, unsigned long v, int base, int upper)
+/* Conversion flags (A-10 / M1079: the fallback now parses the full
+ * flag/width/precision grammar, not just the trailing class char). */
+#define F_MINUS  0x01
+#define F_PLUS   0x02
+#define F_SPACE  0x04
+#define F_ZERO   0x08
+#define F_LONG   0x10
+
+static void emit_spaces(struct sink *s, jc_size n)
 {
-    char tmp[32];
+    while (n > 0) {
+        sink_putc(s, ' ');
+        n--;
+    }
+}
+
+/* Append v's digits to s->content at its current position (s->len) -- the
+ * WIDTH-PRECISION-ASIDE rendering of one conversion, measured before it is
+ * padded and written to the cap-bounded sink. The content buffer is 80
+ * bytes: at most 1 sign + 20 digits + 1 dot + 48 decimals fit. */
+static void ul_append(struct sink *s, unsigned long v, int base, int upper)
+{
+    char tmp[24];
     const char *digits = upper ? "0123456789ABCDEF" : "0123456789abcdef";
     int i = 0;
+    int j;
     if (v == 0) {
-        sink_putc(s, '0');
-        return;
+        tmp[i++] = '0';
+    } else {
+        while (v > 0 && i < 20) {
+            tmp[i] = digits[v % (unsigned long)base];
+            v /= (unsigned long)base;
+            i++;
+        }
     }
-    while (v > 0 && i < (int)sizeof(tmp)) {
-        tmp[i] = digits[v % (unsigned long)base];
-        v /= (unsigned long)base;
-        i++;
-    }
-    while (i > 0) {
-        i--;
-        sink_putc(s, tmp[i]);
+    for (j = i; j > 0; j--) {
+        s->content[s->len++] = tmp[j - 1];
     }
 }
 
-static void sink_putl(struct sink *s, long v)
+static void render_unsigned(struct sink *s, unsigned long v, int base, int upper)
+{
+    s->len = 0;
+    ul_append(s, v, base, upper);
+}
+
+static void render_long(struct sink *s, long v, int flags)
 {
     unsigned long u;
+    s->len = 0;
     if (v < 0) {
-        sink_putc(s, '-');
+        s->content[s->len++] = '-';
         u = (unsigned long)(-(v + 1)) + 1UL; /* avoid overflow on LONG_MIN */
     } else {
+        if (flags & F_PLUS) {
+            s->content[s->len++] = '+';
+        } else if (flags & F_SPACE) {
+            s->content[s->len++] = ' ';
+        }
         u = (unsigned long)v;
     }
-    sink_putul(s, u, 10, 0);
+    ul_append(s, u, 10, 0);
 }
 
-static void sink_putdouble(struct sink *s, double d)
+/* Fixed-precision decimal rendering (default 6 for %f/%g/%e). Written to
+ * s->content, never sprintf'd into a fixed temp buffer: beyond ULONG_MAX
+ * (or +Inf) the integer part does not fit, so a bounded "big" marker is
+ * emitted instead -- this is the strict-C89 diagnostics fallback, where a
+ * lossy "big" is acceptable (the alternative was a stack overflow). */
+static void render_double(struct sink *s, double d, int prec, int flags)
 {
-    /* Simple fixed 6-decimal rendering; sufficient for our diagnostics.
-     * Written straight to the cap-bounded sink rather than sprintf'd into a
-     * fixed buffer: `%f` on a large double emits hundreds of digits, which
-     * overflowed the old tmp[64] (the sprintf-lint caught it). No sprintf, no
-     * fixed buffer, so no overflow is possible regardless of the value. */
     unsigned long ip;
     double frac;
     int i;
-
+    s->len = 0;
+    if (prec < 0) { prec = 6; }
+    if (prec > 48) { prec = 48; }
     if (d != d) {            /* NaN: not equal to itself */
-        sink_puts(s, "nan");
+        s->content[s->len++] = 'n';
+        s->content[s->len++] = 'a';
+        s->content[s->len++] = 'n';
         return;
     }
     if (d < 0.0) {
-        sink_putc(s, '-');
+        s->content[s->len++] = '-';
         d = -d;
+    } else if (flags & F_PLUS) {
+        s->content[s->len++] = '+';
+    } else if (flags & F_SPACE) {
+        s->content[s->len++] = ' ';
     }
-    /* Beyond ULONG_MAX (or +Inf) the integer part does not fit; emit a
-     * bounded marker instead of an unbounded/undefined conversion. This is
-     * the strict-C89 diagnostics fallback, so a lossy "big" is acceptable --
-     * the alternative was a stack overflow. */
     if (!(d <= (double)ULONG_MAX)) {
-        sink_puts(s, "big");
+        s->content[s->len++] = 'b';
+        s->content[s->len++] = 'i';
+        s->content[s->len++] = 'g';
         return;
     }
     ip = (unsigned long)d;
-    sink_putul(s, ip, 10, 0);
-    sink_putc(s, '.');
-    frac = d - (double)ip;
-    for (i = 0; i < 6; i++) { /* six decimals, truncated (matches the note) */
-        int digit;
-        frac *= 10.0;
-        digit = (int)frac;
-        if (digit < 0) { digit = 0; }
-        if (digit > 9) { digit = 9; }
-        sink_putc(s, (char)('0' + digit));
-        frac -= (double)digit;
+    ul_append(s, ip, 10, 0);
+    if (prec > 0) {
+        s->content[s->len++] = '.';
+        frac = d - (double)ip;
+        for (i = 0; i < prec; i++) { /* truncated decimals (matches the note) */
+            int digit;
+            frac *= 10.0;
+            digit = (int)frac;
+            if (digit < 0) { digit = 0; }
+            if (digit > 9) { digit = 9; }
+            s->content[s->len++] = (char)('0' + digit);
+            frac -= (double)digit;
+        }
+    }
+}
+
+/* Write s->content[0..len) to the sink with the width applied. The zero
+ * flag pads with '0' (after the sign, if one was emitted) and only when no
+ * precision is present, as C99 7.19.6.1 requires; minus moves the padding
+ * to the right. */
+static void emit_padded(struct sink *s, int flags, int width, int prec_set)
+{
+    jc_size pad = (s->len < (jc_size)width) ? (jc_size)width - s->len : 0;
+    char padch = ' ';
+    int has_sign = (s->len > 0 && (s->content[0] == '-' || s->content[0] == '+'));
+    /* The sign goes BEFORE the padding in both layouts, and the 0-flag
+     * fills after it (C99 7.19.6.1). */
+    if (has_sign) {
+        sink_putc(s, s->content[0]);
+        s->content++;
+        s->len--;
+    }
+    if (!(flags & F_MINUS) && (flags & F_ZERO) && !prec_set) {
+        padch = '0';
+    }
+    if (!(flags & F_MINUS)) {
+        while (pad > 0) {
+            sink_putc(s, padch);
+            pad--;
+        }
+    }
+    while (s->len > 0) {
+        sink_putc(s, *s->content);
+        s->content++;
+        s->len--;
+    }
+    if (flags & F_MINUS) {
+        while (pad > 0) {
+            sink_putc(s, padch);
+            pad--;
+        }
+    }
+}
+
+/* %s with optional precision and width: MEASURE first (the precision may be
+ * larger than any fixed buffer, so the string never goes through
+ * s->content), pad, then copy. */
+static void render_str(struct sink *s, const char *str, int prec, int flags, int width)
+{
+    jc_size n = 0;
+    jc_size i;
+    if (str == NULL) {
+        str = "(null)";
+    }
+    if (prec >= 0) {
+        while (n < (jc_size)prec && str[n] != '\0') { n++; }
+    } else {
+        while (str[n] != '\0') { n++; }
+    }
+    if (!(flags & F_MINUS) && n < (jc_size)width) {
+        emit_spaces(s, (jc_size)width - n);
+    }
+    for (i = 0; i < n; i++) {
+        sink_putc(s, str[i]);
+    }
+    if ((flags & F_MINUS) && n < (jc_size)width) {
+        emit_spaces(s, (jc_size)width - n);
+    }
+}
+
+struct spec {
+    int flags;
+    int width;      /* 0 = none; -1 = '*' (consumed right after parsing) */
+    int prec;       /* -1 = none; '*' is marked by prec_star            */
+    int prec_star;
+};
+
+static int jc_isdigit_c(char c)
+{
+    return c >= '0' && c <= '9';
+}
+
+/* Parse the flags/width/precision grammar ("[-+ 0] width[.precision]") that
+ * follows '%'; width and precision may be '*' (an int argument, consumed in
+ * STRING order, before the conversion char is even known). */
+static void spec_parse(struct spec *sp, const char **pp)
+{
+    const char *p = *pp;
+    sp->flags = 0;
+    sp->width = 0;
+    sp->prec = -1;
+    sp->prec_star = 0;
+    for (;;) {
+        if (*p == '-') {
+            sp->flags |= F_MINUS;
+        } else if (*p == '+') {
+            sp->flags |= F_PLUS;
+        } else if (*p == ' ') {
+            sp->flags |= F_SPACE;
+        } else if (*p == '0') {
+            sp->flags |= F_ZERO;
+        } else {
+            break;
+        }
+        p++;
+    }
+    if (*p == '*') {
+        sp->width = -1;
+        p++;
+    } else {
+        while (jc_isdigit_c(*p)) {
+            sp->width = sp->width * 10 + (*p - '0');
+            p++;
+        }
+    }
+    if (*p == '.') {
+        p++;
+        if (*p == '*') {
+            sp->prec_star = 1;
+            p++;
+        } else {
+            sp->prec = 0;
+            while (jc_isdigit_c(*p)) {
+                sp->prec = sp->prec * 10 + (*p - '0');
+                p++;
+            }
+        }
+    }
+    *pp = p;
+}
+
+/* THE ALIGNMENT CORE (A-10): a conversion this fallback does not render
+ * must still CONSUME the argument its class implies -- never consume-less-
+ * print. Integer-ish classes take an int (promoted to long with 'l'), the
+ * l-forms a long; %n takes an int * (a pointer, 8 bytes on x86-64 SysV);
+ * everything else (floats, pointers, unknowns) consumes a double -- the
+ * largest argument the class can carry, so the va_arg list stays in step
+ * whatever the format string then asks for. */
+static void consume_class(va_list ap, char conv, int flags)
+{
+    if (conv == 'n') {
+        /* %n's operand is an int *, NOT an int (M1079-b / A-10). Reading it
+         * back as va_arg(ap,int) advances the va_list by 4 bytes; the
+         * pointer occupies an 8-byte slot on x86-64 SysV, so any conversion
+         * AFTER a %n re-desyncs the list -- the exact SEGV class A-10 exists
+         * to eliminate. Consume the pointer. Do NOT write through it: the
+         * fallback may not write outside its sink, and %n is a side-effecting
+         * spec -- consuming the slot and ignoring the write is the safe,
+         * documented behaviour. */
+        (void)va_arg(ap, int *);
+    } else if (conv == 'd' || conv == 'i' || conv == 'u' || conv == 'o' ||
+        conv == 'x' || conv == 'X' ||
+        conv == 'l' || conv == 'h' || conv == 'H' || conv == 't' ||
+        conv == 'j' || conv == 'q' || conv == 'Q') {
+        if (flags & F_LONG) { (void)va_arg(ap, long); }
+        else { (void)va_arg(ap, int); }
+    } else if (conv == 'p') {
+        (void)va_arg(ap, void *);
+    } else {
+        (void)va_arg(ap, double);
     }
 }
 
 int jc_vsnprintf(char *buf, jc_size cap, const char *fmt, va_list ap)
 {
     struct sink s;
+    char content[80]; /* one conversion's width/precision-aside text       */
+
     s.buf = buf;
     s.cap = cap;
     s.pos = 0;
     s.want = 0;
+    s.content = content;
+    s.len = 0;
 
     while (*fmt) {
+        struct spec sp;
+        char conv;
+
         if (*fmt != '%') {
             sink_putc(&s, *fmt);
             fmt++;
             continue;
         }
         fmt++; /* consume '%' */
-        if (*fmt == 'l') {
+        spec_parse(&sp, &fmt);
+
+        /* The '*' args come BEFORE the conversion char, in string order:
+         * the width star, then the precision star. (A-10's desync: the old
+         * code saw '%.*s' as an unknown conversion and consumed nothing.) */
+        if (sp.width == -1) {
+            int w = va_arg(ap, int);
+            sp.width = (w < 0) ? 0 : w;
+        }
+        if (sp.prec_star) {
+            int p = va_arg(ap, int);
+            sp.prec = (p < 0) ? -1 : p;
+        }
+        conv = *fmt;
+
+        /* Length modifier: the only one this fallback's codebase needs is
+         * 'l'. A second modifier letter (ll, lz, ...) falls into the else
+         * below and is consumed as integer-ish, then printed crudely. */
+        if (conv == 'l') {
+            sp.flags |= F_LONG;
             fmt++;
-            if (*fmt == 'd') {
-                sink_putl(&s, va_arg(ap, long));
-            } else if (*fmt == 'u') {
-                sink_putul(&s, va_arg(ap, unsigned long), 10, 0);
-            } else if (*fmt == 'x') {
-                sink_putul(&s, va_arg(ap, unsigned long), 16, 0);
-            } else if (*fmt == 'X') {
-                sink_putul(&s, va_arg(ap, unsigned long), 16, 1);
-            } else {
-                sink_putc(&s, '%');
-                sink_putc(&s, 'l');
-                if (*fmt) sink_putc(&s, *fmt);
-            }
-        } else if (*fmt == 'd') {
-            sink_putl(&s, (long)va_arg(ap, int));
-        } else if (*fmt == 'u') {
-            sink_putul(&s, (unsigned long)va_arg(ap, unsigned int), 10, 0);
-        } else if (*fmt == 'x') {
-            sink_putul(&s, (unsigned long)va_arg(ap, unsigned int), 16, 0);
-        } else if (*fmt == 's') {
+            conv = *fmt;
+        }
+        if (conv == '\0') {
+            break; /* trailing '%': print nothing, consume nothing */
+        }
+
+        if (conv == 'd' || conv == 'i') {
+            long v;
+            if (sp.flags & F_LONG) { v = va_arg(ap, long); }
+            else { v = (long)va_arg(ap, int); }
+            render_long(&s, v, sp.flags);
+            emit_padded(&s, sp.flags, sp.width, 0);
+        } else if (conv == 'u' || conv == 'o' || conv == 'x' || conv == 'X') {
+            unsigned long v;
+            int base = (conv == 'x' || conv == 'X') ? 16
+                       : (conv == 'o' ? 8 : 10);
+            if (sp.flags & F_LONG) { v = va_arg(ap, unsigned long); }
+            else { v = (unsigned long)va_arg(ap, unsigned int); }
+            render_unsigned(&s, v, base, conv == 'X');
+            emit_padded(&s, sp.flags, sp.width, 0);
+        } else if (conv == 's') {
             const char *str = va_arg(ap, const char *);
-            sink_puts(&s, str ? str : "(null)");
-        } else if (*fmt == 'c') {
-            sink_putc(&s, (char)va_arg(ap, int));
-        } else if (*fmt == 'f') {
-            sink_putdouble(&s, va_arg(ap, double));
-        } else if (*fmt == '%') {
+            render_str(&s, str, sp.prec, sp.flags, sp.width);
+        } else if (conv == 'c') {
+            int c = va_arg(ap, int);
+            s.len = 0;
+            s.content[s.len++] = (char)c;
+            emit_padded(&s, sp.flags, sp.width, 0);
+        } else if (conv == 'f' || conv == 'g' || conv == 'e') {
+            double d = va_arg(ap, double);
+            /* %g and %e render like %f (fixed, default-6): honest in
+             * jc_snprintf.h; the finding's class is the desync, not the
+             * float fidelity. %f honours the precision; width pads. */
+            render_double(&s, d, sp.prec, sp.flags);
+            emit_padded(&s, sp.flags, sp.width, sp.prec >= 0);
+        } else if (conv == 'p') {
+            (void)va_arg(ap, void *);
+            sink_puts(&s, "(ptr)"); /* consume, then print the literal class */
+        } else if (conv == '%') {
             sink_putc(&s, '%');
         } else {
-            sink_putc(&s, '%');
-            if (*fmt) sink_putc(&s, *fmt);
+            /* Unsupported conversion: CONSUME its class (alignment core),
+             * then print the specifier crudely -- never consume-less-print. */
+            consume_class(ap, conv, sp.flags);
+            sink_puts(&s, "%");
+            if (sp.flags & F_LONG) { sink_putc(&s, 'l'); }
+            sink_putc(&s, conv);
         }
         if (*fmt) fmt++;
     }

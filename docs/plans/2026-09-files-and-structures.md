@@ -1,7 +1,6 @@
 # Files and data structures — the plan
 
-**Status:** planned, not built. **Written:** 2026-09-16, after M636d measured the
-gap. **Operator brief:** *"The courses must explain honestly, and comprehensively
+**Status:** the course shipped -- tasks 76-80 plus `FILE_HANDLING.md` and `DATA_STRUCTURES.md` (ROADMAP: "the files-and-structures course is complete: 76-80 shipped as the plan named them"). The "planned, not built" header is superseded now that the deliverables have landed; the design below is the record of *how*. **Written:** 2026-09-16, after M636d measured the gap. **Operator brief:** *"The courses must explain honestly, and comprehensively
 the design decisions for jichi, and still teach alternatives for other
 use-cases."* That sentence is the design constraint, not a preamble — every
 section below is answerable to it.

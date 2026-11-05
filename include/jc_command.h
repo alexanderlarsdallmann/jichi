@@ -41,6 +41,7 @@ struct jc_command {
                         * the subtask's answer is persisted there (M79). NULL if
                         * unset. */
     char *body;        /* the prompt template, arena-owned       */
+    int   scope;       /* 0 = user (global dir), 1 = project (.jichi/commands) */
 };
 
 struct jc_command_set {
@@ -55,6 +56,19 @@ void jc_command_set_free(struct jc_command_set *s);
 jc_status jc_command_load(struct jc_command_set *s, const char *cwd,
                           struct jc_arena *a);
 
+/* Expand a command's template. `args_raw` is the text after the command name
+ * (may be NULL/empty); `cwd` anchors @path and !`cmd`.
+ *
+ * For a project command (scope == 1), project_trusted must be 0/1 and wsroot
+ * must be the workspace root (may be NULL, treated as cwd). If project_trusted
+ * is 0 and scope is 1, shell expansion (!`cmd`) and outside-root file reads
+ * (@path) are refused with a greppable message.
+ *
+ * *out is arena-owned. */
+jc_status jc_command_expand(const struct jc_command *c, const char *args_raw,
+                            const char *cwd, struct jc_arena *a, int project_trusted,
+                            const char *wsroot, char **out);
+
 const struct jc_command *jc_command_find(const struct jc_command_set *s,
                                          const char *name);
 
@@ -63,11 +77,6 @@ struct jc_sb; /* jc_str.h */
 /* Render the set as a human-readable listing into `out` (one line per command:
  * `/name - description`). Pure; unit-tested. Used by the `commands` subcommand. */
 void jc_command_render_list(const struct jc_command_set *s, struct jc_sb *out);
-
-/* Expand a command's template. `args_raw` is the text after the command name
- * (may be NULL/empty); `cwd` anchors @path and !`cmd`. *out is arena-owned. */
-jc_status jc_command_expand(const struct jc_command *c, const char *args_raw,
-                            const char *cwd, struct jc_arena *a, char **out);
 
 #ifdef __cplusplus
 }

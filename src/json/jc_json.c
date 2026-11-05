@@ -5,6 +5,7 @@
 
 #include "jc_json.h"
 #include "jc_str.h"
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -69,6 +70,88 @@ double jc_json_get_num_lenient(const cJSON *o, const char *key, double dflt)
         return v;
     }
     return dflt;
+}
+
+/* Untrusted-double clamps (A-02, M1077).
+ *
+ * Converting a double that does not fit the target integer type with a plain
+ * cast is undefined behaviour -- UBSan: "1e+10 is outside the range of
+ * representable values of type 'int'" (measured end-to-end at
+ * src/tools/tool_util.c:123, the tu_arg_int path). These take the value a JSON
+ * number reader returned -- jc_json_get_num, or a node's ->valuedouble -- and
+ * clamp it into the target's range, so the caller never performs that cast on
+ * an out-of-range double.
+ *
+ * The shape is cJSON's own number_to_int (src/json/cJSON.c:282), extended to the
+ * other widths. The rules, for every one of the four:
+ *   NaN            -> 0
+ *   +infinity      -> the type's max
+ *   -infinity      -> the type's min
+ *   otherwise      -> clamp to [min, max]. An in-range value passes EXACTLY:
+ *                     every integral double at 2^53 and below is exact, so a
+ *                     number the sender could actually write is never
+ *                     distorted; a fractional value is truncated, as the plain
+ *                     C cast would be.
+ *
+ * A node-taking key variant is deliberately NOT added (the lead's decision,
+ * recorded in LOG-3, run 0091): the 117-site sweep uses these four double-clamps
+ * at both the jc_json_get_num sites and the ->valuedouble sites.
+ */
+
+int jc_json_clamp_int(double val)
+{
+    if (val != val) {                 /* NaN */
+        return 0;
+    }
+    if (val >= (double)INT_MAX) {     /* +Inf, and everything above it */
+        return INT_MAX;
+    }
+    if (val <= (double)INT_MIN) {     /* -Inf, and everything below it */
+        return INT_MIN;
+    }
+    return (int)val;                  /* defined: the two guards bound val */
+}
+
+long jc_json_clamp_long(double val)
+{
+    if (val != val) {
+        return 0;
+    }
+    if (val >= (double)LONG_MAX) {
+        return LONG_MAX;
+    }
+    if (val <= (double)LONG_MIN) {
+        return LONG_MIN;
+    }
+    return (long)val;
+}
+
+unsigned int jc_json_clamp_uint(double val)
+{
+    if (val != val) {                 /* NaN */
+        return 0;
+    }
+    if (val <= 0.0) {                 /* -Inf, and every negative value -> min */
+        return 0;
+    }
+    if (val >= (double)UINT_MAX) {    /* +Inf, and everything above it */
+        return UINT_MAX;
+    }
+    return (unsigned int)val;
+}
+
+jc_size jc_json_clamp_size(double val)
+{
+    if (val != val) {                 /* NaN */
+        return 0;
+    }
+    if (val <= 0.0) {                 /* -Inf, and every negative value -> min */
+        return 0;
+    }
+    if (val >= (double)~(jc_size)0) { /* +Inf, and everything above it */
+        return ~(jc_size)0;
+    }
+    return (jc_size)val;
 }
 
 int jc_json_get_bool(const cJSON *o, const char *key, int dflt)

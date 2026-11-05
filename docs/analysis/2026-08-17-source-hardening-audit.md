@@ -422,6 +422,17 @@ child process, there are four channels, not two.** Environment, filesystem permi
 **inherited descriptors**, and the arguments themselves. A fence that covers two of four
 is a fence with a door in it.
 
+> **Added 2026-09-25: a fifth channel, the parent's own `/proc` entries.** This rule was
+> itself one short. A child that inherits nothing can still *reach* its parent: a same-user
+> process may read `/proc/<pid>/environ` and use `/proc/<pid>/fd/` of any dumpable process,
+> and every ordinary process is dumpable. The child's environment had been scrubbed, but
+> jichi's own still held the key, so `tr '\0' '\n' < /proc/$PPID/environ` returned it. The
+> contained-drive prototype measured this on the host and in a container, and this audit
+> had not looked. Fixed as M770: jichi makes itself non-dumpable at startup
+> ([HARDENING.md](../HARDENING.md) §2, "The parent's own copy"). The lesson generalizes in
+> the same way as the one above. A channel is anything the child can reach, not only what
+> it is handed, and the parent is within reach.
+
 #### The fix, and the alternative I rejected
 
 **Recommended: both belts, because they fail differently.**
@@ -1038,7 +1049,7 @@ the code stands. Each of these I looked at specifically, expecting to find somet
 | SSE memory bound | `JC_SSE_FIELD_MAX` correct for what it was built for (see H4 for what it is not) |
 | Signal handlers | Set flags only, `volatile`; `signal()` is async-signal-safe. One nit: `volatile int` rather than `volatile sig_atomic_t` (`jc_app.h:296`) — technically the wrong type, benign in practice, and CLAUDE.md already states the stricter rule |
 | `jc_utf8_sanitize` UTF-8 validation | **Correct** — rejects overlongs, surrogates, >U+10FFFF, truncated sequences. It is a correct UTF-8 validator; it is not a control-character filter, and H3 is about the gap between those two jobs, not a defect in this function |
-| Environment scrubbing for children (M130) | Works as designed; H2 is a different channel, not a failure of this one |
+| Environment scrubbing for children (M130) | Works as designed; H2 is a different channel, not a failure of this one. *2026-09-25:* the scrub covers the child's copy and not the parent's, which a same-user child could read through `/proc/$PPID/environ`; a fifth channel, fixed as M770 (see the note under H2) |
 | Provider TLS verification | Correct by libcurl default (see L4 for why "by default" is the note) |
 
 ---
@@ -1125,7 +1136,10 @@ Extracted deliberately, because the findings are specific to jichi and these are
 its environment, its filesystem permissions, its **inherited descriptors**, and its
 arguments. H2 exists because two were covered thoroughly and one was invisible. The
 invisible one is almost always descriptors, because nothing in normal operation shows
-them to you — you have to go and look at `/proc/self/fd`.
+them to you — you have to go and look at `/proc/self/fd`. *(2026-09-25: five. The fifth
+is what the child can reach rather than what it is handed: its parent's own `/proc`
+entries, which is where jichi's key was still readable. Look at `/proc/$PPID` as well
+as `/proc/self`. M770.)*
 
 **2. Every recursive parser needs a depth limit, and it needs it before it ships.** If
 the input controls how deep you recurse, the input controls your stack. The fix is six

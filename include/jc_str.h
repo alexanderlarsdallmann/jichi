@@ -39,11 +39,16 @@ jc_status jc_sb_append_n(struct jc_sb *b, const char *s, jc_size n);
 jc_status jc_sb_append_char(struct jc_sb *b, char c);
 
 /* printf-style append using jc_vsnprintf (see jc_snprintf.h). */
-jc_status jc_sb_append_fmt(struct jc_sb *b, const char *fmt, ...);
+jc_status jc_sb_append_fmt(struct jc_sb *b, const char *fmt, ...) JC_PRINTF(2, 3);
 
 /* Detach the buffer: returns the NUL-terminated data and resets the builder
  * to empty. The caller owns the returned pointer (free with free()). */
 char *jc_sb_finish(struct jc_sb *b);
+
+/* Return the last newline-terminated line in the buffer, or NULL if empty.
+ * The returned pointer points into the buffer (caller must not free); it is
+ * valid until the next append or free. */
+const char *jc_sb_last_line(const struct jc_sb *b);
 
 /* malloc-backed strdup (C89 has no strdup). NULL in -> NULL out. */
 char *jc_strdup(const char *s);

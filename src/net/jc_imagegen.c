@@ -8,10 +8,22 @@
 #include "jc_log.h"
 #include "jc_base64.h"
 #include "jc_http.h"
+#include "jc_snprintf.h"
+#include "jc_net.h"
 #include "net_util.h"
 
 #include <stdlib.h>
 #include <string.h>
+
+/* M1093 (C-09): the image side call's named TOTAL cap (a CAP, not a fence),
+ * shared by both legs (the POST and the URL fetch). The connect + dead-stream
+ * FENCES come from jc_net_side_fences. */
+#define JC_NET_IMAGEGEN_TIMEOUT_SECS 60
+
+/* M1092-b (SV:0219): slack for the non-b64 JSON framing of the b64_json
+ * envelope, {"created":N,"data":[{"b64_json":"..."}]} -- a few hundred bytes.
+ * 2048 is generous framing slack, well below one page. */
+#define ENVELOPE_JSON_SLACK 2048L
 
 char *jc_imagegen_build_body_ex(const char *model, const char *prompt,
                                 const char *size, const char *out_format,
@@ -132,9 +144,12 @@ jc_status jc_imagegen_parse(const char *json, unsigned char **out_bytes,
     return JC_ERR_PARSE;
 }
 
-/* GET a (public/presigned) image URL into the out_bytes/out_len pair. */
+/* GET a (public/presigned) image URL into the out_bytes/out_len pair.
+ * `max_bytes` (C-06) is the transfer cap (0 => the library default ceiling);
+ * `out_overflow` (may be NULL) receives 1 when the transfer was cut at it. */
 static jc_status fetch_image_url(const char *url, unsigned char **out_bytes,
-                                 jc_size *out_len, volatile int *abort)
+                                 jc_size *out_len, volatile int *abort,
+                                 long max_bytes, int *out_overflow)
 {
     struct jc_http_request req;
     char *body = NULL;
@@ -142,13 +157,26 @@ static jc_status fetch_image_url(const char *url, unsigned char **out_bytes,
     long status = 0;
     jc_status st;
 
+    if (out_overflow != NULL) {
+        *out_overflow = 0;
+    }
     memset(&req, 0, sizeof(req));
     req.method = "GET";
     req.url = url;
-    req.timeout_secs = 60;
+    req.timeout_secs = JC_NET_IMAGEGEN_TIMEOUT_SECS;
     req.abort_flag = abort;
+    req.max_bytes = max_bytes; /* C-06: 0 => the library's default ceiling */
+    /* C-07 (M1119): the reply URL is SERVER- or MITM-named, so it is an
+     * untrusted URL and gets the connect-time private-address guard (the
+     * fetch_url house standard, jc_tool_fetch.c). The POST leg above stays
+     * unguarded: it is the operator-configured, trusted api_base. */
+    req.block_private_addrs = 1;
+    jc_net_side_fences(&req, NULL); /* M1093: no jc_config in scope: built-in */
     st = jc_http_perform(&req, &status, &body, &body_len);
     if (st != JC_OK) {
+        if (out_overflow != NULL) {
+            *out_overflow = req.overflow;
+        }
         free(body);
         return st;
     }
@@ -166,16 +194,25 @@ jc_status jc_imagegen_run(const struct jc_model_cfg *m, const char *prompt,
                           const char *size, const char *out_format,
                           const char *const *ref_images, int n_ref,
                           int fetch_url, unsigned char **out_bytes,
-                          jc_size *out_len, volatile int *abort)
+                          jc_size *out_len, volatile int *abort,
+                          long max_bytes, int *out_overflow)
 {
     char *body;
     char *resp = NULL;
     char *url = NULL;
     long status = 0;
     jc_status st;
+    int overflow = 0;
+    char post_url[1024];
+    char auth[1200];
+    struct jc_http_request req;
+    struct jc_http_headers headers;
 
     *out_bytes = NULL;
     *out_len = 0;
+    if (out_overflow != NULL) {
+        *out_overflow = 0;
+    }
     if (m == NULL || prompt == NULL) {
         return JC_ERR_INVALID;
     }
@@ -184,15 +221,64 @@ jc_status jc_imagegen_run(const struct jc_model_cfg *m, const char *prompt,
     if (body == NULL) {
         return JC_ERR_OOM;
     }
-    st = jc_net_post_json(m, "/images/generations", body, &status, &resp, abort);
+    /* C-06: the POST leg goes through jc_net_post_json's exact request shape,
+     * inlined here so the transfer carries max_bytes (that helper is shared
+     * with the embeddings/rerank clients and cannot grow the parameter). The
+     * reply is the b64_json JSON envelope, so a huge envelope aborts at the
+     * cap before it fills memory.
+     *
+     * M1092-b (SV:0219): the transfer cap is the ENVELOPE's size bound, not
+     * the decoded cap: max_bytes is the decoded image cap (the argument), and
+     * a b64 image of that size encodes to jc_base64_encoded_len(max_bytes)
+     * plus the small JSON framing slack -- so every LEGAL image's envelope
+     * clears the transfer bound, and only an image over the cap (or a hostile
+     * oversized envelope) trips it. (Capping the transfer at the decoded cap
+     * itself cut in transit any image above ~73% of the cap.) */
+    jc_net_url_v1(m, "/images/generations", post_url, sizeof(post_url));
+    jc_http_headers_init(&headers);
+    jc_http_headers_add(&headers, "Content-Type: application/json");
+    if (m->api_key != NULL && m->api_key[0] != '\0') {
+        jc_snprintf(auth, sizeof(auth), "Authorization: Bearer %s", m->api_key);
+        jc_http_headers_add(&headers, auth);
+    }
+    memset(&req, 0, sizeof(req));
+    req.method = "POST";
+    req.url = post_url;
+    req.headers = &headers;
+    req.body = body;
+    req.body_len = strlen(body);
+    req.timeout_secs = JC_NET_IMAGEGEN_TIMEOUT_SECS;
+    req.abort_flag = abort;
+    jc_net_side_fences(&req, NULL); /* M1093: no jc_config in scope: built-in */
+    if (max_bytes > 0) {
+        /* M1092-b (SV:0219): cap the TRANSFER at the b64_json envelope's
+         * size bound (jc_base64_encoded_len(cap) + the small framing slack),
+         * not at the decoded image cap -- the reply is the envelope, ~1.37x
+         * the image. 0 keeps the library's default ceiling. The url-only GET
+         * leg (fetch_image_url) returns RAW bytes and keeps max_bytes as is. */
+        req.max_bytes = jc_base64_encoded_len((jc_size)max_bytes) +
+                       ENVELOPE_JSON_SLACK;
+    } else {
+        req.max_bytes = 0; /* C-06: the library's default ceiling */
+    }
+    st = jc_http_perform(&req, &status, &resp, NULL);
+    jc_http_headers_free(&headers);
     free(body);
     if (st != JC_OK) {
+        overflow = req.overflow; /* C-06: was the POST cut at the cap */
         free(resp);
+        if (out_overflow != NULL) {
+            *out_overflow = overflow;
+        }
         return st;
     }
     if (status >= 400 || resp == NULL) {
+        /* M1131 (C-13): cap the error body to 2048 before logging (see
+         * jc_log_err_body_cap); resp NULL -> cap NULL -> just the status. */
+        char *cap = jc_log_err_body_cap(resp, 2048);
         jc_logf(JC_LOG_ERROR, "image generation: HTTP %ld%s%s", status,
-                resp != NULL ? " " : "", resp != NULL ? resp : "");
+                cap != NULL ? " " : "", cap != NULL ? cap : "");
+        free(cap);
         free(resp);
         return JC_ERR_PROVIDER;
     }
@@ -207,8 +293,12 @@ jc_status jc_imagegen_run(const struct jc_model_cfg *m, const char *prompt,
     }
     /* url-only response. */
     if (url != NULL && fetch_url) {
-        st = fetch_image_url(url, out_bytes, out_len, abort);
+        st = fetch_image_url(url, out_bytes, out_len, abort, max_bytes,
+                             &overflow);
         free(url);
+        if (out_overflow != NULL) {
+            *out_overflow = overflow;
+        }
         return st;
     }
     free(url);

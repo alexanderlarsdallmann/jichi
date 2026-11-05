@@ -334,20 +334,19 @@ now have physical evidence:
 
 ## Where the RAM goes
 
-```mermaid
-flowchart TD
-  RSS["Resident set (~10-20 MB on glibc)"]
-  RSS --> TEXT["jichi binary text/data<br/>~0.5 MB (fixed)"]
-  RSS --> LIBC["libc<br/>(shared, fixed)"]
-  RSS --> CURL["libcurl + TLS chain<br/>DOMINANT, mostly shared<br/>(OpenSSL+GnuTLS+krb5+ldap+ssh2+...)"]
-  RSS --> HEAP["jichi heap (private, the part you control)"]
-  HEAP --> ARENA["session arena<br/>8 KB blocks; settles after startup"]
-  HEAP --> SCR["per-turn scratch arena<br/>system message + expansion;<br/>reset each top-level turn"]
-  HEAP --> TSCR["per-tool-call arena<br/>a file's bytes while a tool uses them;<br/>reset before EVERY tool call"]
-  HEAP --> HIST["conversation history<br/>malloc'd; bounded by auto-compaction"]
-  HEAP --> SCRATCH["per-turn request scratch<br/>request body ≈ contextLimit (freed once uploaded);<br/>response streamed; up to 32 tool-call slots"]
-  HEAP --> TOOLS["tool-output buffers<br/>capped per tool (see table)"]
-```
+| Component | Size | Notes |
+|---|---|---|
+| jichi binary text/data | ~0.5 MB (fixed) | — |
+| libc | shared, fixed | — |
+| **libcurl + TLS chain** | **dominant**, mostly shared | OpenSSL+GnuTLS+krb5+ldap+ssh2+… — the floor |
+| session arena | 8 KB blocks | settles after startup |
+| per-turn scratch arena | small | system message + expansion; reset each top-level turn |
+| per-tool-call arena | a file's bytes | reset before every tool call |
+| conversation history | malloc'd | bounded by auto-compaction |
+| per-turn request scratch | ≈ contextLimit | request body freed once uploaded; response streamed; ≤32 tool-call slots |
+| tool-output buffers | capped per tool | see the caps table |
+
+The resident set is ~10–20 MB on glibc; the private heap is the part you control.
 
 **The libcurl chain is the floor.** `ldd jichi` on a typical desktop shows
 libcurl dragging in *both* OpenSSL (`libssl`, `libcrypto`) **and** GnuTLS
@@ -378,6 +377,14 @@ fit. Shrinking this chain (a minimal libcurl) is the single biggest lever; see
 | `git_*` | 32 KB |
 | user-defined tools | 32 KB |
 | `spawn_parallel` per-agent answer | 16 KB |
+
+> **A byte cap is not a memory cap.** The SSE field cap bounds one `data:`
+> field's *bytes*, but parsing expands them: the JSON parser allocates one node
+> per value, so a dense reply costs ~40x its bytes in parser memory while it is
+> parsed. Since M1089 the parser additionally bounds the node count of a single
+> parse at 1,000,000 and refuses a reply that would need more (it returns an
+> error, not a partial tree), so one large-but-valid reply cannot grow the heap
+> without limit.
 
 - *Over the session:* the conversation history (see the next section).
 
@@ -814,10 +821,15 @@ calls, so it links cleanly against **musl** (and uClibc) for a self-contained
 binary — combine it with the size profile:
 
 ```sh
-make clean && make SIZE=1 CC=musl-gcc LDLIBS="-lm -lcurl -static"
+make clean && make SIZE=1 CC=musl-gcc STATIC=1
 ```
 
-(with a static, minimal libcurl available for the target). See
+(with a static, minimal libcurl available for the target). Use the named
+`STATIC=1` mode rather than the old `LDLIBS="-lm -lcurl -static"` override:
+that override put `-static` AFTER `-pie`, so the binary was Type EXEC, not
+PIE, while `make info` still listed `-pie` (E-07) — and it dropped
+`$(SANFLAGS)`/`$(RT_LIBS)`/`$(SOCK_LIBS)` from `LDLIBS`. `STATIC=1` probes
+`-static-pie` and says which form it took in `make info` (`STATIC_MODE`). See
 [`DEPLOYMENT.md` §3e](DEPLOYMENT.md#3e-portability--cross-compiling) for
 cross-compiling.
 

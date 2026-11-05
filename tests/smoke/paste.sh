@@ -36,6 +36,7 @@ expect "PASTE_OK" 15
 delay 500
 send "/exit\r"
 waitexit 10
+assertexit 0
 EOF
 (cd "$ws" && "$SMOKE_TOOLS/ptydrive" --deadline 45 --cols 100 \
     "$tmp/bracket.pd" -- "$BIN" --config "$tmp/config.json" --no-route); rc=$?
@@ -53,6 +54,7 @@ expect "PASTE_OK" 15
 delay 500
 send "/exit\r"
 waitexit 10
+assertexit 0
 EOF
 (cd "$ws" && "$SMOKE_TOOLS/ptydrive" --deadline 45 --cols 100 \
     "$tmp/burst.pd" -- "$BIN" --config "$tmp/config.json" --no-route); rc=$?

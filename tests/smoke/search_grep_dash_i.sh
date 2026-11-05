@@ -31,7 +31,7 @@
 #              (src/tools/jc_tool_search.c says so at the probe).
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 4
+t_plan 7
 
 smoke_home
 tmp=$(smoke_tmp)
@@ -69,11 +69,11 @@ else
 fi
 
 run_search() {
-    cat > "$tmp/replies.mm" <<'EOF'
+    cat > "$tmp/replies.mm" <<EOF
 wire openai
 rule
   count 1
-  tool search_code {"pattern":"marker_needle","path":"src"}
+  tool search_code {"pattern":"$2","path":"src"}
 rule
   text SEARCH_DONE
 EOF
@@ -88,6 +88,14 @@ EOF
     mm_stop
 }
 
+# M956: the same runner, but the pattern is a parameter. Used by the busybox-shim
+# checks 5-7, which stand in for a platform whose /usr/bin/grep is busybox
+# (Alpine). It delegates to the REAL busybox binary, not a shell emulation -- a
+# shim that special-cased the sentinel would pass by echoing the string it was
+# written to emit, not by exercising jichi's classification of a real busybox
+# output. (The runbook: make a fixture behave like the real peer.)
+run_search_pat() { run_search "$1" "$2"; }
+
 # --- 2: control -- the normal grep finds it -----------------------------------
 # The tool RESULT travels in the next request body, so the captured requests are
 # the ground truth for "the model was told" (the M429 lesson). The evidence is
@@ -95,7 +103,7 @@ EOF
 # "marker_needle", which is also in the tool CALL, so checks 2 and 3 passed
 # while the search was returning an error. Check 4 caught it. Assert on what
 # only the result can contain.
-rm -rf "$tmp/cap"; run_search "$PATH"
+rm -rf "$tmp/cap"; run_search "$PATH" marker_needle
 if grep -l 'x\.c:1:' "$tmp"/cap/req.* >/dev/null 2>&1; then
     t_ok "control: search_code finds the match with this platform's own grep"
 else
@@ -103,7 +111,7 @@ else
 fi
 
 # --- 3: the property -- it still finds it where -I is rejected ----------------
-rm -rf "$tmp/cap" "$tmp/greplog"; run_search "$bin:$PATH"
+rm -rf "$tmp/cap" "$tmp/greplog"; run_search "$bin:$PATH" marker_needle
 if grep -l 'x\.c:1:' "$tmp"/cap/req.* >/dev/null 2>&1; then
     t_ok "search_code still finds the match where grep rejects -I"
 else
@@ -123,6 +131,68 @@ if [ -f "$tmp/greplog" ] && grep -q -- '-rnE ' "$tmp/greplog" && \
 else
     t_fail "the grep log does not show a -rnE call without -I: $(tr '\n' ';' \
 < "$tmp/greplog" 2>/dev/null | cut -c1-200)"
+fi
+
+# --- 5-7: the busybox-shaped grep classifies a bad pattern as an error --------
+#
+# The second non-GNU grep the campaign met (2026-10-15, Alpine): /usr/bin/grep
+# is BUSYBOX's, and it reports a bad regex ONLY once it has read real content
+# -- against /dev/null it exits 1 silently, so jichi's old probe (pattern_probe
+# on /dev/null, shared with M732) never saw the error, and a malformed pattern
+# came back as "grep exited with an error reading the path (the pattern itself
+# is valid)" -- affirming to the model that its pattern was fine. The fix
+# (M956) gives the invalid-detection probe a readable line (printf x | grep);
+# busybox then reports "bad regex '<pat>'" with rc 2, the same way GNU reports
+# "Unmatched ( or \(". This driver stands in for that platform with a shim that
+# delegates to the REAL busybox binary (peer fidelity, not shell emulation).
+#
+# The three checks are skipped as a unit when busybox is absent (t_skip_one x3
+# counts against the plan, so t_done's denominator stays honest). On a box with
+# busybox they prove: 5 the shim really reports the bad pattern (so 7 cannot
+# pass vacuously), 6 the shim does not break a VALID search (the control), and
+# 7 the property -- a malformed pattern returns the pattern-invalid error, not
+# the "pattern is valid" mis-telling. Check 7 is the one that was RED pre-fix.
+BB=$(command -v busybox 2>/dev/null)
+if [ -n "$BB" ]; then
+    bbshim="$tmp/bbshim"
+    mkdir -p "$bbshim"
+    # The shim delegates to the REAL busybox binary found on PATH (peer
+    # fidelity, not a shell emulation of its rc/vocabulary).
+    printf '#!/bin/sh\nexec "%s" grep "$@"\n' "$BB" > "$bbshim/grep"
+    chmod +x "$bbshim/grep"
+
+    # 5: the shim is really busybox -- it reports the bad pattern with rc 2
+    # (and reads it from a pipe, the form jichi's probe now uses). A shim that
+    # did not would make check 7 a restatement of nothing.
+    if printf x | "$bbshim/grep" -E -e 'unbalanced(' 2>&1 | grep -q 'bad regex'; then
+        t_ok "busybox shim reports the bad pattern (peer fidelity)"
+    else
+        t_fail "the busybox shim did not report 'bad regex' -- it is not standing in for Alpine"
+    fi
+
+    # 6: CONTROL -- with the busybox-shaped grep, a VALID pattern still finds
+    # the match. Proves the shim does not break normal operation.
+    rm -rf "$tmp/cap"; run_search_pat "$bbshim:$PATH" marker_needle
+    if grep -l 'x\.c:1:' "$tmp"/cap/req.* >/dev/null 2>&1; then
+        t_ok "control: search_code finds the match under the busybox-shaped grep"
+    else
+        t_fail "control failed -- the busybox shim broke a valid search"
+    fi
+
+    # 7: the PROPERTY -- a malformed pattern returns the pattern-invalid error
+    # (jichi's own portable substring), not the "pattern is valid" mis-telling.
+    # Pre-fix this is RED: the old /dev/null probe is blind on busybox, so
+    # pattern_error() returns 0 and the tool takes the else-branch.
+    rm -rf "$tmp/cap"; run_search_pat "$bbshim:$PATH" 'unbalanced('
+    if grep -l 'not a valid extended regular expression' "$tmp"/cap/req.* >/dev/null 2>&1; then
+        t_ok "a malformed pattern is named as the problem under the busybox-shaped grep"
+    else
+        t_fail "under busybox-shaped grep the malformed pattern was NOT named as the problem -- the /dev/null probe is blind on it"
+    fi
+else
+    t_skip_one "no busybox on this host -- the Alpine grep stand-in (5-7) is not available"
+    t_skip_one "control under busybox-shim (skipped, no busybox)"
+    t_skip_one "malformed-pattern classification under busybox-shim (skipped, no busybox)"
 fi
 
 t_done

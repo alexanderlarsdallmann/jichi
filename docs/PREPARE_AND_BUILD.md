@@ -26,17 +26,18 @@ flowchart LR
 Fifteen minutes on a normal connection. Pick your system:
 
 - [Linux](#linux) — the primary platform, and **verified**
-- [macOS](#macos) — instructions written with care and **never compiled by us**
+- [macOS](#macos) — **partly verified and driven** (M817): one Mac built and ran it,
+  with the SDK's libcurl; the Homebrew steps below have not been run
 - [Windows (via WSL)](#windows-via-wsl) — you run Linux *inside* Windows, and this
   walkthrough is **verified**: executed end to end at M475, by a non-root user,
   against pristine HEAD, with the full `make ci` green
 
-> **Read this before you pick the macOS row.** The macOS section below is honest
-> instruction that has **never been executed end to end**. No Mac and
-> no WSL install has ever built this source tree. What that means concretely —
-> including one macOS-only line that was un-compilable for months and nobody
-> noticed — is [`PLATFORMS.md`](PLATFORMS.md). You are welcome here; you are just
-> also the first, and if you send back what happened it becomes a row on that page.
+> **Read this before you pick the macOS row.** The macOS section below has
+> **not been executed end to end** as written. One Mac has built and run jichi
+> (M817), but with the Xcode SDK's libcurl, not the Homebrew curl these steps
+> install. If you follow them, send back what happened: it makes the steps a
+> verified path. *(Corrected 2026-10-04: this said no Mac had ever built the
+> tree, which stopped being true at M817.)*
 
 Then everyone: [Get the source and build](#everyone-get-the-source-and-build) →
 [Verify](#everyone-verify-it-works) → [Point it at a model](#everyone-point-it-at-a-model).
@@ -164,16 +165,16 @@ $ export PKG_CONFIG_PATH="$(brew --prefix curl)/lib/pkgconfig"
 
 Now jump to [Get the source and build](#everyone-get-the-source-and-build).
 
-**Honest status: jichi has never been compiled on macOS.** Not "untested in CI" —
-never once, by anyone, as far as this project knows. The code is plain POSIX with
-no Linux-only calls, which is a good *reason to expect* it to build, and it is not
-evidence. The one exception, jichi's only macOS-specific code, spent months in a
-state that could not have compiled under this project's own mandatory flags,
-precisely because no compiler here ever read it
-([`PLATFORMS.md`](PLATFORMS.md#the-finding-that-made-this-page-m400)).
+**Honest status: partly verified, and driven, since M817** (2026-09-26). One build on
+a MacBook Air M4 passed `make WERROR=1`, the unit suite and the smoke tier, and drove
+a model; it needed one Darwin build fix and three test fixes, all in the tree
+([the porting record](platform-notes/macos.md)). It used the Xcode SDK's libcurl, not
+Homebrew's, and `make ci` has never run on a Mac. jichi's one macOS-specific code
+path spent months unable to compile under this project's own flags, because no
+compiler here had read it ([`PLATFORMS.md`](PLATFORMS.md#the-finding-that-made-this-page-m400)).
+*(Corrected 2026-10-04: this said jichi had never been compiled on macOS.)*
 
-So: expect it to work, expect to be the first to find whatever does not, and
-please report it. [`VERIFY_A_PLATFORM.md`](VERIFY_A_PLATFORM.md) is the whole
+So: expect it to work, and please report what happened. [`VERIFY_A_PLATFORM.md`](VERIFY_A_PLATFORM.md) is the whole
 procedure — its offline half (the build under `WERROR=1`, the unit suite and the
 smoke tier, with the commit you built) is what turns this section into a
 *Verified* row, and its live half makes it *Driven*. `docs/BUILD.md` has the
@@ -342,6 +343,8 @@ Then the checklist. On a machine with no config file yet, it looks like this:
 
 ```
 ✓ libcurl available (networking enabled)
+    8.18.0 (TLS: OpenSSL/3.5.5; CA path: /etc/ssl/certs/ca-certificates.crt)
+✓ CA bundle: library default (/etc/ssl/certs/ca-certificates.crt)
 ! no config file -- running on built-in defaults
     the built-in defaults name no provider and no model, so nothing can be
     called yet. `jichi setup` writes one, or see docs/CONFIG_TUTORIAL.md.
@@ -392,17 +395,7 @@ of `jichi` on your `PATH`, where your freshly built one is not the one that runs
 jichi is the *driver*; it needs a *model* (an LLM) to drive. You have three
 routes — pick the one that fits:
 
-```mermaid
-flowchart TD
-  Q{"Do you have an API key?"}
-  Q -->|"a class / institutional key"| A["./jichi setup<br/>paste the gateway details you were given"]
-  Q -->|"your own provider key"| B["./jichi setup<br/>name the env-var that holds your key"]
-  Q -->|"no key, but a decent machine"| C["./jichi setup --preset small-local<br/>then LOCAL_MODELS.md"]
-  A --> K["export JICHI_API_KEY=... (this terminal only)"]
-  B --> K
-  K --> D["./jichi doctor  →  ./run.sh"]
-  C --> D
-```
+The three routes — and exactly what to type for each — are the table below.
 
 | You have… | Do this |
 | --- | --- |
@@ -416,8 +409,13 @@ flowchart TD
 ```sh
 $ export JICHI_API_KEY=sk-your-key-here     # the name is up to you; match setup
 $ ./jichi doctor                            # now checks the model is reachable
-$ ./run.sh                                  # start an interactive session
+$ ./run.sh                                  # the start-script setup wrote; opens a session
 ```
+
+> **What is `run.sh`?** `jichi setup` writes it — a small start-script that launches
+> jichi with the config setup just created, so `./run.sh` opens a session without you
+> retyping any flags. If it is not there yet, you have not run `setup` — do that first.
+> (A local server needs no key, so you can skip the `export` above.)
 
 > The `export` above lasts **only for this terminal window** — open a new one and
 > you must run it again, or add the line to your `~/.bashrc` (or `~/.zshrc`) to

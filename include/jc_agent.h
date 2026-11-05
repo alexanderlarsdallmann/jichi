@@ -149,6 +149,15 @@ const char *jc_agent_last_assistant_text(const struct jc_history *hist);
  * exactly that, reporting a capped turn's predecessor's answer as its own. */
 const char *jc_agent_turn_answer(const struct jc_history *hist, jc_size from);
 
+/* def-318 (M911): the subagent hand-back at the boundary. Copies hist's final
+ * answer onto the per-turn scratch (M62 #6 lifetime) and returns it via
+ * *answer_out. Answers over the cap are head-trimmed and the FULL text is
+ * spilled to the 0600 preservation store; the note the parent reads names the
+ * file. Under the cap, *answer_out is the answer verbatim (no note). */
+jc_status jc_subagent_answer_into(struct jc_app *app,
+                                  const struct jc_history *hist,
+                                  const char **answer_out);
+
 /* Whether an agent currently at `agent_depth` (0 = top level) may spawn another
  * (sub)agent, given `max_depth` (config.max_subagent_depth). The child runs at
  * agent_depth+1, so nesting is allowed while agent_depth < max_depth. The default

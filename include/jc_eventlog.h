@@ -38,6 +38,13 @@ enum jc_eventlog_level {
  * breaking change to field names/shapes so downstream tooling can adapt. */
 #define JC_EVENTLOG_SCHEMA 1
 
+/* M800: a spawn_parallel child bands its `seq` at task*STRIDE. Children fork with
+ * a COPY of the parent's seq and increment it independently, so without banding
+ * two children collide on the same seq values in the shared log. A child emitting
+ * >= 1,000,000 events would overlap the next band; the whole weekend drive that
+ * exposed this emitted ~50,000 events total, so the headroom is ample. */
+#define JC_EVENTLOG_CHILD_SEQ_STRIDE 1000000L
+
 /* Default per-field cap for `full`-tier content (prompt/response/tool I/O). */
 #define JC_EVENTLOG_TEXT_MAX (16 * 1024)
 
@@ -46,6 +53,8 @@ struct jc_eventlog {
     char  sid[40];  /* session id stamped on each event, or "" (correlation)*/
     char  workspace[1024]; /* workspace root stamped as "ws" (M56), or ""   */
     long  seq;      /* per-sink monotonic event counter                     */
+    long  task;     /* M800: spawn_parallel task index (1-based); 0 = not a child */
+    char  task_run[64]; /* M800: per-task run id ("<sid>-t<N>"), or ""       */
     int   level;    /* enum jc_eventlog_level                               */
     int   owns_f;   /* whether jc_eventlog_close() should fclose(f)         */
     /* M292: the file being appended to. The sink knew where it was writing and
@@ -88,6 +97,22 @@ void jc_eventlog_close(struct jc_eventlog *log);
  * to. Returns NULL when the log is disabled (log==NULL or log->f==NULL), so
  * callers can add fields unconditionally (cJSON_Add* tolerate a NULL object). */
 cJSON *jc_eventlog_begin(struct jc_eventlog *log, const char *event);
+
+/* M800: mark this sink as a spawn_parallel child's. Stamps `task` and `task_run`
+ * on every subsequent event, and bands `seq` (task * JC_EVENTLOG_CHILD_SEQ_STRIDE)
+ * so concurrent children never collide. Call it in the forked child before it
+ * runs. task <= 0 clears the marking. */
+void jc_eventlog_set_task(struct jc_eventlog *log, long task);
+
+/* M860 (N26): as jc_eventlog_set_task, but the task belongs to batch `run`
+ * (task_run "<run>-t<N>"; the session id when `run` is NULL or empty), and its
+ * seq is banded by `band` (band * JC_EVENTLOG_CHILD_SEQ_STRIDE), which the parent
+ * numbers consecutively across a process's batches -- so two batches of one
+ * session never share a task_run or a seq. band < 1 means `task`. A band too
+ * large for a `long` is clamped: on a 32-bit `long`, past about 2,146 children in
+ * one process, the last bands share a range. */
+void jc_eventlog_set_task_run(struct jc_eventlog *log, const char *run,
+                              long task, long band);
 
 /* Finish an event: write `o` as one compact JSON line + '\n', flush, and free
  * `o`. Tolerates a NULL `log` and/or NULL `o`. */

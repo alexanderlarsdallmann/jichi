@@ -118,6 +118,7 @@ send "n"
 delay 1500
 send "/exit\r"
 waitexit 20
+assertexit 0
 EOF
 for mode in def acc; do
     flag=""

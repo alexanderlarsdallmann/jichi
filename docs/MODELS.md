@@ -35,7 +35,7 @@ Now check it, in this order:
 ```sh
 jichi models
 jichi doctor
-jichi -p "Reply with the single word: ready."
+jichi -p "Reply with the single word: ready." < /dev/null
 ```
 
 - **`jichi models`** lists what the config declares and which role each entry
@@ -71,7 +71,7 @@ needed to start.
   "inputCostPer1M": 0, "outputCostPer1M": 0,
   "promptCache": true,            // emit Anthropic cache_control breakpoints (default on); see PROMPT_CACHING.md
   "cacheReadCostPer1M": 0, "cacheWriteCostPer1M": 0, // optional; fall back to inputCostPer1M
-  "toolCalling": "native"         // "native" (default) | "none"; "text" reserved (M149)
+  "toolCalling": "native"         // "native" (default) | "none" | "text" (markdown recovery, M949)
 }
 ```
 
@@ -82,8 +82,13 @@ to advertise any tools** to this model — it runs as a Q&A / plan agent
 silent no-op an unaware non-tool-calling model would otherwise produce; a
 one-time notice explains the degraded posture, and `doctor` warns if such a
 model is paired with autonomy (`verify`/`testCommand`/routing) that needs
-tools. `"text"` is **reserved** for a future prompt-based fallback and is read
-as `"native"` today (with a warning). Most 7–14B coder models have native tool
+tools. `"text"` (M949) turns on the **markdown recovery pass**: the
+model is still run with tools advertised, and a well-formed call it *writes*
+instead of emitting natively (a fenced block, a tool-named fence, or a bare
+`{name, arguments}` object) is recovered and **executed** through the same
+fences, approval and telemetry as a native call (`textToolCalls: true` is the
+equivalent per-model switch). Use it for the small coder models that narrate
+calls. Most 7–14B coder models have native tool
 calling — see [LOCAL_MODELS.md](LOCAL_MODELS.md) and
 [proposals/2026-07-small-model-agentics.md](proposals/2026-07-small-model-agentics.md).
 
@@ -228,15 +233,28 @@ so a mixed setup is debuggable up front.
 ## Model-call timeouts
 
 A model call is bounded so a stalled or unreachable server can't hang the agent
-forever (M22). Three knobs, all in **seconds**:
+forever (M22). Four knobs, all in **seconds**:
 
 - `connect` — TCP connect timeout (fail fast on an endpoint that won't accept the
   connection). Default **30**.
 - `stall` — abort a response stream whose throughput stays at ~0 bytes/s for this
-  long. This is the key control: it kills a **frozen** stream (a hung local
-  model) **without** capping a slow-but-progressing generation. Default **30**.
+  long. It kills a **frozen** stream, but note what "frozen" cannot mean: while a
+  server **prefills** (has answered, is generating, sends no bytes yet) the socket
+  is at ~0 bytes/s for the whole prefill, so a healthy slow generation **is**
+  cappable here — a ~12k-token prefill past the default was cut on the 2026-10-14/15
+  board runs (4 of 4 first attempts, the VisionFive 2). `stall` is a **cap** on
+  silence, off (`0`) for measurement runs; the fences are `connect` and
+  `deadStream` (below). Default **30**.
 - `request` — a hard overall cap on the whole call. Default **0** (off); set it
   only if you want a strict wall-clock limit.
+- `deadStream` — the **dead-stream fence** (M-L2). Default **900**. Like `connect`
+  it is a *fence*, not a cap: it can only fire when **nothing is arriving** on a
+  connected stream, so it stays on even when you set `stall` to `0` for a
+  measurement run. It exists because a run with the stall cap off once let a model
+  call whose stream had died run **11,677 s**. Set it to `0` to disable (not
+  recommended). Because a curl handle has one low-speed window, `stall` and
+  `deadStream` share it: the effective window is `min(stall, deadStream)` when
+  `stall` is on, and `deadStream` alone when it is off.
 
 `0` (or `off` on the CLI) disables a tier. Set them globally and/or per-model — a
 slow local model can get a longer `stall` than a fast hosted one:
@@ -287,6 +305,27 @@ When [routing](ROUTING.md) is configured, a stall on the **fast** tier escalates
 to the **strong** tier and the turn recovers there rather than erroring
 (`escalateOnStall`, default on) — the intended answer to "the small local model
 froze on the hot path".
+
+## The disk-space fence
+
+A run that fills its disk corrupts the very records a post-mortem needs — the
+session, the transcripts, the preserved worktrees. Two top-level keys stop a run
+**before** that, leaving room to write those records:
+
+- `diskFloorMb` — stop when free space on the workspace filesystem falls below this
+  many MiB. Default **10**. `0` disables it.
+- `diskFloorFiles` — stop when free inodes fall below this. Default **0** (off);
+  set it on a filesystem where inodes, not bytes, run out first.
+
+It is a **fence, not a cap** (see `CLAUDE.md`): it stays on even in a measurement
+run, because — like `timeouts.connect` and `timeouts.deadStream` — it can only fire
+on a condition that is never a legitimate result: the disk is actually nearly full.
+Two rules make it safe: **unknown never stops** (when free space cannot be measured
+the run carries on — "I could not measure" is not "the disk is full"), and it is
+**checked on a time throttle** (~10 s at tool boundaries, plus unthrottled at run
+start), not per call, because one build can write gigabytes in a single call. The
+default `10` is provisional until the telemetry corpus (each `tool_call` records the
+free space, M805) shows where a real floor sits.
 
 ## Choosing a model for a fast-moving toolchain
 

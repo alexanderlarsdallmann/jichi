@@ -5,9 +5,11 @@
 
 #include "jc_setup.h"
 #include "jc_json.h"
+#include "jc_jsonc.h"
 #include "jc_str.h"
 #include "jc_snprintf.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -566,20 +568,37 @@ jc_status jc_setup_build_config(const struct jc_setup_answers *a,
 
 jc_status jc_setup_merge_config(const char *existing_json,
                                 const struct jc_setup_answers *a,
-                                struct jc_sb *out)
+                                struct jc_sb *out,
+                                struct jc_arena *arena)
 {
     cJSON *root;
+    char *clean = NULL;
 
     if (a == NULL || a->provider == NULL || a->provider[0] == '\0' ||
         a->model == NULL || a->model[0] == '\0') {
         return JC_ERR_INVALID;
     }
-    root = (existing_json != NULL) ? jc_json_parse(existing_json) : NULL;
+    /* Strip comments if arena is provided and input is non-NULL */
+    if (existing_json != NULL && arena != NULL) {
+        clean = jc_jsonc_strip(existing_json, arena);
+    }
+    root = (clean != NULL) ? jc_json_parse(clean) : NULL;
     if (root == NULL || !cJSON_IsObject(root)) {
         if (root != NULL) {
             cJSON_Delete(root);
         }
-        return JC_ERR_PARSE;
+        /* If strip succeeded but parse failed, or strip failed but original is NULL, return PARSE */
+        if (clean != NULL || existing_json == NULL) {
+            return JC_ERR_PARSE;
+        }
+        /* Try original without stripping */
+        root = jc_json_parse(existing_json);
+        if (root == NULL || !cJSON_IsObject(root)) {
+            if (root != NULL) {
+                cJSON_Delete(root);
+            }
+            return JC_ERR_PARSE;
+        }
     }
     apply_answers(root, a, 1);
     return emit_config(root, out);
@@ -610,23 +629,84 @@ static int csv_has(const char *csv, const char *name)
     return 0;
 }
 
+/* Detach the member with the EXACT case-sensitive name `name` from object
+ * and free the value (cJSON_Delete frees node + valuestring + string).
+ *
+ * The in-tree cJSON has no DeleteItemFromObject: cJSON_ReplaceItemInObject
+ * returns 0 outright on a NULL newitem (it cannot express "remove"), so the
+ * unlink is done by hand. Only the exact member name is removed -- jichi
+ * reads the key from that one spelling (jc_config.c), so a foreign "APIKey"
+ * member is left alone (it is inert). Returns 1 if a member was dropped,
+ * 0 if the object had none (or was not an object). The D-24 "apiKey"
+ * instance is the call site passing "apiKey" (M1106); M1106-b reuses the
+ * helper for the mcp/tools secret members ("env", "headers"). */
+static int strip_named_member(cJSON *object, const char *name)
+{
+    cJSON *member;
+    int dropped = 0;
+    if (!cJSON_IsObject(object)) {
+        return 0;
+    }
+    member = object->child;
+    while (member != NULL) {
+        cJSON *next = member->next;
+        if (member->string != NULL &&
+            strcmp(member->string, name) == 0) {
+            if (member->prev != NULL) {
+                member->prev->next = member->next;
+            } else {
+                object->child = member->next;
+            }
+            if (member->next != NULL) {
+                member->next->prev = member->prev;
+            } else {
+                /* member was the tail; point the cached tail back (M1085/F-05) */
+                object->tail = member->prev;
+            }
+            member->prev = NULL;
+            member->next = NULL;
+            cJSON_Delete(member);
+            dropped = 1;
+        }
+        member = next;
+    }
+    return dropped;
+}
+
 jc_status jc_setup_inherit_config(const char *source_json,
                                   const char *inherit_keys,
                                   const struct jc_setup_answers *a,
-                                  struct jc_sb *out)
+                                  struct jc_sb *out,
+                                  struct jc_arena *arena)
 {
     cJSON *src;
     cJSON *root;
+    char *clean = NULL;
 
     if (a == NULL) {
         return JC_ERR_INVALID;
     }
-    src = (source_json != NULL) ? jc_json_parse(source_json) : NULL;
+    /* Strip comments if arena is provided and input is non-NULL */
+    if (source_json != NULL && arena != NULL) {
+        clean = jc_jsonc_strip(source_json, arena);
+    }
+    src = (clean != NULL) ? jc_json_parse(clean) : NULL;
     if (src == NULL || !cJSON_IsObject(src)) {
         if (src != NULL) {
             cJSON_Delete(src);
         }
-        return JC_ERR_PARSE;
+        /* If strip succeeded but parse failed, or strip failed but original is NULL, return PARSE */
+        if (clean != NULL || source_json == NULL) {
+            return JC_ERR_PARSE;
+        }
+        /* Try original without stripping */
+        src = jc_json_parse(source_json);
+        if (src == NULL || !cJSON_IsObject(src)) {
+            if (src != NULL) {
+                cJSON_Delete(src);
+            }
+            return JC_ERR_PARSE;
+        }
     }
     if (inherit_keys != NULL && inherit_keys[0] != '\0') {
         /* Subset: copy only the named top-level keys from the source. The
@@ -648,6 +728,102 @@ jc_status jc_setup_inherit_config(const char *source_json,
     } else {
         /* Whole config: inherit everything from the source. */
         root = src;
+    }
+    /* Drop a literal `apiKey` before anything is written: the inherited tree's
+     * `_comment` promises "apiKeyEnv only, never a literal key", and before
+     * this a verbatim copy carried a literal key into a 0644 project config
+     * under that false promise (D-24). `apiKeyEnv` (the env-var NAME) is kept --
+     * it is the whole point of inherit. Whole-config (root == src) and the
+     * subset (re-parsed copy) share this path; the aliasing is preserved because
+     * we mutate in place. Warn by model name so the user sees WHICH entry lost
+     * a key (the model id is not a secret). */
+    {
+        cJSON *mods = cJSON_GetObjectItem(root, "models");
+        cJSON *mod;
+        if (cJSON_IsArray(mods)) {
+            for (mod = mods->child; mod != NULL; mod = mod->next) {
+                const char *label = jc_json_get_str(mod, "name", NULL);
+                if (label == NULL || label[0] == '\0') {
+                    label = jc_json_get_str(mod, "model", "");
+                }
+                if (strip_named_member(mod, "apiKey")) {
+                    fprintf(stderr,
+                        "  ! --from-global: dropped a literal apiKey for model "
+                        "\"%s\" -- set an apiKeyEnv (the key is never copied "
+                        "into the project config)\n", label);
+                }
+            }
+        }
+        if (strip_named_member(cJSON_GetObjectItem(root, "search"), "apiKey")) {
+            fprintf(stderr,
+                "  ! --from-global: dropped a literal apiKey for search -- set "
+                "an apiKeyEnv (the key is never copied into the project "
+                "config)\n");
+        }
+    }
+    /* M1106-b (the D-24 neighbour): drop the literal secret members of the
+     * mcpServers and tools entries too. The finding measured exactly three
+     * paths -- mcpServers[].env (an object of literal values),
+     * mcpServers[].headers (an array of literal "Key: value" lines) and
+     * tools[].env (an object) -- and the reader sites (jc_config.c) copy them
+     * verbatim into a 0644 project config under the same "never a literal key"
+     * promise. The ENTRY ITSELF (name/command/args) is kept; only the literal
+     * secret members are dropped. The in-tree cJSON has no DeleteItemFromObject,
+     * so the node is detached by hand (M1106's idiom, since generalized
+     * to strip_named_member), and cJSON_Delete frees it in one pass; whole-
+     * config (root == src) and the subset (re-parsed copy) share this path
+     * because we mutate in place. Scope boundary: a GLOBAL top-level env and
+     * models[].env are NOT swept -- that is the user's own data, and --inherit's
+     * documented job is to carry settings over. Warn per affected entry (server
+     * name else command, tool name). */
+    {
+        cJSON *servers = cJSON_GetObjectItem(root, "mcpServers");
+        cJSON *srvc;
+        const char *label;
+        int env, hdr;
+        if (cJSON_IsArray(servers)) {
+            for (srvc = servers->child; srvc != NULL; srvc = srvc->next) {
+                label = jc_json_get_str(srvc, "name", NULL);
+                if (label == NULL || label[0] == '\0') {
+                    label = jc_json_get_str(srvc, "command", "");
+                }
+                env = strip_named_member(srvc, "env");
+                hdr = strip_named_member(srvc, "headers");
+                if (env) {
+                    fprintf(stderr,
+                        "  ! --from-global: dropped a literal env from mcp "
+                        "server \"%s\" -- set env vars in the environment "
+                        "(literal secrets are never copied into the project "
+                        "config)\n", label);
+                }
+                if (hdr) {
+                    fprintf(stderr,
+                        "  ! --from-global: dropped literal headers from mcp "
+                        "server \"%s\" -- set env vars in the environment "
+                        "(literal secrets are never copied into the project "
+                        "config)\n", label);
+                }
+            }
+        }
+        {
+            cJSON *tools = cJSON_GetObjectItem(root, "tools");
+            cJSON *tl;
+            if (cJSON_IsArray(tools)) {
+                for (tl = tools->child; tl != NULL; tl = tl->next) {
+                    const char *label = jc_json_get_str(tl, "name", NULL);
+                    if (label == NULL || label[0] == '\0') {
+                        label = "";
+                    }
+                    if (strip_named_member(tl, "env")) {
+                        fprintf(stderr,
+                            "  ! --from-global: dropped a literal env from "
+                            "tool \"%s\" -- set env vars in the environment "
+                            "(literal secrets are never copied into the "
+                            "project config)\n", label);
+                    }
+                }
+            }
+        }
     }
     cJSON_AddStringToObject(root, "_comment",
         "Generated by `jichi setup --from-global`: inherits the global config; "

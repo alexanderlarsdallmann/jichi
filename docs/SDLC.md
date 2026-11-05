@@ -29,25 +29,14 @@ The `architect` journey carries the full **`sdlc` pack** — every phase of
 the lifecycle has an authoring asset, and every document lands in the
 project's `docs/` tree (files, not prompt bloat):
 
-```mermaid
-flowchart LR
-    T["team charter\n(team-charter skill)"] --> R
-    R["requirements\n/requirements"] --> U["use cases\n/usecases"]
-    U --> D["design: UML, flows,\ndata structures\n/design"]
-    D --> A["API + constraints\n/api"]
-    A --> I["implementation\n(the agent loop, --design as input)"]
-    I --> V["testing\n(test-strategy skill, verify gate)"]
-    V --> REL["release + publication\n/release-check"]
-    REL --> M["maintenance + support\n(maintenance-playbook skill)"]
-    M -->|revisions| R
-```
+The phases and the assets each maps to are the table below -- readable at any width.
 
 | Phase | Agent | Skill | Command |
 |---|---|---|---|
 | team building | — | `team-charter` (roles, review rules, git conventions, decision records) | — |
 | requirements + revisions | `requirements-analyst` (read-only) | `requirements-doc` | `/requirements <goal>` |
 | use cases | `requirements-analyst` | `use-case-writing` | `/usecases` |
-| design: UML, pseudocode, program/data flow, data structures | `architect` (read-only) | `uml-mermaid`, `design-doc` | `/design` |
+| design: UML, pseudocode, program/data flow, data structures | `architect` (read-only) | `uml-mermaid`, `design-doc` | `/design-doc` |
 | API + system constraints + toolchains/languages | `api-designer` (read-only) | `api-design` | `/api` |
 | implementation | the normal agent loop | — | `--design docs/DESIGN.md` feeds the design in |
 | testing | `test-writer` (shared) | `test-strategy` | `verify` / `testCommand` config |
@@ -92,8 +81,10 @@ COVERED/DIVERGES/MISSING per module.
 Packs compose (`init <pack> [pack…]`, first wins shared paths —
 [SCAFFOLDING.md](SCAFFOLDING.md)): `init sdlc assignments` teaches the
 lifecycle; `init contributor c-cli` adds C-specific review to a
-contribution bench; any journey plus `docs` upgrades the documentation
-story. The journeys are starting points, not fences.
+contribution bench; `docs` first, then any journey, upgrades the documentation
+story (in that order: the first pack wins `/write-docs` and `/proofread`, and only the
+docs pack's versions route to its audience profiles). The journeys are starting points,
+not fences.
 
 *See also: [SETUP_WIZARD.md](SETUP_WIZARD.md) (the wizard),
 [SCAFFOLDING.md](SCAFFOLDING.md) (all 33 packs),

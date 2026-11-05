@@ -10,11 +10,13 @@
 #include "jc_str.h"
 #include "jc_snprintf.h"
 #include "jc_platform.h"
+#include "jc_path.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <sys/stat.h>
 
 #define JC_CMD_SHELL_MAX (16 * 1024)
 #define JC_CMD_FILE_MAX  (32 * 1024)
@@ -67,22 +69,35 @@ const struct jc_command *jc_command_find(const struct jc_command_set *s,
 }
 
 static void add_or_replace(struct jc_command_set *s,
-                           const struct jc_command *cmd)
+                           const struct jc_command *cmd,
+                           int new_scope)
 {
+    struct jc_command tmp;
     jc_size i;
     for (i = 0; i < s->commands.len; i++) {
         struct jc_command *c =
             (struct jc_command *)jc_vec_at(&s->commands, i);
         if (strcmp(c->name, cmd->name) == 0) {
-            *c = *cmd;
+            /* M994: warn when a project command shadows a user command */
+            if (c->scope == 0 && new_scope == 1) {
+                fprintf(stderr,
+                    "warning: project command /%s shadows your user command "
+                    "(run in a trusted project to use it as-is, or rename one)\n",
+                    c->name);
+            }
+            tmp = *cmd;
+            tmp.scope = new_scope;
+            *c = tmp;
             return;
         }
     }
-    jc_vec_push(&s->commands, cmd);
+    tmp = *cmd;
+    tmp.scope = new_scope;
+    jc_vec_push(&s->commands, &tmp);
 }
 
 static void parse_one(struct jc_command_set *s, const char *name,
-                      const char *text, struct jc_arena *a)
+                      const char *text, struct jc_arena *a, int scope)
 {
     struct jc_md_doc doc;
     struct jc_command cmd;
@@ -90,6 +105,7 @@ static void parse_one(struct jc_command_set *s, const char *name,
 
     memset(&cmd, 0, sizeof(cmd));
     cmd.name = jc_arena_strdup(a, name);
+    cmd.scope = scope;
 
     jc_md_parse(text, a, &doc);
     if (doc.front != NULL) {
@@ -112,13 +128,13 @@ static void parse_one(struct jc_command_set *s, const char *name,
         cmd.language = (str != NULL) ? jc_arena_strdup(a, str) : NULL;
     }
     cmd.body = jc_arena_strdup(a, doc.body != NULL ? doc.body : "");
-    jc_md_free(&doc);
+    jc_md_free(&doc); /* M994 restored (06:2x ASan): the front-matter YAML is realloc-allocated, not arena */
 
-    add_or_replace(s, &cmd);
+    add_or_replace(s, &cmd, scope);
 }
 
 static void load_dir(struct jc_command_set *s, const char *dir,
-                     struct jc_arena *a)
+                     struct jc_arena *a, int scope)
 {
     struct jc_vec names;
     jc_size i;
@@ -149,7 +165,7 @@ static void load_dir(struct jc_command_set *s, const char *dir,
         jc_snprintf(path, sizeof(path), "%s/%s", dir, fn);
         if (jc_is_regular_file(path) && /* M198: skip FIFO/socket/device */
             jc_read_file(path, &text, NULL, a) == JC_OK) {
-            parse_one(s, base, text, a);
+            parse_one(s, base, text, a, scope);
         }
     }
     jc_vec_free(&names);
@@ -159,11 +175,13 @@ jc_status jc_command_load(struct jc_command_set *s, const char *cwd,
                           struct jc_arena *a)
 {
     char dir[1100];
+    /* User commands (global dir) have scope 0 */
     jc_snprintf(dir, sizeof(dir), "%s/.config/jichi/commands",
                 jc_home_dir());
-    load_dir(s, dir, a);
+    load_dir(s, dir, a, 0);
+    /* Project commands (.jichi/commands) have scope 1 */
     jc_snprintf(dir, sizeof(dir), "%s/.jichi/commands", cwd);
-    load_dir(s, dir, a);
+    load_dir(s, dir, a, 1);
     return JC_OK;
 }
 
@@ -203,7 +221,7 @@ static void append_shell(struct jc_sb *sb, const char *cmd)
         jc_sb_append_n(sb, chunk, (jc_size)n);
         emitted += (jc_size)n;
     }
-    pclose(pipe);
+    (void)jc_proc_pclose(pipe);
 }
 
 /* Append the contents of `path` (relative to cwd unless absolute), bounded. */
@@ -219,7 +237,10 @@ static void append_file(struct jc_sb *sb, const char *path, const char *cwd,
     } else {
         jc_snprintf(full, sizeof(full), "%s/%s", cwd, path);
     }
-    if (jc_read_file(full, &data, &len, a) != JC_OK) {
+    /* M1109 (D-35): read at most JC_CMD_FILE_MAX LEADING bytes -- the head
+     * the cut below keeps. Pre-fix the whole file (up to the 64 MB
+     * JC_READ_FILE_MAX) sat on the expansion buffer's arena. */
+    if (jc_read_file_bounded(full, &data, &len, a, JC_CMD_FILE_MAX, 1) != JC_OK) {
         jc_sb_append_fmt(sb, "[could not read %s]", path);
         return;
     }
@@ -256,12 +277,33 @@ static void split_args(const char *args_raw, struct jc_vec *tokens,
     }
 }
 
+/* Refusal message for untrusted project shell expansion. */
+static const char *refusal_shell_msg = "[command runs no shell: the project is not trusted; run `jichi trust` to enable]";
+
+/* Refusal message for untrusted project outside-root file reads. */
+static const char *refusal_file_msg = "[file outside the workspace: not read (the project is not trusted)]";
+
+/* Append the shell refusal. */
+static void append_shell_refusal(struct jc_sb *sb)
+{
+    jc_sb_append(sb, refusal_shell_msg);
+}
+
+/* Append the file refusal. */
+static void append_file_refusal(struct jc_sb *sb)
+{
+    jc_sb_append(sb, refusal_file_msg);
+}
+
 jc_status jc_command_expand(const struct jc_command *c, const char *args_raw,
-                            const char *cwd, struct jc_arena *a, char **out)
+                            const char *cwd, struct jc_arena *a, int project_trusted,
+                            const char *wsroot, char **out)
 {
     struct jc_sb sb;
     struct jc_vec tokens;
     const char *p;
+    const char *end;
+    int is_project_cmd = (c->scope == 1);
 
     jc_vec_init(&tokens, sizeof(char *));
     split_args(args_raw, &tokens, a);
@@ -283,14 +325,26 @@ jc_status jc_command_expand(const struct jc_command *c, const char *args_raw,
                 jc_sb_append(&sb, *(char **)jc_vec_at(&tokens, idx - 1));
             }
         } else if (*p == '!' && p[1] == '`') {
-            const char *end = strchr(p + 2, '`');
-            if (end != NULL) {
-                char *cmd = jc_arena_strndup(a, p + 2, (jc_size)(end - (p + 2)));
-                append_shell(&sb, cmd);
-                p = end + 1;
+            /* M994: for untrusted project commands, refuse shell expansion */
+            if (is_project_cmd && !project_trusted) {
+                append_shell_refusal(&sb);
+                /* skip to the closing backtick if present */
+                end = strchr(p + 2, '`');
+                if (end != NULL) {
+                    p = end + 1;
+                } else {
+                    p++;
+                }
             } else {
-                jc_sb_append_char(&sb, *p);
-                p++;
+                end = strchr(p + 2, '`');
+                if (end != NULL) {
+                    char *cmd = jc_arena_strndup(a, p + 2, (jc_size)(end - (p + 2)));
+                    append_shell(&sb, cmd);
+                    p = end + 1;
+                } else {
+                    jc_sb_append_char(&sb, *p);
+                    p++;
+                }
             }
         } else if (*p == '@') {
             const char *start = p + 1;
@@ -300,8 +354,43 @@ jc_status jc_command_expand(const struct jc_command *c, const char *args_raw,
             }
             if (q > start) {
                 char *path = jc_arena_strndup(a, start, (jc_size)(q - start));
-                append_file(&sb, path, cwd, a);
-                p = q;
+                /* M994: for untrusted project commands, check workspace root */
+                if (is_project_cmd && !project_trusted) {
+                    char full[1100];
+                    char resolved[1100];
+                    struct stat st;
+
+                    /* Build the full path: if absolute, use as is; else wsroot/path */
+                    if (path[0] == '/') {
+                        jc_snprintf(full, sizeof(full), "%s", path);
+                    } else {
+                        if (wsroot != NULL && wsroot[0] != '\0') {
+                            jc_snprintf(full, sizeof(full), "%s/%s", wsroot, path);
+                        } else {
+                            jc_snprintf(full, sizeof(full), "%s/%s", cwd, path);
+                        }
+                    }
+
+                    /* Resolve to canonical form */
+                    if (jc_path_resolve(full, resolved, sizeof(resolved)) != JC_OK) {
+                        append_file_refusal(&sb);
+                    } else if (lstat(resolved, &st) != 0) {
+                        append_file_refusal(&sb);
+                    } else if (!S_ISREG(st.st_mode)) {
+                        /* Non-regular file (symlink, directory, device, etc.) */
+                        append_file_refusal(&sb);
+                    } else if (!jc_path_under_root(wsroot ? wsroot : cwd, resolved)) {
+                        /* Not under workspace root */
+                        append_file_refusal(&sb);
+                    } else {
+                        /* Safe: under root and regular */
+                        append_file(&sb, path, cwd, a);
+                    }
+                    p = q;
+                } else {
+                    append_file(&sb, path, cwd, a);
+                    p = q;
+                }
             } else {
                 jc_sb_append_char(&sb, *p);
                 p++;

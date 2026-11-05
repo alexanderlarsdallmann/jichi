@@ -68,10 +68,26 @@ flowchart LR
   injected, so a long-lived memory file can't crowd out the conversation; the
   file itself is never trimmed on disk. When it outgrows the budget, jichi says
   so everywhere it matters: a load-time warning names how much is being
-  skipped, the `remember` tool's result warns that the oldest notes no longer
-  reach the prompt, and `doctor` flags the file with its size. Prune by hand
-  (it's plain markdown) or consolidate stale notes with `/learn` corrections
-  ([LEARNING.md](LEARNING.md)).
+  skipped **and which headings fall out** (M825), the `remember` tool's result
+  warns that the oldest notes no longer reach the prompt, and `doctor` flags the
+  file with its size. Prune by hand (it's plain markdown) or consolidate stale
+  notes with `/learn` corrections ([LEARNING.md](LEARNING.md)).
+- **The KEPT part is the TAIL — so order the file by age, not importance (M825).**
+  Because the last 8 KB is what loads, a file ordered with the most important
+  notes at the TOP loses exactly those first once it outgrows the budget. On
+  threadwork's weekend drive a team pruned its file and moved its costliest
+  lesson to the top under a "Must-load process traps" heading; fourteen runs
+  later that heading was outside the window again, and the lead repeated the
+  mistake. Durable, must-not-drop rules do not belong in `memory.md` at all —
+  put them in a rules file (`CLAUDE.md`/`AGENTS.md`) or an agent profile, which
+  are injected in full; keep `memory.md` for the accumulating, prunable notes it
+  is for.
+- **A failed `remember` loses nothing (M1104).** The file is rewritten through an
+  atomic replace (a temp file renamed over it, in the same directory, carrying the
+  file's own permission bits), not an in-place write. A write that fails — a full
+  disk, a broken path — therefore leaves the notes you already had intact instead
+  of truncating them to empty; the same holds for the rules file a `/learn` run
+  rewrites. (A present-but-unreadable file is *refused*, not replaced: M1100.)
 - **Gated like an edit.** `remember` is a *mutating* tool: it writes a file, so
   it flows through the normal permission gate (`jc_perm`) — prompted in chat
   mode, auto-approved under `--auto`. Add `"remember"` to `permissions.allow` to

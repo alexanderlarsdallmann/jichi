@@ -117,7 +117,8 @@ whether it sounds like a person), and how NVDA, JAWS or VoiceOver behave. Both n
 who reads Japanese.
 
 - **Motor / keyboard-only:** everything is reachable by keyboard; approval prompts
-  take a single key; `Ctrl-C` stops the current task without exiting (M107).
+  take a single key; `Ctrl-C` stops the current task without exiting (M107), and so
+  does `Esc` while jichi works, in about a third of a second (M753).
 - **Cognitive load:** the beginner setup profile (`setup --profile beginner`, M116)
   minimizes options and turns off power-user subsystems.
 

@@ -11,10 +11,12 @@ and this codebase keeps them in two different systems on purpose:
   replies, tool calls and results. Persisted as JSON under
   `~/.jichi.d/sessions/` (`src/session/jc_session.c:jc_session_save`).
 - **"What did the files *become*?"** — the workspace: the actual bytes on
-  disk before and after each mutating turn. Captured in a **shadow git
+  disk at each checkpoint. Captured in a **shadow git
   repo** under `~/.jichi.d/checkpoints/` whose work tree *is* your
   workspace, so your own `.git` is never touched
-  (`src/snapshot/jc_snapshot.c:jc_snapshot_take`).
+  (`src/snapshot/jc_snapshot.c:jc_snapshot_take`) — before a turn's first
+  mutation, mid-turn at the periodic verify gate, and again whenever a
+  bounded run banks a green checkpoint (ch.7).
 
 Conflating them would be the obvious design and the wrong one: files can
 change without conversation (the shell, an external editor) and
@@ -95,7 +97,7 @@ Watch the two histories move independently, then together:
 ```sh
 # anywhere -- this block makes and enters its own directory
 mkdir /tmp/fk9 && cd /tmp/fk9 && git init -q && echo hi > a.txt
-jichi --auto -p "append a line saying done to a.txt"
+jichi --auto -p "append a line saying done to a.txt" < /dev/null
 jichi checkpoints          # the file history: one entry
 jichi ls                   # the conversation history: one session
 jichi undo --dry-run       # what restoring files would change (git diff --stat)

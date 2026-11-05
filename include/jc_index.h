@@ -97,7 +97,9 @@ jc_status jc_index_build(const char *root, const struct jc_model_cfg *m,
 /* M612: the on-disk cache directory for `root` (~/.jichi.d/index/<key>). Public
  * so `prune` can compute -- and protect -- the CURRENT workspace's own index
  * when it sweeps the cache; the cache had no retention and grew one directory
- * per distinct workspace forever. */
+ * per distinct workspace forever. M1097-b: `<key>` is jc_workspace_key(root),
+ * the 64-hex SHA-256 of the raw path -- the SAME derivation as the checkpoint,
+ * lease and telemetry stores. */
 void jc_index_cache_dir(const char *root, char *buf, jc_size cap);
 
 int jc_index_count(const struct jc_index *idx);

@@ -28,14 +28,14 @@ server never do.
 Or per-run on the command line (these override the config):
 
 ```sh
-jichi --auto --bell -p "refactor the parser"
-jichi --auto --notify 'notify-send jichi \"$JICHI_NOTIFY\"' -p "..."
+jichi --auto --bell -p "refactor the parser" < /dev/null
+jichi --auto --notify 'notify-send jichi \"$JICHI_NOTIFY\"' -p "..." < /dev/null
 ```
 
 - **`notifyBell` / `--bell`** — write a BEL (`\a`) to **stderr**, so a terminal
   rings without ever corrupting stdout (a piped answer or `--output json` stays
   clean).
-- **`notify` / `--notify <cmd>`** — run `<cmd>` via `/bin/sh -c` when the turn
+- **`notify` / `--notify <cmd>`** — run `<cmd>` via `sh -c` (the shell is `jc_shell_path()`, i.e. `$JICHI_SHELL` if set, else `/bin/sh`) when the turn
   finishes, with a short timeout and its output discarded (a notifier must be
   quick and can't wedge the front-end). Two environment variables are exposed:
   - **`$JICHI_NOTIFY`** — a one-line summary (the session title).

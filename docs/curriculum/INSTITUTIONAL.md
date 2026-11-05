@@ -48,17 +48,19 @@ typically handed one in class), export it, and use:
 | Fact | Value |
 |---|---|
 | Base URL | `https://api.hrz.uni-giessen.de/v1` |
-| Context windows | `GET /v1/model/info` -- a LiteLLM extension; `/v1/models` does not carry them. `jlu/qwen3.8-27b`: `max_input_tokens` **196608**, `max_output_tokens` 65536, so declare `"contextLength": 196608`. `jichi doctor` checks this against the server for you. |
+| Context windows | This gateway's `GET /v1/models` carries `max_input_tokens` and `max_output_tokens` for each model, and `GET /v1/model/info` (a LiteLLM extension) the same. `jlu/qwen3-coder-next` and `jlu/gemma-4-26b-it` list 196608 and 65536. `jlu/qwen3.8-27b` listed 196608 and 65536 on 2026-08-19, and 977232 and 32768 from 2026-09-29. This project still declares `"contextLength": 196608` for it (not re-measured against the backend), so `jichi doctor` warns that the declared window is much smaller than the server's, when that model is the active one. |
 | Key env var (by convention here) | `JLU_API_KEY` |
-| General model | `jlu/gemma-4-31b-it` — chat/edit/apply |
-| Coding model | `jlu/qwen3-coder-next` — strong tier for routing |
+| General model | `jlu/gemma-4-26b-it` — chat/edit/apply. It replaces `jlu/gemma-4-31b-it`, gone from the listing by 2026-09-29, and was not measured beyond `doctor --live` |
+| Coding model | `jlu/qwen3-coder-next` — the strong tier for routing: small tasks, strict guidance, supervision |
+| Reasoning model | `jlu/qwen3.8-27b` — slow, for review and planning; it tends not to delegate by itself ([WORKBENCH.md](../WORKBENCH.md) §11) |
 | Embeddings | `jlu/qwen3-embedding` — the `embed` role (codebase search) |
 
-The ready-made config is
+A ready-made starting point is
 [`examples/config.multi-server.json`](../../examples/config.multi-server.json)
-(secret-free; it also wires a local fallback), walked through in
-[CONFIG_TUTORIAL.md](../CONFIG_TUTORIAL.md) §11. Model ids are the gateway's
-wire values — `jlu/…` is literal, not a placeholder.
+(secret-free; it also wires a local fallback). Its model ids are placeholders
+(`your-provider/…`): replace them with the `jlu/…` ids above, which are the
+gateway's wire values and literal. [CONFIG_TUTORIAL.md](../CONFIG_TUTORIAL.md) §11
+shows the same shape already filled in with the `jlu/` ids.
 
 ### The cost fact worth knowing: prompt caching is per-model, not per-gateway
 

@@ -6,6 +6,7 @@
 #include "jc_test.h"
 #include "jc_cli.h"
 
+#include <limits.h>
 #include <string.h>
 
 static void test_arg_summary(void)
@@ -319,6 +320,68 @@ static void test_os_line(void)
     JC_CHECK(b[0] != '\0');
 }
 
+/* M923: a CLI number is a WHOLE non-negative integer, or it is a typo. Every
+ * input that atoi/atol once turned silently into 0 (or a wrong value) must now
+ * be refused, and every valid value must parse to exactly the right number. */
+static void test_nonneg_int(void)
+{
+    long v = -1;
+
+    /* Valid: whole numbers, including 0 and large. */
+    JC_CHECK(jc_cli_parse_nonneg_int("0", &v) == JC_OK && v == 0);
+    JC_CHECK(jc_cli_parse_nonneg_int("3", &v) == JC_OK && v == 3);
+    JC_CHECK(jc_cli_parse_nonneg_int("1234567890", &v) == JC_OK && v == 1234567890L);
+#if LONG_MAX > 2147483647L
+    /* long is wider than a 32-bit int here, so the >INT_MAX literal below is
+     * representable: 9999999999 (~1e10) must parse OK to itself. This line is
+     * the ILP32 defect the i386 container caught -- on a 32-bit long the same
+     * literal overflows the comparison (always-false) AND the parser refuses it,
+     * so the wide-value OK-check only belongs in this 64-bit-long branch. */
+    JC_CHECK(jc_cli_parse_nonneg_int("9999999999", &v) == JC_OK && v == 9999999999L);
+#else
+    /* long is 32-bit: 9999999999 does not fit, so the parser must refuse it
+     * (the ERANGE guard in jc_cli_parse_nonneg_int). Asserting the refusal
+     * here -- not skipping -- is what exercises that guard on ILP32, and it
+     * keeps 9999999999 out of the 32-bit translation entirely: the only literal
+     * spelled is the string, never a wide constant. */
+    JC_CHECK(jc_cli_parse_nonneg_int("9999999999", &v) == JC_ERR_INVALID);
+#endif
+
+    /* The review's measured wounds: these used to read as 0. */
+    JC_CHECK(jc_cli_parse_nonneg_int("abc", &v) == JC_ERR_INVALID);
+    JC_CHECK(jc_cli_parse_nonneg_int("1k", &v) == JC_ERR_INVALID);   /* unit suffix */
+    JC_CHECK(jc_cli_parse_nonneg_int("32k", &v) == JC_ERR_INVALID);
+    JC_CHECK(jc_cli_parse_nonneg_int("", &v) == JC_ERR_INVALID);
+    JC_CHECK(jc_cli_parse_nonneg_int("dry-run", &v) == JC_ERR_INVALID);
+    JC_CHECK(jc_cli_parse_nonneg_int("-3", &v) == JC_ERR_INVALID);   /* signed */
+    JC_CHECK(jc_cli_parse_nonneg_int("+3", &v) == JC_ERR_INVALID);
+    JC_CHECK(jc_cli_parse_nonneg_int("0x10", &v) == JC_ERR_INVALID);
+    JC_CHECK(jc_cli_parse_nonneg_int(" 3", &v) == JC_ERR_INVALID);   /* leading ws */
+    JC_CHECK(jc_cli_parse_nonneg_int("3 ", &v) == JC_ERR_INVALID);   /* trailing ws */
+    JC_CHECK(jc_cli_parse_nonneg_int("3.5", &v) == JC_ERR_INVALID);
+    JC_CHECK(jc_cli_parse_nonneg_int(NULL, &v) == JC_ERR_INVALID);
+
+    /* Overflow a long: rejected, not wrapped. */
+    JC_CHECK(jc_cli_parse_nonneg_int("99999999999999999999999", &v)
+             == JC_ERR_INVALID);
+
+    /* Bounded: the int-cast truncation the fence fields used to allow
+     * ("1k becomes a cap of 1", wearing an integer's clothes). */
+    {
+        int iv = -1;
+        JC_CHECK(jc_cli_parse_bounded_int("3", INT_MAX, &iv) == JC_OK && iv == 3);
+        JC_CHECK(jc_cli_parse_bounded_int("0", INT_MAX, &iv) == JC_OK && iv == 0);
+        JC_CHECK(jc_cli_parse_bounded_int("2147483647", INT_MAX, &iv)
+                 == JC_OK && iv == 2147483647);          /* INT_MAX fits a 32-bit int */
+        JC_CHECK(jc_cli_parse_bounded_int("2147483648", INT_MAX, &iv)
+                 == JC_ERR_INVALID);                      /* INT_MAX+1 would truncate */
+        JC_CHECK(jc_cli_parse_bounded_int("2147483648", 1000, &iv)
+                 == JC_ERR_INVALID);                      /* above the bound */
+        JC_CHECK(jc_cli_parse_bounded_int("abc", INT_MAX, &iv)
+                 == JC_ERR_INVALID);
+    }
+}
+
 void test_cli(void)
 {
     int j = -1;
@@ -335,6 +398,7 @@ void test_cli(void)
     test_os_line();
     test_reltime();
     test_prefix();
+    test_nonneg_int();
     test_overflow();
     test_interrupt();
     test_indicator();

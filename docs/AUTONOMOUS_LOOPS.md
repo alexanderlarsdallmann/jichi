@@ -53,7 +53,7 @@ That is intentional:
   task.
 
 So the "loop" is a ~120-line shell script (or the C89 equivalent) that the OS
-supervises. §9 revisits whether a built-in primitive is ever worth it.
+supervises. §9 revisits whether a built-in primitive is ever worth it. **Superseded, for one shape** (2026-10, [DECISIONS.md](DECISIONS.md)): the context relay may run the legs of *one* task as an in-process loop, bounded by a leg ceiling, a no-progress stall test and the run's own envelope — [RELAY.md](RELAY.md). The many-task rule above stands unchanged.
 
 ---
 
@@ -128,7 +128,11 @@ flowchart LR
 - **N instances, one queue** scale throughput. Because claiming a task is an
   atomic `rename(2)` into `running/`, two instances never grab the same task —
   no lock file, no coordinator. Give each instance its **own workspace** (so file
-  edits don't collide) and its own journal directory.
+  edits don't collide) and its own journal directory. The queue is written down
+  as a protocol in [QUEUE_PROTOCOL.md](QUEUE_PROTOCOL.md), step by step, with
+  what each step relies on and the four gaps both supervisors still have: `mv`
+  across filesystems, a result copied non-atomically, no heartbeat, and no
+  recovery of a dead supervisor's claim (M765).
 - **The daemon** is a different tool for a different job — many *quick* requests
   against a warm process. It is not a task-queue; pair it with the loop only if
   you also have interactive/ad-hoc traffic. See [DAEMON.md](DAEMON.md).
@@ -391,14 +395,13 @@ Two mitigations, in order of value:
 The task said "report via specific tool calls." jichi exposes three channels; the
 mapping to built-in vs. custom tooling matters for security.
 
-```mermaid
-flowchart LR
-    M[model] -->|write_file| WF[built-in write_file] -->|path-fenced| FS[(workspace file)]
-    M -->|report_status| US1[user tool: report.sh] -->|fixed dest| RF[(status file, any path)]
-    M -->|db_report| US2[user tool: db-report.sh] -->|bound params| DB[(sqlite / postgres)]
-    M -->|fetch_url GET| FU[built-in fetch_url<br/>SSRF-guarded] --> NET1[(https GET)]
-    M -->|http_report POST| US3[user tool: http-report.sh] -->|fixed URL| NET2[(reporting endpoint)]
-```
+| The model calls… | Which runs… | To a fixed destination |
+|---|---|---|
+| `write_file` (built-in) | path-fenced | a workspace file |
+| `report_status` | user tool `report.sh` | a status file, any path |
+| `db_report` | user tool `db-report.sh` | sqlite / postgres (bound params) |
+| `fetch_url GET` (built-in) | SSRF-guarded | an https GET |
+| `http_report POST` | user tool `http-report.sh` | a fixed reporting URL |
 
 ### File — built-in `write_file`, or a user tool for anywhere else
 
@@ -619,7 +622,9 @@ Every attempt — refused or not — is appended to
 independent of opt-in telemetry so it never goes dark. For an unattended loop set
 `privilegedCommands: "deny"` and, only if a task genuinely needs one specific
 command, add it to `privilegedCommandsAllow` (a chained command like
-`sudo x; sudo rm -rf /` is rejected even when `sudo x` is allow-listed). See
+`sudo x; sudo rm -rf /` is rejected even when `sudo x` is allow-listed). An entry
+matches by word prefix, so list the whole command; and the list is never
+honoured for a delegate (M849). See
 [DEPLOYMENT.md §5](DEPLOYMENT.md) and
 [the design proposal](proposals/2026-07-privileged-commands.md).
 

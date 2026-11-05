@@ -53,7 +53,7 @@
 # EXEMPT: _smoke.sh (the lib itself), run.sh (the runner), this file.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 21
+t_plan 22
 
 drivers=""
 for f in "$SMOKE_DIR"/*.sh; do
@@ -142,8 +142,24 @@ bad=""
 for f in $drivers; do
     case "$(basename "$f")" in
         # pure lints scan files, not the binary (docs_flags keeps its
-        # e2e-era name rather than the *_lint.sh convention)
-        *_lint.sh|docs_flags.sh) continue ;;
+        # e2e-era name rather than the *_lint.sh convention); teeth_restore
+        # tests tests/teeth.sh, the red-first tool, and runs no jichi (M770);
+        # release_mode (M1073, L-01) builds and INSPECTS its own throwaway
+        # RELEASE=1 jichi in a temp copy -- it tests the release mode, not the
+        # pre-built $BIN, so it never runs it (same shape as teeth_restore);
+        # static_mode (M1075, E-07) builds and INSPECTS its own throwaway
+        # STATIC=1 jichi in a temp copy -- it tests the static mode, not the
+        # pre-built $BIN, so it never runs it (same shape as release_mode);
+        # snprintf_fallback (M1079, A-10) compiles the C89 fallback from
+        # src/platform/jc_snprintf.c into a throwaway program -- it tests the
+        # fallback, not the pre-built $BIN (which never selects it on this
+        # host); SV:1201: its _bin="$BIN" code line made mutant-sweep select
+        # it and it passed hollow, so it is exempt here, not excluded there
+        # hooks_docs / lease_advisory_docs (SV:1737, M1118-b): the two docs
+        # drivers whose only "$BIN" was the skip-guard check 5 asks for -- they
+        # read src/ and docs/ only and never run the binary (same shape as
+        # docs_flags.sh), so they are exempt here, not excluded in the sweep
+        *_lint.sh|docs_flags.sh|hooks_docs.sh|lease_advisory_docs.sh|teeth_restore.sh|release_mode.sh|static_mode.sh|snprintf_fallback.sh) continue ;;
     esac
     grep -q '"\$BIN"' "$f" || bad="$bad $(basename "$f")"
     # M270: the ABSENCE side, which this check's own message has always
@@ -205,6 +221,10 @@ fi
 
 bad=""
 for f in $drivers; do
+    # A *_lint.sh scans files and never spawns a PTY (check 5's rule); a mention
+    # of ptydrive in its prose is not an invocation. assertexit_lint.sh, which is
+    # ABOUT waitexit/assertexit, tripped this until it was exempted (M776).
+    case $(basename "$f") in *_lint.sh) continue ;; esac
     grep -q 'ptydrive' "$f" || continue
     if ! grep -q -- '--config' "$f" && ! grep -q -- '--no-lite' "$f"; then
         bad="$bad $(basename "$f")"
@@ -396,11 +416,11 @@ _bg_bad=$(for f in $drivers; do
     awk -v F="$f" '
       /^\(/ { inb = 1; blk = ""; }
       inb   { blk = blk $0 " "; }
-      inb && /\) *&[[:space:]]*$/ {
+      inb && /\) *&[ \t]*$/ {
           if (blk !~ /exec /) print F ":" NR;
           inb = 0; blk = "";
       }
-      inb && /\)[[:space:]]*$/ { inb = 0; blk = ""; }
+      inb && /\)[ \t]*$/ { inb = 0; blk = ""; }
     ' "$f"
 done)
 # Emptiness is tested directly, NOT via `grep -c . || echo 0`: on an empty input
@@ -433,7 +453,13 @@ for f in $drivers; do
     # ANY special-build gate, not just FAULT=1 (M694). leak_turn.sh gates on a
     # SAN=1 binary and would have been invisible in exactly the M482 way: listed
     # in run.sh, skipping in every ordinary run, named by nothing.
-    if grep -qE 'needs a (FAULT=1 binary|SAN=1 build)' "$f" 2>/dev/null; then
+    # M1088: key the detector on the GATE (the --version FAULT/SAN probe) rather
+    # than on one skip-wording phrase. A driver is build-gated iff it greps its
+    # binary for a sanitizer or fault-build marker (__asan_, LeakSanitizer or
+    # FAULT=1). The old single-phrase match ('needs a FAULT=1 binary') missed
+    # the F-02 driver, which says "requires the FAULT=1 build" -- that is what
+    # let GAP 1 ride past this check to batch 9's gate.
+    if grep -qE 'grep -q[ e]*"?(__asan_|LeakSanitizer|FAULT=1)' "$f" 2>/dev/null; then
         _fault_drivers="$_fault_drivers $(basename "$f")"
     fi
 done
@@ -554,8 +580,8 @@ _ps=$(for f in $drivers; do
             (bibliography_lint.sh) continue ;;
         esac
         awk -v F="$f" '
-            /^[[:space:]]*t_plan /             { p = FNR }
-            /t_skip[[:space:]]+"/              { if (p && FNR > p) {
+            /^[ \t]*t_plan /             { p = FNR }
+            /t_skip[ \t]+"/              { if (p && FNR > p) {
                                                    printf "  %s: t_plan line %d, t_skip line %d\n", F, p, FNR
                                                    exit } }' "$f"
       done)
@@ -591,6 +617,28 @@ else
     t_fail "check 3 has gone hollow -- it no longer decides these correctly:$_t21
 The rule must catch a tool that is RUN and ignore one that is merely named.
 Fix the pattern above; do not adjust this probe to match it."
+fi
+
+# --- 22: only _smoke.sh and run.sh assign the BIN variable -------------------
+# THE DEFECT (setup_jsonc_preserved, mutant stage): a driver overrode
+# BIN="$SMOKE_ROOT/jichi", shadowing _smoke.sh's BIN=${JC_SMOKE_BIN:-...}. The
+# mutant sweep (make mutant) swaps the BINARY via JC_SMOKE_BIN to prove a driver
+# fails against a hollow build; a driver that reassigns BIN itself is immune, so
+# its check stays green against a hollow binary and the mutant stage cannot see
+# it. The BIN variable has ONE owner (the ${JC_SMOKE_BIN:-...} default in
+# _smoke.sh, exported to the child by run.sh). A word-boundary match: JC_TRACE_BIN
+# and the like do NOT count, because before their BIN is a '_' (no word boundary).
+_bin_owners=$(grep -rlE '(^|[^A-Za-z_])BIN=' "$SMOKE_ROOT"/tests/smoke/*.sh 2>/dev/null \
+    | grep -v 'smoke_lint.sh' | sed 's|.*/||' | sort)
+_bin_floor=$(printf '%s\n' '_smoke.sh' 'run.sh')
+if [ "$_bin_owners" = "$_bin_floor" ]; then
+    t_ok "only _smoke.sh and run.sh assign BIN (the mutant sweep can swap the binary)"
+else
+    t_fail "a smoke driver assigns BIN itself -- the mutant sweep cannot swap the
+binary it runs, so its checks stay green against a hollow build:
+  $(printf '%s' "$_bin_owners" | tr '\n' ' ')
+BIN must come from _smoke.sh's \${JC_SMOKE_BIN:-...}; delete the driver's
+assignment. (Floor: exactly those two files, proven red on the old line.)"
 fi
 
 t_done

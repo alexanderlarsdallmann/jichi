@@ -91,7 +91,8 @@ dropped. Several lines typed before a boundary are joined into one message.
 | **Ctrl-U** | clear the line being typed |
 | **Ctrl-K** | un-queue: drop lines already committed but not yet sent |
 | **Ctrl-C** | unchanged — aborts the turn |
-| arrows, function keys | ignored (this is a queue, not the line editor) |
+| **Esc** | stops the running turn, as Ctrl-C (M753) |
+| arrows, function keys | ignored, except a bare Esc (see above) |
 
 **Enter is what queues.** A line typed but never committed is not sent — and not
 silently thrown away either: when the turn ends jichi prints it back, labelled

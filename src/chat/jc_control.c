@@ -29,11 +29,13 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/select.h>
+#include "jc_select.h"  /* M834: <sys/select.h> where it exists */
 #include <sys/time.h> /* struct timeval: MiNTLib's <sys/select.h> only forward-declares it (M723) */
-#include <sys/un.h>
 #include <sys/stat.h>
+#ifndef JC_NO_SOCKETS
+#include <sys/socket.h>
+#include <sys/un.h>
+#endif
 
 /* Cap the total queued steering text (several injects between boundaries). */
 #define CONTROL_PENDING_MAX (4 * JC_CONTROL_LINE_MAX)
@@ -44,6 +46,39 @@ void jc_control_default_path(char *out, jc_size cap)
                 jc_home_dir(), (long)getpid());
 }
 
+int jc_control_available(void)
+{
+#ifdef JC_NO_SOCKETS
+    return 0;
+#else
+    return 1;
+#endif
+}
+
+#ifdef JC_NO_SOCKETS
+jc_status jc_control_open(struct jc_control *c, const char *path)
+{
+    if (c == NULL || path == NULL || path[0] == '\0') {
+        return JC_ERR_INVALID;
+    }
+    memset(c, 0, sizeof(*c));
+    c->listen_fd = -1;
+    jc_sb_init(&c->pending);
+    jc_sb_init(&c->pending_from);
+    c->started = (long)time(NULL);
+    c->serve_pid = (long)getpid();  /* SV:1848: dead weight on this build; one body */
+    return JC_ERR_IO;
+}
+
+/* listen_fd is always -1 on this build and every caller of serve_pending
+ * checks that first, so this is never reached; it keeps serve_pending one body
+ * for both builds. */
+static int control_accept(int listen_fd)
+{
+    (void)listen_fd;
+    return -1;
+}
+#else
 jc_status jc_control_open(struct jc_control *c, const char *path)
 {
     struct sockaddr_un addr;
@@ -56,6 +91,7 @@ jc_status jc_control_open(struct jc_control *c, const char *path)
     memset(c, 0, sizeof(*c));
     c->listen_fd = -1;
     jc_sb_init(&c->pending);
+    jc_sb_init(&c->pending_from);
     c->started = (long)time(NULL);
     if (strlen(path) >= sizeof(addr.sun_path) ||
         strlen(path) >= sizeof(c->path)) {
@@ -96,8 +132,17 @@ jc_status jc_control_open(struct jc_control *c, const char *path)
      * the ACL by accident -- and this socket drives the agent (M472). */
     jc_fd_cloexec(c->listen_fd);
     fcntl(c->listen_fd, F_SETFL, O_NONBLOCK);
+    c->serve_pid = (long)getpid();
+    /* SV:1848 (M1103): the socket's owner is this process; only it serves
+     * the socket (the serve_pid guard at the two service points). */
     return JC_OK;
 }
+
+static int control_accept(int listen_fd)
+{
+    return accept(listen_fd, NULL, NULL);
+}
+#endif /* JC_NO_SOCKETS */
 
 void jc_control_close(struct jc_control *c)
 {
@@ -112,6 +157,7 @@ void jc_control_close(struct jc_control *c)
         unlink(c->path);
     }
     jc_sb_free(&c->pending);
+    jc_sb_free(&c->pending_from);
 }
 
 /* Read one bounded request line from `fd` (the client writes immediately;
@@ -227,6 +273,8 @@ static char *status_reply(struct jc_app *app, struct jc_control *c)
 
     memset(&s, 0, sizeof(s));
     s.paused = c->paused;
+    s.injected = c->injected;                       /* M1045 */
+    s.queued_injects = c->pending_notes;  /* M1045-b: notes, not lines */
     s.last_tool = c->last_tool;
     s.mode = jc_agent_mode_name((enum jc_agent_mode)app->mode);  /* M304 */
     s.outcome = "running";
@@ -255,8 +303,21 @@ static char *status_reply(struct jc_app *app, struct jc_control *c)
 
 /* Serve every connection currently waiting (or, with wait_ms > 0, wait that
  * long for one). Returns the number of commands served. */
+/* abort_mode (M801, refined M827/N14): what an ABORT served here does.
+ *   0 = apply now (a tool boundary): set app->abort_flag, reply "graceful".
+ *   1 = defer to the boundary (a long SHELL call): the wait loop does not act on
+ *       app->abort_flag, so the abort is queued (c->deferred_abort) and applied at
+ *       the next boundary -- reply "queued to the next tool boundary".
+ *   2 = the spawn_parallel POOL: also deferred (c->deferred_abort), but the pool
+ *       drains it each ~200 ms loop (jc_control_apply_deferred_abort) and stops the
+ *       batch THEN, preserving every worker's work first (P1/M804) -- so the reply
+ *       says the batch stops now and the work is kept, not "queued to a boundary"
+ *       that a 90 s batch will not reach (N14).
+ * Modes 1 and 2 both set c->deferred_abort; only the operator-facing reply differs.
+ * Every other verb is safe mid-call: pause/resume set a flag the wait loops do not
+ * block on, inject appends to the pending buffer, and status is read-only. */
 static int serve_pending(struct jc_app *app, struct jc_control *c,
-                         long wait_ms)
+                         long wait_ms, int abort_mode)
 {
     int served = 0;
 
@@ -275,7 +336,7 @@ static int serve_pending(struct jc_app *app, struct jc_control *c,
         if (select(c->listen_fd + 1, &rf, NULL, NULL, &tv) <= 0) {
             return served;
         }
-        fd = accept(c->listen_fd, NULL, NULL);
+        fd = control_accept(c->listen_fd);
         jc_fd_cloexec(fd); /* M472: an accepted control conn is not a child's */
         if (fd < 0) {
             return served;
@@ -291,9 +352,14 @@ static int serve_pending(struct jc_app *app, struct jc_control *c,
             continue;
         }
         if (st != JC_OK || cmd.type == JC_CTL_UNKNOWN) {
-            write_reply(fd, jc_control_build_err(
-                "unknown command (status|inject|pause|resume|abort; "
-                "inject needs \"text\")"));
+            /* M752: the verb list is the codec's, not typed here -- this reply
+             * named five verbs and omitted `mode` from M304 to M752. */
+            char verbs[96], msg[192];
+            jc_control_verb_list(verbs, sizeof(verbs), "|");
+            jc_snprintf(msg, sizeof(msg),
+                        "unknown command (%s; inject needs \"text\", "
+                        "mode needs \"mode\")", verbs);
+            write_reply(fd, jc_control_build_err(msg));
             close(fd);
             continue;
         }
@@ -310,8 +376,12 @@ static int serve_pending(struct jc_app *app, struct jc_control *c,
             }
             if (c->pending.len > 0) {
                 jc_sb_append(&c->pending, "\n");
+                jc_sb_append(&c->pending_from, "\n");
             }
             jc_sb_append(&c->pending, cmd.text);
+            jc_sb_append(&c->pending_from, cmd.from != NULL ? cmd.from : "operator");
+            c->injected++; /* M1045: accepted this run (the journal's live view) */
+            c->pending_notes++; /* M1045-b: the note is now queued in `pending` */
             journal_cmd(app, "inject", cmd.text, 0, -1);
             write_reply(fd, jc_control_build_ok("applied at next model call"));
             break;
@@ -334,9 +404,19 @@ static int serve_pending(struct jc_app *app, struct jc_control *c,
             write_reply(fd, jc_control_build_ok(NULL));
             break;
         case JC_CTL_ABORT:
-            app->abort_flag = 1;
-            journal_cmd(app, "abort", NULL, 0, -1);
-            write_reply(fd, jc_control_build_ok("aborting (graceful)"));
+            if (abort_mode == 2) {
+                c->deferred_abort = 1;
+                write_reply(fd, jc_control_build_ok(
+                    "aborting: the batch stops now and its workers' work is kept"));
+            } else if (abort_mode == 1) {
+                c->deferred_abort = 1;
+                write_reply(fd, jc_control_build_ok(
+                    "aborting (queued to the next tool boundary)"));
+            } else {
+                app->abort_flag = 1;
+                journal_cmd(app, "abort", NULL, 0, -1);
+                write_reply(fd, jc_control_build_ok("aborting (graceful)"));
+            }
             break;
         case JC_CTL_MODE: {
             /* M304: NARROW the posture mid-run. Refused unless it strictly reduces
@@ -402,15 +482,33 @@ int jc_control_boundary(struct jc_app *app, struct jc_history *hist)
 {
     struct jc_control *c;
 
-    if (app == NULL || app->control == NULL || app->agent_depth != 0) {
+    if (app == NULL || app->control == NULL) {
         return 0;
     }
     c = app->control;
-    if (c->listen_fd < 0) {
+    /* SV:1848 (M1103): the serve guard is the socket's OWNER, not the depth.
+     * A FORKED pool child inherits the listening fd and a different pid, and
+     * must not answer it -- or it would steal the lead's supervisor
+     * connection. An IN-PROCESS subagent raises agent_depth in the very
+     * process that owns the socket (jc_tool_subagent.c), so it keeps the
+     * right pid and serves: the old agent_depth != 0 guard darkened the whole
+     * child run (status/pause/abort unanswered for minutes, SV:1848). The
+     * inject FOLD below keeps its depth guard: folding steering into a
+     * subagent's history would be wrong, so that stays depth-0 only. */
+    if (c->listen_fd < 0 ||
+        c->serve_pid != (long)getpid()) {
         return 0;
     }
 
-    serve_pending(app, c, 0);
+    /* M801: apply an abort that arrived during a tool call, now that we are at a
+     * safe boundary (no batch is mid-flight to lose worktrees to). */
+    if (c->deferred_abort) {
+        c->deferred_abort = 0;
+        app->abort_flag = 1;
+        journal_cmd(app, "abort", NULL, 0, -1);
+    }
+
+    serve_pending(app, c, 0, 0);
 
     /* A pause blocks HERE -- at the boundary, never mid-tool -- in 500ms
      * slices so resume/abort/status stay serviceable and Ctrl-C/SIGTERM
@@ -419,7 +517,7 @@ int jc_control_boundary(struct jc_app *app, struct jc_history *hist)
      * back on exit), so only resume/abort end it. */
     while (c->paused && !app->abort_flag &&
            (c->pause_extend || !deadline_passed(app))) {
-        serve_pending(app, c, 500);
+        serve_pending(app, c, 500, 0);
     }
     if (c->paused && !c->pause_extend && deadline_passed(app)) {
         c->paused = 0;
@@ -435,12 +533,39 @@ int jc_control_boundary(struct jc_app *app, struct jc_history *hist)
 
     /* Fold queued steering into history as ONE user-role message. The
      * provenance prefix is explicit for the model and the transcript; the fold
-     * itself is jc_history_add_operator, shared with the TUI type-ahead queue
-     * (M254) so both steering paths produce the identical wire shape. */
-    if (c->pending.len > 0 && hist != NULL) {
-        jc_history_add_operator(hist, c->pending.data);
+     * uses jc_history_add_with_prefix if the inject had a `from` field, otherwise
+     * jc_history_add_operator (shared with the TUI type-ahead queue M254).
+     *
+     * SV:1848 (M1103): the fold stays DEPTH-guarded even though serving above is
+     * pid-guarded. `c->pending` is the run-global steering buffer; folding it
+     * into a subagent's history would steer the child with top-level instructions
+     * and drain the buffer before the lead ever reads it. So the owner serves
+     * status/pause/resume at any depth, but only depth 0 folds -- a child
+     * boundary (hist = the child's history) serves but leaves the buffer
+     * queued for the lead's next top-level boundary. */
+    if (app->agent_depth == 0 && c->pending.len > 0 && hist != NULL) {
+        const char *from;
+        /* The pending_from buffer mirrors pending: same number of lines, one
+         * per inject. Read the last line from pending_from to get the sender. */
+        from = jc_sb_last_line(&c->pending_from);
+        if (from != NULL && strcmp(from, "operator") != 0) {
+            /* Custom sender prefix: [sender] */
+            struct jc_sb prefix;
+            char buf[256];
+            jc_sb_init(&prefix);
+            jc_snprintf(buf, sizeof(buf), "[%s] ", from);
+            jc_sb_append(&prefix, buf);
+            jc_history_add_with_prefix(hist, prefix.data, c->pending.data);
+            jc_sb_free(&prefix);
+        } else {
+            /* No from field or "operator": use [operator] prefix */
+            jc_history_add_operator(hist, c->pending.data);
+        }
         jc_sb_free(&c->pending);
         jc_sb_init(&c->pending);
+        jc_sb_free(&c->pending_from);
+        jc_sb_init(&c->pending_from);
+        c->pending_notes = 0; /* M1045-b: the fold emptied the buffer */
         return 1;
     }
     return 0;
@@ -453,4 +578,43 @@ void jc_control_poll(struct jc_app *app)
      * already expresses "do not fold". One implementation, so a future change to
      * the pause semantics cannot apply to one caller and not the other. */
     (void)jc_control_boundary(app, NULL);
+}
+
+int jc_control_apply_deferred_abort(struct jc_app *app)
+{
+    /* M804 (L1b): apply an abort that arrived mid-call NOW, from inside the
+     * parallel pool. Safe as of P1: the pool's teardown preserves every child's
+     * worktree before it is removed, so killing the batch early loses no work. The
+     * shell wait loop does NOT call this -- there abort still waits for the
+     * boundary, unchanged. Returns 1 if an abort was pending. */
+    if (app == NULL || app->control == NULL || !app->control->deferred_abort) {
+        return 0;
+    }
+    app->control->deferred_abort = 0;
+    app->abort_flag = 1;
+    journal_cmd(app, "abort", NULL, 0, -1);
+    return 1;
+}
+
+void jc_control_poll_during_call(struct jc_app *app, int in_pool)
+{
+    struct jc_control *c;
+    /* M801 (L1a): served from inside a long tool call / spawn_parallel batch so a
+     * supervisor's `status` is answered now instead of at the next boundary (which
+     * a 20 s call or batch pushes ~15 s away). Owned-process-guarded (SV:1848):
+     * a FORKED pool child inherits the listening fd and a different pid and must
+     * not answer it -- or it would steal the lead's supervisor connection. An
+     * IN-PROCESS subagent runs its shell tool at agent_depth 1 in the very process
+     * that owns the socket, so it keeps the right pid and serves: the old
+     * agent_depth != 0 guard darkened the whole child run (SV:1848). Non-blocking
+     * (wait 0) and abort-deferred: it never blocks on pause and never sets
+     * abort_flag here. */
+    if (app == NULL || app->control == NULL) {
+        return;
+    }
+    c = app->control;
+    if (c->listen_fd < 0 || c->serve_pid != (long)getpid()) {
+        return;
+    }
+    (void)serve_pending(app, c, 0, in_pool ? 2 : 1);
 }

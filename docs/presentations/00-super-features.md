@@ -163,7 +163,7 @@ feature — for embedded targets, for teaching, and for trust.
 
 ```sh
 make && ./jichi setup            # guided setup
-./jichi -p "explain this repo"   # headless
+./jichi -p "explain this repo" < /dev/null   # headless
 ./jichi                          # the TUI
 ```
 

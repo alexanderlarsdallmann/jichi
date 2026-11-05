@@ -55,6 +55,7 @@ expect "FAIL" 15
 delay 400
 send "/exit\r"
 waitexit 12
+assertexit 0
 EOF
 (cd "$ws" && "$SMOKE_TOOLS/ptydrive" --deadline 40 --cols 100 \
     --log "$tmp/a.log" "$tmp/a.pd" -- "$BIN" --no-route --no-lite); rc=$?
@@ -98,6 +99,7 @@ expect "assignment closed" 15
 delay 400
 send "/exit\r"
 waitexit 12
+assertexit 0
 EOF
 (cd "$ws" && "$SMOKE_TOOLS/ptydrive" --deadline 40 --cols 100 \
     --log "$tmp/b.log" "$tmp/b.pd" -- "$BIN" --no-route --no-lite); rc=$?
@@ -154,6 +156,7 @@ expect "NOT a grade" 15
 delay 400
 send "/exit\r"
 waitexit 12
+assertexit 0
 CEOF
 (cd "$ws" && "$SMOKE_TOOLS/ptydrive" --deadline 40 --cols 100 \
     --log "$tmp/c.log" "$tmp/c.pd" -- "$BIN" --no-route --no-lite); rc=$?

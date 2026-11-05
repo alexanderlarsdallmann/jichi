@@ -331,9 +331,14 @@ obvious conclusion. Work down this list in order — the first live bench
 4. **Did reasoning eat the output budget?** A reasoning model can spend all of
    `max_tokens` on `reasoning_content`; jichi warns explicitly when it sees
    reasoning and no answer. Raise the model's `maxTokens`.
-5. **Only then** conclude the model lacks native tool calling and set
-   `"toolCalling": "none"`. Setting it to work around one of the causes above
-   degrades a fully capable model.
+5. **Only then** conclude the model lacks *native* tool calling. Two postures,
+   in order of preference: if it **describes** its calls in markdown (a fenced
+   JSON block, a bare `{"name": …, "arguments": …}`), set `toolCalling:
+   "text"` (M949) and jichi recovers the well-formed blocks and executes them
+   through the same fences and approval as native calls. If it never emits
+   call-shaped content at all, set `"toolCalling": "none"` (Q&A/plan agent).
+   Setting either to work around one of the causes above degrades a fully
+   capable model.
 
 The reproducible procedure for all of this, plus the bench corpus that exercises
 it, is [BENCH_LOCAL_GPU.md](BENCH_LOCAL_GPU.md).

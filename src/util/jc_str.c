@@ -165,6 +165,30 @@ char *jc_sb_finish(struct jc_sb *b)
     return p;
 }
 
+const char *jc_sb_last_line(const struct jc_sb *b)
+{
+    const char *p;
+    const char *last;
+    if (b == NULL || b->data == NULL || b->len == 0) {
+        return NULL;
+    }
+    /* Start from the end and find the last newline */
+    p = b->data + b->len - 1;
+    last = NULL;
+    while (p >= b->data) {
+        if (*p == '\n') {
+            last = p + 1;  /* skip the newline */
+            break;
+        }
+        p--;
+    }
+    /* If no newline found, return the whole buffer */
+    if (last == NULL) {
+        last = b->data;
+    }
+    return last;
+}
+
 char *jc_strdup(const char *s)
 {
     char *p;
@@ -271,6 +295,16 @@ void jc_group_num(double v, char sep, char *buf, jc_size cap)
     if (n < 0) {
         buf[0] = '\0';
         return;
+    }
+    /* A-11 (M1111): n is jc_snprintf's WOULD-BE length.  When the rendered
+     * number does not fit in raw (n > sizeof raw - 1), the digits actually
+     * written are fewer; clamp to what was written.  That bounds the copy
+     * loop to raw's digits, so no caller buffer size can make it read past
+     * the staging buffer.  Every value under 40 digits (every current
+     * caller: token counts well under 1e38) keeps n at most
+     * sizeof raw - 1, so this is a no-op for them. */
+    if (n > (int)(sizeof raw - 1)) {
+        n = (int)(sizeof raw - 1);
     }
     for (i = 0; i < n; i++) {
         if (sep != 0 && i != 0 && ((n - i) % 3 == 0) && o + 1 < cap) {

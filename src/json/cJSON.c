@@ -86,12 +86,88 @@ void cJSON_Delete(cJSON *item)
  * found. See docs/analysis/2026-08-17-source-hardening-audit.md §H4. */
 #define JC_JSON_MAX_DEPTH 256
 
+/* Hard bound on the number of nodes ONE parse allocates (M1089, A-06).
+ * M472's depth cap bounds nesting, but not node count: every value is a
+ * malloc'd 64-byte node, so a dense array of small numbers is one node per
+ * element, and a large-but-valid reply expands ~40x its bytes into tree
+ * memory while it is parsed. The lead confirmed on head: a 1,000,000-element
+ * array of numbers (1.9 MB) parses into ~78 MB peak RSS, delta 77,952 KB.
+ * The 4 MB per-SSE-field byte cap does not help -- it bounds the input, not
+ * the allocation (docs/analysis/2026-10-17-hardening-02-input-and-memory.md,
+ * A-06).
+ *
+ * 1,000,000 clears the largest legitimate parse -- an embeddings reply,
+ * JC_EMBED_BATCH (64) items each carrying an index, a usage object (3
+ * fields) and a vector of dim <= 8192 floats, ~524,000 nodes in all -- with
+ * nearly double the headroom, while the finding's ~2,000,000-node 4 MB
+ * dense array is refused. Enforced at parse-time allocation only
+ * (parse_new_item below): the public constructors, through which jichi builds
+ * its OWN request bodies, are not capped. Runtime-lowerable for the test
+ * (cJSON_jc_set_max_nodes, declared in cJSON.h). */
+#define JC_JSON_MAX_NODES 1000000
+
 struct parse_ctx {
-    const char *p;   /* current position */
-    const char *end; /* one past the last byte */
+    const char *p;    /* current position */
+    const char *end;  /* one past the last byte */
     int         ok;
     int         depth; /* container nesting; bounds stack use (M472) */
+    size_t      nodes; /* parse-time allocations; bounds heap use (M1089) */
 };
+
+/* The per-parse node cap, runtime-lowerable (M1089). Default is
+ * JC_JSON_MAX_NODES; only tests lower it, for the duration of one parse, and
+ * restore it -- the shape the existing test-only counters (g_jc_string_bytes,
+ * g_jc_append_steps) set. */
+static size_t g_cjson_max_nodes = JC_JSON_MAX_NODES;
+
+void cJSON_jc_set_max_nodes(size_t n)
+{
+    g_cjson_max_nodes = n;
+}
+
+size_t cJSON_jc_get_max_nodes(void)
+{
+    return g_cjson_max_nodes;
+}
+
+/* M1094 (G3): 1 when the most recent cJSON_Parse call was refused by the
+ * per-parse node cap above, else 0. Set 0 at the top of cJSON_Parse and 1
+ * ONLY in parse_new_item's cap-refusal branch, so it distinguishes "the
+ * document would exceed the node cap" from "the document is malformed JSON"
+ * (which also returns NULL, but reads 0 here). It does not clear itself: a
+ * parse is atomic, so the flag describes the most recent cJSON_Parse call.
+ * The provider dialects consult it in on_event's root == NULL branch to mark
+ * a cap-refused streamed event truncated instead of dropping it silently.
+ * Only a parse can set it; the public constructors are untouched. */
+static int g_cjson_last_parse_refused_by_cap = 0;
+
+int cJSON_jc_parse_refused_by_cap(void)
+{
+    return g_cjson_last_parse_refused_by_cap;
+}
+
+/* Parse-time allocation, capped at g_cjson_max_nodes (M1089/A-06). The public
+ * constructors keep calling cJSON_New_Item uncapped -- the finding is the
+ * parser, and jichi builds its own request bodies through them. When the cap
+ * is reached this sets c->ok = 0 and returns NULL, so the parse fails as a
+ * whole: the enclosing containers cJSON_Delete themselves (and their
+ * children) on the NULL they get back, exactly as they already do on any
+ * child failure, so the partially built tree is not returned and nothing the
+ * parse allocated leaks. */
+static cJSON *parse_new_item(struct parse_ctx *c)
+{
+    cJSON *node;
+    if (c->nodes >= g_cjson_max_nodes) {
+        c->ok = 0;
+        g_cjson_last_parse_refused_by_cap = 1; /* M1094 (G3) */
+        return NULL;
+    }
+    node = cJSON_New_Item();
+    if (node != NULL) {
+        c->nodes++;
+    }
+    return node;
+}
 
 static void skip_ws(struct parse_ctx *c)
 {
@@ -159,6 +235,16 @@ static size_t g_jc_string_bytes;
 size_t cJSON_jc_string_bytes(void)
 {
     return g_jc_string_bytes;
+}
+
+/* `next` steps cJSON_AddItemToArray's tail search has walked, for the test
+ * that holds its O(1) append (M1085/F-05). Mirrors g_jc_string_bytes: a global
+ * counter incremented at the hot site and read through a public accessor. */
+static size_t g_jc_append_steps;
+
+size_t cJSON_jc_append_steps(void)
+{
+    return g_jc_append_steps;
 }
 
 static char *parse_string(struct parse_ctx *c)
@@ -274,6 +360,25 @@ static char *parse_string(struct parse_ctx *c)
     return out;
 }
 
+/* The int view of a number, clamped: casting a double outside int's range to int is
+ * undefined behaviour (UBSan: "outside the range of representable values of type
+ * 'int'"). NaN reads as 0. Shared by the parser and cJSON_CreateNumber -- M866: the
+ * parser had been fixed (below) and CreateNumber had kept the bare cast, until M861's
+ * unit test built 5e9 and batch 4's make ci stopped on it. */
+static int number_to_int(double val)
+{
+    if (val != val) {
+        return 0;
+    }
+    if (val >= (double)INT_MAX) {
+        return INT_MAX;
+    }
+    if (val <= (double)INT_MIN) {
+        return INT_MIN;
+    }
+    return (int)val;
+}
+
 static cJSON *parse_number(struct parse_ctx *c)
 {
     char buf[64];
@@ -298,7 +403,7 @@ static cJSON *parse_number(struct parse_ctx *c)
         return NULL;
     }
     val = strtod(buf, NULL);
-    node = cJSON_New_Item();
+    node = parse_new_item(c);
     if (node == NULL) {
         c->ok = 0;
         return NULL;
@@ -325,15 +430,7 @@ static cJSON *parse_number(struct parse_ctx *c)
      * numeric string does not produce one), and is written anyway because both
      * range comparisons are false for NaN and the fall-through would be the
      * same undefined cast this exists to remove. */
-    if (val != val) {
-        node->valueint = 0;
-    } else if (val >= (double)INT_MAX) {
-        node->valueint = INT_MAX;
-    } else if (val <= (double)INT_MIN) {
-        node->valueint = INT_MIN;
-    } else {
-        node->valueint = (int)val;
-    }
+    node->valueint = number_to_int(val);
     c->p = p;
     return node;
 }
@@ -346,7 +443,7 @@ static cJSON *parse_literal(struct parse_ctx *c, const char *word, int type)
         c->ok = 0;
         return NULL;
     }
-    node = cJSON_New_Item();
+    node = parse_new_item(c);
     if (node == NULL) {
         c->ok = 0;
         return NULL;
@@ -361,7 +458,7 @@ static cJSON *parse_array(struct parse_ctx *c)
     cJSON *arr;
     cJSON *tail = NULL;
 
-    arr = cJSON_New_Item();
+    arr = parse_new_item(c);
     if (arr == NULL) {
         c->ok = 0;
         return NULL;
@@ -389,6 +486,7 @@ static cJSON *parse_array(struct parse_ctx *c)
             item->prev = tail;
         }
         tail = item;
+        arr->tail = item;   /* M1085/F-05: keep the container's cached tail */
         skip_ws(c);
         if (c->p < c->end && *c->p == ',') {
             c->p++;
@@ -409,7 +507,7 @@ static cJSON *parse_object(struct parse_ctx *c)
     cJSON *obj;
     cJSON *tail = NULL;
 
-    obj = cJSON_New_Item();
+    obj = parse_new_item(c);
     if (obj == NULL) {
         c->ok = 0;
         return NULL;
@@ -455,6 +553,7 @@ static cJSON *parse_object(struct parse_ctx *c)
             item->prev = tail;
         }
         tail = item;
+        obj->tail = item;   /* M1085/F-05: keep the container's cached tail */
         skip_ws(c);
         if (c->p < c->end && *c->p == ',') {
             c->p++;
@@ -484,7 +583,7 @@ static cJSON *parse_value(struct parse_ctx *c)
             if (s == NULL) {
                 return NULL;
             }
-            node = cJSON_New_Item();
+            node = parse_new_item(c);
             if (node == NULL) {
                 free(s);
                 c->ok = 0;
@@ -525,11 +624,27 @@ cJSON *cJSON_Parse(const char *value)
     if (value == NULL) {
         return NULL;
     }
+    g_cjson_last_parse_refused_by_cap = 0; /* M1094 (G3) */
     c.p = value;
     c.end = value + strlen(value);
     c.ok = 1;
     c.depth = 0;
+    c.nodes = 0; /* fresh per-parse counter; capped by parse_new_item (M1089) */
     root = parse_value(&c);
+    if (c.ok) {
+        /* A-08: refuse anything after the root value. The parser used to
+         * return here with the first value, leaving trailing garbage
+         * silently accepted ({"a":1}} -> an object). Same skip_ws the rest
+         * of the parser uses between tokens, then the cursor must be at the
+         * end of the input. This makes cJSON (and every caller of it,
+         * including jc_jsonrepair's final validation and jc_prov_args_wire)
+         * stricter: a document is one value plus nothing else. Upstream cJSON
+         * accepts the trailing data; jichi refuses it on purpose. */
+        skip_ws(&c);
+        if (c.p != c.end) {
+            c.ok = 0;
+        }
+    }
     if (!c.ok) {
         if (root != NULL) {
             cJSON_Delete(root);
@@ -541,20 +656,50 @@ cJSON *cJSON_Parse(const char *value)
 
 /* ===================== accessors ======================================= */
 
+/* Duplicate-key policy (A-13, M1113): LAST-WRITE-WINS. When an object carries
+ * two members with the same key, this accessor returns the LAST one, matching
+ * most JSON consumers and servers; RFC 8259 leaves the policy to the consumer
+ * (its "names SHOULD be unique" is a SHOULD). jichi's parser keeps every
+ * member it sees -- parse_object appends with no duplicate check, because a
+ * parse-time replace would be O(n^2) per object (the M1089 node-cap era) --
+ * and this one accessor is where the read resolves: every jc_json_get_*
+ * routes through it (jc_json.c:22/31/63/159/169/192), so a duplicate key reads
+ * as the last value written.
+ *
+ * Boundary: jichi-built objects always carry unique keys -- the build path
+ * (cJSON_AddItemToObject) is deliberately untouched, and this function is a
+ * no-op for them. The residual is the shape, not the read: a duplicate object
+ * still iterates (ForeachObject) and re-prints BOTH members.
+ *
+ * That residual matters, not just as a shape: a re-serialization of a peer
+ * object -- the tool-arg re-print in jc_tool.c (unwrap_self_named :490,
+ * tcr_try_candidate :979, tcr_try_tagged_fence :1038) -- and an iteration
+ * (jc_tool_unstring_args :527/:535) BOTH keep every duplicate member in their
+ * output. What saves the invariant is that EVERY value read goes through this
+ * accessor, so the re-printed member set and the value jichi acts on resolve
+ * the same (last) member. The measured consequence (SV:2259): the PreToolUse
+ * hook -- which parses the re-printed event JSON last-wins, like any real
+ * parser -- now AGREES with the write. Pre-M1113, with the first-wins
+ * accessor, a duplicate-keyed model reply {"path":"BLOCKME.txt",...,"path":
+ * "ok.txt"} let the hook judge ok.txt (allowed) while jichi wrote BLOCKME.txt
+ * (the first) -- a PreToolUse-hook fence bypass. This last-wins accessor is
+ * what closes it.
+ */
 cJSON *cJSON_GetObjectItemCaseSensitive(const cJSON *object, const char *string)
 {
     cJSON *child;
+    cJSON *match = NULL;
     if (object == NULL || string == NULL) {
         return NULL;
     }
     child = object->child;
     while (child != NULL) {
         if (child->string != NULL && strcmp(child->string, string) == 0) {
-            return child;
+            match = child;   /* remember, do not return on the first */
         }
         child = child->next;
     }
-    return NULL;
+    return match;
 }
 
 cJSON *cJSON_GetObjectItem(const cJSON *object, const char *string)
@@ -635,7 +780,7 @@ cJSON *cJSON_CreateNumber(double num)
     if (n != NULL) {
         n->type = cJSON_Number;
         n->valuedouble = num;
-        n->valueint = (int)num;
+        n->valueint = number_to_int(num);   /* M866: as the parser does */
     }
     return n;
 }
@@ -683,13 +828,29 @@ int cJSON_AddItemToArray(cJSON *array, cJSON *item)
     child = array->child;
     if (child == NULL) {
         array->child = item;
+        array->tail = item;
         return 1;
     }
-    while (child->next != NULL) {
-        child = child->next;
+    /* Fast path (M1085/F-05): the container caches its tail in array->tail, so
+     * appending is O(1). The cache can be NULL (the tail was never maintained,
+     * e.g. the item was spliced in by code outside this file) or stale (a detach
+     * path unlinked the cached tail without updating it). In either case the
+     * fallback walks to the real tail and repoints the cache -- so the tree is
+     * always correct, and a one-off stale tail costs one walk, not one per append.
+     * The walk is counted (cJSON_jc_append_steps) and must stay O(1) per test:
+     * a healthy tail means zero counted steps. */
+    child = array->tail;
+    if (child == NULL || child->next != NULL) {
+        child = array->child;
+        while (child->next != NULL) {
+            child = child->next;
+            g_jc_append_steps++;
+        }
+        array->tail = child;
     }
     child->next = item;
     item->prev = child;
+    array->tail = item;
     return 1;
 }
 
@@ -734,6 +895,11 @@ int cJSON_ReplaceItemInObject(cJSON *object, const char *string,
             }
             if (child->next != NULL) {
                 child->next->prev = newitem;
+            } else {
+                /* child was the tail of object; newitem takes its place, so it
+                 * is the new tail (M1085/F-05). The count is unchanged -- this is
+                 * an in-place replacement, not a detach. */
+                object->tail = newitem;
             }
             child->next = NULL;
             child->prev = NULL;
@@ -870,6 +1036,27 @@ static void pb_indent(struct print_buf *b, int depth)
     }
 }
 
+/* M1084 (F-06) fast-path hook, for the parity test (tests/test_cjson_print_parity.c):
+ * the content bytes the no-escape run below has copied. The test resets it
+ * before each print and asserts every no-escape byte went through the memcpy
+ * -- the fast path proven to fire, not just present. Prototypes declared here
+ * (same shape as cJSON_jc_string_bytes' test-only exposure, but no public
+ * header change) so -Wmissing-prototypes stays clean. */
+static size_t g_pb_run_bytes;
+
+void    cJSON_pb_run_reset(void);
+size_t  cJSON_pb_run_bytes(void);
+
+void cJSON_pb_run_reset(void)
+{
+    g_pb_run_bytes = 0;
+}
+
+size_t cJSON_pb_run_bytes(void)
+{
+    return g_pb_run_bytes;
+}
+
 static void pb_put_string(struct print_buf *b, const char *s)
 {
     pb_putc(b, '"');
@@ -877,6 +1064,33 @@ static void pb_put_string(struct print_buf *b, const char *s)
         const unsigned char *p = (const unsigned char *)s;
         while (*p) {
             unsigned char ch = *p;
+            /* Fast path (F-06): a run of bytes that need no escape -- not a
+             * control byte (< 0x20), not a quote (0x22), not a backslash
+             * (0x5c); a byte >= 0x80 is never escaped here, and the printer
+             * treats it as an ordinary content byte -- is copied with one
+             * pb_ensure + memcpy instead of one pb_putc per byte. Byte-
+             * identical to the per-byte switch below, which remains the slow
+             * path; tests/test_cjson_print_parity.c holds it to that against
+             * a verbatim copy of the pre-fix loop. */
+            if (ch >= 0x20 && ch != 0x22 && ch != 0x5c) {
+                const unsigned char *r = p;
+                size_t run;
+                while (*r && *r >= 0x20 && *r != 0x22 && *r != 0x5c) {
+                    r++;
+                }
+                run = (size_t)(r - p);
+                /* pb_ensure(run) is the same growth step pb_putc(1) would take
+                 * for each of these bytes; on OOM it sets b->oom and every
+                 * later pb_* call no-ops, so returning early changes nothing
+                 * observable (print_with still returns NULL on b.oom). */
+                pb_ensure(b, run);
+                if (b->oom) return;
+                memcpy(b->data + b->len, p, run);
+                b->len += run;
+                g_pb_run_bytes += run;
+                p = r;
+                continue;
+            }
             switch (ch) {
                 case '"':  pb_puts(b, "\\\""); break;
                 case '\\': pb_puts(b, "\\\\"); break;
@@ -909,10 +1123,27 @@ static void pb_put_number(struct print_buf *b, double d)
         pb_puts(b, "null");
         return;
     }
-    if (d == floor(d) && d >= -1.0e15 && d <= 1.0e15) {
-        sprintf(tmp, "%ld", (long)d);
+    if (d == floor(d) && fabs(d) < 9007199254740992.0) {
+        /* Integral with |d| < 2^53: %.0f is exact and involves NO cast.
+         * The old (long)d was undefined behaviour once |d| outgrew long,
+         * and on ILP32 (32-bit long) it printed 3000000000 as
+         * -2147483648 -- A-09/L-04, pinned by test_json_print_exact
+         * (M1076) and a -m32 scratch build (L-09: no ci stage builds
+         * -m32, so the scratch is the tooth). */
+        sprintf(tmp, "%.0f", d);
     } else {
-        sprintf(tmp, "%g", d);
+        /* Fractional, or integral at/above 2^53 where %.0f would print a
+         * value the double is not: %.15g first, and only when 15 digits
+         * do not read back to the same double, %.17g (upstream cJSON's
+         * two-step). The round-trip check is what makes the output
+         * exact: re-parsing it yields d, bit for bit. */
+        double rt;
+        char *end;
+        sprintf(tmp, "%.15g", d);
+        rt = strtod(tmp, &end);
+        if (rt != d) {
+            sprintf(tmp, "%.17g", d);
+        }
     }
     pb_puts(b, tmp);
 }

@@ -129,18 +129,18 @@ practice with the agent:
 
 ```sh
 jichi init sdlc      # writes the architect agent, uml-mermaid + design-doc skills,
-                     # /design — into .jichi/ here; never overwrites an existing file
+                     # /design-doc — into .jichi/ here; never overwrites an existing file
                      # (`jichi init sdlc --dry-run` lists what it would create)
-jichi -p "/requirements <your goal>"   # /design reads docs/REQUIREMENTS.md, so start here
-jichi -p "/design"                     # then the architect drafts the design
+jichi -p "/requirements <your goal>" < /dev/null   # /design-doc reads docs/REQUIREMENTS.md, so start here
+jichi -p "/design-doc" < /dev/null                 # then the architect drafts the design
 jichi --auto -p "Draw a container-level flowchart of THIS project. Label every edge
 with what flows along it. Then write one ADR for the biggest decision, with what
-you rejected."
+you rejected." < /dev/null
 ```
 
 Two things that surprise people about the `sdlc` commands: the `architect` and
 `requirements-analyst` profiles are **read-only**, so they *print* their document
-rather than writing it — redirect or copy it yourself — and `/design` expects
+rather than writing it — redirect or copy it yourself — and `/design-doc` expects
 `docs/REQUIREMENTS.md` (and ideally `docs/USE_CASES.md`) to exist already, which
 is why the chain above runs in order. The third command needs `--auto` because a
 headless run is read-only until you say otherwise.

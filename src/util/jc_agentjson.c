@@ -50,12 +50,14 @@ cJSON *jc_agentjson_result(const char *text, const char *model,
                            int answer_capped,
                            int err_code, const char *err_type,
                            const char *err_msg,
-                           const struct jc_agent_econ *econ, cJSON *reach)
+                           const struct jc_agent_econ *econ, cJSON *reach,
+                           cJSON *relay)
 {
     cJSON *o = jc_agentjson_event("done");
     cJSON *tok;
     if (o == NULL) {
         cJSON_Delete(reach);
+        cJSON_Delete(relay);
         return NULL;
     }
     cJSON_AddStringToObject(o, "text", text != NULL ? text : "");
@@ -147,6 +149,13 @@ cJSON *jc_agentjson_result(const char *text, const char *model,
     /* M630: the reach footer's facts -- see the header for why here. */
     if (reach != NULL) {
         cJSON_AddItemToObject(o, "reach", reach);
+    }
+    /* M951: the relay's facts -- the leg's measured budget (next_leg_calls)
+     * and what the leg spent (calls_used) / its fence, attached by the emitter
+     * like reach so the done contract declares the field it writes. Only a
+     * relay handover builds one; an ordinary run's object does not grow. */
+    if (relay != NULL) {
+        cJSON_AddItemToObject(o, "relay", relay);
     }
     return o;
 }

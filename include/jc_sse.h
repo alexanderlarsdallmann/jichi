@@ -43,6 +43,7 @@ struct jc_sse_parser {
     struct jc_sb evtype; /* current event: value                          */
     int          have_data; /* a data: field was seen for this event      */
     int          overflowed; /* a field hit JC_SSE_FIELD_MAX and was capped */
+    int          last_was_cr; /* the last byte was a CR that ended a line   */
     jc_sse_cb    cb;
     void        *user;
 };

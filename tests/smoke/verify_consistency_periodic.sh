@@ -30,6 +30,8 @@
 # dead check that never classified anything.
 . "$(dirname "$0")/_smoke.sh"
 
+command -v git >/dev/null 2>&1 || t_skip "needs git -- jichi snapshots shell out to it"
+
 t_plan 4
 smoke_home
 tmp=$(smoke_tmp)

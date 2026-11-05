@@ -14,9 +14,11 @@
 #include "jc_json.h"
 #include "jc_runsview.h"
 #include "jc_str.h"
+#include "jc_utf8.h"   /* M893 */
 #include "jc_vec.h"
 
 #include <string.h>
+#include <signal.h> /* E-01 site test: SIGCHLD/SIG_DFL/SIG_IGN */
 
 /* static, and forward-declared: it is a sub-test called from the envelope
  * aggregate in this file, not a suite entry point in test_main.c -- which is what
@@ -123,6 +125,39 @@ static void test_scope(void)
                                   "/home/u/projsrc/x.c") == 0);
     JC_CHECK(jc_env_path_in_scope(&e, "/home/u/proj",
                                   "/home/u/project/tests/t.c") == 0);
+
+    jc_vec_free(&e.edit_scope);
+}
+
+/* M981 (B-04): path normalization - paths with .. must be OUT OF SCOPE.
+ * The old code would accept src/../secret.txt as in scope (matching src wildcard)
+ * but the executor would resolve it to secret.txt at workspace root. */
+static void test_scope_with_dotdot(void)
+{
+    struct jc_envelope e;
+    char *p1 = "src/**";
+    char *p2 = "tests/**";
+
+    memset(&e, 0, sizeof(e));
+    jc_vec_init(&e.edit_scope, sizeof(char *));
+    jc_vec_push(&e.edit_scope, &p1);
+    jc_vec_push(&e.edit_scope, &p2);
+
+    /* In-scope paths should still work. */
+    JC_CHECK(jc_env_path_in_scope(&e, "/ws", "/ws/src/a.txt") == 1);
+    JC_CHECK(jc_env_path_in_scope(&e, "/ws", "src/b.txt") == 1);  /* no root */
+
+    /* Paths with .. that would escape the scope must be OUT OF SCOPE.
+     * The old code would wrongly return 1 for these. */
+    JC_CHECK(jc_env_path_in_scope(&e, "/ws", "/ws/src/../secret.txt") == 0);
+    JC_CHECK(jc_env_path_in_scope(&e, "/ws", "src/../secret.txt") == 0);
+    JC_CHECK(jc_env_path_in_scope(&e, "/ws", "./src/../../outside.txt") == 0);
+
+    /* Paths that don't escape but have .. in the middle: still rejected. */
+    JC_CHECK(jc_env_path_in_scope(&e, "/ws", "/ws/src/../../etc/passwd") == 0);
+
+    /* A path with . in the middle normalizes to something inside scope. */
+    JC_CHECK(jc_env_path_in_scope(&e, "/ws", "/ws/src/./a.txt") == 1);
 
     jc_vec_free(&e.edit_scope);
 }
@@ -450,6 +485,36 @@ static void test_run_verify(void)
              == JC_VERIFY_TIMEOUT);
 }
 
+/* E-01: the SITE layer, pinned where the start-up reset cannot see it.
+ * jc_signal_reset_inherited() (main) cures the inherited state for the whole
+ * process, so under it the checked reap in jc_env_run_verify is never
+ * exercised by the process-wide recipe: a supervisor that ignores SIGCHLD is
+ * the only way to reach the site with SIGCHLD still ignored, and the unit
+ * suite does not go through main(). Without the site's checked reap,
+ * jc_env_run_verify("false") under SIGCHLD=SIG_IGN reads the zeroed status as
+ * "exited normally 0" and RETURNS 0 -- a failing verifier, green. The
+ * supervisor's 2026-10-19 13:52 note: "it should be red with the site
+ * reverted" -- this check is that teeth. The process-level red-first lives in
+ * the smoke driver (sigchld_inherit.sh), which cannot be pinned by a unit
+ * because it needs a fresh process; this one needs no process boundary. */
+static void test_run_verify_sigchld_site(void)
+{
+    void (*old)(int);
+    int code;
+
+    old = signal(SIGCHLD, SIG_IGN);
+    if (old == SIG_ERR) {
+        return;   /* cannot set it up: nothing to prove */
+    }
+    code = jc_env_run_verify("false", NULL, NULL, NULL, 0);
+    signal(SIGCHLD, SIG_DFL);   /* restore before asserting: a red run must
+                                  * not leave the suite reaping-impoverished */
+    /* "false" exits 1. 0 (the pre-fix misread) is the defect; -1 (unknown,
+     * the checked reap) and 1 (the kernel happened to collect it before the
+     * race) are both correct. Never 0. */
+    JC_CHECK(code != 0);
+}
+
 /* M86: the green-gate hollowness verdict. */
 static void test_refuse_green(void)
 {
@@ -603,6 +668,19 @@ static void test_verify_sanity(void)
     JC_CHECK(jc_env_is_test_path("foo_spec.rb") == 1);
     JC_CHECK(jc_env_is_test_path("src/gdscript/vm.zig") == 0);
     JC_CHECK(jc_env_is_test_path(NULL) == 0);
+    /* M818 (N2): by PATH COMPONENT, not a bare substring. These four flip from 1
+     * (the old strstr) to 0 -- they carry "test"/"spec" only as letters, or are
+     * jichi's own config. The old heuristic fired the goalpost warning on an agent
+     * profile during threadwork's drive. */
+    JC_CHECK(jc_env_is_test_path(".jichi/agents/weekend-test-writer.md") == 0);
+    JC_CHECK(jc_env_is_test_path("src/editor/inspector.zig") == 0);
+    JC_CHECK(jc_env_is_test_path("docs/latest/x.md") == 0);
+    JC_CHECK(jc_env_is_test_path("contest/game.zig") == 0);
+    /* and the true positives a component match must still catch */
+    JC_CHECK(jc_env_is_test_path("tests/smoke/x.sh") == 1);
+    JC_CHECK(jc_env_is_test_path("src/core/parser_test.zig") == 1);
+    JC_CHECK(jc_env_is_test_path("spec/models/user.rb") == 1);
+    JC_CHECK(jc_env_is_test_path("src/FooTest.java") == 1);
 }
 
 /* M89: failure-signature extraction + repeated-error (stuck) detection. */
@@ -633,6 +711,36 @@ static void test_fail_signature(void)
     JC_CHECK(jc_env_note_failure(&e, "nothing wrong here\n") == 0);
     JC_CHECK(e.repeat_fails == 0 && e.last_fail_sig[0] == '\0');
     JC_CHECK(jc_env_note_failure(NULL, "error: x") == 0);
+}
+
+/* M893: the whole failing line, location included; nothing when there is none;
+ * cut at a character. */
+static void test_fail_line(void)
+{
+    char buf[JC_ENV_SIG_MAX];
+    char small[24];
+    char other[JC_ENV_SIG_MAX];
+
+    JC_CHECK(jc_env_fail_line("noise\nsrc/x.zig:12:5: error: no member named "
+                              "'argC'\nmore\n", buf, sizeof buf) == 1);
+    JC_CHECK(strcmp(buf, "src/x.zig:12:5: error: no member named 'argC'") == 0);
+    /* indented, with a CR: trimmed both ends */
+    JC_CHECK(jc_env_fail_line("  build.zig:181:11: error: no field named 'args'\r\n",
+                              buf, sizeof buf) == 1);
+    JC_CHECK(strcmp(buf, "build.zig:181:11: error: no field named 'args'") == 0);
+    /* the same message in another place is another line */
+    JC_CHECK(jc_env_fail_line("b.zig:1:1: error: no field named 'args'\n",
+                              other, sizeof other) == 1);
+    JC_CHECK(strcmp(buf, other) != 0);
+    /* nothing to name: no claim */
+    JC_CHECK(jc_env_fail_line("all good\n1..3\nok 1\n", buf, sizeof buf) == 0);
+    JC_CHECK(buf[0] == '\0');
+    JC_CHECK(jc_env_fail_line(NULL, buf, sizeof buf) == 0);
+    /* cut at a character: "e" + 22 bytes, then a 2-byte \xc3\xa9 across the cut */
+    JC_CHECK(jc_env_fail_line("error: abcdefghijklmno\xc3\xa9z\n", small,
+                              sizeof small) == 1);
+    JC_CHECK(jc_utf8_valid(small, (jc_size)strlen(small)) &&
+             strcmp(small, "error: abcdefghijklmno") == 0);
 }
 
 static void test_test_assertion_edit(void)
@@ -695,24 +803,31 @@ static void test_summarize_paths(void)
 {
     struct jc_sb sb;
 
-    /* NULL / empty -> 0, out untouched. */
-    JC_CHECK(jc_env_summarize_paths(NULL, 8, NULL) == 0);
-    JC_CHECK(jc_env_summarize_paths("", 8, NULL) == 0);
+    /* M1095 (D-03): the input is the NUL-separated raw form that
+     * jc_snapshot_changed_since produces since the -z fix -- one path per
+     * segment, optional trailing NUL (C string literals with embedded NULs).
+     * names_len is the buffer length (incl. the trailing NUL when present):
+     * with NUL separators strlen sees only the first segment. NULL / empty ->
+     * 0, out untouched. */
+    JC_CHECK(jc_env_summarize_paths(NULL, 0, 8, NULL) == 0);
+    JC_CHECK(jc_env_summarize_paths("", 0, 8, NULL) == 0);
 
-    /* Count-only (NULL out): trailing newline + a blank line ignored. */
-    JC_CHECK(jc_env_summarize_paths("a.zig\nb.zig\n", 8, NULL) == 2);
-    JC_CHECK(jc_env_summarize_paths("only.zig", 8, NULL) == 1);
+    /* Count-only (NULL out): the trailing NUL does not add a blank line. */
+    JC_CHECK(jc_env_summarize_paths("a.zig\0b.zig\0", 12, 8, NULL) == 2);
+    /* A missing trailing NUL still counts the final segment. */
+    JC_CHECK(jc_env_summarize_paths("only.zig", 8, 8, NULL) == 1);
 
     /* All names fit -> ", "-joined, no "(+ more)". */
     jc_sb_init(&sb);
-    JC_CHECK(jc_env_summarize_paths("a.zig\nb.zig\n", 8, &sb) == 2);
-    JC_CHECK(strcmp(sb.data, "a.zig, b.zig") == 0);
+    JC_CHECK(jc_env_summarize_paths("a.zig\0b.zig\0", 12, 8, &sb) == 2);
+    JC_CHECK(sb.data != NULL && strcmp(sb.data, "a.zig, b.zig") == 0);
     jc_sb_free(&sb);
 
-    /* Truncation: 5 names, max 2 -> count 5, first two + "(+3 more)". */
+    /* Truncation: 5 names, max 2 -> count 5, first two + "(+3 more)".
+     * (\0 concatenated, not \02: an octal escape would read the next digit.) */
     jc_sb_init(&sb);
-    JC_CHECK(jc_env_summarize_paths("1\n2\n3\n4\n5\n", 2, &sb) == 5);
-    JC_CHECK(strcmp(sb.data, "1, 2 (+3 more)") == 0);
+    JC_CHECK(jc_env_summarize_paths("1\0""2\0""3\0""4\0""5\0", 10, 2, &sb) == 5);
+    JC_CHECK(sb.data != NULL && strcmp(sb.data, "1, 2 (+3 more)") == 0);
     jc_sb_free(&sb);
 }
 
@@ -931,6 +1046,7 @@ void test_envelope(void)
     test_parse_duration();
     test_glob();
     test_scope();
+    test_scope_with_dotdot();
     test_budget();
     test_budget_notice();
     test_budget_rollback_decision();
@@ -944,9 +1060,11 @@ void test_envelope(void)
     test_refuse_green();
     test_gate_contract();
     test_fail_signature();
+    test_fail_line();
     test_test_assertion_edit();
     test_disposition();
     test_run_verify();
+    test_run_verify_sigchld_site();   /* E-01 (M987): the site layer, pinned */
     test_post_outcome_tokens();
     test_test_edit_note();
 }

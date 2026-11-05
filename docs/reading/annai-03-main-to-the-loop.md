@@ -102,7 +102,7 @@ Trace startup without a debugger — jichi narrates it:
 
 ```sh
 # anywhere -- writes nothing; needs jichi on PATH, else ./jichi in the checkout
-jichi --verbose -p "reply with one word" 2>&1 >/dev/null | head -30
+jichi --verbose -p "reply with one word" 2>&1 >/dev/null < /dev/null | head -30
 ```
 
 Match the stderr lines against the flowchart: config found where?

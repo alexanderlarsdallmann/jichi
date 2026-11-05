@@ -50,6 +50,16 @@
  *                          #   returns audio with NULs -- M212)
  *     stall header         # action: 200 + SSE headers, then hold forever
  *     stall mid            # action: headers + one delta, then hold
+ *     stall none           # action (M1062): the request is read and captured,
+ *                          #   then ZERO bytes are sent (no headers, no body)
+ *                          #   and the socket is held until the peer aborts --
+ *                          #   the VPN-drop / dead-stream signature, status 0
+ *     text-stream REST     # action: like text, but the 200 + SSE headers
+ *                          #   go out FIRST, then (with a `delay` modifier)
+ *                          #   the body. The PREFILL shape: the server has
+ *                          #   answered, is working, and sends nothing until
+ *                          #   the delay ends -- a stall cap shorter than the
+ *                          #   delay must cut it (2026-10-15)
  *     sse-file PATH        # action: verbatim SSE body from a file
  *     embed hooks state    # action: an OpenAI /v1/embeddings reply built
  *                          #   FROM the request: for each entry of the
@@ -60,6 +70,10 @@
  *     delay 800            # modifier: sleep this many ms before replying
  *                          #   (timing-sensitive flows, e.g. giving a
  *                          #   background child time to run -- M211)
+ *     drip 1000            # modifier (sse-file only): send the file one
+ *                          #   SSE event at a time, sleeping this many ms
+ *                          #   between events -- a reply whose first token
+ *                          #   arrives well before its last (M897)
  *     usage 20 5           # modifier: prompt/completion tokens on the
  *                          #   text action's finish chunk (default 20 5)
  *
@@ -77,8 +91,14 @@ enum mm_action {
     MM_ACT_STATUS,
     MM_ACT_STALL_HEADER,
     MM_ACT_STALL_MID,
+    MM_ACT_TEXT_STREAM,
     MM_ACT_SSE_FILE,
-    MM_ACT_EMBED
+    MM_ACT_EMBED,
+    /* M1062: read the request, capture it, send ZERO bytes, then hold the
+     * socket until the peer aborts -- the dead-stream / VPN-drop signature
+     * (a reused connection that dies with status 0). Distinct from
+     * MM_ACT_NONE, which is the parser's "no action yet" sentinel. */
+    MM_ACT_STALL_NONE
 };
 
 #define MM_MAX_MATCH 4
@@ -116,7 +136,15 @@ struct mm_rule {
     int status;                 /* MM_ACT_STATUS: the HTTP code           */
     long usage_in;              /* -1 = default (20)                      */
     long usage_out;             /* -1 = default (5)                       */
+    /* M951: `usage grow BASE STEP` -- prompt_tokens = BASE + STEP*(req-1),
+     * so a long run can MEASURE a growing prompt (the relay's leg-budget
+     * controller needs g > 0). usage_in stays -1; the grow pair wins when
+     * usage_grow is set. */
+    int  usage_grow;
+    long usage_grow_base;
+    long usage_grow_step;
     long delay_ms;              /* sleep before replying (0 = none)       */
+    long drip_ms;               /* sse-file: sleep between events (M897)  */
 };
 
 struct mm_script {
@@ -143,10 +171,27 @@ const struct mm_rule *mm_select(const struct mm_script *s,
  *   MM_ACT_STALL_HEADER: headers only (no Content-Length) -- the caller
  *     sends these and then holds the socket open.
  *   MM_ACT_STALL_MID: headers + one content delta -- then hold.
+ *   MM_ACT_STALL_NONE (M1062): NOTHING -- renders success with *outlen == 0
+ *     (no headers, no body); the caller sends zero bytes and then holds.
+ *   MM_ACT_TEXT_STREAM: headers only (no Content-Length; the caller sends
+ *     the text body after a delay -- the prefill shape).
  *   MM_ACT_SSE_FILE: not rendered here (the main wraps the file bytes);
  *     returns -1.
  * Returns 0 on success. */
-int mm_render_response(const struct mm_rule *r, char **out, size_t *outlen);
+/* M882: with --keep-alive the replies carry no `Connection: close`, and the
+ * server serves a connection's next request until the client closes it -- the
+ * shape of every real provider, under which a client keeps its connection past
+ * the transfer that opened it. Off by default: the drivers' one-call-at-a-time
+ * model (M209 D4) is unchanged. */
+extern int mm_keep_alive;
+
+int mm_render_response(const struct mm_rule *r, char **out, size_t *outlen,
+                       int req_index);
+
+/* The text-stream rule's BODY only (finish/usage/[DONE] included) -- sent
+ * after the headers and the delay. Returns 0; malloc'd *out. */
+int mm_render_text_stream_body(const struct mm_rule *r, char **out,
+                               size_t *outlen, int req_index);
 
 /* Wrap an externally supplied SSE body (sse-file) in the standard
  * response head. Returns 0 on success; malloc'd *out. */

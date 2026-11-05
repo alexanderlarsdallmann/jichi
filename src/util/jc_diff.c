@@ -98,13 +98,26 @@ static int lcs_middle(const struct line *old, const struct line *new_,
 {
     int *dp;
     int i, j, k;
-    long cells = (long)(mm + 1) * (long)(nn + 1);
+    unsigned long m1, n1;
+    long cells;
+
+    /* The DP table size is (mm+1)*(nn+1) cells. On a 32-bit target, a product
+     * above DIFF_LCS_CELL_CAP (4e6) overflows a 32-bit long before the cap check
+     * can catch it. Check the bound BEFORE multiplying in unsigned arithmetic to
+     * avoid undefined behavior. Since mm,nn > 0 in this branch, m1,n1 >= 2. */
+    m1 = (unsigned long)(mm + 1);
+    n1 = (unsigned long)(nn + 1);
+    cells = 0;
+    if (mm > 0 && nn > 0 && m1 <= DIFF_LCS_CELL_CAP && n1 <= DIFF_LCS_CELL_CAP
+        && m1 <= DIFF_LCS_CELL_CAP / n1) {
+        cells = (long)(m1 * n1);
+    }
 
     /* The DP table, when the middle is worth one: both sides non-empty and the
      * table under the cap. Under FAULT=1 the injector can make this malloc
      * fail, which is how tests/test_diff.c reaches the fallback below. */
     dp = NULL;
-    if (mm > 0 && nn > 0 && cells <= DIFF_LCS_CELL_CAP) {
+    if (mm > 0 && nn > 0 && cells > 0 && cells <= DIFF_LCS_CELL_CAP) {
         dp = JC_FAULT_HIT(JC_FAULT_ALLOC) ? NULL
                                           : (int *)malloc((size_t)cells * sizeof(int));
     }

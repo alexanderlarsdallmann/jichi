@@ -38,6 +38,7 @@ expect "flaky_tool" 25
 delay 600
 send "/exit\r"
 waitexit 15
+assertexit 0
 EOF
 
 # Drive from INSIDE $tmp: the TUI filters the report to its own workspace (M56),
@@ -92,6 +93,7 @@ expect "No recurring problems" 25
 delay 600
 send "/exit\r"
 waitexit 15
+assertexit 0
 EOF
 otherws=$(smoke_tmp)
 if (cd "$otherws" && "$SMOKE_TOOLS/ptydrive" --deadline 90 \

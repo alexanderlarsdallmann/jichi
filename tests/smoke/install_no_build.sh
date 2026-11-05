@@ -46,21 +46,24 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 # install. The tier has this assumption in several other drivers; the population
 # is counted in DEFERRED.md rather than swept blind.
 
-# PRECONDITION, NAMED RATHER THAN DISCOVERED (M661). `make install` copies BOTH
-# binaries, and `make smoke` builds only $(BIN) -- so in a tree where only the
-# smoke tier has run, checks 7-9 fail with "install refused a CLEAN stamp
-# (rc=2)", which reads as a defect in the install target on that platform and is
-# really a missing file. That is what EVERY device row reported, and the
-# harness's "retrying standalone to classify the failure" could not tell the
-# difference, because the file was still missing on the retry -- so it announced
-# "ALSO fails standalone -> a real defect", which was true and useless.
+# PRECONDITION, NAMED RATHER THAN DISCOVERED (M661). `make install` copies
+# ALL THREE programs (jichi, jichi-convert, jichi-harness -- the third since
+# M1049), and `make smoke` builds only $(BIN) and $(HARNESS_BIN) -- so in a
+# tree where only the smoke tier has run, check 9 fails with "install
+# refused a CLEAN stamp (rc=2)", which reads as a defect in the install
+# target on that platform and is really a missing file. That is what EVERY
+# device row reported, and the harness's "retrying standalone to classify the
+# failure" could not tell the difference, because the file was still missing
+# on the retry -- so it announced "ALSO fails standalone -> a real defect",
+# which was true and useless.
 # Reproduced on the host by moving one file aside. `check-target` builds `all`
 # since M661; this is the net under that, and it SAYS WHY rather than failing
 # the platform for it.
-if [ ! -x "$ROOT/jichi-convert" ]; then
-    t_skip "jichi-convert is not built, and \`make install\` installs both binaries -- \
-these checks would fail for a missing file rather than for anything about install. \
-Run \`make all\` (check-target does, since M661)."
+if [ ! -x "$ROOT/jichi-convert" ] || [ ! -x "$ROOT/jichi-harness" ]; then
+    t_skip "jichi-convert and/or jichi-harness is not built, and \`make install\` \
+installs all three programs -- these checks would fail for a missing file \
+rather than for anything about install. Run \`make all\` (check-target does, \
+since M661)."
 fi
 
 t_plan 9
@@ -74,9 +77,10 @@ tmp=$(smoke_tmp)
 printf '#define JC_BUILD_REV "deadbee"\n'       > "$tmp/clean_stamp.h"
 printf '#define JC_BUILD_REV "deadbee-dirty"\n' > "$tmp/dirty_stamp.h"
 
-# Checks 4-6 below are about COPYING, not about cleanliness: they are given a
-# clean stamp so their verdict does not depend on whether the tree happens to
-# have uncommitted work while the tier runs.
+# The check 4 install run below (check 5 is its existence test) is about
+# COPYING, not about cleanliness: it is given a clean stamp so its verdict does
+# not depend on whether the tree happens to have uncommitted work while the
+# tier runs. Check 9, the control, names its own clean stamp.
 CLEAN_STAMP="STAMP=$tmp/clean_stamp.h" 
 
 # --- 1: the declaration itself ------------------------------------------------
@@ -134,9 +138,12 @@ $(printf '%s' "$out" | head_bytes 300)"
 fi
 
 # --- 4+5: a real install copies the binaries and compiles nothing -------------
-# The binaries the tier already built are reused; DESTDIR keeps it out of the
-# system. If this ever starts compiling, check 1 has been defeated some other way.
-if [ -x "$ROOT/jichi" ] && [ -x "$ROOT/jichi-convert" ]; then
+# The programs the tier already built are reused; DESTDIR keeps it out of the
+# system. If this ever starts compiling, check 1 has been defeated some other
+# way. All three must be present for install to succeed (M1049: the third
+# program is wired in).
+if [ -x "$ROOT/jichi" ] && [ -x "$ROOT/jichi-convert" ] && \
+   [ -x "$ROOT/jichi-harness" ]; then
     iout=$(cd "$ROOT" && "$_mk" install DESTDIR="$tmp/d2" $CLEAN_STAMP 2>&1)
     ncc=$(printf '%s\n' "$iout" | grep -cE '^[[:space:]]*(cc|gcc|clang|\$\(CC\))[[:space:]]')
     if [ "$ncc" -eq 0 ]; then
@@ -147,10 +154,11 @@ if [ -x "$ROOT/jichi" ] && [ -x "$ROOT/jichi-convert" ]; then
 $(printf '%s\n' "$iout" | grep -E '^[[:space:]]*(cc|gcc|clang)' | head_bytes 200)"
     fi
     if [ -x "$tmp/d2/usr/local/bin/jichi" ] &&
-       [ -x "$tmp/d2/usr/local/bin/jichi-convert" ]; then
-        t_ok "both binaries land under DESTDIR"
+       [ -x "$tmp/d2/usr/local/bin/jichi-convert" ] &&
+       [ -x "$tmp/d2/usr/local/bin/jichi-harness" ]; then
+        t_ok "all three programs land under DESTDIR"
     else
-        t_fail "install ran but the binaries are not under DESTDIR -- the target
+        t_fail "install ran but the programs are not all under DESTDIR -- the target
    refuses correctly and then installs nothing, which is worse than the defect
    it replaced. Tree: $(find "$tmp/d2" -type f 2>/dev/null | head_bytes 200)"
     fi

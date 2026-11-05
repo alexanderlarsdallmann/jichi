@@ -28,6 +28,7 @@
 #include "jc_utf8.h"
 #include "jc_jsonrepair.h"
 #include "jc_embed.h"
+#include "jc_tool.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -496,6 +497,42 @@ static void t_jsonrepair(const unsigned char *data, size_t len)
     free(s);
 }
 
+static void t_toolcall(const unsigned char *data, size_t len)
+{
+    /* TIER 1: the markdown tool-call recovery parser (M949, A-05). Feed the
+     * fuzz buffer as NUL-terminated text and exercise jc_toolcall_recover.
+     * Mirror the test_tool.c setup. */
+    char *s = jc_fuzz_dup0(data, len);
+    struct jc_tool_registry reg;
+    struct jc_vec out;
+    struct jc_sb reason;
+    int n;
+    jc_size i;
+
+    if (s == NULL) return;
+
+    jc_tool_registry_init(&reg);
+    jc_tool_register_builtins(&reg);
+
+    jc_vec_init(&out, sizeof(struct jc_tool_call));
+    jc_sb_init(&reason);
+
+    n = jc_toolcall_recover(s, &reg, &out, &reason);
+    (void)n;  /* result is not checked; the parser must survive any input */
+
+    /* Free the tool calls */
+    for (i = 0; i < out.len; i++) {
+        struct jc_tool_call *tc = (struct jc_tool_call *)jc_vec_at(&out, i);
+        free(tc->id);
+        free(tc->name);
+        free(tc->arguments_json);
+    }
+    jc_vec_free(&out);
+    jc_sb_free(&reason);
+
+    jc_tool_registry_free(&reg);
+    free(s);
+}
 
 static void t_embed(const unsigned char *data, size_t len)
 {
@@ -553,7 +590,9 @@ const struct jc_fuzz_target JC_FUZZ_TARGETS[] = {
       "\"id\":\"c1\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{}\"}}]}}]}" },
     { "prov_anthropic", t_provider_anthropic,
       "{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\","
-      "\"text\":\"hi\"}}" }
+      "\"text\":\"hi\"}}" },
+    /* Tier 1: tool-call recovery parser (A-05). */
+    { "toolcall_recover", t_toolcall, "```json\n{}`" }
 };
 
 const int JC_FUZZ_N_TARGETS =

@@ -111,8 +111,11 @@ jc_rig_live_phrase() {
 # product warns against.
 #
 # jc_rig_live_config MODEL URL [KEY_ENV_NAME]
-#   With no third argument this emits what it emitted before, byte for byte --
-#   which is what keeps every existing row's config unchanged.
+#   `stall` is a CAP, not a fence: a driven turn is a measurement, and a model
+#   whose prefill is silent for longer than 30 s (the boards' ~12k-token turns
+#   on bonsai-27b, 2026-10-14/15) would be cut mid-prefill and read as a
+#   platform failure when it is a cap failure. `stall:0` is off for the run;
+#   `connect` and `timeouts.deadStream` are fences and stay at their defaults.
 jc_rig_live_config() {
     if [ -n "${3:-}" ]; then
         _jlc_auth="\"apiKeyEnv\":\"$3\""
@@ -122,6 +125,7 @@ jc_rig_live_config() {
     cat <<JCLIVECFG
 {"models":[{"name":"live","provider":"openai","model":"$1",
  "apiBase":"$2",$_jlc_auth,"roles":["chat"]}],
+ "timeouts":{"stall":0},
  "snapshots":false,"repoMap":false,"maxRetries":1,"lowResource":false}
 JCLIVECFG
 }

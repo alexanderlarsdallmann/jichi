@@ -32,26 +32,9 @@ the call can be revisited.
 
 ## Portability of the code to Zig
 
-```mermaid
-flowchart LR
-  subgraph easy["Ports cleanly (most of the code)"]
-    e1["json / yaml / config / convert"]
-    e2["scaffold / skill / markdown (pure data)"]
-    e3["diff / patch / retrieval / index / lexical"]
-    e4["arena allocator -> std.heap.ArenaAllocator"]
-    e5["most of util/ (pure logic)"]
-  end
-  subgraph moderate["Moderate effort"]
-    m1["net/* : libcurl -> std.http.Client, or keep libcurl via C interop"]
-    m2["provider SSE streaming state machines"]
-  end
-  subgraph hard["Syscall-dense (must be rewritten carefully)"]
-    h1["jc_proc + ~10 fork/exec/waitpid sites"]
-    h2["termios raw-mode TUI (jc_term)"]
-    h3["AF_UNIX daemon loop"]
-    h4["signals, select, pipes"]
-  end
-```
+- **Ports cleanly (most of the code):** json / yaml / config / convert; scaffold / skill / markdown (pure data); diff / patch / retrieval / index / lexical; the arena allocator → `std.heap.ArenaAllocator`; most of `util/` (pure logic).
+- **Moderate effort:** `net/*` (libcurl → `std.http.Client`, or keep libcurl via C interop); the provider SSE streaming state machines.
+- **Syscall-dense (must be rewritten carefully):** `jc_proc` + ~10 fork/exec/waitpid sites; the termios raw-mode TUI (`jc_term`); the AF_UNIX daemon loop; signals, `select`, pipes.
 
 The bulk (JSON, config, convert, scaffold, retrieval, diff/patch, most utilities)
 is pure logic that maps almost 1:1 to Zig idioms — the arena becomes

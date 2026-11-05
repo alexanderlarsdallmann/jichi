@@ -28,7 +28,9 @@ extern "C" {
 #include "jc_reread.h"
 #include "jc_calib.h"
 #include "jc_prefix.h"
+#include "jc_diskguard.h"   /* M813: the disk-space fence (embedded on app) */
 #include "jc_constraint.h"
+#include "jc_toolloop.h"    /* M876: JC_FAIL_CLASS_COUNT */
 
 struct jc_telemetry_summary; /* jc_telemetry.h */
 struct jc_provider;       /* jc_provider.h */
@@ -46,6 +48,8 @@ struct jc_assign_spec;    /* jc_assign.h   */
 struct jc_bg_mgr;         /* jc_bg.h       */
 struct jc_control;        /* jc_control.h  */
 struct jc_message;        /* jc_message.h  */
+struct jc_scopededit;     /* jc_scopededit.h */
+struct jc_session;        /* jc_session.h    */
 
 /* Largest image accepted by jc_app_load_image (pre-encode bytes, M29). */
 #define JC_IMAGE_MAX_BYTES (5L * 1024L * 1024L)
@@ -106,11 +110,35 @@ struct jc_ask_delegate {
     void      *ctx;
 };
 
+/* M762: the last tool decision, for /why: the gate that refused a call, or the
+ * rule that let it run, in words, recorded by the gates themselves rather than
+ * taken from the model's account of them. Written by jc_app_why_note at every
+ * gate (the agent loop's, and jc_tool_execute's own fences), at any depth: a
+ * delegated task's last call is what /why shows while it is the latest. `seq`
+ * lets the loop add a call's outcome to that call's record and no other. */
+struct jc_why {
+    unsigned long seq;
+    int  depth;
+    int  refused;      /* 1: a gate refused it; 0: it ran */
+    int  failed;       /* it ran, and the tool reported an error */
+    char tool[64];
+    char args[160];    /* jc_tool_arg_summary: a path, a command's head */
+    char rule[240];    /* which rule decided, in words */
+    char told[240];    /* the first line of what the model was told */
+};
+
+/* How a front end approved an ASK verdict, for /why (jc_app.why_approval). */
+#define JC_WHY_APPROVED_PROMPT 1   /* yes, at the prompt */
+#define JC_WHY_APPROVED_ALWAYS 2   /* "always", chosen at this prompt */
+#define JC_WHY_ALWAYS_LIST     3   /* "always", chosen earlier this session */
+#define JC_WHY_APPROVED_EDITED 4   /* its arguments edited, then approved */
+
 struct jc_app {
     struct jc_arena         *arena;       /* session-lived allocations         */
     struct jc_arena         *scratch;     /* per-turn transient arena, or NULL */
     struct jc_arena         *tool_scratch;/* per-TOOL-CALL transient arena (M199)*/
     struct jc_config         config;
+    struct jc_scopededit    *scopededit;  /* D6: turn-lived scoped-edit state  */
     struct jc_provider      *provider;
     struct jc_tool_registry *tools;
     struct jc_mcp_manager   *mcp;         /* MCP client, or NULL                 */
@@ -118,6 +146,12 @@ struct jc_app {
     struct jc_snapshot_mgr  *snapshots;   /* git snapshot/undo manager, or NULL  */
     struct jc_envelope      *env;         /* autonomy envelope, or NULL          */
     struct jc_eventlog      *telemetry;   /* opt-in event-log sink, or NULL (M21) */
+    struct jc_diskguard      diskguard;   /* M813: the disk-space fence (P4b) */
+    struct jc_eventlog      *transcript;  /* M807: a spawn_parallel write child's own
+                                           * reasoning record (~/.jichi.d/attempts/
+                                           * <run>/t<k>.jsonl), or NULL. Set only in a
+                                           * forked child; the agent loop mirrors each
+                                           * model reply + tool call to it. */
     struct jc_index         *index;       /* lazily-built codebase index, or NULL */
     struct jc_bg_mgr        *bg;          /* background-process registry, or NULL */
     struct jc_control       *control;     /* mid-run control socket (M159), NULL */
@@ -126,6 +160,10 @@ struct jc_app {
     char                    *rules;       /* concatenated AGENTS.md etc., or NULL */
     char                    *repo_map;    /* repository map section, or NULL     */
     char                    *memory;      /* persisted .jichi/memory.md, or NULL   */
+    int                      memory_truncated; /* M933 (D5): the load window overflowed; the oldest notes were dropped */
+    char                     memory_dropped[200]; /* M965 (D5 delta): headings/words dropped, for sysmsg; the
+                                                   * bound matches jc_memory_dropped_summary's caller buffer
+                                                   * (dropped[200] in jc_memory.c) -- M972 (audit follow-up #4) */
     char                    *glossary;    /* .jichi/glossary.md domain terms, NULL */
     char                    *design;      /* --design/--spec doc (M-C), or NULL  */
     struct jc_constraint     constraints[JC_CONSTRAINT_MAX]; /* enforced (M110)  */
@@ -148,15 +186,174 @@ struct jc_app {
     struct jc_vec            read_recs;   /* of jc_read_rec: re-read detection (M231) */
     int                      auto_approve;/* skip tool permission prompts      */
     int                      readonly;    /* refuse mutating tools             */
+    int                      readonly_pinned; /* M840: --readonly was asked for;
+                                           * no mode change may clear readonly */
     int                      mode;        /* enum jc_agent_mode (jc_perm.h)    */
     int                      mode_pinned; /* mode set on the CLI; ignore resume */
     int                      quiet;       /* suppress stderr diagnostics        */
     int                      heartbeat_secs; /* --heartbeat jsonl cadence (M165) */
+    /* M1047 (board 86, F2): gates the Leg B on_progress forward in subagent_run
+     * to the headless jsonl heartbeat path only. Set to 1 by run_headless when
+     * jsonl && heartbeat_secs > 0; never set by the TUI or ACP, so their
+     * subagent model calls pass NULL on_progress as before the M1047 fix. */
+    int                      hb_forward_subagents; /* 0 = off (default) */
+    /* M165: batch progress callback. M1047: when non-NULL, the parallel tool
+     * calls this on EVERY idle select wake while the batch runs (not only when
+     * a task finishes), at most once per heartbeat interval. `live` names how
+     * many children are still running, so the row self-describes. The callback
+     * is process-global, so nested batches (a child inside a child) double-report;
+     * guard at emit time with app->agent_depth == 0 to only emit from the top-level. */
+    void                     (*on_batch_progress)(void *user, int done, int total, int live);
+    void                     *on_batch_progress_user;
+    long                      batch_hb_last_ms; /* M165: last batch progress heartbeat ms */
     int                      no_session;  /* do not persist this run            */
+    int                      session_save_noted; /* M1082 (F-02): the ONCE
+                                           * PER PROCESS latch for a failed
+                                           * scheduled session save. 0 = not yet
+                                           * noted (the initial state; there is
+                                           * no "arming"), 1 = the one-line
+                                           * diagnostic naming the path and
+                                           * reason has already gone out, so a
+                                           * second failed save this process
+                                           * stays silent (the finding asked
+                                           * for ONE diagnostic per session).
+                                           * App-level rather than a static in
+                                           * one front end: headless, TUI and
+                                           * ACP each own call sites and any of
+                                           * them may fail first -- one process
+                                           * runs one front end, so struct
+                                           * jc_app is the shared place. */
     int                      agent_depth; /* 0 at top level; +1 per subagent   */
+    int                      delegate_auto; /* M848 (S2, 1e): how many nested
+                                           * delegate runs with the AUTO
+                                           * posture are live (spawn_subagent,
+                                           * a parallel child, ask_for_help's
+                                           * helper, a workflow stage). While
+                                           * nonzero, the path fence's default
+                                           * (-1) is ON even in chat mode: such
+                                           * a run asks nobody, so nobody is in
+                                           * the loop to catch a stray path.
+                                           * jc_app_path_fence_on reads it. */
+    int                      shell_fenced; /* M852 (N36): 1 in a spawn_parallel
+                                           * write child whose shell M831's
+                                           * Landlock fence confines (set by
+                                           * apply_shell_fence, in the forked
+                                           * child only). A shell command whose
+                                           * output reads like a refused write
+                                           * then gets a one-line hint. */
+    int                      fence_hints;  /* M852: how many such hints this
+                                           * child gave; sent to the parent in
+                                           * its done line and shown in the
+                                           * task's part of the batch result. */
+    int                      parallel_write; /* M855 (N34): 1 in a forked
+                                           * spawn_parallel WRITE child, whose
+                                           * worktree shares the shadow repo's
+                                           * one stash stack with its siblings */
+    int                      headless_run; /* M859: a headless top-level run (-p,
+                                           * or stdin not a terminal), never ACP or
+                                           * serve -- for continueCutReply */
+    int                      ctx_overflow; /* M854 (N24c): a model call was
+                                           * refused because the request
+                                           * exceeded the model's context window
+                                           * (an HTTP 400 that says so). A
+                                           * parallel child reports it in its
+                                           * done line. */
+    /* M800: a spawn_parallel child builds its own provider for its model but does
+     * NOT switch app->config.model, so that mirror still names the LEAD's model.
+     * The child sets these to the model it actually calls; model_call telemetry
+     * prefers them over app->config.model. NULL in the lead. M922 (F-J8):
+     * spawn_subagent is the in-process sibling of that fork -- it sets the same
+     * fields around its nested run and restores the caller's values after (the
+     * fork needs no restore; the child runs in the lead's process). A model
+     * switch at depth 0 therefore no longer leaves the lead's later calls
+     * mislabelled, and a child-of-a-child keeps its own label. */
+    const char              *telem_model_name;
+    const char              *telem_model_id;
     int                      last_run_capped; /* last run_agent_loop hit its
                                            * iteration cap (M62 #5); read right
                                            * after the run returns              */
+    /* M920: the last run_agent_loop ended at a round boundary because the
+     * window was exhausted (the relay's decision core said hand over) and
+     * config.relay was on. Same read-right-after contract as last_run_capped,
+     * mapped to JC_STOP_HANDOVER in jc_agent_stop_reason. The baton that makes
+     * this a genuine handover is the follow-up milestone; until then the run
+     * is honest about why it stopped and the saved session resumes intact. */
+    int                      relay_handover;
+    /* M921 (sub-slice C): the model's handover account (proposal 6.5) -- the
+     * reply of the one account call the loop makes at the round-boundary
+     * handover, or the labelled quote of the last answer when that call fails
+     * (a leaf: its failure never changes the stop reason). Owned: a heap
+     * string, NULL until a handover obtains one; the baton writer renders it,
+     * and the NEXT run's start frees it (per-run, like relay_handover).
+     * relay_account_cut is 1 when the reply was truncated by the provider's
+     * length cap (the note labels it). The account call runs against the real
+     * history (the model writes from its whole context) but the history is
+     * truncated back before returning, so the saved session and the run's
+     * result are unaffected -- only app->relay_account carries the account. */
+    char                     *relay_account;
+    int                        relay_account_cut;
+    /* M921 (sub-slice B): the relay trigger that ended the last run -- the
+     * name the baton's header names ("Previous leg ended: %s"). The loop knows
+     * it at the decision (relay_decide's `reason`) and stores it here so the
+     * headless tail, where the notes are written, can name the same cause the
+     * [relay] log line already stated. Empty string when there is no handover
+     * this run. Read-right-after, cleared with relay_handover at the run's
+     * start. */
+    char                     relay_reason_name[48];
+    /* M921 (sub-slice D): the --handoff-in seed. Set by run_headless when a
+     * fresh session's first user message was built from the previous leg's
+     * baton (task + fenced notes), and read by the AUTO constraint-scan site,
+     * which SKIPS that message: a sentence in the notes ("do not touch the
+     * parser yet") is the model's account, untrusted data, not an instruction
+     * the operator gave this leg (proposal 6.7: the seed is EXEMPT from the
+     * scan). The notes are fenced (jc_untrusted_wrap) as a second layer, but
+     * the fence alone is a formatting accident away from broken, so the
+     * exemption is explicit. Headless, one-shot, depth 0 by construction. */
+    int                      relay_seed_active;
+    /* M921 (sub-slice D): the --handoff-in baton path (a CLI arg, threaded
+     * like no_session/resume -- NOT a config key; it does not imply relay).
+     * NULL unless the flag was given. Read once by run_headless, which reads
+     * the file, builds the seed and sets relay_seed_active. The pointer is an
+     * argv string, stable for the process lifetime, so it is not owned. */
+    const char              *handoff_in;
+    /* M951 (V2, proposal 6.10): the leg's budget controller, measured over the
+     * leg that just ran, at the round-boundary handover (the baton writer then
+     * records the budget and the next --handoff-in leg applies it). The state
+     * lives HERE, not in the envelope: a relay leg can run without --auto,
+     * where app->env is NULL and the baton's mechanical section degrades.
+     *   relay_leg_calls       tool calls THIS run made (incremented at the
+     *                         attempt gate, every depth, env-independent) --
+     *                         E5's signal counter and the baton's leg count.
+     *   relay_model_calls     depth-0 model calls that reported usage this
+     *                         run (the growth series' length).
+     *   relay_leg_calls_prev  the --handoff-in baton's recorded next-leg
+     *                         budget: on a seeded leg it REPLACES the
+     *                         configured cap as E5's leg_calls_max (the
+     *                         tighten-only guarantee, carried across a
+     *                         process by the baton's own line). 0 = first leg.
+     *   relay_prompt_series   the run's per-call SERVER prompt counts (a heap
+     *                         vector of long, appended in stream_once at
+     *                         depth 0 while the relay is on); the handover
+     *                         reads it (P0 = first, g = median of the
+     *                         consecutive growths) before the baton writer
+     *                         consumes it.
+     *   relay_next_leg_calls  the budget the baton records (0 = none).
+     * Reset at run start, like relay_handover. */
+    long                     relay_leg_calls;
+    long                     relay_model_calls;
+    long                     relay_leg_calls_prev;
+    jc_size                  relay_next_leg_calls;
+    /* M951: the handover's measured numbers, for the journal's
+     * `budget_adjust` and the telemetry `relay`/budget event. relay_measured
+     * is 0 when the budget was not measured (no series, no cap, g <= 0, no
+     * window) -- then the events are skipped and the next leg uses the
+     * configured cap. The old (cap) and new (B) values are the whole
+     * "budget_adjust" story: the bound and the numbers (P0, g, W). */
+    int                      relay_measured;
+    long                     relay_measured_p0;
+    long                     relay_measured_g;
+    long                     relay_measured_w;
+    struct jc_vec            relay_prompt_series;
     /* M431: the last run_agent_loop stopped because the ENVELOPE budget was
      * exhausted, not because it finished. Same family and same read-right-after
      * contract as last_run_capped, and set only at agent_depth > 0: at depth 0 a
@@ -164,8 +361,30 @@ struct jc_app {
      * (journal, verifier, rollback decision) and needs no flag. A delegate must
      * not run any of that, so it stops and lets the top level settle -- but a
      * budget-stopped delegate that reported as success would be exactly the
-     * silent false success this milestone exists to remove. */
+     * silent false success this milestone exists to remove. M861: 2 when the
+     * stop was the TASK's own budget (task_tool_max below), not the run's. */
     int                      last_run_budget_stopped;
+    /* M869 (N27, def-305): the last run_agent_loop was ended by a LOOP stop at depth
+     * >= 1 -- 1 the same successful call returned the same result (M829), 2 the same
+     * refused call failed the same way (N27 (a)), 3 copied placeholders instead of
+     * arguments (N27 (b)), 4 a rotation with nothing new (M870, N21); 0 otherwise. last_run_capped is set too, as M829 set it,
+     * and this says which stop it was, so a parent does not call a loop an iteration
+     * cap. Same read-right-after contract, saved and restored the same way. */
+    int                      last_run_looped;
+    /* M861 (N28): a spawn_parallel task's own tool-call budget -- the lead's
+     * `max_tool_calls` for that task -- set by run_child in the forked child only
+     * (0 in the lead: no budget). task_tool_max is the key, enforced whether or
+     * not the run has an envelope; task_tool_eff the smaller of it and the
+     * envelope's slice, which the four-fifths note names; task_tool_used the
+     * calls attempted, counted where the envelope counts its own, at every depth
+     * of the child's process, so a nested delegate's calls count too;
+     * task_tool_depth the depth the task runs at, the only one the note goes to;
+     * task_budget_noted whether it went. */
+    int                      task_tool_max;
+    int                      task_tool_eff;
+    int                      task_tool_used;
+    int                      task_tool_depth;
+    int                      task_budget_noted;
     /* M437: the LAST FAILING tool call of the run that just returned -- the field
      * a parent was missing. `spawn_subagent` used to answer a failure with one of
      * two fixed strings, so a parent could not tell an edit-scope denial from a
@@ -182,6 +401,40 @@ struct jc_app {
     char                     last_fail_tool[64];
     int                      last_fail_cls;   /* enum jc_fail_class */
     char                     last_fail_msg[200];
+    /* M885 (the demos drive's N47, continued): last_fail_tool's call was a
+     * command killed because its own run was being stopped (an interrupt, or a
+     * SIGTERM), not by a limit -- so a report does not tell a parent to split a
+     * task that was only stopped. Saved and restored with the fields above. */
+    int                      last_fail_stopped;
+    /* M921 (sub-slice B): this run's last verify verdict, recorded at the two
+     * verify sites so the relay baton can name it in section 2 (proposal 6.4:
+     * "Last verify: red, 2 failures"). The run never sees a verify unless an
+     * envelope with a verifier ran one, so a relay handover that ends at the
+     * round boundary reads these right after jc_agent_run_turn returns -- the
+     * same read-right-after contract as last_fail_tool. last_verify_code 0 =
+     * none ran (the note omits the line); >=0 the exit code. last_verify_fail
+     * is the parsed failing-test count (-1 = unknown); last_verify_failnames
+     * the top few failing paths, comma-joined ("" = none parsed). */
+    int                      last_verify_code;
+    int                      last_verify_fail;
+    char                     last_verify_failnames[200];
+    int                      last_fail_repeat; /* M808: the tool-loop repeat count
+                                                * of the last detected loop this run
+                                                * (0 = none), for the end record's
+                                                * `repeated` line -- the SAME counter
+                                                * M432/M806 keeps, not a new one */
+    /* M876 (the demos drive's N47 (a)): the model call that failed after its
+     * retries -- what ends a run whose stop is `error` -- for the delegate report.
+     * Empty once a model call succeeds. The times are the wall clock of the first
+     * and the last failed attempt. */
+    char                     last_model_error[200];
+    int                      last_model_attempts;
+    long                     last_model_t0;
+    long                     last_model_t1;
+    /* M876 (N47 (c)): this run's failing tool calls per class (enum
+     * jc_fail_class), so a report says "kept hitting" only when a class
+     * repeated. */
+    int                      fail_cls_count[JC_FAIL_CLASS_COUNT];
     /* M443: decisions this run made ON THE OPERATOR'S BEHALF because no operator
      * was there to make them. A headless run reports them only obliquely today --
      * a synthetic tool error the model sees, an `ask` journal event with
@@ -204,6 +457,8 @@ struct jc_app {
      * error count so the number meant to worry the reader does not include
      * the fences working (the footer-in-anger note, 2026-09-17). */
     int                      tool_refusals;
+    struct jc_why            why;           /* M762: for /why */
+    int                      why_approval;  /* M762: JC_WHY_*, set by confirm */
     /* M322: the TOP-LEVEL turn hit its iteration cap. Distinct from
      * last_run_capped, which describes whichever run finished most recently --
      * including a subagent's. Because run_agent_loop clears last_run_capped only
@@ -216,6 +471,15 @@ struct jc_app {
      * from a truncated response -- the repair succeeds and produces a valid
      * object with missing fields, hiding the real cause. */
     int                      last_response_truncated;
+    /* A-07 / M1090: the cause of last_response_truncated. Set alongside it
+     * (same site, jc_agent.c after each stream) from the assistant message's
+     * jc_message.truncated_by_cap. 1 means the cut was jichi's OWN per-stream
+     * accumulation cap, 0 means the model's output-token limit (M334) -- and
+     * the two text-producing sites (jc_tool.c's M334 error, jc_agent.c's M859
+     * nudge) say which, so a cap-driven cut is not misread as the model hitting
+     * its token ceiling. The other consumers only need "something was cut" and
+     * keep reading last_response_truncated alone. */
+    int                      last_response_truncated_by_cap;
     int                      turn_capped;
     int                      turn;        /* top-level turn counter (telemetry) */
     int                      routed_for_context; /* M298: this turn escalated to
@@ -332,6 +596,24 @@ struct jc_app {
                                            * this < a command `agent:` BODY,
                                            * which stays authoritative because it
                                            * already replaces the whole persona. */
+    const struct jc_vec     *command_tools; /* M848 (def-287): transient: the
+                                           * `tools:` list of a command's or
+                                           * `attempt`'s `agent:` profile (NULL
+                                           * when it names none). Set by
+                                           * jc_app_command_agent_apply, and a
+                                           * FENCE only in a run of its own: a
+                                           * subtask command passes it as its
+                                           * allow list, and `attempt` copies it
+                                           * into turn_allow. A main-turn command
+                                           * ignores it, so the prompt cache's
+                                           * tool prefix stays byte-stable. */
+    const struct jc_vec     *turn_allow; /* M848 (def-287): transient: a tools
+                                           * fence for the next TOP-LEVEL turn,
+                                           * applied as opts.allow (intersected
+                                           * with the core set when that is on),
+                                           * so it can only narrow. Set only by
+                                           * `attempt --agent`, around its one
+                                           * turn; NULL otherwise. */
     int                      resume;      /* resume the most recent session    */
     const char              *session_id;  /* --session <id|prefix>, or NULL    */
     const char              *dump_requests; /* M341: --dump-requests <dir>, or
@@ -348,6 +630,15 @@ struct jc_app {
     volatile int             term_flag;   /* set by SIGTERM (M146): end the
                                            * session gracefully, not just the
                                            * current turn (TUI exits its REPL) */
+    char                     child_tmpdir[1200]; /* M887: a parallel write
+                                           * child's private temp dir (M852's
+                                           * TMPDIR), which its file tools may
+                                           * reach as its shell does; "" else */
+    int                      cmd_stopped; /* M885: the last command
+                                           * jc_app_run_command_ex ran was killed
+                                           * because abort_flag was set (the run
+                                           * was being stopped); reset as each
+                                           * command starts */
     int                      noop_warned; /* M147: the once-per-session "model
                                            * narrated a call but never invoked
                                            * one" warning has fired            */
@@ -364,8 +655,29 @@ struct jc_app {
 
 /* Set the operating mode (an enum jc_agent_mode value), updating the low-level
  * auto_approve/readonly switches to match: PLAN => readonly + ask; AUTO =>
- * auto-approve; CHAT => neither. */
+ * auto-approve; CHAT => neither.
+ *
+ * readonly is only ever SET by a mode, never cleared, while readonly_pinned is set
+ * (M840). Before that, an explicit --readonly was cleared by any later mode change:
+ * a bounded headless run is promoted to AUTO, and a resumed session re-applies its
+ * saved mode, and both went through here -- so `--readonly --deadline 60s` wrote
+ * files, and printed nothing about it under -q. */
 void jc_app_set_mode(struct jc_app *app, int mode);
+
+/* M845 (D5): apply a SAVED session's mode -- on an ACP load or a resume -- by
+ * jc_perm_saved_mode's rule (narrow, never widen; a pinned mode is kept), and
+ * write a one-line note into `note` (empty when nothing needs saying) for the
+ * caller to print where its front-end prints: never silently. Returns the
+ * outcome (an enum jc_saved_mode_outcome). */
+int jc_app_apply_saved_mode(struct jc_app *app, int saved, char *note,
+                            jc_size note_cap);
+
+/* M762: record a tool decision for /why. `refused` 1 means a gate stopped the
+ * call; `rule` says which, or what let it run; `told` (may be NULL) is what the
+ * model was told, of which the first line is kept. */
+void jc_app_why_note(struct jc_app *app, const char *tool,
+                     const char *args_json, int refused, const char *rule,
+                     const char *told);
 
 /* Honor a custom command's `agent:` frontmatter: run the command's turn "as"
  * that named agent profile by transiently injecting the profile's system prompt
@@ -377,6 +689,7 @@ struct jc_command_agent_save {
     const char *prev_persona;  /* prior app->persona_override (restored) */
     const char *prev_style;    /* prior app->style_override (M302)        */
     int         prev_readonly; /* prior app->readonly                    */
+    const struct jc_vec *prev_tools; /* prior app->command_tools (M848)  */
     int         applied;       /* whether a profile was applied          */
 };
 const struct jc_agentdef *jc_app_command_agent_apply(
@@ -657,6 +970,33 @@ void jc_app_constraints_clear(struct jc_app *app);
 struct jc_confbench_facts; /* jc_confbench.h */
 void jc_app_confbench_facts(const struct jc_app *app,
                             struct jc_confbench_facts *f);
+
+/* M165: emit a batch progress heartbeat event. M1047: the parallel tool calls
+ * this on every idle select wake while the batch runs (not only when a task
+ * finishes), at most once per heartbeat interval. The callback is set by the
+ * caller (main.c's run_headless) and emits a `heartbeat` event with "batch",
+ * "total" and "live" fields when jsonl is on and heartbeat_secs > 0. Guarded at
+ * emit time with app->agent_depth == 0 so nested batches don't double-report to
+ * the supervisor. */
+void jc_app_batch_progress(struct jc_app *app, int done, int total, int live);
+
+/* M1082 (F-02): report a FAILED scheduled session save, once per process.
+ * The per-turn and exit saves (headless, TUI, ACP) used to ignore
+ * jc_session_save's status: a full disk left the turn's work unrecoverable
+ * while every channel a caller reads said success. This prints ONE line to
+ * stderr naming the session's file and the reason (jc_status_str), then
+ * latches app->session_save_noted so a second failed save this process stays
+ * quiet. No-op when `st` is JC_OK, when the session has no id, or when
+ * --no-session told the run not to persist (a run that was told not to save
+ * is not told its choice did not work). Honors app->quiet like the other
+ * stderr diagnostics, because the whole point of the line is that it is
+ * readable by a human operator or their log. No new telemetry event:
+ * telemetry_events_lint holds every event name to a TELEMETRY.md row plus a
+ * summarizer reader arm, and the offline `telemetry` summary already counts
+ * the events a healthy save writes -- a failed save's ABSENCE from that count
+ * is the offline record, this line is the live one. */
+void jc_app_note_failed_session_save(struct jc_app *app,
+                                     const struct jc_session *s, jc_status st);
 
 #ifdef __cplusplus
 }

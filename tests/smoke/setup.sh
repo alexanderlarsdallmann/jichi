@@ -61,8 +61,14 @@ else
     t_fail "guidance/validation missing from output"
 fi
 
-# hand-edit, then a second run merges (M53): the edit is kept
-sed 's/^{/{"myCustomKey":123,"references":false,/' "$cfgp" > "$cfgp.new" \
+# hand-edit, then a second run merges (M53): the edit is kept.
+# M1113-b-b: the edit changes an existing value IN PLACE (the preset writes
+# references:true; the hand edit sets it false) with no duplicate key -- the
+# old prepended-duplicate form relied on the pre-M1113 first-wins accessor.
+# The prepended myCustomKey:123 (not a duplicate) stays, so the merge/keep
+# path is still exercised.
+sed -e 's/^{/{"myCustomKey":123,/' \
+    -e 's/"references": true/"references": false/' "$cfgp" > "$cfgp.new" \
     && mv "$cfgp.new" "$cfgp"
 (cd "$ws" && with_deadline 30 "$BIN" setup --preset technical-writer \
     --provider openai --model gpt-4o --key-env OPENAI_API_KEY \

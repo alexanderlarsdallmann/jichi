@@ -7,6 +7,9 @@ it is ~19k lines of a language jichi's author was not fluent in) — written for
 human or agent. Where a finding rests on two data points it says so. Where an earlier
 version of this page was wrong, the correction is left in.*
 
+*See also [DRIVING_A_TEAM.md](DRIVING_A_TEAM.md) — driving a TEAM of jichi agents (a
+lead that spawns workers), from a later, larger drive.*
+
 The single most expensive lesson, stated first: **do not cap a run from an estimate. Measure
 one uncapped run, then decide.** Estimates in this engagement were wrong by 2×–2.5× in both
 directions, and the failure they caused was not "slightly truncated".

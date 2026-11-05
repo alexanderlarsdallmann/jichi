@@ -16,28 +16,13 @@ reference that choice implies.
 > walkthrough (open a terminal → install tools → clone → `make` → verify) for
 > Linux, macOS, and Windows/WSL. This page is the terse per-platform reference.
 
+> Terms this page uses in passing — *gate*, *smoke tier*, *e2e*, *translation unit* —
+> are defined in [`VOCABULARY.md`](VOCABULARY.md).
+
 ## Platform support at a glance
 
-```mermaid
-flowchart TD
-  subgraph linux["Linux — supported (CI matrix)"]
-    l1["libcurl-dev + pkg-config"] --> l2["make"] --> l3["make ci"]
-  end
-  subgraph bsd["FreeBSD / NetBSD / OpenBSD — verified, full gate"]
-    b1["pkg install / pkg_add:<br>gmake pkgconf curl"] --> b2["<b>gmake</b> — their make is not GNU make"] --> b3["gmake check-target"]
-  end
-  subgraph ill["illumos / Solaris — partly verified"]
-    i1["pkg install gcc + gnu-make<br>(libcurl is in the base)"] --> i2["<b>gmake CC=gcc</b> — its make is Sun make"] --> i3["flags probed, not passed"]
-  end
-  subgraph mac["macOS — NEVER COMPILED"]
-    m1["brew install curl pkg-config"] --> m2["make"]
-  end
-  subgraph win["Windows — WSL2 verified (M475); native Win32 unsupported"]
-    w1["wsl --install (Ubuntu)"] --> w2["build as Linux"]
-    w3["Cygwin / MSYS2 — build, partly verified"]
-    w4["native Win32 = large port, not supported"]
-  end
-```
+The table below carries every platform, its verdict, and how to build it -- readable
+at any width.
 
 **The single most important line on this page, if you are not on Linux:** the
 BSDs' and illumos's `make` is **not** GNU make, and this tree's `Makefile` is a
@@ -54,8 +39,11 @@ the two ever disagree, PLATFORMS.md is right.
 | **NetBSD** | **Verified — the full gate**, and **Driven**. Build clean in **8 s**. Ships GNU grep, which is why some text-tool defects hide here and surface on OpenBSD. | `pkg_add gmake pkg-config curl` · `gmake` |
 | **OpenBSD** | **Verified — the full gate**, and **Driven**. Build clean in **9 s** with clang 19.1.7. Its `/bin/sh` is **ksh**, so the smoke tier runs under a shell nothing else in the matrix exercises. | `pkg_add gmake curl` · `gmake` |
 | **illumos / Solaris** | **Partly verified, FULLY DRIVEN and GREEN since M703** (OmniOS CE) — both turns through the rig, re-driven 2026-09-22; `19 ok, 0 failed`, 317 of 317 smoke drivers, coverage debt 0. Clean `WERROR=1` build with gcc; **no source conditional was needed** — two build facts are probed. | [packages below](#illumos--solaris-partly-verified) · `gmake CC=gcc` |
-| **macOS** | **Never compiled.** Expected to build (BSD/POSIX), with **one** Darwin-specific code path — `jc_mem_total_mb`'s `sysctl(HW_MEMSIZE)`, which was un-compilable under this project's own C89 flags until M400 found it. "No Darwin-specific code" was this page's own claim, and it was wrong. | native |
+| **GNU/Hurd** | **Partly verified, and Driven** (M767, M768): Debian hurd-amd64 under KVM. `make -k` clean on the first try (0 errors, 0 warnings, gcc 15.2.0); `smoke: OK (342 drivers, 1,988 checks)`; one unit check, M461's timing of a process-group kill, fails there. Its make is GNU make: type `make`. | [below](#gnuhurd-partly-verified) · `make` |
+| **Haiku** | **Partly verified, and Driven** (M830) | one Makefile line: sockets are in `libnetwork` ([notes](platform-notes/haiku.md)) |
+| **macOS** | **Partly verified, and Driven** (M817) | `_DARWIN_C_SOURCE`; Apple clang, SDK libcurl ([notes](platform-notes/macos.md)) |
 | **FreeMiNT (Atari) / MiNTLib** | **Never compiled** on FreeMiNT itself, but the tree **cross-compiles clean** since M723 (gcc 4.6.4, MiNTLib 0.60.1, `WERROR=1`). The cross-compile of 2026-09-24 had measured five gaps: M722 fixed jichi's own, `-Walloca`, which every gcc older than 7 rejects, and M723 the four places the source leaned on glibc's headers ([`DEFERRED.md`](DEFERRED.md)). Under ARAnyM the cross-built unit suite completes (13,707 checks, 19 failures) and `jichi --version` runs: M726 gave MiNT builds a 512 KB stack, and M727 made the path resolver a loop, since its recursion needed ~700 KB for a symlink cycle. The rig is `scripts/tier-v-freemint.sh`. | cross only: `m68k-atari-mint-gcc` from `ppa:vriviere/ppa` — [the plan](plans/2026-09-freemint-aranym.md) |
+| **FreeDOS / DJGPP** | **Never compiled** on DOS; cross-compiles from the tree since M835 (no sockets) | `make CC=i586-pc-msdosdjgpp-gcc HAVE_CURL=` ([plan](plans/2026-09-29-the-fork-less-rows.md)) |
 | **Windows** | Not supported natively (POSIX process/terminal/signal/socket layers have no Win32 equivalent without a port). **WSL2 is the measured path**; **Cygwin** and **MSYS2** are *partly verified* — they build and pass the tier, but not `make ci`, and MSYS2 needs a mount option before jichi's file-privacy guarantees hold at all. | **WSL2 — measured (M475, 2026-08-18):** full `make ci` green on Ubuntu 24.04 / WSL2 (12,418 unit checks under gcc *and* clang, smoke 209 drivers at multiplier **1**). Keep the checkout on the Linux filesystem, **not `/mnt/c`**. [PLATFORMS.md](PLATFORMS.md) |
 
 ## Linux (supported — the reference platform)
@@ -68,6 +56,13 @@ gate on that platform at a recorded milestone and it passed — the three BSDs, 
 most of it on illumos. A verified platform is not watched between those runs, so
 if you hit a break on one, you may be the first person to see it; the fix loop is
 the same, and [`PLATFORMS.md`](PLATFORMS.md) records what the last run measured.
+
+The bench's physical boards — the **VisionFive 2 (v1.3B)** and **LicheeRV Nano
+(Sipeed)** (both Debian riscv64) and the **Raspberry Pi 500+** (Debian arm64,
+16 KB pages) — are Linux and build by the ordinary path below: `make` (or
+`gmake WERROR=1`) after the distro's build-essential and libcurl. No source
+conditional and no separate toolchain; [`PLATFORMS.md`](PLATFORMS.md) records
+each row's measured build and unit-suite figures.
 
 ### Dependencies
 
@@ -99,7 +94,8 @@ make clean
 | `make SAN=1` | AddressSanitizer + UBSan (debugging) |
 | `make SIZE=1` | size-optimized: `-Os` + section GC + stripped (low-resource targets) |
 | `make SIZE=1 LTO=1` | + link-time optimization (smallest binary) |
-| `make ci` | the full gate: gcc + clang builds, ASan/UBSan, valgrind, smoke, e2e. **Nine clean rebuilds**, so pass `-j`: the target itself carries none, and `$(MAKE)` propagates `MAKEFLAGS`, so `make -j$(nproc) ci` parallelises each sub-build while leaving `smoke` and `e2e` serial (single recipe lines) — which is what you want, since their PTY deadlines assume a quiet box. Measured **10m34s at `-j12`** on WSL2 / 12 cores (M475); the older "~2–3 min on real hardware" cannot have been a serial figure. On a small or loaded VM, run it as `JC_SMOKE_TIMEOUT_MULT=3 make ci` — the smoke tier's PTY deadlines assume a quiet box, and the multiplier is the designed lever (the Pi-class boards run 19–28; see LOW_MEMORY.md). Verify by **exit code**, never by grepping the output: the runner prefixes its failure replays, and a `grep -c '^not ok'` pipe read green over a driver that had been red for thirteen milestones (M368) |
+| `make NOFORK=1` | a **measuring** build that creates no process: `fork()` and `popen()` refuse with `ENOSYS`, so a feature that needs a process fails where it would on a system without `fork` (M769; [the measurement](analysis/2026-09-25-a-fork-free-jichi.md)). `make clean` before and after |
+| `make ci` | the full gate: gcc + clang builds, ASan/UBSan, valgrind, smoke, e2e. **Nine clean rebuilds*, so pass `-j`: the target itself carries none, and `$(MAKE)` propagates `MAKEFLAGS`, so `make -j$(nproc) ci` parallelises each sub-build while leaving `smoke` and `e2e` serial (single recipe lines) — which is what you want, since their PTY deadlines assume a quiet box. Measured **10m34s at `-j12`** on WSL2 / 12 cores (M475); the older "~2–3 min on real hardware" cannot have been a serial figure. On a small or loaded VM, run it as `JC_SMOKE_TIMEOUT_MULT=3 make ci` — the smoke tier's PTY deadlines assume a quiet box, and the multiplier is the designed lever (the Pi-class boards run 19–28; see LOW_MEMORY.md). Verify by **exit code**, never by grepping the output: the runner prefixes its failure replays, and a `grep -c '^not ok'` pipe read green over a driver that had been red for thirteen milestones (M368) |
 
 #### Two knobs for a slow or remote target (M466)
 
@@ -125,6 +121,114 @@ The default build passes **no `-O` flag**. The Makefile probes the toolchain at
 configure time: `JC_HAVE_VSNPRINTF` (C99 `vsnprintf` if present, else a bundled
 fallback) and `HAVE_CURL` (via `pkg-config`, then a bare `-lcurl`).
 
+### What `make ci` actually runs — and how long each stage takes
+
+Measured 2026-10-11 on a fresh install (no build cache): AMD Ryzen 9 3900X
+(12 cores / 24 threads), 32 GB RAM, NVMe. Measured end to end, the gate is **about 29 minutes** on this box, and it is
+fully **offline** — every model interaction inside it goes to mockmodel, so
+the run is deterministic and the number is stable from one gate to the next;
+what varies is machine load, not model time. The number below is the
+*measured* wall time per stage, not an estimate, so a self-learner can see
+where the time goes before spending it.
+
+The gate is serial and `make clean`s most stages **by design** (M220): it is
+a reproducible measurement, and a cached build would not re-prove the things
+it exists to prove. That is why the gate is not a build you can "speed up" —
+it is a set of clean measurements, and the recommendation is to run it less
+often, on a head that is ready.
+
+| stage (in order) | what it catches | measured |
+|---|---|---|
+| `make clean && make WERROR=1 CC=gcc test` | C89 warnings-as-errors, gcc; 15,292 unit checks | ~20 s |
+| `make clean && make WERROR=1 CC=clang test` | the same, under a second compiler (each finds what the other misses) | ~24 s |
+| `make clean && make CC=g++ jichi test` | the C++ compile boundary (M871) | ~25 s |
+| `make cpp-check` | static analysis | ~9 s |
+| `make clean && make SAN=1 CC=clang test` | ASan/UBSan: memory errors, undefined behavior | ~32 s |
+| `make SAN=1 CC=clang jichi && sh scripts/leakcheck.sh ./jichi` | leaks in the shipped binary's subcommands | ~4 s |
+| `make smoke-tools && sh tests/smoke/leak_turn.sh` | leaks across a kept connection | ~3 s |
+| `make clean && make WERROR=1 CC=gcc run_tests` | the e2e harness build | ~14 s |
+| `valgrind --error-exitcode=1 … ./run_tests` | the unit suite under valgrind (ASan's blind spots) | ~17 s |
+| `make clean && make SAN=1 CC=clang run_fuzz && … run_fuzz` | **23 fuzz targets, 2,000 iterations each** | **~13 min** |
+| curl-free build + 512 KB stack run | a system without libcurl; a small default stack | ~20 s |
+| `make WERROR=1 fallbacks-compile` | the graceful-degradation paths compile | ~6 s |
+| `make smoke-faults` | FAULT=1 build + the six error-path drivers (the lease race, the board, mid-stream faults) | ~1 min |
+| `make clean && make WERROR=1 CC=gcc all` | the shipping binary, clean | ~9 s |
+| `make WERROR=1 examples` | the docs' examples build | ~2 s |
+| `make WERROR=1 smoke` | **the smoke tier: 447 drivers, ~2,600 checks** | ~10 min |
+| `make smoke-mutant` | the gate's own gate: does a killed driver turn the tier red? — sweeps **changed drivers only** | ~1 s when nothing changed since the last gate |
+| `make e2e` | the end-to-end tier (offline: drives the binary, mockmodel, no gateway) | ~2 min |
+
+The three chunks of the ~29 minutes, in order: the **fuzz stage (~13 min, the
+largest single stage — 23 targets × 2,000 iterations)** and the **smoke tier
+(~10 min — 447 drivers, ~2,600 checks)** together are most of it; the five
+clean builds, the ASan/UBSan and valgrind passes, and the leak checks are the
+rest, and they are what make the code *sound* — a soundness verdict in a
+couple of minutes. The behavior the gate proves (the error paths, the
+documentation, the model-driven runs) is the rest, and its tail is the part
+that varies machine to machine and run to run.
+
+### The cheap tiers, measured (the ones you run while designing and editing)
+
+Same machine, warm tree: `make jichi` after one changed file: **1 s**;
+`make test` (incremental build + the full unit suite): **7 s**; a single
+doc lint: **1–10 s**; a single smoke driver: **a few seconds**.
+
+**The working cadence** — run the cheap tier that matches the change, and the
+full gate only when a series of changes is done:
+
+1. **Per edit:** `make test` (7 s). The unit suite is the loop you live in.
+2. **Per change, also the lints that change touches** — each is seconds:
+   docs edits → `doc_claims_lint`, `docs_index_lint`, `docs_counts_lint`,
+   `milestone_currency_lint`; a new driver → that driver plus `smoke_lint`
+   (registration); a config key or wire value → the four-lint family
+   (`config_trust_lint`, `notice_tags_lint`, `describe_fields_lint`,
+   `docs_flags`). A green full gate has cost one hour of discovering a lint
+   you could have run in ten seconds.
+3. **Per milestone:** both compilers, not just the one that builds your
+   change — `make WERROR=1 CC=gcc test` and `make WERROR=1 CC=clang test`
+   (together ~45 s from clean). clang and gcc catch different C89 slips; the
+   gate runs both for exactly that reason.
+4. **Per series of milestones (a plan branch):** cheap checks per commit, then
+   **one** `make ci` on the final head before merging. Never per commit — the
+   operator's process rule of 2026-10-10, and the reason a gate is an hour
+   and a milestone is ten minutes of waiting for nothing new.
+5. **While the gate runs, work on it.** Run it in the background in the
+   form it was measured in:
+
+   ```sh
+   make ci </dev/null 2>&1 | tee /tmp/ci-final.log
+   ```
+
+   and write docs, plans, or the next design while it runs. (On a 256 MB
+   machine that trade does not hold — the gate's clean rebuilds want the
+   RAM to themselves; there, run it and wait.)
+
+6. **When the gate fails, do not restart the gate.** The log names the stage
+   that died. Re-run that one stage (`make smoke`, `make smoke-mutant`,
+   `make e2e`), fix, re-run the stage until it is green — and only then a
+   full gate on the final head, because a fix can move the failure into a
+   later stage. The 2026-10-11 merge did exactly this: the first gate died in
+   `i18n_tracks_lint` (a smoke driver) after 16 minutes of clean stages had
+   all passed; the fix was a one-line count in a translated page, and the
+   re-run was one full gate, not nine.
+7. **Re-check one driver, not the tier:** `sh tests/smoke/run.sh <name>…`
+   runs only the named drivers (M466, written after re-proving 200 passing
+   drivers to look at the 201st on a ten-minute-boot rig).
+8. **Enumerate a whole red set in one pass:** `JC_SMOKE_KEEP_GOING=1 make
+   smoke` reports every failing driver instead of stopping at the first —
+   the difference between nine gate deaths and one fix sweep.
+9. **A docs-only change needs no rebuild at all.** Run the doc lint family
+   (step 2) and it is checked; the next full gate covers it by the same rule
+   as a docs-only commit on a plan branch.
+
+**For a slow or remote target:** the per-stage numbers above scale with the
+machine, and the smoke tier scales with *both* the machine and the driver
+count — the one number that must not be copied from here is
+`JC_SMOKE_TIMEOUT_MULT`, which is a ratio (device build seconds ÷ *this*
+bench's), and the one that must not be added is a cap: the gate's stages are
+measurements, and a cap that fires manufactures a plausible different answer
+(see [TEST_TIERS.md](TEST_TIERS.md) for the tier doctrine).
+
 ### Static / cross builds
 
 For a static musl binary or an embedded cross-compile (e.g.
@@ -134,11 +238,24 @@ For a static musl binary or an embedded cross-compile (e.g.
 ### Install
 
 ```sh
-make -j4              # build AS YOURSELF first -- install does not build (M586)
+make -j4 RELEASE=1    # build AS YOURSELF first -- install does not build (M586)
 sudo make install     # installs both binaries (+ man page, Emacs lisp)
 make install-check
 sudo make uninstall
 ```
+
+Build with `RELEASE=1` when you are installing for **running** the agent, not
+just editing its source. The default build passes no `-O` flag at all: it is
+the fastest to compile and shows every variable in a debugger -- right for the
+editing loop, and the posture jichi's own gate builds with (the recorded
+trade-off, `docs/HARDENING.md` section 7b). But it is also unfortified: with no
+optimisation level in play, `_FORTIFY_SOURCE` is inert (M1071 keys the flag on
+an actual `-O` level, and its level is probed, not pinned), so the plain-build
+binary has no `__*_chk` libc overflow checks at all. `RELEASE=1` names the
+release posture: `-O2` at the probed `_FORTIFY_SOURCE` level, plus
+`-ftrivial-auto-var-init=zero` where the toolchain accepts it (M1073, the
+2026-10-17 hardening review's finding L-01). The two builds differ in compile
+time and size only; a clean rebuild is required when switching between them.
 
 `install` deliberately has no build prerequisite. With one, `sudo make install`
 rebuilds the tree as root and leaves every object file root-owned, so your next
@@ -166,15 +283,22 @@ All three **compile clean at `WERROR=1` and run the whole test tier**, and all
 three have had a real model driven on them — a live turn in which the model
 chose a tool, the tool ran, and a second turn consumed its result.
 
-**There is not one `#ifdef __FreeBSD__`, `__NetBSD__` or `__OpenBSD__` in this
-source tree.** What FreeBSD forced at M460 was three *capability* guards — a
-`#ifdef _SC_NPROCESSORS_ONLN` in the platform TU, and `INADDR_LOOPBACK` and
+**There is exactly one `#if defined(__FreeBSD__)` in this source tree, and no
+`__NetBSD__` or `__OpenBSD__` branch at all.** For most of the project there were
+none; the one branch arrived at M771, in `src/util/jc_proc.c`, and it sets
+`__BSD_VISIBLE` so `<sys/procctl.h>` compiles under this tree's strict
+`-D_POSIX_C_SOURCE` — for the API-key `/proc` protection, where FreeBSD's
+`procctl(PROC_TRACE_CTL)` is the analog of Linux's `PR_SET_DUMPABLE`. It is a
+per-OS branch because that protection genuinely differs per OS. Everything else is
+*capability* guards, not platform ones: what FreeBSD forced at M460 was a
+`#ifdef _SC_NPROCESSORS_ONLN` in the platform TU and `INADDR_LOOPBACK` /
 `SIGWINCH` in two test tools — because this tree compiles with
 `-D_POSIX_C_SOURCE=200112L` and FreeBSD hides those behind `__BSD_VISIBLE` where
 four Linux libcs expose them anyway. Those three guards then carried OpenBSD and
-NetBSD with **no further change**, and illumos after them. That is the strongest
-evidence this page can offer that the source is portable rather than accidentally
-Linux: not that it has many platform branches, but that it has none.
+NetBSD with **no further change**, and illumos after them. That is the evidence
+this page can offer that the source is portable rather than accidentally Linux:
+one deliberate per-OS branch for a per-OS feature, and otherwise capability
+guards, not a pile of platform `#ifdef`s.
 
 ### Dependencies
 
@@ -263,7 +387,7 @@ than the BSD case, where the wrong make is at least differently named: here the
 command you would reach for exists, runs, and is not the one this tree needs.
 
 **`CC=gcc`, because there is no `cc` and no `c99`.** The Makefile's default is
-`CC ?= cc` (line 13), and when that binary is absent the result is not "no
+`CC ?= cc`, and when that binary is absent the result is not "no
 compiler" — it is **every capability probe answering "no"**, so `gmake info`
 cheerfully reports no vsnprintf, no curl, no `malloc_trim`, and you build a
 degraded binary with no error anywhere. Pass `CC=gcc` and the probes tell the
@@ -294,6 +418,23 @@ match per line where GNU prints every one. Several lints flatten a file and
 extract many items that way. `docs/PLATFORMS.md` carries the current count and
 the per-driver detail; this page does not duplicate it, because a number in two
 places is a number that will disagree with itself.
+
+## GNU/Hurd (partly verified)
+
+The first microkernel this tree was built on (M767): Debian GNU/Hurd, hurd-amd64, in QEMU with
+KVM. It has glibc and GNU make, so the build is Debian's:
+
+```sh
+apt-get install build-essential libcurl4-openssl-dev pkg-config git
+make
+make check-target      # the unit suite and the smoke tier
+```
+
+**`git` is not optional for the smoke tier.** Eight drivers need it and fail, rather than skip,
+without it (DEFERRED). **Use M768 or later for the TUI.** Before it, the key poll read with
+`VMIN=0`, which the Hurd's term server blocks on, and the TUI froze before every model call.
+One unit check fails there and is deferred: M461's, which reads a group-killed process as alive
+for a while ([the analysis](analysis/2026-09-25-gnu-hurd-first-row.md)).
 
 ## macOS (should build; unverified)
 
@@ -442,9 +583,23 @@ The Makefile probes the toolchain at configure time:
   has no width, precision or flags, so `make info` says so when it is chosen.
 - `HAVE_CURL` — libcurl is required for networking (M2+) and links via
   `pkg-config`. The core + tests still build without it.
+- `JC_HAVE_FCHDIR` — asks a LINK question, not a declaration one: `fchdir()` is
+  not declared under jichi's flags (`-std=c89 -D_POSIX_C_SOURCE=200112L`; glibc
+  hides it behind `_DEFAULT_SOURCE` / `_XOPEN_SOURCE>=700`, and some libcs have
+  no `fchdir` at all), so the probe declares the symbol itself and links,
+  answering yes only when `fchdir` actually resolves in libc. Since M1116 (B-09)
+  the posix_spawn backend holds a descriptor on the original directory before
+  it `chdir`s away and restores through `fchdir()`, which succeeds even if the
+  directory's PATH was renamed away mid-call; a `no` (or a failed open) keeps
+  the path-based `chdir(cwd_save)` restore, whose change-back can fail on a
+  vanished path. `make info` now reports the answer on its `FCHDIR` line, so a
+  platform row can say which restore a build took.
 - …and more (the clock, `malloc_trim`, the terminal's `winsize`, sockets,
   STREAMS ptys, `lstat` and `mmap` since M723, the optional warning flags --
-  `-Wvla` among them since M736, which gcc before 4.3 rejects).
+  `-Wvla` among them since M736, which gcc before 4.3 rejects -- and, since
+  M770, `prctl(PR_SET_DUMPABLE)`, which hides jichi's keys from the commands it
+  runs; Linux only, and where it is absent `jichi doctor` warns that the
+  protection is not in force).
   **`make info` prints every probe's answer, and is the list to trust**; this one
   names only the two every build meets.
 

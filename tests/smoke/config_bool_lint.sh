@@ -37,6 +37,16 @@
 #                   success), and a workflow map's `readonly` -- plus a fence:
 #                   `spawn_subagent`'s `readonly` argument, where a model asking
 #                   for a read-only child with `1` got a WRITABLE one.
+#   checked      -- (M843) that those files read no boolean RAW: a
+#                   cJSON_IsTrue/IsFalse/IsBool takes only a JSON bool, exactly
+#                   like the strict accessor, but neither count above sees it.
+#                   That is how PAR-3 hid: `parse_policy_field` called
+#                   cJSON_IsTrue itself, so `"permissions": {"deny": 1}` read
+#                   as absent and, with a real model under --auto, write_file
+#                   wrote. Exact counts of LINES per file; the only raw reads
+#                   left are a
+#                   type-preserving copy (config_json_dup, 2) and a type check
+#                   that then reads the bool leniently (escalateOnContext, 1).
 #   NOT checked  -- whether telemetry/journal readers should ever be lenient.
 #                   They read what jichi itself wrote, so a non-bool there is a
 #                   bug to see. If one of them ever parses a user-written file,
@@ -46,7 +56,7 @@
 #                   is the value that takes effect.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 16
+t_plan 25
 smoke_home
 tmp=$(smoke_tmp)
 
@@ -88,6 +98,39 @@ check_file src/session/jc_session.c 2
 check_file src/util/jc_workflow.c 1
 check_file src/tui/jc_tui.c 2
 check_file src/tools/tool_util.c 1
+
+# --- M843: no RAW boolean read in the same files ----------------------------
+# Counted on whole files, like check_file. A change in either direction fails:
+# a new raw read is the PAR-3 defect again until shown to be a type check or a
+# copy, and a vanished one means this expectation is stale. The sites print on
+# failure, so a reader sees the set and not only its size.
+raw_check() {
+    _rf=$1; _rw=$2
+    _rg=$(grep -c -E 'cJSON_Is(True|False|Bool)\(' "$SMOKE_ROOT/$_rf" 2>/dev/null)
+    [ -n "$_rg" ] || _rg=missing
+    if [ "$_rg" = missing ]; then
+        t_fail "$_rf is unreadable from the raw-read check -- the extraction is
+ broken, and a broken extraction reports a clean universe"
+    elif [ "$_rg" -ne "$_rw" ]; then
+        t_fail "$_rf has $_rg line(s) with a raw cJSON_IsTrue/IsFalse/IsBool
+ read; expected exactly $_rw. A raw read of a boolean a human or a foreign program wrote takes
+ only a JSON bool -- \"deny\": 1 read as absent (M843, PAR-3). Read it with
+ jc_json_get_bool_lenient; if it is a type check or a copy, change the count
+ here and say why. The sites:
+$(grep -n -E 'cJSON_Is(True|False|Bool)\(' "$SMOKE_ROOT/$_rf" | cut -c1-100)"
+    else
+        t_ok "$_rf: $_rg line(s) with a raw boolean read, the justified ones only"
+    fi
+}
+raw_check src/config/jc_config.c 3
+raw_check src/convert/jc_convert_opencode.c 0
+raw_check src/mcp/jc_mcp_proto.c 0
+raw_check src/acp/jc_acp_proto.c 0
+raw_check src/util/jc_control_proto.c 0
+raw_check src/session/jc_session.c 0
+raw_check src/util/jc_workflow.c 0
+raw_check src/tui/jc_tui.c 0
+raw_check src/tools/tool_util.c 0
 
 # --- 4: the boundary, asserted by NAME -------------------------------------
 # The fix is two accessors, and the line between them is "who wrote this JSON".

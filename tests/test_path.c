@@ -392,10 +392,293 @@ static void test_normalize(void)
     }
 }
 
+/* Remove everything test_state_file_check creates under `base`, and say whether
+ * `base` itself went (0) or not (-1). */
+static int clear_state_check_fixture(const char *base)
+{
+    static const char *const leaves[] = {
+        "/inside", "/inside/memory.md",
+        "/outside/target.md", "/outside",
+        "/linkdir/memory.md", "/linkdir",
+        "/linkfile/memory.md", "/linkfile",
+        "/fifo/memory.md", "/fifo",
+        "/regulardir/memory.md", "/regulardir",
+        "/dirasfile/memory.md", "/dirasfile"
+    };
+    char p[700];
+    size_t i;
+
+    for (i = 0; i < sizeof leaves / sizeof leaves[0]; i++) {
+        jc_snprintf(p, sizeof p, "%s%s", base, leaves[i]);
+        (void)remove(p);
+    }
+    /* rmdir the leaves, then base */
+    (void)rmdir(base);
+    return 0;
+}
+
+/* D-15: unit tests for jc_state_file_check.
+ * Tests:
+ *   (a) .jichi dir is a symlink to a real dir -> JC_ERR_DENIED
+ *   (b) dir real, leaf is a symlink to an outside regular file -> JC_ERR_INVALID
+ *   (c) dir real, leaf a real regular file -> JC_OK
+ *   (d) dir real, leaf absent -> JC_OK (write case)
+ *   (e) dir absent -> JC_OK
+ *   (f) leaf is a FIFO (mkfifo) -> JC_ERR_INVALID
+ *   (g) dir is a regular file (not a directory) -> JC_ERR_INVALID */
+static void test_state_file_check(void)
+{
+    char base[256];
+    char *t;
+    size_t tl;
+    long pid;
+    char num[32];
+    int nn;
+    long v;
+    int i;
+    size_t bl;
+    char linkpath[1200];
+    size_t ll;
+    char path[1300];
+    jc_status st;
+    char dir[1200];
+    char real_target[1200];
+    char linkfile[1200];
+    char outside[1200];
+    char outdir[1200];
+    char targetpath[1300];
+    char inside[1200];
+    char filepath[1300];
+    size_t il;
+    FILE *f;
+    char fifopath[1200];
+    char fifofile[1300];
+    char dirasfilepath[1200];
+    char dirasfilefilepath[1300];
+
+    /* Get the tmp directory for fixtures */
+    t = (char *)jc_test_tmpdir();
+    tl = strlen(t);
+    if (!JC_REQUIRE(tl + 32 < sizeof base)) {
+        return;
+    }
+    memcpy(base, t, tl);
+    memcpy(base + tl, "/jichi_state_check_", 20);
+    base[tl + 20] = '\0';
+
+    /* Build the full path: "<tmpdir>/jichi_state_check_<pid>" */
+    pid = (long)getpid();
+    nn = 0;
+    v = pid;
+    if (v == 0) { num[nn++] = '0'; }
+    while (v > 0 && nn < 30) { num[nn++] = (char)('0' + (v % 10)); v /= 10; }
+    if (!JC_REQUIRE(nn < 30)) {
+        return;
+    }
+    for (i = 0; i < nn; i++) {
+        base[tl + 20 + i] = num[nn - 1 - i];
+    }
+    base[tl + 20 + nn] = '\0';
+
+    /* Clean up any leftover from a previous run */
+    (void)clear_state_check_fixture(base);
+
+    /* Store the base length after PID, before adding trailing slash */
+    bl = strlen(base);
+
+    /* Create the base directory */
+    if (!JC_REQUIRE(mkdir(base, 0700) == 0)) {
+        return;
+    }
+
+    /* Build the base path with a trailing slash for concatenation */
+    if (!JC_REQUIRE(bl + 1 < sizeof base)) {
+        return;
+    }
+    base[bl] = '/';
+    base[bl + 1] = '\0';
+    /* For subsequent concatenations, use bl+1 which includes the trailing slash */
+    bl = bl + 1;
+
+    /* (a) .jichi dir is a symlink to a real dir -> JC_ERR_DENIED */
+    {
+        memcpy(linkpath, base, bl);
+        memcpy(linkpath + bl, "linkdir", 8);
+        linkpath[bl + 7] = '\0';
+        /* dir = linkdir (the symlink itself) */
+        memcpy(dir, linkpath, bl + 7);
+        dir[bl + 7] = '\0';
+
+        /* Create a real directory that the symlink will point to */
+        memcpy(real_target, base, bl);
+        memcpy(real_target + bl, "inside", 7);
+        real_target[bl + 6] = '\0';
+        if (JC_REQUIRE(mkdir(real_target, 0700) == 0)) {
+            /* Create symlink: linkdir -> inside */
+            if (JC_REQUIRE(symlink(real_target, linkpath) == 0)) {
+                /* Check the symlinked directory - path should be linkdir/memory.md */
+                ll = strlen(linkpath);
+                memcpy(path, linkpath, ll);
+                memcpy(path + ll, "/memory.md", 11);
+                path[ll + 10] = '\0';
+                st = jc_state_file_check(NULL, path);
+                JC_CHECK(st == JC_ERR_DENIED);  /* symlink directory */
+            }
+        }
+    }
+
+    /* (b) dir real, leaf is a symlink to an outside regular file -> JC_ERR_INVALID */
+    {
+        memcpy(linkfile, base, bl);
+        memcpy(linkfile + bl, "linkfile", 9);
+        linkfile[bl + 8] = '\0';
+
+        /* Create a real directory and an outside target file */
+        if (JC_REQUIRE(mkdir(linkfile, 0700) == 0)) {
+            memcpy(outside, base, bl);
+            memcpy(outside + bl, "outside/target.md", 18);
+            outside[bl + 17] = '\0';
+
+            /* Create the outside directory and file */
+            memcpy(outdir, outside, bl + 17);
+            outdir[bl + 7] = '\0';  /* Remove "/target.md" */
+            if (JC_REQUIRE(mkdir(outdir, 0700) == 0)) {
+                f = fopen(outside, "wb");
+                if (JC_REQUIRE(f != NULL)) {
+                    fputs("outside content", f);
+                    fclose(f);
+                }
+            }
+
+            /* Create a symlink inside the real dir pointing outside */
+            memcpy(linkpath, linkfile, bl + 8);
+            memcpy(linkpath + bl + 8, "/memory.md", 11);
+            linkpath[bl + 18] = '\0';
+            memcpy(targetpath, outside, strlen(outside) + 1);
+            if (symlink(targetpath, linkpath) == 0) {
+                /* Check the symlinked file - path should be linkfile/memory.md */
+                ll = strlen(linkfile);
+                memcpy(path, linkfile, ll);
+                memcpy(path + ll, "/memory.md", 11);
+                path[ll + 10] = '\0';
+                st = jc_state_file_check(NULL, path);
+                JC_CHECK(st == JC_ERR_INVALID);  /* symlink file */
+            }
+        }
+    }
+
+    /* (c) dir real, leaf a real regular file -> JC_OK */
+    {
+        memcpy(inside, base, bl);
+        memcpy(inside + bl, "regulardir", 11);
+        inside[bl + 10] = '\0';
+
+        /* Create a real directory and a real file in it */
+        if (JC_REQUIRE(mkdir(inside, 0700) == 0)) {
+            memcpy(filepath, inside, bl + 10);
+            memcpy(filepath + bl + 10, "/memory.md", 11);
+            filepath[bl + 20] = '\0';
+            f = fopen(filepath, "wb");
+            if (JC_REQUIRE(f != NULL)) {
+                fputs("real content", f);
+                fclose(f);
+            }
+
+            /* Check the real file */
+            il = strlen(inside);
+            memcpy(path, inside, il);
+            memcpy(path + il, "/memory.md", 11);
+            path[il + 10] = '\0';
+            st = jc_state_file_check(NULL, path);
+            JC_CHECK(st == JC_OK);  /* real file */
+        }
+    }
+
+    /* (d) dir real, leaf absent -> JC_OK (write case) */
+    {
+        memcpy(inside, base, bl);
+        memcpy(inside + bl, "inside", 7);
+        inside[bl + 6] = '\0';
+
+        /* The directory already exists from (c) */
+        il = strlen(inside);
+        memcpy(path, inside, il);
+        memcpy(path + il, "/newfile.md", 12);
+        path[il + 11] = '\0';
+
+        st = jc_state_file_check(NULL, path);
+        JC_CHECK(st == JC_OK);  /* no file, write case */
+    }
+
+    /* (e) dir absent -> JC_OK */
+    {
+        memcpy(path, base, bl);
+        memcpy(path + bl, "absent_dir/memory.md", 20);
+        path[bl + 19] = '\0';
+
+        st = jc_state_file_check(NULL, path);
+        JC_CHECK(st == JC_OK);  /* no directory, write case */
+    }
+
+    /* (f) leaf is a FIFO (mkfifo) -> JC_ERR_INVALID */
+    {
+        memcpy(fifopath, base, bl);
+        memcpy(fifopath + bl, "fifo", 5);
+        fifopath[bl + 4] = '\0';
+
+        /* Create a real directory and a FIFO in it */
+        if (JC_REQUIRE(mkdir(fifopath, 0700) == 0)) {
+            memcpy(fifofile, fifopath, bl + 4);
+            memcpy(fifofile + bl + 4, "/memory.md", 11);
+            fifofile[bl + 14] = '\0';
+
+            if (mkfifo(fifofile, 0644) == 0) {
+                /* Check the FIFO ITSELF (M997: the case used to append
+                 * "/memory.md" to the FIFO's path, which made the FIFO a
+                 * DIRECTORY component -- the dir-not-a-dir branch returned
+                 * first and the leaf-FIFO branch never ran, so flipping it
+                 * left this green. fifofile already has no trailing slash and
+                 * the dir (fifo/) is a real directory, so the leaf-FIFO branch
+                 * is what must fire. */
+                st = jc_state_file_check(NULL, fifofile);
+                JC_CHECK(st == JC_ERR_INVALID);  /* FIFO leaf */
+            }
+        }
+    }
+
+    /* (g) dir is a regular file (not a directory) -> JC_ERR_INVALID */
+    {
+        memcpy(dirasfilepath, base, bl);
+        memcpy(dirasfilepath + bl, "dirasfile", 10);
+        dirasfilepath[bl + 9] = '\0';
+        memcpy(dirasfilefilepath, dirasfilepath, strlen(dirasfilepath));
+        memcpy(dirasfilefilepath + strlen(dirasfilepath), "/memory.md", 11);
+        dirasfilefilepath[strlen(dirasfilepath) + 10] = '\0';
+
+        /* Create a regular file where a directory should be */
+        f = fopen(dirasfilepath, "wb");
+        if (JC_REQUIRE(f != NULL)) {
+            fputs("not a directory", f);
+            fclose(f);
+            /* Check the path - the directory part (dirasfile) is a regular file */
+            ll = strlen(dirasfilepath);
+            memcpy(path, dirasfilepath, ll);
+            memcpy(path + ll, "/memory.md", 11);
+            path[ll + 10] = '\0';
+            st = jc_state_file_check(NULL, path);
+            JC_CHECK(st == JC_ERR_INVALID);  /* dir is a regular file */
+        }
+    }
+
+    /* Cleanup */
+    JC_CHECK(clear_state_check_fixture(base) == 0);
+}
+
 void test_path(void)
 {
     test_under_root();
     test_resolve();
     test_symlink_escape();
     test_normalize();
+    test_state_file_check();
 }

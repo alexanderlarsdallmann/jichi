@@ -1,0 +1,43 @@
+{
+  "models": [
+    {
+      "name": "chat",
+      "provider": "openai",
+      "model": "qwen/qwen3.5-9b",
+      "apiBase": "http://127.0.0.1:1234/v1",
+      "roles": [
+        "chat"
+      ],
+      "contextLength": 32768
+    }
+  ],
+  "mode": "chat",
+  "pathFence": true,
+  "toolProfile": "core",
+  "permissions": {
+    "deny": [
+      "fetch_url",
+      "ask_user",
+      "todowrite",
+      "todoread",
+      "git_status",
+      "git_log",
+      "git_diff",
+      "git_blame",
+      "git_branch",
+      "git_stash",
+      "git_add",
+      "git_commit",
+      "write_plan",
+      "run_terminal_command",
+      "run_tests",
+      "spawn_subagent",
+      "spawn_parallel",
+      "remember"
+    ]
+  },
+  "snapshots": false,
+  "repoMap": false,
+  "references": false,
+  "maxRetries": 1
+}

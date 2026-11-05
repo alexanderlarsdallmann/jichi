@@ -13,6 +13,17 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* M1093 (C-09): the per-call-class TOTAL caps for the net_util side calls.
+ * These are CAPS (a limit on how long a working call may run), not fences --
+ * they stay ON but are named, per class, so the universe is exact and findable.
+ * The value is measured-working; renaming is not a behaviour change. The
+ * connect + dead-stream FENCES are separate and live in jc_net_side_fences. */
+#define JC_NET_POST_TIMEOUT_SECS        60  /* post_json (embeddings/rerank)   */
+#define JC_NET_REACHABLE_TIMEOUT_SECS   2   /* liveness probe default          */
+#define JC_NET_MODELS_TIMEOUT_SECS      5   /* model listing default           */
+#define JC_NET_MODEL_LISTED_TIMEOUT_SECS 6  /* "is this id listed" default     */
+#define JC_NET_MODEL_LIMITS_TIMEOUT_SECS 6  /* context-window lookup default   */
+
 void jc_url_join(const char *base, const char *path, char *buf, jc_size cap)
 {
     jc_size bl;
@@ -60,6 +71,64 @@ void jc_net_url_v1(const struct jc_model_cfg *m, const char *path,
     url_join_v1(m != NULL ? m->api_base : NULL, path, buf, cap);
 }
 
+/* M1093 (C-09): the connect + dead-stream FENCES for a SIDE (non-model) HTTP
+ * call. A side call (embeddings/rerank, model listing, image/audio, MCP-over-
+ * HTTP, compaction, one-shot, web search, feed/doc fetch, the two helper
+ * completions) used to carry only a fixed total cap -- no connect bound
+ * (libcurl then waits up to 300 s on a dead endpoint) and no dead-stream fence
+ * (a stream that goes silent after connecting never gets cut). The model call
+ * in jc_agent.c already sets both; this gives the same shape to every side
+ * call through one helper so they cannot drift.
+ *
+ * It sets ONLY the two FENCES -- never `timeout_secs` (the per-class TOTAL cap
+ * is a CAP, set at the call site as a named constant). Per the design (LOG-3
+ * Run 0098):
+ *   - connect = CLI > global > built-in 30 (JC_HTTP_CONNECT_TIMEOUT_DEFAULT).
+ *     No per-model tier: a side call is NOT the active model's turn, so the
+ *     model's own `timeouts.connect` does not apply. The precedence is the same
+ *     four-line shape as jc_config.c's static pick_timeout (which is not
+ *     exported), inlined here with no dependency on jc_config.c internals.
+ *   - dead_stream = cfg->dead_stream_secs (built-in 900) -- a FENCE that stays
+ *     ON for measurement runs (a dead stream is a dead stream). A configured
+ *     explicit 0 is honoured as "off" (the config parse keeps 0 = off, 900 =
+ *     default); cfg NULL (pre-app sites) means built-ins only.
+ *   - stall is deliberately left at 0 (off): the stall cap is the model
+ *     call's knob and its default would cut the very compaction case C-09
+ *     names; dead_stream (which fires only on a SILENT stream) is the bound.
+ *
+ * Passing NULL is the documented fallback for call sites that hold only a
+ * jc_model_cfg* (the net_util helpers, audio/image/transcribe) -- those get
+ * the built-in connect 30 + dead-stream 900 and no CLI/global override. */
+void jc_net_side_fences(struct jc_http_request *req,
+                        const struct jc_config *cfg)
+{
+    long cli = -1, glob = -1;
+
+    if (req == NULL) {
+        return;
+    }
+    if (cfg != NULL) {
+        cli = cfg->timeouts_cli.connect;
+        glob = cfg->timeouts.connect;
+    }
+    /* CLI > global > built-in 30 (no per-model tier for a side call). */
+    if (cli >= 0) {
+        req->connect_timeout_secs = cli;
+    } else if (glob >= 0) {
+        req->connect_timeout_secs = glob;
+    } else {
+        req->connect_timeout_secs = JC_HTTP_CONNECT_TIMEOUT_DEFAULT;
+    }
+    /* dead_stream: the configured value (a present 0 is an explicit-off and is
+     * honoured as-is; an absent key kept the 900 default at config init). cfg
+     * NULL means no configured value at all -> the built-in 900. */
+    if (cfg != NULL) {
+        req->dead_stream_secs = cfg->dead_stream_secs;
+    } else {
+        req->dead_stream_secs = 900L;
+    }
+}
+
 jc_status jc_net_post_json(const struct jc_model_cfg *m, const char *path,
                            const char *body, long *http_status,
                            char **resp_out, volatile int *abort)
@@ -90,12 +159,36 @@ jc_status jc_net_post_json(const struct jc_model_cfg *m, const char *path,
     req.headers = &headers;
     req.body = body;
     req.body_len = (body != NULL) ? strlen(body) : 0;
-    req.timeout_secs = 60;
+    req.timeout_secs = JC_NET_POST_TIMEOUT_SECS;
     req.abort_flag = abort;
+    jc_net_side_fences(&req, NULL); /* M1093: no jc_config in scope: built-in */
 
     st = jc_http_perform(&req, http_status, resp_out, NULL);
     jc_http_headers_free(&headers);
     return st;
+}
+
+/* M1131 (C-13): the clients' log-body cap (see net_util.h). Heap copy of the
+ * first `cap` bytes of `body`, NUL-terminated; NULL for a NULL body or OOM. */
+char *jc_log_err_body_cap(const char *body, jc_size cap)
+{
+    char *cp;
+    jc_size n;
+
+    if (body == NULL || cap == 0) {
+        return NULL;
+    }
+    n = strlen(body);
+    if (n > cap) {
+        n = cap;
+    }
+    cp = (char *)malloc(n + 1);
+    if (cp == NULL) {
+        return NULL;
+    }
+    memcpy(cp, body, n);
+    cp[n] = '\0';
+    return cp;
 }
 
 int jc_net_reachable(const char *api_base, const char *api_key,
@@ -124,8 +217,10 @@ int jc_net_reachable(const char *api_base, const char *api_key,
     req.method = "GET";
     req.url = url;
     req.headers = &headers;
-    req.timeout_secs = (timeout_secs > 0) ? timeout_secs : 2;
+    req.timeout_secs = (timeout_secs > 0) ? timeout_secs
+                                          : JC_NET_REACHABLE_TIMEOUT_SECS;
     req.abort_flag = abort;
+    jc_net_side_fences(&req, NULL); /* M1093: no jc_config in scope: built-in */
 
     /* A connect failure here is the expected "unreachable" signal, not an
      * error worth printing -- mute logging just for the probe. */
@@ -197,8 +292,10 @@ jc_status jc_net_list_models(const char *api_base, const char *api_key,
     req.method = "GET";
     req.url = url;
     req.headers = &headers;
-    req.timeout_secs = (timeout_secs > 0) ? timeout_secs : 5;
+    req.timeout_secs = (timeout_secs > 0) ? timeout_secs
+                                          : JC_NET_MODELS_TIMEOUT_SECS;
     req.abort_flag = abort;
+    jc_net_side_fences(&req, NULL); /* M1093: no jc_config in scope: built-in */
 
     st = jc_http_perform(&req, &http_status, &resp, NULL);
     jc_http_headers_free(&headers);
@@ -267,8 +364,8 @@ jc_status jc_net_parse_model_limits(const char *json, const char *model_id,
         /* Both fields are legitimately null on this gateway for models whose
          * limits nobody filled in, and null must read as "not published"
          * rather than as zero. */
-        in = (long)jc_json_get_num(info, "max_input_tokens", 0.0);
-        outv = (long)jc_json_get_num(info, "max_output_tokens", 0.0);
+        in = jc_json_clamp_long(jc_json_get_num(info, "max_input_tokens", 0.0));
+        outv = jc_json_clamp_long(jc_json_get_num(info, "max_output_tokens", 0.0));
         if (in > 0) {
             if (out_max_input != NULL) {
                 *out_max_input = in;
@@ -369,8 +466,10 @@ jc_status jc_net_model_listed(const char *api_base, const char *api_key,
     req.method = "GET";
     req.url = url;
     req.headers = &headers;
-    req.timeout_secs = (timeout_secs > 0) ? timeout_secs : 6;
+    req.timeout_secs = (timeout_secs > 0) ? timeout_secs
+                                          : JC_NET_MODEL_LISTED_TIMEOUT_SECS;
     req.abort_flag = abort;
+    jc_net_side_fences(&req, NULL); /* M1093: no jc_config in scope: built-in */
 
     /* Muted like the probe beside it: a server without this endpoint is a
      * normal state, not an error to shout about. */
@@ -467,8 +566,10 @@ jc_status jc_net_model_limits(const char *api_base, const char *api_key,
     req.method = "GET";
     req.url = url;
     req.headers = &headers;
-    req.timeout_secs = (timeout_secs > 0) ? timeout_secs : 6;
+    req.timeout_secs = (timeout_secs > 0) ? timeout_secs
+                                          : JC_NET_MODEL_LIMITS_TIMEOUT_SECS;
     req.abort_flag = abort;
+    jc_net_side_fences(&req, NULL); /* M1093: no jc_config in scope: built-in */
 
     /* A 404 here is the NORMAL answer from any non-LiteLLM server, so it must
      * not print as an error the way a real failure would. Muted for the same

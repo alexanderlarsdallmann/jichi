@@ -5,6 +5,7 @@
 
 #include "prov_internal.h"
 #include "jc_json.h"
+#include "jc_log.h"
 #include "jc_snprintf.h"
 #include "jc_str.h"
 #include "jc_promptcache.h"
@@ -384,12 +385,23 @@ static void an_on_event(struct jc_provider *self,
     }
     root = cJSON_Parse(ev->data);
     if (root == NULL) {
+        /* M1094 (G3): a parse refused by the per-parse node cap is not
+         * malformed data -- its text/args would have been real. The mark
+         * rides the existing truncated_reply flag (M1090). */
+        if (cJSON_jc_parse_refused_by_cap()) {
+            s->truncated_reply = 1;
+            jc_logf(JC_LOG_WARN,
+                "[provider] anthropic SSE event dropped: its data would "
+                "exceed the per-parse node cap (JC_JSON_MAX_NODES); the "
+                "streamed reply is marked truncated because that event's "
+                "text or tool-call arguments were lost");
+        }
         return;
     }
     type = event_type(ev, root);
 
     if (strcmp(type, "content_block_start") == 0) {
-        int idx = (int)jc_json_get_num(root, "index", 0.0);
+        int idx = jc_json_clamp_int(jc_json_get_num(root, "index", 0.0));
         cJSON *cb = cJSON_GetObjectItem(root, "content_block");
         const char *btype = jc_json_get_str(cb, "type", "");
         if (strcmp(btype, "tool_use") == 0) {
@@ -405,7 +417,7 @@ static void an_on_event(struct jc_provider *self,
             }
         }
     } else if (strcmp(type, "content_block_delta") == 0) {
-        int idx = (int)jc_json_get_num(root, "index", 0.0);
+        int idx = jc_json_clamp_int(jc_json_get_num(root, "index", 0.0));
         cJSON *delta = cJSON_GetObjectItem(root, "delta");
         const char *dtype = jc_json_get_str(delta, "type", "");
         if (strcmp(dtype, "text_delta") == 0) {
@@ -413,12 +425,16 @@ static void an_on_event(struct jc_provider *self,
             if (text != NULL) {
                 jc_prov_emit_text(s, sink, text, (jc_size)strlen(text));
             }
+        } else if (strcmp(dtype, "thinking_delta") == 0) {
+            /* M897: reasoning is output for the first-token time, as on the
+             * OpenAI wire; not the answer, so nothing is emitted. */
+            s->saw_reasoning = 1;
         } else if (strcmp(dtype, "input_json_delta") == 0) {
             const char *pj = jc_json_get_str(delta, "partial_json", NULL);
             struct prov_call *slot = jc_prov_call_slot(s, idx);
             if (pj != NULL && slot != NULL) {
                 slot->used = 1;
-                jc_sb_append(&slot->args, pj);
+                jc_prov_append_args(s, slot, pj);   /* A-07 / M1090 */
             }
         }
     } else if (strcmp(type, "message_start") == 0) {
@@ -449,9 +465,10 @@ static void an_on_event(struct jc_provider *self,
         jc_prov_flush(s, out);
         *done = 1;
     } else if (strcmp(type, "error") == 0) {
+        /* M909: Anthropic's in-stream error (overloaded_error and the rest)
+         * fails the call; it used to become the answer's text. */
         cJSON *err = cJSON_GetObjectItem(root, "error");
-        const char *msg = jc_json_get_str(err, "message", "provider error");
-        jc_prov_emit_text(s, sink, msg, (jc_size)strlen(msg));
+        jc_prov_set_stream_error(s, jc_json_get_str(err, "message", NULL));
         jc_prov_flush(s, out);
         *done = 1;
     }
@@ -497,7 +514,7 @@ static jc_status an_parse_full(struct jc_provider *self, const char *body,
                                 jc_json_get_str(block, "id", ""));
                     jc_sb_append(&slot->name, jc_json_get_str(block, "name", ""));
                     if (args != NULL) {
-                        jc_sb_append(&slot->args, args);
+                        jc_prov_append_args(s, slot, args);   /* A-07 / M1090 */
                         free(args);
                     }
                 }
@@ -542,7 +559,9 @@ static const struct jc_provider_vtable AN_VTABLE = {
     an_parse_full,
     jc_prov_get_usage,
     jc_prov_get_cache_usage,
-    an_free
+    an_free,
+    jc_prov_stream_started,
+    jc_prov_stream_error
 };
 
 struct jc_provider *jc_provider_anthropic_create(const struct jc_model_cfg *model)

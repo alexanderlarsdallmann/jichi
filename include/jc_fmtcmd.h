@@ -41,7 +41,11 @@ int jc_shell_quote(const char *s, char *out, jc_size cap);
  *     (`clang-format -i` becomes `clang-format -i 'src/a.c'`).
  *
  * The path is quoted in both forms. Returns 0 on success, -1 on NULL/empty
- * input or overflow. Pure. */
+ * input or overflow, and -2 (M847, S1) when a `{}` sits inside the author's own
+ * single- or double-quoted span: the quoted path would close the author's quote
+ * and spill its contents into the shell, so that shape is refused. Put `{}`
+ * outside any quotes, or drop it and let the path append as a trailing argument.
+ * Pure. */
 int jc_fmtcmd_build(const char *cmd, const char *path, char *out, jc_size cap);
 
 #ifdef __cplusplus

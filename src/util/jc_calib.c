@@ -148,7 +148,7 @@ jc_status jc_calib_load(struct jc_calib *c, const char *path)
      * this one, so an older table is dropped rather than trusted or averaged
      * down (M286). Absent "v" means version 1, the pre-M286 `history + 2000`
      * basis. The entries re-populate from the first model call onward. */
-    if ((int)jc_json_get_num(root, "v", 1.0) < JC_CALIB_SCHEMA) {
+    if (jc_json_clamp_int(jc_json_get_num(root, "v", 1.0)) < JC_CALIB_SCHEMA) {
         jc_logf(JC_LOG_INFO, "calibration: %s was written against an older "
                 "token-estimate basis -- discarding it; each model recalibrates "
                 "from its next model call", path);

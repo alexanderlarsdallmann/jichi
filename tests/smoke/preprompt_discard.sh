@@ -21,7 +21,7 @@
 
 [ -x "$SMOKE_TOOLS/ptydrive" ] || t_skip "ptydrive not built"
 
-t_plan 3
+t_plan 4
 smoke_home
 tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
@@ -54,6 +54,7 @@ cat > "$tmp/early.pd" <<'EOF'
 delay 2000
 send "/exit\r"
 waitexit 15
+assertexit 0
 EOF
 # --log, not stdout: ptydrive writes the SESSION transcript there, and the
 # notice is terminal output, not a diagnostic on stderr.
@@ -104,6 +105,20 @@ if ! grep -q 'SAW_THE_STRAY_LINE' "$tmp/out"; then
 else
     t_fail "type-ahead from before the prompt was sent to the model -- the \
 safety property the flush exists for is gone"
+fi
+
+# --- 4: the denominator -- jichi rendered its prompt at all -----------------
+# Checks 1-2 SKIP where the fixture cannot create the precondition, and check 3
+# passes trivially when nothing was said -- so all three can be green against a
+# binary that does nothing (a hollow binary makes mutant-sweep's point, M540).
+# This check is not: with the real binary jichi reaches its interactive prompt
+# (the `] ` other TUI drivers expect); a do-nothing binary leaves an empty
+# transcript. It is the driver's denominator, and does not depend on _pre_ok.
+if grep -q '] ' "$tmp/out"; then
+    t_ok "jichi reached its prompt (the denominator: a do-nothing binary shows nothing)"
+else
+    t_fail "jichi never rendered a prompt -- the transcript is empty: \
+$(head_bytes 200 "$tmp/out")"
 fi
 
 t_done

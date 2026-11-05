@@ -20,6 +20,20 @@ static void test_type_names(void)
     JC_CHECK(jc_control_type_parse(NULL) == JC_CTL_UNKNOWN);
 }
 
+/* M752: the verb list is generated from the enum, so it names all six, in
+ * order -- `mode` included, which two hand-typed lists had lost. */
+static void test_verb_list(void)
+{
+    char buf[128];
+    char tiny[8];
+    jc_control_verb_list(buf, sizeof(buf), "|");
+    JC_CHECK(strcmp(buf, "status|inject|pause|resume|abort|mode") == 0);
+    jc_control_verb_list(buf, sizeof(buf), "/");
+    JC_CHECK(strcmp(buf, "status/inject/pause/resume/abort/mode") == 0);
+    jc_control_verb_list(tiny, sizeof(tiny), "|");
+    JC_CHECK(strlen(tiny) < sizeof(tiny));   /* truncates, stays terminated */
+}
+
 static void test_request_roundtrip(void)
 {
     struct jc_arena *a;
@@ -33,7 +47,7 @@ static void test_request_roundtrip(void)
     }
 
     /* Build -> parse: a bare verb. */
-    line = jc_control_build_request("status", NULL, 0);
+    line = jc_control_build_request("status", NULL, 0, NULL);
     JC_CHECK(line != NULL && strchr(line, '\n') != NULL);
     JC_CHECK(jc_control_parse_request(line, &cmd, a) == JC_OK);
     JC_CHECK(cmd.type == JC_CTL_STATUS);
@@ -41,7 +55,7 @@ static void test_request_roundtrip(void)
 
     /* Build -> parse: inject carries the text (arena-copied). */
     line = jc_control_build_request("inject", "skip the tests; report now",
-                                    0);
+                                    0, NULL);
     if (JC_REQUIRE(line != NULL)) { /* a guard (M729) */
         JC_CHECK(jc_control_parse_request(line, &cmd, a) == JC_OK);
     }
@@ -51,16 +65,37 @@ static void test_request_roundtrip(void)
     free(line);
 
     /* M162: pause --extend roundtrips; a plain pause does not extend. */
-    line = jc_control_build_request("pause", NULL, 1);
+    line = jc_control_build_request("pause", NULL, 1, NULL);
     JC_CHECK(line != NULL && strstr(line, "\"extend\":true") != NULL);
     JC_CHECK(jc_control_parse_request(line, &cmd, a) == JC_OK);
     JC_CHECK(cmd.type == JC_CTL_PAUSE && cmd.extend == 1);
     free(line);
-    line = jc_control_build_request("pause", NULL, 0);
+    line = jc_control_build_request("pause", NULL, 0, NULL);
     JC_CHECK(line != NULL && strstr(line, "extend") == NULL);
     JC_CHECK(jc_control_parse_request(line, &cmd, a) == JC_OK);
     JC_CHECK(cmd.type == JC_CTL_PAUSE && cmd.extend == 0);
     free(line);
+
+    /* From field on inject: build with from="supervisor", parse and verify. */
+    line = jc_control_build_request("inject", "skip the tests; report now",
+                                    0, "supervisor");
+    if (JC_REQUIRE(line != NULL)) {
+        JC_CHECK(jc_control_parse_request(line, &cmd, a) == JC_OK);
+        JC_CHECK(cmd.type == JC_CTL_INJECT);
+        JC_CHECK(cmd.text != NULL &&
+                 strcmp(cmd.text, "skip the tests; report now") == 0);
+        JC_CHECK(cmd.from != NULL && strcmp(cmd.from, "supervisor") == 0);
+        free(line);
+    }
+
+    /* Backward compat: inject without from field parses to from=NULL. */
+    line = jc_control_build_request("inject", "text only", 0, NULL);
+    if (JC_REQUIRE(line != NULL)) {
+        JC_CHECK(jc_control_parse_request(line, &cmd, a) == JC_OK);
+        JC_CHECK(cmd.type == JC_CTL_INJECT);
+        JC_CHECK(cmd.from == NULL);
+        free(line);
+    }
 
     /* An inject with no text is invalid. */
     JC_CHECK(jc_control_parse_request("{\"v\":1,\"type\":\"inject\"}",
@@ -113,6 +148,8 @@ static void test_status_snapshot(void)
     s.outcome = "running";
     s.last_tool = "read_file";
     s.paused = 1;
+    s.injected = 3;        /* M1045 */
+    s.queued_injects = 1;  /* M1045 */
     line = jc_control_build_status(&s);
     JC_CHECK(line != NULL);
     if (line != NULL) {
@@ -122,6 +159,8 @@ static void test_status_snapshot(void)
         JC_CHECK(strstr(line, "\"last_tool\":\"read_file\"") != NULL);
         JC_CHECK(strstr(line, "\"deadline_credit\":42") != NULL);
         JC_CHECK(strstr(line, "\"paused\":true") != NULL);
+        JC_CHECK(strstr(line, "\"injected\":3") != NULL);      /* M1045 */
+        JC_CHECK(strstr(line, "\"queued_injects\":1") != NULL); /* M1045 */
         free(line);
     }
 
@@ -137,6 +176,10 @@ static void test_status_snapshot(void)
         JC_CHECK(strstr(line, "deadline_credit") == NULL);
         JC_CHECK(strstr(line, "last_tool") == NULL);
         JC_CHECK(strstr(line, "\"paused\":false") != NULL);
+        /* M1045: the delivery pair is ALWAYS emitted, zero included -- the
+         * always-emit contract, unlike the caps above that omit when zero. */
+        JC_CHECK(strstr(line, "\"injected\":0") != NULL);
+        JC_CHECK(strstr(line, "\"queued_injects\":0") != NULL);
         free(line);
     }
     JC_CHECK(jc_control_build_status(NULL) == NULL);
@@ -145,6 +188,7 @@ static void test_status_snapshot(void)
 void test_control(void)
 {
     test_type_names();
+    test_verb_list();
     test_request_roundtrip();
     test_responses();
     test_status_snapshot();

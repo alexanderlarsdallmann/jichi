@@ -7,30 +7,8 @@ reader for each, plus a preflight that judges a config *before* an unattended
 run starts. This doc is the map: what each sink holds, which reader answers
 which question, and the design decisions behind them.
 
-```mermaid
-flowchart LR
-    subgraph agent [agent core - writers]
-      EV[jc_eventlog<br/>opt-in telemetry]
-      EJ[jc_envelope journal<br/>per bounded run]
-      AU[jc_audit<br/>always-on privileged audit]
-    end
-    subgraph disk [~/.jichi.d/ - outside the workspace]
-      T[(telemetry/*.jsonl)]
-      R[(runs/&lt;run&gt;.jsonl)]
-      A[(audit/privileged.jsonl)]
-    end
-    subgraph readers [offline readers - M158]
-      RT[jichi telemetry]
-      RR[jichi runs]
-      RA[jichi audit]
-    end
-    EV --> T --> RT
-    EJ --> R --> RR
-    AU --> A --> RA
-    RT --> Q1{{"where did the tokens/cost go?"}}
-    RR --> Q2{{"how did last night's runs end?"}}
-    RA --> Q3{{"what asked for sudo, and what happened?"}}
-```
+What is written, by what, and where it is read are the tables below (**The three
+sinks** and **The readers**) -- readable at any width.
 
 
 ### `hook` and `req_bytes` (M326v)
@@ -123,6 +101,29 @@ destroy the always-on audit trail's value.
 
 ## The readers
 
+### `jichi ps` — what is running now (M759)
+
+`jichi runs` reads journals, which describe runs after the fact. `jichi ps` answers the
+question a supervisor asks first: which runs are alive on this machine, and how do I
+reach them? A run may hold a lease (`~/.jichi.d/leases/`), open a control socket
+(`~/.jichi.d/control/<pid>.sock`, or the path `--control` named) and write a journal
+(`~/.jichi.d/runs/<run>.jsonl`). `ps` joins the three by pid:
+
+```
+PID      AGE       MODE   LEASE  CONTROL SOCKET / JOURNAL
+1963353  2.0s      auto   held   /tmp/work/c.sock
+                                 works in /home/you/project
+                                 journal /home/you/.jichi.d/runs/e7765dd6-….jsonl
+```
+
+A lease or a socket whose pid is gone is counted in a line of its own, and **`ps` removes
+nothing**: such a record is evidence of how a run ended, and the next run on that
+workspace takes a dead run's lease anyway (M431e). `--output json` gives a supervisor
+`{"v":1,"runs":[{pid,run,mode,started,lease,root,control,journal}],"stale":{leases,sockets}}`,
+with `null` for what a run does not have. A socket at an explicit `--control` path is
+found only through the lease, which records it since M759. A run without a lease (one
+that armed no envelope) is found only by its socket in the default directory.
+
 ### `jichi runs [dir]` — triage last night's loop
 
 One row per bounded run, newest first (`--all` to show every journal):
@@ -188,7 +189,9 @@ most recent (up to 10):
   2026-07-23 21:50 doas     ask_denied         doas rm -rf /tmp/x
 ```
 
-"Refused" = `deny` / `ask_denied` / `unattended_refused`; "ran" = `allow` /
+"Refused" = `deny` / `ask_denied` / `unattended_refused` / `delegate_refused`
+(M849: a subagent's or parallel task's privileged command, refused whether or not
+the allowlist names it); "ran" = `allow` /
 `allowlist` / `ask_approved`. `--since` takes the envelope's duration syntax
 (`90s`/`20m`/`2h`, and — new in M158 — `7d`). The parser is `jc_auditview`
 (`src/util/jc_auditview.c`, pure, unit-tested). Commands are stored
@@ -231,7 +234,7 @@ archaeology the join does not remove:
 | outcome | `outcome`, `rolled_back`, `verify` | — |
 | totals | `tokens_used`, `tool_calls`, `tool_calls_executed` | — |
 | per-call input | — | `model_call.in_tok`, `.cache_read_in`, `.hist_tok` |
-| per-call output | — | `model_call.out_tok`, `.latency_ms`, `.cost_usd` |
+| per-call output | — | `model_call.out_tok`, `.latency_ms`, `.ttft_ms` (M897), `.stall_ms` (time-to-cut on a cut where nothing arrived; M958), `.cost_usd` |
 | per-tool | — | `tool_call.name`, `.ok`, `.duration_ms`; for `read_file`, `.offset` and `.limit` (M715) |
 
 Group the telemetry file by `run`, index the `runs` rows by `run`, print them
@@ -354,13 +357,14 @@ event nothing emits). Consumers tolerate unknown events by design
 | `open` | the journal exists and the run has a pid (M438). Written the instant the file is opened, so it is never 0 bytes while the process lives — `start` follows only after config load, reachability probes, MCP connect and the repo map, any of which can hang, and an empty file is what a dead process looks like |
 | `start` | the run began: budgets, scope, verify command as configured, `edit_scope_globs` (M459: WHICH globs, not just how many — a count cannot tell `AGENTS.md` from `**`, and the second fences nothing); `one_shot` (M715): headless with `--no-session`, so there is no session to resume and a capped run's work is gone rather than pending; `model` (M720): the active model's **id** at the start of the run — never its endpoint or key — the first covariate of any rate read from journals, and how `tests/measure/corpus_filter.py` tells a mock-model probe from real work |
 | `end` | the run's outcome (`outcome`, `rolled_back`, `tokens_used`, `tool_calls`, `tool_calls_executed`); `stop_reason` (M690 — the same values as the `done` event's, so a capped run is visible where `outcome` says `ok`; this row did not list it until M715. **Until M732 it said `done` for an interrupted run and for a failed model call as well**, because the end event passed `JC_OK` instead of the loop's status; `outcome` still reads `running` for those two, since the envelope has no terminal value for them); `answer_bytes` (M715): the size of **this turn's** answer — a size, not a verdict, since a capped run's last words can be text without being an answer |
-| `verify` | one verifier run: pass/fail, parsed `failed`/`passed` counts (M86 adds the sanity fields) |
+| `verify` | one verifier run: pass/fail, parsed `failed`/`passed` counts (M86 adds the sanity fields; M893's `predates`: it failed on a line seen before the first change) |
+| `verify_declined` | after a failed end-of-run check, the next answer changed nothing (`by`: `content` or `calls`): the run ended on its verdict, retries unspent (M892) |
 | `no_progress` | a **successful call returned the same result three times in one turn** (`name`, `repeat`) — the same arguments and the same answer, with no edit between; surfaced as `same=N` in `runs`. The success twin of `tool_loop`, kept apart from it because a failing loop and an answered one are read differently. Told once per call per turn; a shell command resets every other call's count but not its own. Its threshold is the M731 fit on a 48-run drive (M733) |
 | `tool_loop` | a **tool call kept failing the same way inside one turn** (`name`, `class`, `key`, `repeat`) — surfaced as `loops=N` in `runs`. `key` is `exact` (byte-identical arguments, threshold 3) or `class` (same failure cause, varied arguments, threshold 4); `class` is one of `not_found`/`denied`/`bad_args`/`killed`/`nonzero_exit`/`other`. Its own event because every prior recovery was reactive to ONE failure — measured at 31% and 40% of error-turns across two corpora, with single turns repeating a failing call 34x and 59x (M432) |
 | `blocked_repeat` | the run re-attempted a **policy-forbidden** action after being refused (`name`, `target`, `repeat`) — surfaced as `blocked=N` in `runs`. Its own event because a block is neither a tool error (`ok:false`) nor counted against `--max-tool-calls`, so before M429 a run could spend its whole token budget on one while every other signal read normal |
 | `verify_stuck` | the verifier failed with the same signature `repeat` times in a row — fix-forward is looping. Emitted from **both** verify paths since M422; the periodic (`--verify-every`) one carries `phase: "periodic"`, matching the `verify` event's own convention. Before M422 only the completion path journaled it, so mid-turn thrashing warned on stderr and left `runs`' `stuck=N` blank |
 | `checkpoint` | a green checkpoint was banked (`commit`, `green`) — the M81 periodic verify passed |
-| `baseline` | the declared gate's baseline verdict at run start (M343: a goal gate must start red) |
+| `baseline` | the declared gate's baseline verdict at run start (M343: a goal gate must start red); M893's `line`: its first failing line, kept as evidence |
 | `budget` | a budget/deadline/tool-call cap stopped the run (`kind`; `starved` per M96) |
 | `budget_notice` | the M347 80% bell: the model was told a budget is nearly used (`kind`) |
 | `rollback` | the envelope rolled the workspace back to the green checkpoint |
@@ -368,16 +372,30 @@ event nothing emits). Consumers tolerate unknown events by design
 | `out_of_scope` | files outside the edit scope changed (M83; `reverted` counts per M142) |
 | `route` | the run switched model tiers (fast/strong) and why |
 | `tool_call` | a tool call: **every executed one** (`name` and the outcome stamp `ok`/`error`/`exit` — M536's stamper, shared with telemetry's row so the two sinks a supervisor joins on `run` cannot disagree), and every one the envelope **blocked** (`name`, `blocked: true`, plus the `path` for an out-of-scope write). *Until M715 this row said "not every call, only refusals"; measured then: a 200-call `--auto` run journals 200 `tool_call` rows* |
-| `constraint` | constraints were **inferred from the request** and adopted for this session (M110/M167; `adopted`, `names`, `source`) — surfaced as `constraints=N` in `runs`. Since M734 it carries `advisory: true`: an inferred rule is told to the model, not enforced. (The refusal of a call by a rule the operator wrote is telemetry's `constraint` event, not this one.) |
-| `constraint_advisory` | a call went against a constraint **inferred** from the request, and ran, because inferred rules advise (M734; `tool`, `rule`). One event per such call, surfaced as `advised=N` in `runs` — the rate at which a guessed rule met the work, which is what D2 was decided without |
+| `constraint` | constraints were **inferred from the request** and adopted for this session (M110/M167; `adopted`, `names`, `source`; M872: `from`, the sentences read) — surfaced as `constraints=N` in `runs`. Since M734 it carries `advisory: true`: an inferred rule is told to the model, not enforced. (The refusal of a call by a rule the operator wrote is telemetry's `constraint` event, not this one.) |
+| `constraint_advisory` | a call went against a constraint **inferred** from the request, and ran, because inferred rules advise (M734; `tool`, `rule`; M872: `from`, the rule's sentence). One event per such call, surfaced as `advised=N` in `runs` — the rate at which a guessed rule met the work, which is what D2 was decided without |
 | `constraint_exempt` | an inferred read-only was set aside for a write because an explicit edit-scope names that path (M459; `tool`, `why`). Since M734 an inferred rule never refuses, so what the exemption changes is advice: without it the call would have been told it went against the rule |
 | `control` | a control-channel command was served (M159; `cmd` — injects make the run `steered=N` in `runs`) |
 | `ask` | the model asked the human (M359: `question`, `answered` — `runs` renders unanswered=N) |
 | `plan` | `write_plan` wrote `.jichi/PLAN.md` under this envelope (M631: `rejected` = alternatives carrying a reason, `touches` = files the plan predicts). The plan's shape is part of the run's record the way an ask is; the reconciliation against what the run then wrote is in the `done` object's `reach`, not here |
 | `parallel_verify` | a write child's worktree verify verdict before merge (M144: `task`, `exit` — a red child is quarantined) |
+| `metric_gate` | the metric gate's verdict on a child that moved a pin (M875: `task`, `verdict`, `base`, `value`) |
 | `self_review` | the one-shot self-review pass ran on the turn's diff (M39) |
 | `strict_green` | strict-green downgraded a green outcome over out-of-scope changes (M332) |
 | `test_assertion_edit` | an edit under the envelope touched a test assertion (`path`, `tool`) — the moved-gate detector |
 | `history_check` | the M364 wire-shape validator found violations in a bounded run |
 | `post_outcome` | a model call was metered after the outcome was decided (M329: the totals above it are short) |
+| `attempt` | an `attempt` ended (M898): `spec`, `verdict` (PASS / FAIL / TAINTED / HARNESS / CANNOT_RUN), `passed`, `wall_s`, `model_calls`, `tool_calls`, `model_id`; `runs` shows `attempt=VERDICT` |
 | `learn_on_stop` | the mentor ran after the run ended (M330: its `tokens`/`tool_calls` are outside the run totals). Since M598 it also says what the draft would commit: `draft_memory`, `draft_skills`, `draft_corrections`, `draft_rules`, their sum `draft_items`, and `draft_parsed_nothing` (1 = bytes but no section `learn apply` knows). The fields are present only when there was a draft to parse; `jichi runs` renders the last as `draft=empty` on an otherwise `ok` row, and `--output json` carries `learn_draft_items` / `learn_draft_empty` |
+| `relay_note_written` | the relay wrote a handover baton at a headless handover (M921, off by default): `path`, `leg`, `bytes`, `reason`. Journal-only, redacted; `runs` shows `relay_baton(N)` |
+| `budget_adjust` | the relay measured the next leg's tool-call budget from this leg's prompt growth (M951): `old`, `new`, `p0`, `g`, `w`. Journal-only; `runs` shows `relay_budget(N)` |
+| `leg_start` | the relay started a leg (M954): `leg` (1-based). Journal-only; one per leg, paired with `leg_end` |
+| `leg_end` | the relay ended a leg (M954): `leg`, `reason` (the relay's own stop, or the run's stop name when the leg finished the task). Journal-only, paired with `leg_start` |
+| `scoped_edit` | the scoped edit check (M975, D6) journal line for a shell edit to a worker-owned path (the story in **`scoped_edit` in detail** below). |
+
+**`scoped_edit` in detail (M975, D6).** The scoped edit check's journal
+line for a shell edit to a worker-owned path (`path`, `kind` = `"detected"`);
+the trip (refusal) emits to telemetry but not the journal. One journal line
+per changed path, written at the NEXT tool call after the shell edit (the
+same line that telemetry emits). Closes F-AH10: a watch reading the journal
+can now see edits the shell bypassed.

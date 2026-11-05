@@ -11,6 +11,7 @@
 #include "jc_http.h"
 #include "jc_str.h"
 #include "jc_base64.h"
+#include "jc_snprintf.h"
 #include "cJSON.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -224,6 +225,146 @@ static void test_no_house_key(void)
     jc_arena_free(a);
 }
 
+/* M843 (PAR-3): a policy field a human writes as 1, "true" or "on" means
+ * "all" -- the M519 lenient-boolean rule, on a fence. `permissions.deny` and
+ * `mcpServers[].deny` written that way were read as absent, so the fence did
+ * not apply: with a real model and `--auto`, `"deny": 1` let write_file write.
+ * The widening fields (`permissions.allow`, `mcpServers[].autoApprove`) share
+ * the reader, and CLAUDE.md's rule -- read by who wrote the JSON -- applies to
+ * them too: `"allow": 1` is allow-all, as its writer meant. Prose still falls
+ * through to "not all": guessing at prose is how a typo becomes a policy. The
+ * same class in `control` (a 1 was ignored, an "on" became a socket PATH named
+ * "on") and `routing.escalateOnContext` (a "false" switched it ON). */
+static void test_policy_booleans_lenient(void)
+{
+    static const char *const yes[] = {
+        "1", "\"true\"", "\"on\"", "\"yes\"", "true", "\"*\""
+    };
+    static const char *const no[] = {
+        "0", "\"false\"", "\"off\"", "false", "\"sometimes\""
+    };
+    struct jc_arena *a = jc_arena_new(0);
+    struct jc_config c;
+    char buf[480];
+    int i;
+
+    for (i = 0; i < (int)(sizeof yes / sizeof yes[0]); i++) {
+        jc_snprintf(buf, sizeof buf,
+                    "{\"models\":[{\"name\":\"a\"}],"
+                    "\"permissions\":{\"deny\":%s,\"allow\":%s},"
+                    "\"mcpServers\":[{\"name\":\"s\",\"command\":\"x\","
+                    "\"deny\":%s,\"autoApprove\":%s}]}",
+                    yes[i], yes[i], yes[i], yes[i]);
+        JC_CHECK(jc_config_load_json(buf, 0, &c, a) == JC_OK);
+        JC_CHECK(c.permissions.deny_all == 1);
+        JC_CHECK(c.permissions.allow_all == 1);
+        JC_CHECK(c.mcp_servers.len == 1);
+        if (c.mcp_servers.len == 1) {
+            struct jc_mcp_server_cfg *s =
+                (struct jc_mcp_server_cfg *)jc_vec_at(&c.mcp_servers, 0);
+            JC_CHECK(s->deny_all == 1);
+            JC_CHECK(s->auto_approve_all == 1);
+        }
+        jc_config_free(&c);
+    }
+    for (i = 0; i < (int)(sizeof no / sizeof no[0]); i++) {
+        jc_snprintf(buf, sizeof buf,
+                    "{\"models\":[{\"name\":\"a\"}],"
+                    "\"permissions\":{\"deny\":%s,\"allow\":%s},"
+                    "\"mcpServers\":[{\"name\":\"s\",\"command\":\"x\","
+                    "\"deny\":%s,\"autoApprove\":%s}]}",
+                    no[i], no[i], no[i], no[i]);
+        JC_CHECK(jc_config_load_json(buf, 0, &c, a) == JC_OK);
+        JC_CHECK(c.permissions.deny_all == 0);
+        JC_CHECK(c.permissions.allow_all == 0);
+        if (c.mcp_servers.len == 1) {
+            struct jc_mcp_server_cfg *s =
+                (struct jc_mcp_server_cfg *)jc_vec_at(&c.mcp_servers, 0);
+            JC_CHECK(s->deny_all == 0);
+            JC_CHECK(s->auto_approve_all == 0);
+        }
+        jc_config_free(&c);
+    }
+
+    /* `control`: a bool word or a number switches it; any other string is a
+     * socket path, as before. */
+    JC_CHECK(jc_config_load_json("{\"models\":[{\"name\":\"a\"}],\"control\":1}",
+                                 0, &c, a) == JC_OK);
+    JC_CHECK(c.control_on == 1);
+    JC_CHECK(c.control_path == NULL);
+    jc_config_free(&c);
+    JC_CHECK(jc_config_load_json(
+                 "{\"models\":[{\"name\":\"a\"}],\"control\":\"on\"}",
+                 0, &c, a) == JC_OK);
+    JC_CHECK(c.control_on == 1);
+    JC_CHECK(c.control_path == NULL); /* "on" is a word, not a path */
+    jc_config_free(&c);
+    JC_CHECK(jc_config_load_json(
+                 "{\"models\":[{\"name\":\"a\"}],\"control\":\"off\"}",
+                 0, &c, a) == JC_OK);
+    JC_CHECK(c.control_on == 0);
+    jc_config_free(&c);
+    JC_CHECK(jc_config_load_json(
+                 "{\"models\":[{\"name\":\"a\"}],\"control\":\"/tmp/c.sock\"}",
+                 0, &c, a) == JC_OK);
+    JC_CHECK(c.control_on == 1);
+    JC_CHECK_STR(c.control_path, "/tmp/c.sock");
+    jc_config_free(&c);
+
+    /* `routing.escalateOnContext`: a percentage, or a bool -- in any of the
+     * lenient spellings. "false" used to fall to the number reader, which
+     * returned the DEFAULT percentage: escalation ON. */
+    JC_CHECK(jc_config_load_json(
+                 "{\"models\":[{\"name\":\"a\"}],"
+                 "\"routing\":{\"escalateOnContext\":\"false\"}}",
+                 0, &c, a) == JC_OK);
+    JC_CHECK(c.routing.escalate_on_context == 0);
+    jc_config_free(&c);
+    JC_CHECK(jc_config_load_json(
+                 "{\"models\":[{\"name\":\"a\"}],"
+                 "\"routing\":{\"escalateOnContext\":\"on\"}}",
+                 0, &c, a) == JC_OK);
+    JC_CHECK(c.routing.escalate_on_context == JC_ROUTE_CONTEXT_PCT);
+    jc_config_free(&c);
+    JC_CHECK(jc_config_load_json(
+                 "{\"models\":[{\"name\":\"a\"}],"
+                 "\"routing\":{\"escalateOnContext\":40}}",
+                 0, &c, a) == JC_OK);
+    JC_CHECK(c.routing.escalate_on_context == 40);
+    jc_config_free(&c);
+    jc_arena_free(a);
+}
+
+/* M874 (the demos drive's N45 (c)): reading rules out of an --auto request is
+ * on unless a config says otherwise, and a human writes the switch, so it is
+ * read leniently -- "off" and 0 turn it off, and prose falls to the default. */
+static void test_constraints_auto_adopt(void)
+{
+    static const char *const off[] = { "false", "0", "\"off\"", "\"no\"" };
+    struct jc_arena *a = jc_arena_new(0);
+    struct jc_config c;
+    char buf[200];
+    int i;
+
+    JC_CHECK(jc_config_load_json("{\"models\":[{\"name\":\"a\"}]}", 0, &c, a)
+             == JC_OK);
+    JC_CHECK(c.constraints_auto_adopt == 1);
+    jc_config_free(&c);
+    for (i = 0; i < (int)(sizeof off / sizeof off[0]); i++) {
+        jc_snprintf(buf, sizeof buf, "{\"models\":[{\"name\":\"a\"}],"
+                    "\"constraintsAutoAdopt\":%s}", off[i]);
+        JC_CHECK(jc_config_load_json(buf, 0, &c, a) == JC_OK);
+        JC_CHECK(c.constraints_auto_adopt == 0);
+        jc_config_free(&c);
+    }
+    JC_CHECK(jc_config_load_json("{\"models\":[{\"name\":\"a\"}],"
+                                 "\"constraintsAutoAdopt\":\"sometimes\"}",
+                                 0, &c, a) == JC_OK);
+    JC_CHECK(c.constraints_auto_adopt == 1);
+    jc_config_free(&c);
+    jc_arena_free(a);
+}
+
 void test_config(void)
 {
     struct jc_arena *a;
@@ -233,6 +374,8 @@ void test_config(void)
 
     test_model_defaulted_flag();
     test_no_house_key();
+    test_policy_booleans_lenient();
+    test_constraints_auto_adopt();
     a = jc_arena_new(0);
     JC_CHECK(a != NULL);
 
@@ -242,6 +385,7 @@ void test_config(void)
         jc_config_load(jc_test_tmp("does_not_exist_jlu.json"), 0, &d, a);
         /* Explicit missing path => error path, but struct still defaulted. */
         JC_CHECK(d.max_tool_iters == 25);
+        JC_CHECK(d.constraints_auto_adopt == 1);   /* M874: on with no file */
     }
 
     f = fopen(path, "wb");
@@ -266,6 +410,90 @@ void test_config(void)
     JC_CHECK(cfg.model.temperature == 0.5);
     JC_CHECK(cfg.max_tool_iters == 9);
     JC_CHECK(cfg.max_retries == 7);
+
+    /* M952: relayMaxLegs -- the topology-B in-process leg ceiling. The
+     * floor-clamp idiom of relayNotesBytes: absent -> the documented default
+     * (5); a bare or negative value -> the default, not "one leg"; above the
+     * guard ceiling (32) -> clamped, so a mis-keyed value cannot loop a
+     * process for hours. Each shape loads through jc_config_load, the same
+     * idiom as maxToolIters above. */
+    {
+        struct jc_config rc;
+        memset(&rc, 0, sizeof(rc));
+        {
+            FILE *f = fopen(path, "wb");
+            if (f != NULL) {
+                fprintf(f, "{ \"model\": \"m\", \"provider\": \"openai\", "
+                           "\"apiBase\": \"https://x.test\" }");
+                fclose(f);
+            }
+            JC_CHECK(jc_config_load(path, 0, &rc, a) == JC_OK);
+            JC_CHECK(rc.relay_max_legs == 5);   /* absent: the default */
+            jc_config_free(&rc);
+        }
+        {
+            FILE *f = fopen(path, "wb");
+            if (f != NULL) {
+                fprintf(f, "{ \"model\": \"m\", \"provider\": \"openai\", "
+                           "\"apiBase\": \"https://x.test\", "
+                           "\"relayMaxLegs\": 9 }");
+                fclose(f);
+            }
+            JC_CHECK(jc_config_load(path, 0, &rc, a) == JC_OK);
+            JC_CHECK(rc.relay_max_legs == 9);   /* in range: kept */
+            jc_config_free(&rc);
+        }
+        {
+            FILE *f = fopen(path, "wb");
+            if (f != NULL) {
+                fprintf(f, "{ \"model\": \"m\", \"provider\": \"openai\", "
+                           "\"apiBase\": \"https://x.test\", "
+                           "\"relayMaxLegs\": 0 }");
+                fclose(f);
+            }
+            JC_CHECK(jc_config_load(path, 0, &rc, a) == JC_OK);
+            JC_CHECK(rc.relay_max_legs == 5);   /* bare/0: floor to default */
+            jc_config_free(&rc);
+        }
+        {
+            FILE *f = fopen(path, "wb");
+            if (f != NULL) {
+                fprintf(f, "{ \"model\": \"m\", \"provider\": \"openai\", "
+                           "\"apiBase\": \"https://x.test\", "
+                           "\"relayMaxLegs\": 32000 }");
+                fclose(f);
+            }
+            JC_CHECK(jc_config_load(path, 0, &rc, a) == JC_OK);
+            JC_CHECK(rc.relay_max_legs == 32);  /* above ceiling: clamped */
+            jc_config_free(&rc);
+        }
+        /* M952: relayInProcess -- the topology-B in-process leg loop's
+         * opt-in. Absent -> off (topology A's handover-and-exit is the
+         * default); true -> on. */
+        {
+            FILE *f = fopen(path, "wb");
+            if (f != NULL) {
+                fprintf(f, "{ \"model\": \"m\", \"provider\": \"openai\", "
+                           "\"apiBase\": \"https://x.test\", "
+                           "\"relayInProcess\": true }");
+                fclose(f);
+            }
+            JC_CHECK(jc_config_load(path, 0, &rc, a) == JC_OK);
+            JC_CHECK(rc.relay_in_process == 1);  /* true: the loop is on */
+            jc_config_free(&rc);
+        }
+        {
+            FILE *f = fopen(path, "wb");
+            if (f != NULL) {
+                fprintf(f, "{ \"model\": \"m\", \"provider\": \"openai\", "
+                           "\"apiBase\": \"https://x.test\" }");
+                fclose(f);
+            }
+            JC_CHECK(jc_config_load(path, 0, &rc, a) == JC_OK);
+            JC_CHECK(rc.relay_in_process == 0);  /* absent: topology A */
+            jc_config_free(&rc);
+        }
+    }
 
     /* Cost: 1M in @ $3 + 1M out @ $15 = $18 (no cache tokens). */
     JC_CHECK(jc_config_cost(&cfg.model, 1000000.0, 1000000.0, 0.0, 0.0) == 18.0);
@@ -754,6 +982,9 @@ void test_config(void)
         JC_CHECK(jc_config_load(tpath, 0, &tc, a) == JC_OK);
         JC_CHECK(tc.timeouts.connect == -1 && tc.timeouts.stall == -1);
         JC_CHECK(tc.timeouts.request == -1);
+        /* M-L2: the dead-stream fence defaults to 900, NOT -1/unset -- it is a
+         * fence, so it applies even when nothing configures it. */
+        JC_CHECK(tc.dead_stream_secs == 900);
         JC_CHECK(tc.model.timeouts.connect == -1); /* per-model unset too */
         jc_config_resolve_timeouts(&tc, &tc.model, &c0, &s0, &r0);
         JC_CHECK(c0 == JC_HTTP_CONNECT_TIMEOUT_DEFAULT);
@@ -767,7 +998,7 @@ void test_config(void)
         tf = fopen(tpath, "wb");
         if (tf != NULL) {
             fputs("{ \"timeouts\": { \"connect\": 5, \"stall\": 45, "
-                  "\"request\": 120 }, \"models\": ["
+                  "\"request\": 120, \"deadStream\": 30 }, \"models\": ["
                   "{ \"name\": \"slow\", \"provider\": \"openai\", "
                   "\"model\": \"m1\", \"apiKey\": \"k\", "
                   "\"timeouts\": { \"stall\": 90, \"connect\": 0 } },"
@@ -778,6 +1009,7 @@ void test_config(void)
         JC_CHECK(jc_config_load(tpath, 0, &tc, a) == JC_OK);
         JC_CHECK(tc.timeouts.connect == 5 && tc.timeouts.stall == 45);
         JC_CHECK(tc.timeouts.request == 120);
+        JC_CHECK(tc.dead_stream_secs == 30);   /* M-L2: a set value overrides 900 */
 
         /* Model 0 ("slow"): per-model stall=90 and connect=0 (disabled) win;
          * request unset => falls through to the global 120. */
@@ -1115,6 +1347,32 @@ void test_config(void)
             "\"privilegedCommands\":\"allow\"}", 0, &pc, a) == JC_OK);
         JC_CHECK(pc.privileged_commands == JC_PRIVPOL_ALLOW);
         jc_config_free(&pc);
+    }
+
+    /* M859 (N42 (d)): continueCutReply -- "delegates" by default, "headless", "off";
+     * an unknown value means the default (and warns). */
+    {
+        struct jc_config cc;
+        const char *base = "{\"model\":{\"provider\":\"openai\",\"model\":\"m\","
+                           "\"apiBase\":\"https://x.test\",\"apiKeyEnv\":\"K\"}";
+        char buf[400];
+        JC_CHECK(jc_config_load_json(
+            "{\"model\":{\"provider\":\"openai\",\"model\":\"m\","
+            "\"apiBase\":\"https://x.test\",\"apiKeyEnv\":\"K\"}}", 0, &cc, a) == JC_OK);
+        JC_CHECK(cc.continue_cut_reply == JC_CUTCONT_DELEGATES);
+        jc_config_free(&cc);
+        jc_snprintf(buf, sizeof buf, "%s,\"continueCutReply\":\"headless\"}", base);
+        JC_CHECK(jc_config_load_json(buf, 0, &cc, a) == JC_OK);
+        JC_CHECK(cc.continue_cut_reply == JC_CUTCONT_HEADLESS);
+        jc_config_free(&cc);
+        jc_snprintf(buf, sizeof buf, "%s,\"continueCutReply\":\"off\"}", base);
+        JC_CHECK(jc_config_load_json(buf, 0, &cc, a) == JC_OK);
+        JC_CHECK(cc.continue_cut_reply == JC_CUTCONT_OFF);
+        jc_config_free(&cc);
+        jc_snprintf(buf, sizeof buf, "%s,\"continueCutReply\":\"always\"}", base);
+        JC_CHECK(jc_config_load_json(buf, 0, &cc, a) == JC_OK);
+        JC_CHECK(cc.continue_cut_reply == JC_CUTCONT_DELEGATES);
+        jc_config_free(&cc);
     }
 
     /* Empty input is rejected up front; malformed JSON is a parse error. */

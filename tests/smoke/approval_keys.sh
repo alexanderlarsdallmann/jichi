@@ -62,6 +62,7 @@ send "1"
 delay 1500
 send "/exit\r"
 waitexit 20
+assertexit 0
 EOF
 
 printf 'the quick brown fox\n' > "$ws/edit_me.txt"
@@ -124,6 +125,7 @@ send "q"
 delay 1500
 send "/exit\r"
 waitexit 20
+assertexit 0
 EOF
 printf 'the quick brown fox\n' > "$ws/edit_me.txt"
 mm_start "$tmp/replies.mm" "$tmp/cap2"

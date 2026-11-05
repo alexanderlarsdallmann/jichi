@@ -145,7 +145,17 @@ SMOKE_TMPDIRS=""
 # with "No space left on device" (M739). `$$` is the driver's pid in a subshell
 # too, which is what lets smoke_tmp's subshell and the driver's trap agree on the
 # file. The variable stays for a caller that does not use a subshell.
-SMOKE_TMPREG="${TMPDIR:-/tmp}/jichi_smoke_reg.$$"
+# M817 (Dima Mellnik, macOS): CANONICALISE the temp root once. macOS sets
+# TMPDIR=/var/folders/.../T/ -- with a trailing "/", and under /var, which is a
+# symlink to /private/var. A driver builds a fixture under this root and then
+# compares a path jichi REPORTS (jichi canonicalises with realpath, so it says
+# /private/var/...) against the raw fixture path (/var/...): they differ only by
+# the symlink, and six drivers went red for that reason alone. `cd … && pwd -P`
+# resolves the symlink and drops the trailing slash, in POSIX sh, with no realpath(1)
+# (which macOS lacks). A no-op where TMPDIR is already canonical (Linux /tmp).
+SMOKE_TMPROOT=$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P) || SMOKE_TMPROOT=""
+[ -n "$SMOKE_TMPROOT" ] || SMOKE_TMPROOT="${TMPDIR:-/tmp}"
+SMOKE_TMPREG="$SMOKE_TMPROOT/jichi_smoke_reg.$$"
 
 # smoke_md_corpus OUT DIR... -- concatenate every *.md under DIR(s) into OUT.
 #
@@ -180,7 +190,7 @@ head_bytes() {
 }
 
 smoke_tmp() {
-    _st_d=$(mktemp -d "${TMPDIR:-/tmp}/jichi_smoke.XXXXXX") || {
+    _st_d=$(mktemp -d "$SMOKE_TMPROOT/jichi_smoke.XXXXXX") || {
         echo "not ok - mktemp failed" >&2
         exit 1
     }
@@ -211,7 +221,7 @@ smoke_tmp() {
 #
 # Echoes "yes" or "no", and never fails, so it is safe inside a gate.
 smoke_can_fence_owner() {
-    _cfo_d=$(mktemp -d "${TMPDIR:-/tmp}/jichi_fence.XXXXXX" 2>/dev/null) || {
+    _cfo_d=$(mktemp -d "$SMOKE_TMPROOT/jichi_fence.XXXXXX" 2>/dev/null) || {
         printf 'no\n'
         return 0
     }
@@ -289,6 +299,9 @@ smoke_home() {
 
 # --- mockmodel lifecycle -------------------------------------------------------
 # mm_start SCRIPT CAPDIR [MAX_REQUESTS] -> exports MM_PORT, MM_PID.
+# MM_KEEPALIVE=1 (M882) starts the mock with --keep-alive: its replies keep the
+# connection open, as a real provider's do, and CAPDIR/conns records how many
+# requests each connection carried.
 # The port arrives via an atomically renamed port file; poll it coarsely
 # (plain `sleep 1` -- fractional sleep is not POSIX).
 mm_start() {
@@ -299,12 +312,12 @@ mm_start() {
     if [ -n "$_mm_max" ]; then
         "$SMOKE_TOOLS/mockmodel" --script "$_mm_script" \
             --capture "$_mm_cap" --port-file "$_mm_pf" \
-            --deadline "${MM_DEADLINE:-120}" \
+            --deadline "${MM_DEADLINE:-120}" ${MM_KEEPALIVE:+--keep-alive} \
             --max-requests "$_mm_max" >/dev/null &
     else
         "$SMOKE_TOOLS/mockmodel" --script "$_mm_script" \
             --capture "$_mm_cap" --port-file "$_mm_pf" \
-            --deadline "${MM_DEADLINE:-120}" >/dev/null &
+            --deadline "${MM_DEADLINE:-120}" ${MM_KEEPALIVE:+--keep-alive} >/dev/null &
     fi
     MM_PID=$!
     MM_PIDS="${MM_PIDS:-} $MM_PID"
@@ -575,14 +588,25 @@ with_deadline() {
         timeout $_WD_KILL "$_wd_secs" "$@"
         return $?
     fi
-    "$@" &
+    # `<&0` (M817; Dima Mellnik, macOS, which has no timeout(1)): without job
+    # control an asynchronous command's stdin is /dev/null unless redirected
+    # explicitly (POSIX 2.9.3), so `flood | with_deadline 60 jichi --acp` handed
+    # jichi an empty stdin and acp_line_cap measured nothing. Measured: `echo x |
+    # with_deadline 5 /bin/cat` printed nothing without this, x with it.
+    "$@" <&0 &
     _wd_cpid=$!
+    # The watchdog's own output goes to /dev/null (same machine): `kill "$_wd_wpid"`
+    # below ends the subshell but not the `sleep` inside it, and that orphaned sleep
+    # inherited the caller's stdout -- so `out=$(with_deadline 30 ...)` waited on the
+    # pipe and took the whole 30 s even when the command finished in 0.06 s. Measured:
+    # 6 s for `$(with_deadline 6 /bin/echo x)`, 0 s with this redirect; a hung command
+    # is still killed at its deadline.
     (
         sleep "$_wd_secs"
         kill -TERM "$_wd_cpid" 2>/dev/null
         sleep 2
         kill -KILL "$_wd_cpid" 2>/dev/null
-    ) &
+    ) >/dev/null 2>&1 &
     _wd_wpid=$!
     wait "$_wd_cpid"
     _wd_rc=$?

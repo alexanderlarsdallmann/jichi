@@ -10,6 +10,10 @@ lives outside the tree, in `~/.cache/jichi-corpus/2026-09-23-zigodot` on threadw
 (telemetry at the `full` tier, one journal, one output stream and one diff per run),
 and this page can be read without it.*
 
+*That data was deleted at 00:42 on 2026-09-25, by a model's shell command during the next
+drive ([`2026-09-25-the-overnight-drive.md`](2026-09-25-the-overnight-drive.md) §1). This page's
+numbers stand as recorded, and can no longer be re-derived.*
+
 ---
 
 ## 0. The answer first

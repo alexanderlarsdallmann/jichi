@@ -156,6 +156,41 @@ static void test_oom_fallback(void)
 }
 #endif
 
+/* M1017 A-03 red-first: 32-bit overflow proof. Two ~47000-line texts differing
+ * in every line exercise the fallback path (DP table too large for cap). On
+ * 64-bit this passes; on 32-bit a pre-fix build would crash or UBSan would
+ * report signed overflow at jc_diff.c:101. The fallback emits exactly mm
+ * deletions then nn additions (47000 each). */
+static void test_large_diff_fallback(void)
+{
+    struct jc_sb sb;
+    struct jc_sb old_sb;
+    struct jc_sb new_sb;
+    int i, changed;
+
+    /* Build two texts of 47000 lines, all different (old='a', new='b'). */
+    jc_sb_init(&sb);
+    jc_sb_init(&old_sb);
+    jc_sb_init(&new_sb);
+    for (i = 0; i < 47000; i++) {
+        jc_sb_append(&old_sb, "a\n");
+        jc_sb_append(&new_sb, "b\n");
+    }
+
+    /* Use a large max_out_lines to allow all 94000 diff lines. */
+    changed = jc_diff_unified(old_sb.data, new_sb.data, 3, 0, 200000, &sb);
+
+    /* Fallback emits exactly 47000 deletions + 47000 additions = 94000 changed */
+    JC_CHECK(changed == 94000);
+    /* Count the prefix lines */
+    JC_CHECK(count_prefix(sb.data, '-') == 47000);
+    JC_CHECK(count_prefix(sb.data, '+') == 47000);
+
+    jc_sb_free(&sb);
+    jc_sb_free(&old_sb);
+    jc_sb_free(&new_sb);
+}
+
 void test_diff(void)
 {
     test_identical();
@@ -167,4 +202,5 @@ void test_diff(void)
 #ifdef JC_FAULT
     test_oom_fallback();
 #endif
+    test_large_diff_fallback();
 }

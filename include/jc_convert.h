@@ -135,7 +135,7 @@ struct jc_ir {
 void jc_ir_init(struct jc_ir *ir, struct jc_arena *a);
 
 /* Record a human-readable warning (printf-style), bounded to the cap. */
-void jc_ir_warn(struct jc_ir *ir, const char *fmt, ...);
+void jc_ir_warn(struct jc_ir *ir, const char *fmt, ...) JC_PRINTF(2, 3);
 
 struct jc_convert_result {
     char *json;               /* output config JSON (malloc'd; free())   */

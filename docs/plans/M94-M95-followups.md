@@ -1,8 +1,6 @@
 # M94 + M92 stretches + M95 — the noted unbuilt candidates
 
-**Status:** planned (committed before building). Grounded in the M92/M93 work and
-the 2026-07-06 telemetry/learn pass. Four small, independent follow-ups; one
-candidate is deliberately **not** built (rationale below).
+**Status:** shipped as **M94** (eager superseded-read elision) and **M95** (mentor prompt dedup; the ROADMAP records both under "M92-S1/S2, M95 -- the noted follow-ups -- done"). Committed before building; the "planned" header is superseded now that the milestones have landed. Grounded in the M92/M93 work and the 2026-07-06 telemetry/learn pass. One candidate was deliberately **not** built (rationale below).
 
 ## M94 — eager superseded-read elision
 

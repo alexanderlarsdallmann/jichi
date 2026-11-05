@@ -107,7 +107,7 @@ Each step is a gate. Do not start the next one because the last one nearly worke
 ```sh
 cd examples/robot-sim && make reset
 jichi --config config.json doctor          # read the kinetic lints
-jichi --config config.json --auto -p "patrol the corridor"
+jichi --config config.json --auto -p "patrol the corridor" < /dev/null
 ```
 
 The simulator's devices are the *real* gate with fake hardware. Rehearse the whole

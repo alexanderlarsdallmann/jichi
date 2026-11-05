@@ -65,22 +65,32 @@ JSON parsing is worth less here than one that tests signals. What it has going
 for it is that **it is computable without re-running anything**, it cannot be
 argued with, and it goes in one direction.
 
-Worked, restated at M740 with **329 drivers** in the tree (303 at M664, 298 at M647,
-300 at M658 — the figure moves with every driver added, which is the point of it; M740's
-`db_report_lint` took the drift past this page's lint allowance, and the table was
-restated rather than the allowance raised):
+Worked, restated at M1097-c with **518 drivers** in the tree (492 at M1048, 491 at M1049, 465 at M980, 464 at M979, 463 at M978, 461 at M977, 439 at M926, 438 at M925, 437 at M924, 436 at M923, 434 at M922, 433 at M921, 407 at M883, 381 at M849, 355 at M806, 329 at M740,
+303 at M664, 298 at M647, 300 at M658 — the figure moves with every driver added, which is the point
+of it). M1097's three workspace-key drivers (checkpoint_key_collision, index_key_collision,
+legacy_checkpoint_warn) took the drift past this page's lint allowance, 26 past M1048's 492, and the
+table was restated rather than the allowance raised.
+**This time each row's run was re-read from `PLATFORMS.md` too, and five rows were citing an older
+run than the matrix records:** the three BSDs, re-run the day after the runs cited here (M683, M685),
+and both 64-bit Pis (M677). With their freshest runs, two rows changed band: the 32-bit Pi Zero 2 W
+crossed 100 and is now a historical datum, and the Pi 400 was current after the dress rehearsals of
+2026-10-02. At this restatement (M1097-c, 518 drivers) the Pi 400 has in turn crossed 100
+(86 at the 492 baseline -> 112) and is a historical datum, and with it **every debt-computable
+row in the table is now a historical datum** -- under the page's own thresholds (Debt > 100) no
+row is current at all, and a claim resting on any of them needs a new run first. No row sits
+within five drivers of 100 (the nearest, the Pi 400, is 12 past):
 
 | Row | Drivers it ran | Debt | What that means |
 |---|--:|--:|---|
-| FreeBSD 15.1 (**M665**) | 302 | **27** | re-run 2026-09-18; was 201 drivers and debt 102, past the threshold. Six drivers failed and **five were harness defects, not platform ones** — the row's value was finding them. `parallel_abort` remains, measured and not diagnosed |
-| NetBSD 10.1 (**2026-09-19**) | 303 | **26** | **restated at M740 from the 2026-09-19 run** (`PLATFORMS.md`): the whole 303-driver tree executed, 302 passed, `parallel_abort` check 1 failed; the M480 run this row used to cite had executed 209. The 26 drivers added since are its debt |
-| OpenBSD 7.9 (**2026-09-19**) | 303 | **26** | **restated at M740 from the 2026-09-19 run** (`PLATFORMS.md`): the whole 303-driver tree executed, 301 passed; the M481 run had executed 209. Still the only row under ksh as `/bin/sh` |
-| Windows 11 + WSL2 (M475) | 209 | **120** | **past 100 at M740, so a historical datum** by §3's rule: a claim resting on it needs a new run first. 209 drivers ran at M475; the row also carries T5 (the `/mnt/c` translation layer) |
-| **Windows + Cygwin (M698, 2026-09-22)** | **317** | **12** | measured at the 317-driver tree **through a rig** (`scripts/tier-v-cygwin.sh`), so the row is reproducible rather than hand-made. 3 killed at a 780 s deadline and 4 failed. This row had never appeared in this table, though it is one of only two carrying **T5** *and* a documented safety difference |
-| **Windows + MSYS2 (MSYS) (M698, 2026-09-22)** | **317** | **12** | same tree, same day, through `scripts/tier-v-msys2.sh`; 3 killed at 660 s and 2 failed. Measured in the **configured** (`acl`) state, which the rig records, because a row measured only in the configured state is true for nobody |
-| Raspberry Pi Zero 2 W aarch64 (**2026-09-18**) | 302 | **27** | measured at the 303-driver tree, `lite_context_cap` the only failure. That driver was **the driver rather than the board** (M672) — checks 4-5 assumed the absence of `--lite` meant the normal profile, but lite auto-enables below the resource tier and this board reports `tier: minimal (lite)` on 415 MB. Fixed and **verified 5/5 on the board**; the row's full re-run at the current tree is pending and this number is the one that was measured, not the one that is expected. Also **Driven**: text and agentic turns, 17 s each |
-| Raspberry Pi Zero 2 W armhf (**M658**) | 297 | **32** | re-run 2026-09-18; was 194 at M454, debt 106 |
-| Raspberry Pi 400 aarch64 (**2026-09-18**) | 303 | **26** | the whole tier, 0 failures, reproduced three times. The row read *n/a* for months because `tier-b-device.sh` ran the gate **without `JC_SMOKE_KEEP_GOING=1`**, so the tier stopped at the first failing driver and never printed a summary — the missing denominator was a rig defect, not a device one |
+| FreeBSD 15.1 (**M683, 2026-09-20**) | 311 | **207** | **past 100 since M921 (the 433-driver tree), so a historical datum.** The regression run for five test-tooling fixes made for illumos: `14 ok, 0 failed`, the whole tier green, offline (the Driven verdict rests on M665/M668). Cited until M883: M665's run of 2026-09-18, 302 drivers, whose six failures were **five harness defects, not platform ones** |
+| NetBSD 10.1 (**M685, 2026-09-20**) | 312 | **206** | **past 100 since M921 (the 433-driver tree), so a historical datum.** The whole tier, no exceptions: the cleanest row in the matrix. Offline; the Driven verdict rests on the 2026-09-19 run, which executed the 303-driver tree (302 passed) and which this row cited until M883 |
+| OpenBSD 7.9 (**M685, 2026-09-20**) | 312 | **206** | **past 100 since M921 (the 433-driver tree), so a historical datum.** Red first — a ksh `case` break a day-old fix had introduced — then green, 8 drivers declining. Offline; the Driven verdict rests on the 2026-09-19 runs (303 drivers, cited until M883). Still the only row under ksh as `/bin/sh` |
+| Windows 11 + WSL2 (M475) | 209 | **309** | **past 100 since M740, so a historical datum** by §3's rule: a claim resting on it needs a new run first. 209 drivers ran at M475; the row also carries T5 (the `/mnt/c` translation layer) |
+| **Windows + Cygwin (M698, 2026-09-22)** | **317** | **201** | **past 100 since M921 (the 433-driver tree), so a historical datum.** Measured at the 317-driver tree **through a rig** (`scripts/tier-v-cygwin.sh`), so the row is reproducible rather than hand-made. 3 killed at a 780 s deadline and 4 failed. This row had never appeared in this table, though it is one of only two carrying **T5** *and* a documented safety difference |
+| **Windows + MSYS2 (MSYS) (M698, 2026-09-22)** | **317** | **201** | **past 100 since M921 (the 433-driver tree), so a historical datum.** Same tree, same day, through `scripts/tier-v-msys2.sh`; 3 killed at 660 s and 2 failed. Measured in the **configured** (`acl`) state, which the rig records, because a row measured only in the configured state is true for nobody |
+| Raspberry Pi Zero 2 W aarch64 (**M677, 2026-09-20**) | 308 | **210** | **past 100 since M921 (the 433-driver tree), so a historical datum.** Re-run and driven through the rig (`TIER-B-526D6F`), the whole tier green at multiplier 12. The 2026-09-18 run's one failure, `lite_context_cap`, was **the driver rather than the board** (M672): lite auto-enables below the resource tier, and this board reports `tier: minimal (lite)` on 415 MB |
+| Raspberry Pi Zero 2 W armhf (**M658**) | 297 | **221** | **past 100 at M883, so a historical datum.** Re-run 2026-09-18; was 194 at M454, debt 106 |
+| Raspberry Pi 400 aarch64 (**2026-10-02**) | 406 | **112** | **past 100 at M1097-c (the 492 -> 518 baseline move), so a historical datum.** The hardware weekend's dress rehearsals ran the whole tier three times through the rig: 403 of 406 at `7803acd0`, whose three failing drivers M879-M881 fixed, then green at `b0a8a790` and at `b36615e3`, where both model turns were driven (`TIER-B-F007D0`). Before them: M677, 308 drivers |
 
 > **A rig that fails must still report its denominator (M665).**
 > `scripts/tier-v-bsd.sh` captured `smoke: OK (N drivers, M checks)` only when the

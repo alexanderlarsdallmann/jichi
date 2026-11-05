@@ -35,18 +35,7 @@ This is the thing to understand before any command below. jichi grades in two
 completely different ways, and confusing them is the commonest source of "why is
 nothing happening".
 
-```mermaid
-flowchart TD
-    Q{"Where did the<br/>assignment come from?"}
-    Q -->|"shipped curriculum,<br/>or any spec with a verify: line"| A["PATH A — the mechanical floor"]
-    Q -->|"you authored it with /assign<br/>(rubric + reference)"| B["PATH B — the judgment layer"]
-    A --> A1["jichi grade spec.md<br/>runs the spec's verify: command"]
-    A1 --> A2["deterministic PASS/FAIL<br/>+ parsed test counts · offline · no model"]
-    A2 --> A3["--record writes .jichi/progress.jsonl<br/>→ jichi assignments shows status"]
-    B --> B1["jichi -p '/check brief.md their-work'"]
-    B1 --> B2["read-only solution-checker agent<br/>rubric-keyed feedback vs the reference"]
-    B2 --> B3["needs a model · costs tokens<br/>judgement, not a verdict"]
-```
+The two grading paths are the table below: **Path A**, the mechanical floor (`jichi grade` runs the spec's `verify:` line — deterministic PASS/FAIL, offline, no model), and **Path B**, the judgment layer (`/check`, a read-only rubric-keyed review — needs a model, a judgement not a verdict).
 
 | | **Path A — mechanical floor** | **Path B — judgment layer** |
 |---|---|---|
@@ -132,16 +121,15 @@ flowchart LR
 
 ### The escalation ladder — what to do when stuck alone
 
-```mermaid
-flowchart TD
-    S["stuck"] --> H1["1 · jichi hint spec.md<br/>rung 1 of the ladder — free, no penalty"]
-    H1 --> H2["2 · next rungs, one at a time<br/>jichi hint spec.md 2 · 3"]
-    H2 --> T["3 · /tutor your question (TUI)<br/>a nudge, never the answer"]
-    T --> V["4 · read the verify: script<br/>the grader is not a secret"]
-    V --> F["5 · re-read the fixture files<br/>Module 1: the answer is inside them"]
-    F --> RS["6 · reset and retry<br/>(INDEX.md § Resetting a task)"]
-    RS --> SK["7 · leave it and move on<br/>the gate has one task of margin"]
-```
+When you are stuck and working alone, in order — each step free and unpenalised:
+
+1. `jichi hint spec.md` — rung 1 of the ladder.
+2. Next rungs, one at a time: `jichi hint spec.md 2`, `3`, …
+3. `/tutor <your question>` in the TUI — a nudge, never the answer.
+4. Read the `verify:` script — the grader is not a secret.
+5. Re-read the fixture files — in Module 1, the answer is inside them.
+6. Reset and retry (INDEX.md § Resetting a task).
+7. Leave it and move on — the gate has one task of margin.
 
 Six rungs and a seventh that is permission rather than help. **Hints are free and
 unpenalised by design** — a penalised hint teaches hint-avoidance, which is
@@ -152,20 +140,14 @@ asks of you.
 
 ### The tutor's loop (1:1, a human beside the learner)
 
-```mermaid
-flowchart LR
-    O["learner works;<br/>you observe"] --> D{"what kind of stuck?"}
-    D -->|"does not understand the goal"| B["re-read the brief together<br/>jichi assign spec.md"]
-    D -->|"no idea where to start"| H["hint rung 1 — let THEM ask"]
-    D -->|"wrong mental model"| T["/tutor: ask them to predict,<br/>then run it and compare"]
-    D -->|"stuck on syntax/tooling"| V["read the verify: script together"]
-    B --> W["they work"]
-    H --> W
-    T --> W
-    V --> W
-    W --> C["jichi -p '/check brief.md their-work'<br/>(Path B — rubric-keyed, read-only)"]
-    C --> R["you review the report,<br/>then talk about the gap"]
-```
+| The learner is… | Do this |
+|---|---|
+| not understanding the goal | re-read the brief together (`jichi assign spec.md`) |
+| with no idea where to start | hint rung 1 — let *them* ask |
+| holding a wrong mental model | `/tutor`: ask them to predict, then run it and compare |
+| stuck on syntax/tooling | read the `verify:` script together |
+
+Then they work; you check with `jichi -p '/check brief.md their-work'` (Path B — rubric-keyed, read-only) and talk about the gap.
 
 The tutor's job is **diagnosis, not answers**: which of the four kinds of stuck is
 this? The tool supports each differently, and the `hint` ladder exists so that
@@ -183,17 +165,15 @@ this? The tool supports each differently, and the `hint` ladder exists so that
 
 ### The teacher's loop (authoring, distributing, grading a cohort)
 
-```mermaid
-flowchart TD
-    A["1 · author<br/>/assign phase topic"] --> RV["2 · review + tune<br/>rubric points, hint ladder, audience"]
-    RV --> SO["3 · /solve brief.md<br/>→ brief.solution.md (WITHHOLD)"]
-    SO --> CK["4 · sanity-check the floor:<br/>jichi grade on the reference must PASS,<br/>and on the pristine fixture must FAIL"]
-    CK --> DI["5 · distribute briefs only<br/>jichi assignments flags which have a reference"]
-    DI --> CO["6 · collect submissions"]
-    CO --> GA["7 · Path A per submission<br/>jichi grade --record (offline, free)"]
-    GA --> GB["8 · Path B per submission<br/>/check (rubric-keyed, read-only)"]
-    GB --> RE["9 · you review; the report is a first pass,<br/>never the grade"]
-```
+1. **Author** — `/assign phase topic`.
+2. **Review + tune** — rubric points, hint ladder, audience.
+3. **Solve** — `/solve brief.md` → `brief.solution.md` (**withhold**).
+4. **Sanity-check the floor** — `jichi grade` must PASS on the reference and FAIL on the pristine fixture.
+5. **Distribute briefs only** — `jichi assignments` flags which have a reference.
+6. **Collect submissions.**
+7. **Path A per submission** — `jichi grade --record` (offline, free).
+8. **Path B per submission** — `/check` (rubric-keyed, read-only).
+9. **You review** — the report is a first pass, never the grade.
 
 Step 4 is the one teachers skip and should not: **prove your grader two-sided
 before anyone sits the assignment.** Run it against your reference solution (must
@@ -216,8 +196,8 @@ consistently.
 
 1. **Author.** In the course repo, for each topic:
    ```
-   jichi -p "/assign implementation a bounded ring buffer in C"
-   jichi -p "/solve docs/assignments/ring-buffer.md"
+   jichi -p "/assign implementation a bounded ring buffer in C" < /dev/null
+   jichi -p "/solve docs/assignments/ring-buffer.md" < /dev/null
    ```
    Review both drafts — you are the author of record; the agent drafts, you
    approve. Tune the rubric `points` and the `hints:` ladder to your level.
@@ -226,7 +206,7 @@ consistently.
    student branch, or distribute only the briefs). Students clone the brief.
 3. **Grade.** For each submission:
    ```
-   jichi -p "/check docs/assignments/ring-buffer.md submissions/alice/ring.c"
+   jichi -p "/check docs/assignments/ring-buffer.md submissions/alice/ring.c" < /dev/null
    ```
    `solution-checker` is **read-only**, so grading never edits student code. It
    returns a rubric-keyed pass/fail with evidence — a consistent first pass you
@@ -270,15 +250,15 @@ being handed the solution.
 
 1. Generate your own assignment on a topic you want to practice:
    ```
-   jichi -p "/assign testing property-based tests for a JSON parser"
+   jichi -p "/assign testing property-based tests for a JSON parser" < /dev/null
    ```
 2. **Solve it yourself first.** Only pull hints when genuinely stuck (the ladder
    is graded, so start at the gentlest rung). Resist generating the reference
    until you've committed to an approach.
 3. Generate the reference and self-check:
    ```
-   jichi -p "/solve docs/assignments/json-proptests.md"
-   jichi -p "/check docs/assignments/json-proptests.md my-tests/"
+   jichi -p "/solve docs/assignments/json-proptests.md" < /dev/null
+   jichi -p "/check docs/assignments/json-proptests.md my-tests/" < /dev/null
    ```
 4. Keep a portfolio: `docs/assignments/INDEX.md` becomes a log of what you've
    practiced; `git log` is your progress record.

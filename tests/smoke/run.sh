@@ -242,27 +242,31 @@ if [ $# -gt 0 ]; then
     summarise
 fi
 
-for t in smoke_lint smoke_tmp_lint db_report_lint snapshot_lint license_lint platform_retest_lint deferred_register_lint search_grep_dash_i peer_line_cap acp_line_cap peer_reap_grace self_learner_lint revert_provenance journal_trackedness hint_record preprompt_discard verify_source model_defaulted no_house_key validate_runs shell_stderr_captured budget_stop_verdict docs_index_lint harden_flags_lint sub_prompt_lint docs_flags arena_lint cppcheck_lint bibliography_lint reading_refs_lint reading_quotes_lint reading_trace self_hosting_pack undo_across_branch undo_scope rules_budget_lint config_bool_lint daemon_auth assignment_verbs fence_alias_bypass writer_reads_reader bool_dialect fence_write_tools ctx_estimate_lint stream_unterminated reasoning_budget_hint docs_locators_lint hint_ladder attempt_tainted attempt_guard improve_tainted route_pin grade_expect_fail grade_wrongdir grade_cannot_run assignment_guard_lint design_objections predict_record assignments_stages stage_index_lint reading_review decisions_superseded_lint reach_footer plan_artifact curriculum_universe_lint course_citations_lint rig_live_lint rig_ports_lint tutorial_refs_lint local_models_lint rig_live_commands_lint telemetry_join outcome_join verify_stuck_periodic verify_consistency_periodic tool_loop no_progress goalpost_note subagent_tool_ad delegate_report liveness jsonl_utf8 fetch_ssrf acp_result_utf8 jsonl_tool_id degraded sysmsg_env cost_model learn_draft_clobber blocked_repeat sprintf_lint test_fixture_lint \
-         subcommands_lint describe_names_lint man_page_lint config_keys_lint changelog_coverage_lint milestone_currency_lint telemetry_events_lint telem_alias_rows telem_cache_per_session read_truncated_total session_fields_lint secret_env_lint notice_tags_lint keys_lint priced_model_lint prompt_keys_lint approval_keys headless_accessible doctor_language queue_notice_glyph deny_stops view_key status_wisdom doc_claims_lint ghost_announce group_sep_lint \
-         project_records_lint org_mode_lint design_multi portability_lint posix_utils_lint mincurl_recipe_lint migration_paths telemetry_failure tool_caps_lint \
-         slash_commands_lint assignment_i18n_lint i18n_tracks_lint tool_nameless install_no_build tool_profile context_assets context_tools context_tools_use context_tools_live context_history \
-         docs_counts_lint config_defaults_lint lite_context_cap builtin_cmds_lint completions_lint config_verbs config_dir setup_key_env flags doctor doctor_stall_latency doctor_selectors doctor_fences doctor_styles doctor_tooluse doctor_cache tool_names_lint refs_lint examples_lint asset_keys_lint unit_orphans_lint doc_commands_lint describe describe_fields_lint init \
+for t in smoke_lint side_call_fences_lint worktree_destroyers_lint smoke_tmp_lint teeth_restore db_report_lint snapshot_lint license_lint platform_retest_lint deferred_register_lint search_grep_dash_i peer_line_cap acp_line_cap peer_reap_grace self_learner_lint revert_provenance journal_trackedness hint_record preprompt_discard verify_source model_defaulted model_fallback no_house_key validate_runs shell_stderr_captured budget_stop_verdict budget_stop_answers_stranded relay_handover_off_default relay_baton_written relay_account relay_handoff_in relay_leg_budget relay_topo_b relay_rss_guard relay_store_v3 docs_index_lint harden_flags_lint release_mode static_mode probe_quiet_lint sub_prompt_lint docs_flags arena_lint cppcheck_lint bibliography_lint reading_refs_lint reading_quotes_lint reading_trace self_hosting_pack undo_across_branch undo_scope rules_budget_lint rules_core_lint rules_walk_worktree config_bool_lint shell_tools_fenced_alike subtask_follows_posture attempt_profile_fence delegate_shell_follows_posture acp_envelope_keeps_asking project_config_trust config_trust_lint shell_fence_temp_and_setup shell_fence_tool_output delegate_finish_alias parallel_abnormal_endings parallel_overflow_not_sticky parallel_term_report fail_loop_reads fence_file_tools_grants parallel_new_dirs parallel_title_utf8 utf8_cut_lint parallel_no_merge parallel_task_model verify_way_out verify_predates ci_recipe_secret silent_success first_token_time attempt_record board_compact board_json parallel_stash_kept from_resume_commits cut_reply_warnings cut_reply_ending cut_reply_continue parallel_batch_ids parallel_task_budget parallel_verify_excerpt parallel_pre_discard parallel_child_stderr parallel_test_edit_hold parallel_metric_gate parallel_loop_stops constraint_quoted constraint_runs constraints_auto_adopt delegate_model_failure tls_handshake_timeout docs_placeholder_lint daemon_auth assignment_verbs fence_alias_bypass writer_reads_reader bool_dialect fence_write_tools edit_scope_arg_shapes ctx_estimate_lint stream_unterminated stream_error stream_cut_retry trailer_block_lint reasoning_budget_hint docs_locators_lint docs_table_rows_lint hint_ladder attempt_tainted attempt_guard improve_tainted route_pin grade_expect_fail grade_wrongdir grade_cannot_run assignment_guard_lint design_objections predict_record assignments_stages stage_index_lint reading_review decisions_superseded_lint reach_footer plan_artifact curriculum_universe_lint course_citations_lint rig_live_lint rig_ports_lint tutorial_refs_lint local_models_lint rig_live_commands_lint telemetry_join outcome_join verify_stuck_periodic verify_consistency_periodic tool_loop tool_loop_atbound dead_stream_fence no_progress goalpost_note subagent_tool_ad delegate_report liveness json_cast_lint jsonl_utf8 jsonl_text_utf8 fetch_ssrf fetch_ssrf_reuse acp_result_utf8 jsonl_tool_id degraded sysmsg_env cost_model learn_draft_clobber blocked_repeat sprintf_lint test_fixture_lint assertexit_lint docs_opener_lint docs_stdin_lint install_verdict_lint \
+         subcommands_lint describe_names_lint man_page_lint config_keys_lint changelog_coverage_lint milestone_currency_lint plan_status_lint cli_number_parse cli_number_parse_lint decisions_anchor_lint telemetry_events_lint telem_alias_rows telem_cache_per_session read_truncated_total session_fields_lint secret_env_lint notice_tags_lint keys_lint redact_sinks redact_rerr_straddle redact_split_delta toolout_private disk_telem_field disk_guard disk_doctor priced_model_lint prompt_keys_lint approval_keys headless_accessible doctor_language queue_notice_glyph deny_stops view_key status_wisdom doc_claims_lint ghost_announce group_sep_lint \
+         project_records_lint org_mode_lint design_multi portability_lint posix_utils_lint mincurl_recipe_lint migration_paths telemetry_failure telemetry_fail_class tool_caps_lint \
+         slash_commands_lint assignment_i18n_lint i18n_tracks_lint tool_nameless install_no_build harness_third_program harness_doctor harness_init harness_mirror_fetch harness_mirror_push harness_run tool_profile context_assets context_tools context_tools_use context_tools_live context_history \
+         docs_counts_lint config_defaults_lint lite_context_cap builtin_cmds_lint completions_lint config_verbs config_dir setup_key_env flags doctor doctor_stall_latency doctor_selectors doctor_fences doctor_styles doctor_tooluse doctor_cache tool_names_lint refs_lint examples_lint asset_keys_lint unit_orphans_lint doc_commands_lint describe describe_fields_lint init pack_command_shadow algorithms_page_lint no_model_exit \
          dream prune_dreams prune_index prune_worktrees workflow grade improve export output_style learn faults \
-         faults_net faults_net_midstream provider_redirect state_root child_fds secret_env_subcommands secret_env_many_names output_escapes transport_posture \
-         acp_load headless_basic headless_tool run_kill_note glob_pattern toolcalling_none \
-         compact_pressed compact_latch accessible slash_leading_space paste_special history_check prefix_churn context_gauge ask_unattended fence_refusal state_reach headless_progress output_json turn_answer read_range journal_stop_reason stop_reason_capped capped_turn_says_so run_outcome_agrees shell_wrote_nothing probe_says_why sessions prose_nudge empty_answer notify command_fm \
+         faults_net faults_net_midstream lease_race fault_merge_copy provider_redirect state_root child_fds spawn_backend readonly_pinned chatbot_example secret_env_subcommands secret_env_many_names secret_env_register workdir_flag proc_key_hidden output_escapes transport_posture libcurl_capability restore_clean_before_reset nul_edit_refused write_fail_restores setup_jsonc_preserved bg_spool_rewrite resolve_stall_connect \
+         acp_load headless_basic headless_tool git_neutralisation run_kill_note glob_pattern run_timeout_after_eof toolcalling_none \
+         compact_pressed compact_latch accessible slash_leading_space paste_special history_check prefix_churn context_gauge ask_unattended fence_refusal readonly_delegate state_reach headless_progress output_json turn_answer read_range journal_stop_reason stop_reason_capped capped_turn_says_so run_outcome_agrees shell_wrote_nothing probe_says_why sessions prose_nudge text_tool_recover empty_answer empty_answer_reasoning notify command_fm \
          slash_unknown expect_header advice \
-         ask websearch subagent_itercap subagent_budget learn_on_stop learn_on_stop_cost subtask_persona subtask_language telemetry_default learn_retract learn_checks learn_warrant workflow_refute bg \
-         constraints_scope constraint_vs_scope constraint_advisory blocked_calls_count context_underdeclared config_jsonc constraints_scan brief_check learn_on_stop_outcome hooks \
-         verify_kind budget_notice budget_panel elide_ticket resume_drift todo_resume pathfence_dangling pathfence_nested progress_write_fails hollow_green_note \
-         sysmsg_date repair_note superseded_marker flight_plan \
+         ask websearch subagent_itercap subagent_budget subagent_model_select learn_on_stop learn_on_stop_cost subtask_persona subtask_language telemetry_default learn_retract learn_checks learn_warrant workflow_refute bg bg_output_stall bg_spool_cap \
+         constraints_scope constraint_vs_scope constraint_advisory blocked_calls_count context_underdeclared config_jsonc config_set_comments constraints_scan brief_check learn_on_stop_outcome hooks hooks_docs \
+         verify_kind verify_without_snapshot budget_notice budget_panel elide_ticket resume_drift todo_resume pathfence_dangling pathfence_nested progress_write_fails hollow_green_note state_symlink_escape index_walk_symlink rules_symlink_escape rules_fifo_skip setup_onboard_untrusted setup_from_global_nokey init_symlink_refused hardlink_rules config_set_safe fault_config_loss lease_advisory_docs \
+         project_command_trust \
+         sysmsg_date repair_note tool_undeclared_args superseded_marker flight_plan \
          observability pdf \
-         transcribe audiogen \
-         imagegen vision compaction compact_short privileged docs docs_pdf \
+         transcribe audiogen http_resp_cap multipart_boundary \
+         imagegen imagegen_url_guard feed_redirect_guard vision compaction compact_short privileged docs docs_pdf \
          docs_html docs_html_scope_lint \
          index_coverage ls_pattern_coverage build_rev no_changes_field \
-         example_data_analysis example_game_design example_project_management example_personal_finance example_blender_python example_krita_python example_academic_writing example_research_notes example_game_dev example_scheduling example_business_plan example_web_basics \
-         daemon mcp mcp_prompt mcp_ref tab editor ghost; do
+         example_data_analysis example_game_design example_project_management example_personal_finance example_blender_python example_krita_python example_academic_writing example_research_notes example_game_dev example_scheduling example_business_plan example_web_basics example_slm_lab \
+         daemon daemon_control_refuse mcp mcp_prompt mcp_ref tab editor ghost \
+         search_option_path git_branch_option sigchld_inherit fail_class_lint \
+         fail_classify_shell resolve_timeout_connect reuse_dead_stream snprintf_fallback \
+         context_tools_big_log repomap_peak prompt_asset_peak session_save_failure_says_so session_midturn_persist config_credentials state_root_pid_fallback; do
     echo "--- smoke: $t"
     run_driver "$t" 60 || driver_failed "$t"
 done
@@ -274,14 +278,27 @@ done
 # kinetic runs six scenarios, sound four; enablers waits out a slow
 # model for the heartbeat; route_stall waits out a 6s stall; typeahead
 # waits out a deliberately slow model call to have a window to type in;
-# typeahead_live runs three PTY sessions, one of them over a 4s tool).
-for t in setup degenerate_store pathfence rewind baseline_checkpoint kinetic sound lease \
-         enablers route_stall autocontext control acp_cancel \
-         parallel_hang parallel_abort parallel_merge parallel_timeout_msg supervisor \
-         sessions_footprint turn_scratch learner_flow leak_turn \
-         setup_keyfile format_command paste typed tui_tool_escapes typeahead typeahead_live stall signals tui_basic tui_context_views tui_learn tui_learn_apply tui_model_name undo_note; do
+# typeahead_live runs three PTY sessions, one of them over a 4s tool;
+# esc_interrupt runs two PTY sessions over a deliberately slow model call;
+# ps lists a bounded run while that run's 3 s tool is running; board_concurrent
+# edits the board from a shell during a run's 3 s tool).
+for t in setup degenerate_store pathfence rewind baseline_checkpoint checkpoint_key_collision index_key_collision legacy_checkpoint_warn kinetic sound lease ps board_concurrent \
+         enablers route_stall autocontext control control_subagent_answer acp_cancel acp_child_stdin saved_mode_never_widens \
+          parallel_hang parallel_abort parallel_merge parallel_symlink_merge parallel_timeout_msg parallel_child_attribution subagent_child_attribution parallel_reach attempts_show parallel_preserve parallel_abort_preserves parallel_transcript parallel_end_record parallel_kept_section tutor_answer_lifetime quoted_path_merge fj4_answer_reach parallel_run_id_base parallel_salvage from_resume parallel_workspace_note inject_queued_rc parallel_dropped_top attempts_no_banner parallel_noprogress_stop parallel_shell_fence bgspool_fence parallel_heartbeat parallel_liveness edit_scoped supervisor parallel_reports dirty_dispatch \
+         sessions_footprint turn_scratch learner_flow leak_turn stranded_call_uaf state_dir_private memory_over_cap rules_over_cap lease_lifo inplace_rewrite \
+         harness_push_argv_boundary \
+         setup_keyfile format_command lsp_diag_grace lsp_env_scrub paste typed tui_tool_escapes typeahead typeahead_live esc_interrupt stall stall_silent_answer signals sighup_teardown sigint_second_is_graceful tui_basic tui_fences tui_why input_history tui_context_views tui_learn tui_learn_apply tui_model_name undo_note; do
     echo "--- smoke: $t"
     run_driver "$t" 120 || driver_failed "$t"
+done
+
+# The long-running harness driver gets its own widest list (harness_drive
+# MEASURED 194 s wall on b0b33bb4 -- rc=0, 11/11 ok -- so the 120 s list
+# killed it inside make ci, SV:0121): 600 s is ~3x the measurement, applied
+# BEFORE JC_SMOKE_TIMEOUT_MULT multiplies.
+for t in harness_drive; do
+    echo "--- smoke: $t"
+    run_driver "$t" 600 || driver_failed "$t"
 done
 
 summarise

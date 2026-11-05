@@ -202,7 +202,7 @@ self_test() {
     git init -q --bare "$t/bare.git"
     git -C "$t/ws" push -q "$t/bare.git" HEAD:refs/heads/master
     mbefore=$(git -C "$t/bare.git" rev-parse master)
-    printf '#!/bin/sh\necho CHANGED > drive-proof.txt\necho %s\n' \
+    printf '#!/bin/sh\necho CHANGED > drive-proof.txt\necho STAGED > staged-proof.txt\ngit add staged-proof.txt\necho %s\n' \
         "'{\"type\":\"done\",\"text\":\"FAKE_FINAL_ANSWER\",\"stop_reason\":\"done\"}'" > "$t/bin"
     printf 'MODE_PREAMBLE_X\n' > "$t/tasks/_mode-sub.md"
     ( cd "$t/cwd" && sh "$SELF" --dir "$t" --arm st --config "$t/cfg.json" \
@@ -221,6 +221,15 @@ self_test() {
         echo "not ok - branch push: refs=[$br] $(tail -c 300 "$t/real.out")"
         fails=$((fails + 1))
     fi
+    # M744: the patch holds what the branch holds -- a file the run created and
+    # one it staged. `git diff` had left both out, and nothing here looked.
+    if grep -q '^+CHANGED$' "$t/out/st/diff-01-t.patch" 2>/dev/null &&
+       grep -q '^+STAGED$' "$t/out/st/diff-01-t.patch"; then
+        echo "ok - the patch has the run's untracked and staged files"
+    else
+        echo "not ok - diff-01-t.patch: $(wc -l < "$t/out/st/diff-01-t.patch" 2>/dev/null) line(s), wanted drive-proof.txt and staged-proof.txt"
+        fails=$((fails + 1))
+    fi
     if tail -1 "$t/out/st/runs.tsv" 2>/dev/null | grep -q 'mode=sub' &&
        tail -1 "$t/out/st/runs.tsv" | grep -q 'push=ok'; then
         echo "ok - runs.tsv records the mode and the push"
@@ -229,7 +238,7 @@ self_test() {
         fails=$((fails + 1))
     fi
     rm -rf "$t"
-    [ "$fails" = 0 ] && { echo "self-test: ok (15 cases)"; exit 0; }
+    [ "$fails" = 0 ] && { echo "self-test: ok (16 cases)"; exit 0; }
     echo "self-test: $fails case(s) failed" >&2
     exit 1
 }
@@ -376,7 +385,17 @@ while read -r task kind; do
     )
     rc=$?
     e=$(date +%s)
-    (cd "$WS" && git diff > "$OUT/diff-$id.patch" && git status --porcelain > "$OUT/status-$id.txt")
+    # M744: the patch is taken against BASE with the run's staged and untracked
+    # files included, through a scratch index so the workspace's own is untouched.
+    # It was `git diff`, the tree against the index: on 2026-09-24 a run that staged
+    # its edit (reason-par, parser-if-test) and one that created its test file
+    # (gptoss, vm-divzero-test) left empty patches beside branches holding the work.
+    idx=$(mktemp) || die "cannot create a scratch index"
+    (cd "$WS" && git status --porcelain > "$OUT/status-$id.txt" &&
+        GIT_INDEX_FILE="$idx" git read-tree HEAD &&
+        GIT_INDEX_FILE="$idx" git add -A &&
+        GIT_INDEX_FILE="$idx" git diff --cached "$BASE" > "$OUT/diff-$id.patch")
+    rm -f "$idx"
     bstat="branch=none" pstat="push=off"
     if [ -n "$BRPFX" ] && [ -s "$OUT/status-$id.txt" ]; then
         br="$BRPFX/$task/$ARM"

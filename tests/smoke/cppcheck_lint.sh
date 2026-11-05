@@ -13,7 +13,11 @@
 # the header, and red when run the way it is documented -- `make clean` first.
 # Both directions were measured before the fix.
 #
-# WHY A LINT AND NOT THE GATE. M188 kept cpp-check out of `make ci` on purpose:
+# M871: `make ci` now builds, links and tests the C++ build too (the operator's
+# decision of 2026-10-02, DEFERRED def-307, after it had rotted twice in ten days).
+# This lint stays: it holds the recipe in every smoke run, between gates.
+#
+# WHY A LINT AND NOT THE GATE (until M871). M188 kept cpp-check out of `make ci` on purpose:
 # the sources are C89 and the C gate stays the gate. That decision holds; what
 # does not hold is leaving nothing in its place, because the project has learned
 # this exact lesson twice already -- the FAULT=1 drivers named in no target ran

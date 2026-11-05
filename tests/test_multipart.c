@@ -5,6 +5,7 @@
 
 #include "jc_test.h"
 #include "jc_multipart.h"
+#include "jc_snprintf.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -23,6 +24,27 @@ static int mem_has(const char *hay, jc_size n, const char *needle)
         }
     }
     return 0;
+}
+
+/* Count the occurrences of the NUL-terminated `needle` in `hay` (length `n`,
+ * may contain NULs). Binary-safe (memcmp, not strstr). The delimiter this
+ * counts is "--" + a boundary that ends in hex characters, so it cannot
+ * overlap itself; advancing a full match after a hit is exact. */
+static int mem_count(const char *hay, jc_size n, const char *needle)
+{
+    jc_size nl = (jc_size)strlen(needle);
+    jc_size i;
+    jc_size c = 0;
+    if (nl == 0 || nl > n) {
+        return 0;
+    }
+    for (i = 0; i + nl <= n; i++) {
+        if (memcmp(hay + i, needle, nl) == 0) {
+            c++;
+            i += nl - 1;
+        }
+    }
+    return (int)c;
 }
 
 void test_multipart(void)
@@ -146,4 +168,72 @@ void test_multipart_header_injection(void)
         free(body);
     }
     jc_multipart_free(&mp);
+}
+
+/* C-10 (M1121, half A): a FILE PAYLOAD that contains the delimiter "--<boundary>"
+ * must not reach the rendered body. The test may read mp.boundary to plant it --
+ * that is the same information a payload's author has (the finding's named
+ * mechanism: a model-chosen workspace file that happens to match a guessable
+ * boundary, under the weak rand() fallback). The builder's contract is to
+ * regenerate the boundary on a match, so the delimiter appears exactly twice in
+ * the finished body: the opening part delimiter and the closing one. PRE-FIX the
+ * planted bytes add a third occurrence -> RED (witnessed: 'FAIL
+ * tests/test_multipart.c:223: n == 2'). */
+void test_multipart_payload_boundary(void)
+{
+    struct jc_multipart mp;
+    char del[64];
+    char *body;
+    jc_size len;
+    int n;
+    jc_status st;
+
+    /* Positive control: a payload WITHOUT the boundary renders with the
+     * delimiter exactly twice and succeeds. So the check below is not a
+     * blanket refusal. */
+    jc_multipart_init(&mp);
+    jc_snprintf(del, sizeof(del), "--%s", mp.boundary);
+    JC_REQUIRE(strlen(del) > 2);
+    st = jc_multipart_file(&mp, "file", "clean.wav", "audio/wav",
+                           (const unsigned char *)"PLAIN AUDIO BYTES", 17);
+    JC_CHECK(st == JC_OK);
+    body = jc_multipart_finish(&mp, &len);
+    if (JC_REQUIRE(body != NULL)) {
+        JC_CHECK(mem_count(body, len, del) == 2);
+        free(body);
+    }
+    jc_multipart_free(&mp);
+
+    jc_multipart_init(&mp);
+    jc_snprintf(del, sizeof(del), "--%s", mp.boundary);
+    JC_REQUIRE(strlen(del) > 2);
+
+    /* The attack payload: filler around a planted "--<boundary>". The plant
+     * is read from mp before the call (the same information a payload's
+     * author has); it matches the boundary as it stands at the call, so on an
+     * UNFIXED tree the count below goes to 3. The counted delimiter, though,
+     * is "--" + the FINAL boundary (re-read after the call, which the fix
+     * may have regenerated): on a fixed tree the planted bytes survive in the
+     * payload as inert content under a new boundary, and "--<final>" appears
+     * exactly twice -- opening part delimiter + closing. */
+    {
+        char payload[128];
+        jc_size pl = (jc_size)jc_snprintf(payload, sizeof(payload),
+                        "LEAD%sTRAIL", del);
+        st = jc_multipart_file(&mp, "file", "hostile.wav", "audio/wav",
+                               (const unsigned char *)payload, pl);
+        JC_CHECK(st == JC_OK);
+        jc_snprintf(del, sizeof(del), "--%s", mp.boundary);
+        body = jc_multipart_finish(&mp, &len);
+        if (JC_REQUIRE(body != NULL)) {
+            n = mem_count(body, len, del);
+            JC_CHECK(n == 2);
+            /* The planted bytes still shipped, unchanged -- a regeneration,
+             * not a modification of the payload. */
+            JC_CHECK(mem_has(body, len, "LEAD") &&
+                     mem_has(body, len, "TRAIL"));
+            free(body);
+        }
+        jc_multipart_free(&mp);
+    }
 }

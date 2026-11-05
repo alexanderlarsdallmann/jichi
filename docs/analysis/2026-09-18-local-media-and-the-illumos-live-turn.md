@@ -203,8 +203,7 @@ for the GPU, `doctor --live` for the tool-calling mode.
   `cpu-piper`. The registry now reads `piper -> piper` for the stub and
   `stablediffusion-ggml -> rocm-stablediffusion-ggml` for the working one, side by
   side. Checking the alias table beats reading the directory listing.)*
-- **`jlu/tts-1-hd`'s real price** is a question for the HRZ admins, not something
-  measurable here.
+- **`jlu/tts-1-hd`'s real price** cannot be measured from here.
 - **jichi does not warn about per-character pricing.** `doctor` checks
   `inputCostPer1M`/`outputCostPer1M`; a gateway that bills per character or per
   image is invisible to it. That is a real gap and it is recorded in

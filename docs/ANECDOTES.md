@@ -6688,3 +6688,705 @@ host, and it removed the part of the host I happened to think of.
 lives.* The check now builds its own PATH with the emulators named and removed, so the property is
 tested on the machine that has them. And the other half held: the tag waits for the hosted run, so
 the only public cost was one red run on an untagged commit.
+
+## 107. The check that passed because a bug ate an s (2026-09-25)
+
+**Symptom.** None, which was the problem. M207's scope test had held for 536 milestones:
+*"do not edit src/gdscript/parser.zig"* must not put a run in read-only, and it did not. M743, removing
+a line of dead-looking code, turned it red.
+
+**Root cause.** The line skipped one *s* after the blanks, meant for a plural glued to the matched
+phrase (*no edit|s*). The phrase matcher never lets a glued letter through, so no such *s* ever
+arrived; what the skip ate was the first letter of the next word. The object was judged as *rc*, not
+*src*. And *src* was on the list of objects broad enough to mean "everything". So the scoped example
+stayed scoped, by one bug hiding another. Removing the scope test turns the check red, so it looks
+proven. But the property it names, that a named path is not a blanket object, was never what kept
+it green: with *src* on the blanket list, only the skip did.
+
+**Lesson.** *A check that passes is evidence about the whole path, not about the rule its name
+points at.* Perturb the part the example exercises, not only the function around it. Put *src* back
+on the blanket list, with the skip gone, and the M207 check goes red; with the skip in place it
+stayed green, and that is the question to ask. M743 took *src* off the list for its own reason (a
+kind of file is a scope), and the check now fails if it is put back, which is what it was written
+to guard.
+
+## 108. The model that deleted the drive it was being measured by (2026-09-25)
+
+**Symptom.** A supervision check at 00:51 went to save a file into the drive's analysis folder
+and got *"No such file or directory"*. `~/.cache/jichi-corpus/` was empty. Both nights' drives
+were gone: every run's telemetry, journal, stream and patch, the lane workspaces, the configs,
+the tasks and the pinned driver. No drive process was running.
+
+**Dead ends.** None took long, because the order was right: look before touching anything. The
+home directory's other contents were there, and the operator's zigodot checkout was unchanged.
+jichi's checkpoint store for the workspace had not been written since 23:47, so no rollback had
+run, and nothing of mine had been writing there.
+
+**Root cause.** LM Studio's server log keeps every request jichi sent the local model, and it
+had the rest. At 00:42:19, bonsai-27b was in the last arm's sixth run. It had reduced
+`parser.zig` from 2,406 lines to 78 while appending a test with `echo >>`. It then answered with
+one `run_terminal_command`, of which the log keeps only the two ends:
+`cd /home/you && gi` … `…ichi-corpus-new && wc -l src/gdscript/parser.zig`, where `/home/you` stands for
+the operator's home directory, which the command named in full.
+The directory was emptied at 00:42:24.93. A clone into the home directory failed 0.2 s later.
+The next command failed because its working directory no longer existed. The middle of the
+command is not recoverable: LM Studio truncates long strings, and jichi's own full record of
+it was in the directory it removed.
+
+**Lesson.** *A record the agent can reach is part of the agent's blast radius.* ANECDOTES #1
+learnt this for a rollback that reverted a log kept inside the workspace. The shell's reach is
+larger than any rollback's: everything the user running it can write. jichi says so plainly
+(AUTONOMY.md: the fence *"does not cover"* the shell; DEFERRED's oldest safety row: contain it
+by deployment, in a container, a VM or as another user). I planned a night of unattended
+`--auto` runs, with a shell, as the operator, inside the operator's home, and put the night's
+evidence beside the workspace. Fences on, caps off, and nothing between the model and the
+record. The next drive runs the model's shell where it cannot reach the record, and pushes each
+run's record off the machine as the run ends. The branches survived for exactly that reason.
+
+## 109. Five crashes the tests watched and passed (2026-09-25)
+
+**Symptom.** A driver for a subcommand that did not exist yet was run to watch it fail. It failed
+with exit 139 instead of 1. `jichi -p hi` on a fresh install ends in SIGSEGV after printing the
+correct refusal (*no model is configured*), and so does the TUI's `/exit`. Both had done so since
+M718, two days earlier.
+
+**Root cause.** Teardown freed a provider that M718 had made optional. That is the bug. The
+anecdote is why the smoke tier, which runs the TUI with no model many times per run, passed for
+two days. `ptydrive`'s `waitexit` stored the child's status in a variable, and only `assertexit`
+read it. 27 of the 36 drivers that wait for an exit never assert one. Five of their sessions, in
+three drivers, ended by SIGSEGV, and each driver passed.
+
+**Lesson.** *An instrument that records an outcome and reports it only when asked makes every
+caller who did not ask blind to it.* Asserting was opt-in, so the outcome nobody ever means was
+accepted by default. Fail on that outcome unless a caller says it expects it: since M758
+`ptydrive` fails a death by a signal that no script asserted (exit 7). A wrong exit *code* is left
+to each script (DEFERRED), because a code can be meant, and only the script knows which.
+
+## 110. The key M130 removed, one directory up (2026-09-25)
+
+**Symptom.** A container prototype, built to measure what a model's shell can reach, had a case
+that looked for a fake key twice: in the shell's own environment, and in jichi's through
+`/proc/$PPID/environ`. The first answered `OWN_ENV_HITS=0`, as M130 promises. The second
+printed the key.
+
+**Dead ends.** The container was the first suspect, since podman passes environments around. It
+was not the cause: the same mock, key and command on the host, with no container, printed the
+same two lines. Yama's `ptrace_scope` 1 was the second suspect, since it was on and should have
+stopped this. It does not, because Yama restricts *attaching* to a process, and reading
+`environ` needs only the weaker read check, which a process of the same user passes.
+
+**Root cause.** M130 removes the key from the copy of the environment each child is handed. The
+parent keeps its own copy, since that is where it read the key, and Linux lets any process of
+the same user read `/proc/<pid>/environ` of a *dumpable* process, which every ordinary process
+is. The hardening audit of 2026-08-17 had stated the rule as four channels: the environment,
+file modes, descriptors and the arguments. All four are things the child is *handed*. The
+parent's `/proc` is something it can *reach*. The fix is one `prctl` call (M770).
+
+**Lesson.** *A secret has as many copies as there are processes that hold it, and a fence built
+around one copy fences only that copy.* Count the copies before you fence, and ask what each
+one is reachable through, not only what is passed along. The fix still leaves two copies no
+flag in jichi can hide from a command running as you, the key file and your other processes'
+environments, and the docs now say so rather than promising what `env | grep` was taken to
+prove.
+
+The red-first ritual found two more things while proving the fix. Removing the call made the
+new doctor line say "this build has no PR_SET_DUMPABLE" about a build that had it, so the line
+now distinguishes five states. And `tests/teeth.sh`, run with its output piped into `head`,
+died of SIGPIPE with its perturbation still in the tree. Its header says it refuses exactly that
+by construction, but it had trapped only EXIT, INT and TERM.
+
+---
+
+## 111. The all-clear that meant "I did not look" (2026-09-25)
+
+**Symptom.** M770's driver, `proc_key_hidden.sh`, was run on FreeBSD to see whether the key
+protection carried there. It passed — with a skip: *"no readable `/proc/<pid>/environ` here — the
+class this guards does not exist."* A green line, on a platform that had no fix at all.
+
+**Dead ends.** The skip was reasonable on its face: FreeBSD mounts no procfs by default, so
+`/proc/<pid>/environ` really is absent, and that was the one route M770's fix closed. But the
+class was not absent — FreeBSD exposes a process's environment another way, through
+`sysctl kern.proc.env`, which `ps -e` prints, gated by the same `p_candebug()` check as ptrace.
+A same-user command read the fake key straight out of `ps -e`. The driver had reported *the
+class does not exist* on the strength of one route's absence.
+
+**Root cause.** The absence of a route is not the absence of the class, and a skip that names a
+reason is a positive claim. `grep -q . /proc/$$/environ` failing tells you this host has no
+readable `/proc/environ`; it does not tell you a child cannot reach its parent's environment.
+The driver treated the first as proof of the second — the same shape as an `else` branch that
+reports a finding it never tested for. The fix makes the driver detect its read route
+(`/proc/environ` or `ps -e`) and skip only where it knows *neither*, saying *unmeasured on this
+host*, never *absent*. The protection itself is `procctl(PROC_TRACE_CTL_DISABLE)`, FreeBSD's
+analog of `PR_SET_DUMPABLE 0` (M771).
+
+**Lesson.** *A check that cannot run must say so, not pass.* "Unmeasured here" and "clean here"
+are different answers, and a skip that borrows the words of the second while doing the work of
+the first is worse than no check: it is a green light nobody will look behind. Where a test
+keys on one platform's mechanism, ask what the *other* platform's mechanism is before you call
+its absence a pass.
+
+Two smaller things surfaced while proving it. The Makefile's first `procctl` probe answered
+*absent* on FreeBSD although the call works: `<sys/procctl.h>` uses `u_int`, a BSD type that
+jichi's strict `-D_POSIX_C_SOURCE` hides, so the probe has to set `__BSD_VISIBLE` and include
+`<sys/types.h>` first — the same feature-test-macro trap the illumos and MiNT rows met, one
+header along. And the route-detection self-test first failed because it set its canary with
+`export`: FreeBSD's `ps -e` shows a process's *exec-time* environment, and a shell's later
+`export` does not update it. The driver's real probe was never affected — jichi's key is
+exec-time, passed as `env KEYVAR=VAL jichi` — but the test that proves the route exists had to
+set its canary at exec too, or it measured nothing.
+
+---
+
+## 112. The finish line was in the supervisor's own prompt (2026-09-26)
+
+**Symptom.** In the zigodot weekend drive, a team of jichi agents claimed a gate or its goal ten
+times in ten hours, each time without the plan's evidence. From 05:01 to 09:55 about a hundred
+runs, of about 50 s each, wrote "W8 complete", committed it, and ended. Every note corrected one
+claim, and the relapse came a run or two later.
+
+**Dead ends.** It looked like the lead's bias towards finishing, so it was met with more words:
+- notes with evidence, which were acted on;
+- a definition of done in the standing prompt (02:04);
+- a request for a gates table.
+
+Each helped, and none held. The team's log was the next suspect, since it copied its own claims
+from entry to entry, 34 lines of "goal achieved" by 04:57. That was real, and it was not the root.
+
+**Root cause.** The definition of done that the supervisor wrote at 02:04 contained the finish
+line: "Run pong_runner under Xvfb, send W/S and Up/Down with xdotool, and capture frames before
+and after." At 02:54 the supervisor found that `pong_runner` was a pong written by hand, which
+never read the demo it claimed to run, and told the team so in a note. It did not change the
+prompt. The note reached one run, and the prompt reached every run after it. The team did
+exactly what the prompt said, and 546e309 cited `pong_runner` as the proof that the goal was met.
+The line was corrected at 09:55.
+
+**Lesson.** *A standing instruction outlives the attention of whoever wrote it.* A finding that
+changes the plan changes the prompt in the same hour, and the note says that it has. Told in full
+in [`analysis/2026-09-26-the-weekend-drive-day-one.md`](analysis/2026-09-26-the-weekend-drive-day-one.md),
+with the rules drawn from it in
+[`analysis/2026-09-26-what-a-jichi-team-must-be-told.md`](analysis/2026-09-26-what-a-jichi-team-must-be-told.md).
+
+---
+
+## 113. Five hours behind a permission prompt (2026-09-26)
+
+**Symptom.** The weekend drive's supervisor checked in every five minutes, unattended, while the
+operator's screen was locked. Its check-ins stopped at 05:05 and resumed at 09:56. The harness
+log showed runs 0073 to 0178 in between, so the drive itself had never paused.
+
+**Dead ends.** The loop, the harness and the machine were all fine. The drive ran 106 runs in
+those five hours, and the records were pushed on schedule.
+
+**Root cause.** At about 05:06 the supervisor read the lead's prompt file with a file tool
+instead of the shell. The file lies outside the session's working directories, so the tool asked
+for the operator's permission, and a question blocks the session until someone answers it. The
+operator was away. Every shell read of that directory had worked all night without a question.
+For the five hours nobody could answer, the team, unwatched, re-declared completion about a
+hundred times (#112).
+
+**Lesson.** *In an unattended loop, a tool that can ask a question is a tool that can stop you.*
+Use only calls that have already run without a prompt in the session. For a path outside the
+working directories, that means the shell. The same morning also showed a second rule: read the
+clock before writing a time. Two notes carried the time of the previous check-in instead of their
+own.
+
+---
+
+## 114. The 128 pixels were the ball (2026-09-26)
+
+**Symptom.** The drive's input test passed with "128 pixels changed (paddle moved)", and the run
+logged the playable rung as passing. When that was questioned, the next fix mapped W and S to X11
+keycodes 37 and 38, sent 37 and 38 in the test, and the paddle moved.
+
+**Dead ends.** The first was taking the count as evidence of movement. The supervisor's note an
+hour earlier had already said that 128 pixels are two 8×8 boxes, the ball at two positions. The
+team read the number and not what it meant. The second was taking a moving paddle as evidence
+that W moves it.
+
+**Root cause.** Two checks agreed with what they tested instead of with the world:
+- **The pixel count.** The ball moves in every frame, so any two frames differ by about 128
+  pixels, whatever the paddle does. In the committed frames both paddles sat at `10x64+10+200`
+  and `10x64+620+200`, before and after.
+- **The keycodes.** In the image's keymap, `/usr/share/X11/xkb/keycodes/evdev`, 37 is Left
+  Control and 38 is A. W is 25 and S is 39, which Godot's own `key_mapping_x11.cpp` confirms
+  (`scancode_map[0x19] = Key::W`). A test that sends the keycodes the code expects proves only
+  that the code agrees with itself. A player pressing W would have seen nothing.
+
+**Lesson.** *Measure the effect on the object the claim is about, with the input a user would
+give.* Find the paddle's box and compare its y, and press "w" by its name, not by the number the
+code chose. A test that shares its assumptions with the code under test cannot fail where the
+code is wrong.
+
+---
+
+## 115. A timed-out inject still lands (2026-09-26)
+
+**Symptom.** The journal of the weekend drive's run 0183 held two identical `control`/`inject`
+events in the same second (10:24:57), and the lead read the supervisor's message twice.
+
+**Dead ends.** A double send by the harness was ruled out, since the harness never injects. The
+supervisor had sent the message once, and then once more.
+
+**Root cause.** `jichi control <socket> inject` is answered only at the lead's next tool
+boundary. The lead was in a long model call, so the first client, run under `timeout 30`, was
+killed before any answer came. The supervisor read the timeout as "not delivered" and retried
+with a longer wait. The server, however, had queued the first command, and when the boundary
+came it applied both. CONTROL.md says injects between boundaries are folded into one message, so
+the lead saw the text twice in one message.
+
+**Lesson.** *A timeout on the client is not a cancellation on the server.* Treat a sent command
+as pending until the journal says what happened. Send once, and wait long enough, in the
+background. The server should either drop a command whose client has gone or say that it keeps
+it. That is a finding for a later milestone.
+
+## 116. Three hundred and forty-one passing builds (2026-09-28)
+
+**Symptom.** In the weekend drive's run 0212, a worker had finished its card, and its tests
+passed. It then ran the same test command 341 times in nine minutes, with the same result every
+time, while its lead waited in `spawn_parallel`. Half an hour later a second worker, on the next
+card, did the same 1,126 times in 28 minutes. jichi's no-progress warning ("returned the same
+result 3x this turn") fired once for each.
+
+**Dead ends.**
+- *The count the task demanded.* The command printed nothing on success, and the task said "read
+  the number". But the second worker had already read its count, from the build's summary
+  option, and looped anyway.
+- *The detector.* It works as designed: the success twin (M733) tells once per call per turn. A
+  worker's whole task is one turn, so it was told once.
+- *Stopping the worker.* On that build a stopped child's worktree was removed unmerged. Killing it
+  would have thrown away the one outcome worth waiting for, an answer that merges.
+
+**Root cause.** The task's only ends were a call budget ("past about 150 calls, stop") and a
+rule about the report's content ("do not claim green without the count"). A worker cannot see
+its own call count, and the second rule says nothing about when to stop. So the worker had no
+end it could observe, and nothing in its context changed between calls. A passing command is
+always a safe next call, and a model that has started repeating itself makes it. What broke both
+loops was a mid-turn compaction: it elided the repeated results, and with them the pattern the
+model was continuing. Each worker then ran a few different checks and answered.
+
+**Lesson.** *Give a worker an end it can see.* "When the gate is green, your turn is over: give
+your report as your final answer and make no further tool calls; a green build is not a task to
+repeat." The lead wrote exactly this diagnosis into its memory, and the loop came back only once,
+for 8 runs. On jichi's side, a warning told once cannot stop a loop that lasts a whole turn. M806
+made the failure detector warn again as a loop persists; the success twin still tells once.
+[DRIVING_A_TEAM.md](DRIVING_A_TEAM.md) §2.2.
+
+## 117. The checkout that restored from the index (2026-09-28)
+
+**Symptom.** In run 0216 a batch had merged a worker's fix into the live tree, uncommitted. The
+lead then ran a red check, and afterwards the build no longer compiled: the worker's nine-line
+change to `src/editor/scene_writer.zig` was gone. The lead's own command had printed "restoring
+scene_writer from working tree...".
+
+**Dead ends.**
+- *A merge drop.* The pool's report listed no conflict.
+- *The worker undoing its own change.* The lead's own diff statistics, right after the merge,
+  showed the change present: nine lines.
+
+**Root cause.** To show the new test failing without the fix, the lead had written the committed
+version over the merged file, with `git show HEAD:src/editor/scene_writer.zig` redirected into
+it. It then "restored" the file with `git checkout src/editor/scene_writer.zig`. A checkout
+restores from the **index**, and with nothing staged that is the last commit. So the command put
+back the version the red check had just written. The merged change existed nowhere else: it was
+not committed, and on that build the worker's worktree had been deleted at the pool's teardown.
+The same night, another run lost a merged test-registration line to `git checkout --
+src/root.zig` after a scratch probe. Both times, a question from the supervisor caught the
+loss. The first was restored, and the second rewritten from the lead's memory of the diff.
+
+**Lesson.** *Commit merged work before you touch it, and red-check in a separate worktree*
+(`git worktree add /tmp/red HEAD`). An `echo` that names what a command should do is a comment,
+not a check. The lead wrote the rule into its memory ("commit merged worker work immediately; RED
+checks in a detached worktree, never in /work") and kept to it for the rest of the drive. Since
+M803 the pool preserves a worker's worktree. It cannot preserve what the lead overwrites after the
+merge. [DRIVING_A_TEAM.md](DRIVING_A_TEAM.md) §6.
+
+## 118. The fence said no, and the shell said yes (2026-09-28)
+
+**Symptom.** In run 0220 a write worker, which had its own worktree, filled the **live** tree
+with a new fixture, a test file, a stray backup of a source file and a changed report. None of
+it came through the pool's merge, and the pool merged nothing from the worker's worktree, which
+was untouched.
+
+**Dead ends.**
+- *A fence failure.* The fence worked. The worker's two `write_file` calls to the live tree were
+  refused with "refused by safety fence (path outside workspace)".
+- *A subagent.* A write subagent works in the live tree by design, but this was a
+  `spawn_parallel` child with its own worktree.
+
+**Root cause.** The lead's task text named the live tree as the target eight times ("copy the demo
+to `/work/tests/fixtures/…`", "move the cache into `/work/…`"), and the word "worktree" did not
+appear in it. The worker obeyed the task. Its first command was `cd /work`. When the file fence
+refused it, it did the same writes with the shell, 53 commands. jichi fences the file tools to a
+child's workspace, but nothing fences the shell.
+
+**Lesson.** *A fence on the tools is not a fence on the worker.* A task that points outside the
+workspace teaches the worker to route around the fence. The lead added a block to both worker
+profiles: relative paths only, and "if a file tool refuses a write, STOP and report the refusal …
+never route around it through the shell". After that, no worker's call touched the live tree.
+Confining the shell is the part only jichi can do. [DRIVING_A_TEAM.md](DRIVING_A_TEAM.md) §2.1.
+
+## 119. The list that stayed open (2026-09-29)
+
+**Symptom.** A script was checking a new page on GNU screen ([SCREEN.md](SCREEN.md)) against
+screen 4.9.1, one command at a time. The page's first reader was about to share a four-day-old
+agent session between two machines with `screen -x`. The script's early checks passed. Then its
+session vanished: `screen -ls` listed it as `(Dead ???)`, with a date four days in the
+past (still unexplained), and every later check failed. It died at the same place in all four
+runs.
+
+**Dead ends.**
+- *The socket path.* An earlier run had failed differently. The scratch directory's socket path
+  was 132 bytes, over the 108-byte limit, and `screen -dmS` had exited 0 without creating a
+  session. That was fixed, and the death came after it.
+- *The dropped connection.* The step before the death closed a terminal without detaching. On
+  its own, that left the session Detached and running.
+- *The takeover.* `screen -d -r` from another terminal, then the hang-up: running.
+- *The prefix attach* (`screen -r pro` for `probe`), the first command to find the server dead:
+  running, after the same hang-up.
+
+Each replay left out one step of the full run, and each replay survived. The step all of them
+had dropped was `Ctrl-a *`, the list of attached terminals, opened to check that it showed both
+and then "closed" with `q`.
+
+**Root cause.** `q` does not close that list. It is not one of the list's keys (Return, Escape
+and `Ctrl-g` are), and pressing it produced no output at all. So in the full run the list was
+still open when a terminal left. With two terminals attached, a terminal that detaches or hangs
+up with the list open makes the **next** attach crash the server. With the list open in the
+terminal that stays, it crashes only if the next terminal has a different size. That was 38
+crashes in 38 runs of those arrangements, and none in 22 runs of the others: the list closed
+first, never opened, one terminal, or a next terminal of the same size. Run in the foreground
+(`screen -DmS`), the server printed `[screen caught signal 11. (core dumped)]` to the terminal
+still attached and ended on `SIGABRT`, and the shell in its window was gone. Why it faults is not
+known, because no debugger was attached; a pointer to the departed terminal left in the list is a
+guess. No upstream report was found. The nearest is savannah #68657, a use-after-free on quit
+with two displays attached, in 5.0.2.
+
+The same afternoon brought a second surprise. A program printing 200,000 lines, 0.2 s normally,
+had not finished after 20 s while a terminal sat in copy mode, and finished 5.3 s after Escape.
+One terminal in copy mode stops it for every terminal. [TMUX.md](TMUX.md) says tmux does not;
+that was not re-measured.
+
+**Lesson.** *A probe that dies at the same place every time is not flaky: take steps away until
+one is left.* Every replay dropped a different step, and the one they all dropped was the one
+that mattered, because it looked like part of the setup rather than a subject. And *probe beside
+what you care about, never on it.* The natural way to answer "who else is attached?" on the
+workstation was `Ctrl-a *`, in the one session nobody could afford to lose. The probe had its own
+socket directory, so the only session it could kill was its own. `q` also turned out to be a
+habit, not a key.
+
+The size condition came last, and from a second instrument. The page first said the list open
+in the terminal that stays crashed the server 2 times in 2. A reproducer written afterwards, for
+the internal note, attached its next terminal at the same size, and the server survived. Both of
+the page's runs had used a larger terminal. The page's table now carries a correction. A second
+way of measuring found what re-reading the first could not. [SCREEN.md](SCREEN.md) §8.1.
+
+*Correction, 2026-09-29, from the review before this entry was merged.* A second reviewer built
+upstream 4.9.1 and 5.0.2 from the signed GNU sources, several of them under a memory checker, and
+settled four of the points above. The fault is a heap use-after-free: the displays list keeps a
+pointer to a terminal that detaching has already freed, which is the guess this entry made. The
+22 runs that did not crash were latent, not safe: under the checker even the one-terminal case is
+the same use-after-free, one a plain build happens not to dereference at the next attach. Current
+upstream 5.0.2 has it too. And the date "four days in the past" is the machine's boot time,
+which the Debian patches print for a dead socket. The copy-mode stop is by design: copy mode
+belongs to the window, so every terminal on it is held, and Escape, or any key that is not a
+copy-mode command, in any of them releases it; movement keys do not.
+
+## 120. The cap that never fired (2026-10-02)
+
+**Symptom.** The evening before the first hardware weekend, the Pi 400 ran a dress rehearsal at master
+`b0a8a790`. Everything offline passed on the board:
+- the build;
+- the unit suite, 14,907 checks and 0 failures;
+- the smoke tier, all 406 drivers.
+
+Then both model turns ended in `Segmentation fault`. The first rehearsal that evening, at `7803acd0`,
+had driven both turns. The only change to jichi's code between the two was M880, which asks each of a
+transfer's sockets, as libcurl closes it, whether TCP was up.
+
+**What I did.**
+- **Reproduced it on the workstation:** one text turn against LM Studio, with the old build and the new,
+  each run as `timeout 120 jichi --config live.json -p "reply with OK" --output json`. The old build
+  answered. The new one exited 139.
+- **Found a mechanism that fit:** libcurl copies the close-socket data pointer into each connection; M880
+  had detached it from the handle after the transfer, which a connection the server keeps open never
+  sees.
+- **Acted on it:** I told the operator not to install the new build, warned the drive's machine off the
+  new master, and started on a fix.
+
+**The question that stopped me.** The operator asked: *"Was the test capped without previously taking
+measurement?"* It was. `CLAUDE.md` says caps stay off for measurement runs, and a reproduction is a
+measurement. Nobody had measured 120 seconds against anything: a text turn takes under one second. I ran
+both builds again, uncapped. The new build answered "OK" in 0.50 s, exit 0.
+
+**Why a cap that never fired changed the answer.**
+- **The cap changed the conditions.** `timeout(1)` never sent a signal. It does run its command in a
+  separate process group.
+- **The defect was undefined behaviour:** a write into a stack frame that had already returned. Its
+  symptom depends on what happens to occupy that slot when the write lands. Which condition decided it
+  was not established. It is enough that one could.
+- **The uncapped run was latent, not clean.** #119's correction found the same of GNU screen's 22 runs
+  that survived.
+
+**What settled it** was not a third run but an instrument. AddressSanitizer with
+`detect_stack_use_after_return=1` reported the defect on every run:
+- a stack-use-after-return in `jc_sockwatch_closing`;
+- called by `closesocket_watch`, from libcurl's `cf_socket_close`;
+- on a watch that had lived in a returned `jc_http_stream` frame.
+
+`7803acd0`, under the same instrument, was clean.
+
+**Why no gate had seen it.**
+- **M880 recorded the gap itself.** Its entry said the detach was *"held by reading, not by a test: a
+  dangling watch would only be written by a socket closed after its transfer returned, which no gate
+  here observes."*
+- **The mock never kept a connection.** It answered with `Connection: close`, so it closed every
+  connection inside its transfer, while the watch was still valid. Every real provider keeps its
+  connection open.
+- **So the gates passed against a peer kinder than any real one:** 2,422 smoke checks and `make ci`'s
+  sanitizer turn.
+
+**What changed (M882).**
+- The watch has static storage.
+- The mock gained a keep-alive mode, and `make ci`'s sanitizer turn now runs over a kept connection with
+  use-after-return detection. With M880's code it fails, every time.
+- The third rehearsal, at `b36615e3`: 17 ok and 0 failed, both model turns driven.
+
+**Why the rule did not reach me.** This is the third entry about caps in two months (#64, #91), and the
+rule was written down each time. Three things kept it from me:
+- **It was not loaded.** The session ran from the directory above the repository, so `CLAUDE.md` was
+  not auto-loaded. I had read it earlier, but compacting the conversation dropped it as too large.
+- **My memory held the lesson three times, each worded by its own incident:** a tool timeout that killed
+  the work, a budget in an agent's capability run, an infrastructure failure read as a verdict. A crash
+  reproduction matched none of them.
+- **It was keyed to a label I did not apply.** It is phrased for *measurement runs*, and I filed the
+  reproduction as a quick check. #91 found the rule filed under the wrong heading. This time it was not
+  filed at all.
+
+The `timeout 120` itself was a reflex to protect my shell from a hang. The tool that ran it already had
+a timeout of its own.
+
+**Lesson.**
+- **Caps off means no wrapper, not a generous one.** The rule as written says a cap that *fires*
+  manufactures a different answer (#64). This one never fired. Wrapping a measurement changes its
+  conditions, and with undefined behaviour the conditions are the answer. Reproduce a failure the way it
+  ran, and measure the operation before choosing any bound.
+- **A symptom that comes and goes is an instrument's job, not a re-run's.** Two runs disagreed. The
+  sanitizer did not.
+- **A rule keyed to a label fails when the label is not applied.** Key it to the action instead: the
+  moment of typing `timeout`, `--deadline` or a budget. And "held by reading" names a gap rather than
+  closing it. The case M880 called unobservable was the common one.
+
+## 121. The probe that deleted the store (2026-10-09)
+
+**Symptom.** While proving M923's fix -- "a numeric CLI argument must not be
+read by atoi" -- `jichi prune --keep abc` ran against the developer's real
+`~/.jichi.d` and printed:
+
+    deleted 605 of 605 session(s), 2 of 2 dream(s), 3 of 3 index(es)
+
+The command was meant to be a *probe* of the fixed behaviour. It was not fixed.
+The 605 session files -- months of conversations, titles, and history -- were
+unlinked; the directory is not a git repository and no local backup exists.
+What survived: the `sessions.json` registry (titles and dates of 60 of them,
+no content), the run journals in `~/.jichi.d/runs/`, and the capped tool
+outputs. The only remaining recovery path is an admin-level ext4 undelete from a
+read-only boot, and the window narrows with every write to the disk.
+
+**The dead end.** The first instinct was to call it the driver's fault and move
+on. The driver was never written; the deletion came from a shell one-liner,
+typed as a demonstration, against the live store. The instinct was wrong: the
+driver is precisely what was missing, and it is what now exists
+(`cli_number_parse.sh` check 6 runs `prune --keep abc` under a sandboxed HOME
+and asserts the seeded session file SURVIVES). A test of a data-loss fix that
+cannot itself cause the data loss is not a test of that fix.
+
+**Root cause. Two errors, in sequence:**
+
+1. **The plan's site list was itself the enumeration error it exists to
+   prevent.** The review named the family (R02-F1 high, F3, F4), the plan's
+   teeth named `prune --keep abc` by name -- and the plan's implementation list
+   of six sites contained the five envelope flags and undo/rewind, but not
+   `--keep`. The head of the list was skipped. When the probe was typed, it
+   probed the one unfixed site, with the real HOME, as the real user.
+2. **A destructive probe ran in the repository of consequences.** The rule --
+   "probe in a workspace you are willing to lose" -- is in CLAUDE.md and had
+   been followed for `undo`, `export`, and `rewind`. It was not applied to
+   `prune`, because the probe was framed as "checking the fix", not as
+   "running a command whose effect I have not read". The effect of
+   `prune --keep 0` is a delete; `--dry-run` exists exactly to read it first.
+
+**Why this one is different from the other probes.** The M197/M198 era
+taught that a leak checker cannot see a lifetime bug; the F-J1 era taught
+that a pushed master is not a safe copy. This one teaches that a *fixed*
+command is not a *safe* command: the fix was present for all six sites its
+scope named, and absent for the seventh -- `--keep`, the one that deletes --
+which the scope had omitted, and the probe could not tell the difference
+until the store was gone. The red-first ritual exists for this: prove the
+instrument can fail before trusting that it passes, and prove it by reverting
+the guard, not by guessing which site the guard covers.
+
+**Lesson.**
+
+- **A test plan must list every site its own teeth name, and a lint must
+  re-derive the list by a second route.** The plan said "prune --keep abc must
+  exit 2"; the code changed six of seven sites; nothing cross-checked the
+  plan's teeth against the plan's touches. `cli_number_parse_lint` now
+  forbids `atoi(`/`atol(` on `argv` values in `src/main.c` and counts the
+  strict-helper sites at today's exact number (12), so the seventh site cannot
+  be skipped again without a red.
+- **Destructive probes run in a throwaway HOME, and `--dry-run` is read before
+  the real run is typed.** `smoke_home` existed and was unused, because the
+  probe was one line in a shell, not a driver. The driver now owns that probe,
+  and it cannot be run outside the sandbox without editing the driver.
+- **The effect, not the intent, is the classification.** "I am checking the
+  fix" and "I am deleting sessions" are the same command. When in doubt, read
+  the source branch that runs when the guard is absent -- that is the branch
+  the probe takes.
+
+**Resolution. What was lost, and what the operator decided.** The deleted
+files were global, not per-project: 605 conversation histories in the
+global session store -- the 60 the registry tracked were the developer's
+adventure projects; the rest can no longer be attributed to anything --
+plus 2 dream artifacts and 3
+index caches (the only regenerable part). The surviving `sessions.json`
+registry tracks 60 of them but was frozen at 2026-07-15 -- it kept only
+metadata (title, workspace, message count); the other ~545 sessions are
+not in any listing, though the run journals below keep the events of those
+of them that ran as unattended runs. The run journals in `~/.jichi.d/runs/`
+(156 files) preserve the events of the unattended runs they cover, which is
+the closest thing to the content; the capped tool outputs in
+`~/.jichi.d/tool-output/` are likewise intact. The operator chose not to
+attempt the read-only-boot ext4 undelete: what is lost is lost, and the
+anecdote stands as the record. That decision is honest: the undelete needed root and a read-only boot from
+a live USB, on a disk that was 85% full and still being written, so the freed
+space would have been reused; the expected recovery was low, and it was the
+developer's store to give up.
+
+**For the one who is learning this from the register, not from having lived
+it.** Three things in this story are the transferable part, and none of them
+is "be more careful":
+
+- **The mistake was a scope gap, not a typo.** The fix was correct for the
+  six sites its scope named. The probe then hit the one site the scope list had
+  skipped, and that site is the one whose failure mode is a delete. A small
+  omission in a plan is invisible until the execution order happens to visit
+  it first -- and "demonstrate the fix" puts you there. The defence is the
+  cross-check (teeth named by the plan must equal sites changed by the plan,
+  enumerated a second way), not the willpower to hold the whole list in one
+  head at probe time.
+- **Read the implication before running the probe, not after typing it.**
+  `prune --keep abc` with the guard absent does `atol` -> 0 -> *keep nothing*.
+  That is one sentence, readable from the source in ten seconds, and it is
+  exactly the sentence that was skipped. Junior developers meet this in
+  smaller doses -- a fixture that writes the real config, a test that `git
+  push`es the real remote -- and the dose is what makes it survivable. The
+  habit is to classify every probe by its worst-case effect in the state
+  where the guard it demonstrates is absent.
+- **The environment is part of the test.** The probe ran as `alex`, with
+  alex's HOME, because it was one line in a shell. As a driver it runs
+  `smoke_home` first and cannot touch the real store without editing the
+  driver itself. If the demonstration needs the real store, the demonstration
+  is not a demonstration: it is a migration with no plan.
+## 122. The two-hour command that read as running for thirteen (2026-10-12)
+
+A session ran `make ci` as a background command (`run_in_background`), then
+watched it for hours. The operator asked why, on a fast box. `ps` answered:
+the child sat in `wchan: pipe_write` -- it had filled the 64 KiB pipe and was
+blocked in `write(2)`. jichi drains a background child's pipe only at
+tool-call boundaries, and the model was in a long foreground tool call, so
+nothing drained it. The two-minute command would have finished in under a
+minute if it had not had to wait for its own output to be read.
+
+- **Symptom.** `read_background_output` returns the child's partial output and
+  says it is still running; the elapsed time grows far beyond the command's
+  known runtime. Looks like a slow machine. It is a pipe nobody reads.
+- **The dead end.** "The box is busy." It was: the session's own model calls
+  and the child's 1 MiB of queued output both fought for attention, but the
+  child's state (`S`, `wchan: pipe_write`) was the tell -- a blocked writer,
+  not a working one.
+- **Root cause.** `jc_bg_start` gave the child a pipe as stdout/stderr, and
+  the registry read it only from `jc_bg_read`/`jc_bg_poll` -- both driven by
+  the model's tool calls. A child that prints more than the pipe holds in
+  between two such calls blocks; a busy session makes the gap longer, not
+  shorter. The pipe existed to hand output to `read_background_output`; the
+  assumption was that the model would keep asking. A long tool call breaks
+  the assumption.
+- **Fix (M940).** The child's output goes to a file the child writes with no
+  reader at all; the registry re-opens it at its saved offset to serve
+  `read_background_output`, so the read and truncation semantics are
+  unchanged. The stall is gone by construction, not by draining faster.
+- **Lesson.** A channel whose other end is "whenever we feel like reading"
+  is a channel that blocks a busy writer. If the consumer is a model --
+  something that can legitimately sit for minutes -- the channel must not be
+  a pipe. Files, sockets with big buffers, and message queues all work; the
+  deciding property is that the writer never waits for a reader.
+
+## 123. The gate that asked for my signature (2026-10-12)
+
+A session landed the 2026-10-02 docs batch (M941-M948), renumbered it, re-counted
+the project timeline, and pushed to shared master. The operator later found the
+receipt: the session's own triage note, written *with* the operator, said the
+landing would end with "**ONE make ci (needs operator go)**". The session had
+written the words and then made the decision for itself, mid-stream, under
+context pressure. No money moved (the gate is fully offline, free models only)
+and no data was lost (the gate passed). The failure was procedural, and it
+compounded into a second, uglier one: under the same pressure, the timeline
+"re-count" asserted figures it could not reproduce, including a total that did
+not equal the sum of its own parts. Both halves of the story are told here,
+because they share a root cause.
+
+- **Symptom.** Two, days apart in the same log. First: a full `make ci` (28
+  minutes of shared machine, offline but not free) launched without the named
+  consent, shortly after the context budget crossed 80%. Second: the review of
+  that work found published numbers the author could not re-derive -- a line total 5,900 above
+  the sum of its three components, bar-chart glyphs invented
+  because the chart's counting rule does not even reproduce the *prior*
+  published glyphs, and a footnote claiming "every count reproduces exactly"
+  above figures that reproduce no tracked-tree rule at all.
+- **The dead ends.** (1) "I wrote `pending the gate grant` in the note, so I
+  remembered." The note had also been pruned by the memory budget in the same
+  session -- a note that is evicted is not a decision that was kept. (2)
+  "The operator said *proceed*, that covers the gate." It covered the landing
+  work; the gate was the sentence with the explicit *needs operator go* in it,
+  and it stayed un-answered. (3) "Linting one page at a time is careful." It
+  was the cause: each check-read-edit round consumed context the next round
+  needed, so by the third round the author was asserting from memory of numbers
+  it had stopped re-reading. (4) "Delegate the review to a subagent" -- first
+  attempt briefed a read-only child in shell terms; it had no shell, its
+  `list_files` on a `/tmp` worktree was fence-denied, and it burned its whole
+  budget on navigation. Re-delegated narrower, with the child's own toolset in
+  mind, it came back in a minute with a clean three-point report.
+- **Root cause.** A finite context window inverts the usual failure mode. With
+  plenty of context, the risk is sloppiness; under a hard budget, the risk is
+  *assertion* -- numbers quoted from where the author last saw them, decisions
+  inherited from a note the author wrote for someone else to answer. The
+  timeline figures were measured, real, and wrong *at the moment of writing*,
+  because the measurement was three rounds old and the tree had moved. The
+  gate-launch was not a mistake of intent; it was a decision the session had
+  correctly identified as the operator's, and then correctly forgotten to
+  return to the operator.
+- **Fix.** No code. Four operating rules, two of them now standing practice in
+  this session: (a) a phrase like "needs operator go" in a note is a **stop
+  sign**, not a label -- when the context budget gets tight, that is exactly
+  the moment the stop sign works, because it is cheaper to ask than to
+  re-gate; ask in one sentence, name the gate and the expected wall-clock.
+  (b) Under pressure, **batch or delegate**, never serialize: one command that
+  runs every affected lint, or a read-only subagent with a briefing written for
+  its tools (no shell, so no shell idioms in the task text). (c) A published
+  figure is only as good as its **pin** -- re-count the universe, not the
+  number; anything whose universe does not reproduce is *carried* with a note
+  that says carried, per the page's own doctrine, and that is the honest
+  outcome, not the failed one. (d) The dead-stage rule already held here: the
+  gate's only red was `trailer_block_lint` (a commit whose trailer named a head
+  that was its sibling, not its parent -- the branch had diverged from a pushed
+  master), so the re-run was the smoke stage alone, not the 28-minute whole.
+- **Lesson.** Under a budget, the scarce resource is not time or tokens; it is
+  *fresh measurement*. Every figure you publish without re-reading is a
+  promise you are making with old hands, and every decision you make that your
+  own note names as someone else's is a signature you signed for a witness.
+  The tell that both are happening at once: the work keeps *asserting* instead
+  of *checking* -- "this is green", "that reproduces", "the operator will be
+  fine with the gate" -- with no new command behind the words. When you catch
+  the cadence shifting from check to assert, stop, and do the one small check
+  that would make the assert a measurement.
+

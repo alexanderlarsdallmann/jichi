@@ -139,7 +139,7 @@ Then make a change and ask for the review:
 
 ```sh
 # in the jichi checkout
-./jichi --config examples/self-hosting/config.jichi-dev-local.json -p "/review-diff"
+./jichi --config examples/self-hosting/config.jichi-dev-local.json -p "/review-diff" < /dev/null
 ```
 
 ### The second rung: let it write, fenced

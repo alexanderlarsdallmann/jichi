@@ -24,8 +24,14 @@ sed -n '/^struct jc_message {/,/^};/p' "$HDR" \
 nf=$(grep -c . "$tmp/fields")
 
 # --- 1: extraction floor --------------------------------------------------------
-if [ "$nf" -ge 7 ]; then
-    t_ok "extracted $nf jc_message fields (floor 7)"
+# The floor is today's EXACT count of struct jc_message fields (the runbook says
+# floor the extraction at today's exact count), so a scrape that silently drops
+# a field goes red. Bump it when a field is added: 9 today (role, content,
+# tool_calls, images, tool_call_id, is_error, truncated, truncated_by_cap,
+# saw_reasoning). It sat at 7, short by two, because saw_reasoning (M937) and
+# truncated_by_cap (A-07 / M1090) were both added without bumping it.
+if [ "$nf" -ge 9 ]; then
+    t_ok "extracted $nf jc_message fields (floor 9)"
 else
     t_fail "field extraction too thin ($nf) -- the struct scrape broke"
 fi
@@ -46,6 +52,29 @@ while IFS= read -r f; do
             # deliberately turn-ephemeral: the codec must SAY so.
             if ! grep -q 'turn-ephemeral' "$SES"; then
                 bad="$bad images(no-ephemeral-marker)"
+            fi
+            continue ;;
+        saw_reasoning)
+            # M937: like images, deliberately NOT persisted (the provider
+            # recomputes it from the wire each call; the nudge consumes it in
+            # the same run). The codec must SAY so, in a comment naming this
+            # field as turn-ephemeral -- grep for the field name on a
+            # turn-ephemeral line.
+            if ! grep 'turn-ephemeral' "$SES" | grep -q 'saw_reasoning'; then
+                bad="$bad saw_reasoning(no-ephemeral-marker)"
+            fi
+            continue ;;
+        truncated_by_cap)
+            # A-07 / M1090: like saw_reasoning, deliberately NOT persisted --
+            # the provider recomputes it from the wire each call via
+            # jc_prov_flush, and its only consumer (the M334/M859
+            # cause-correct prose) fires within the same run. The value is
+            # derived from the persisted `truncated` flag plus the cause, so a
+            # resumed session re-derives it from its own reply. The codec must
+            # SAY so, in a comment naming this field as turn-ephemeral -- grep
+            # for the field name on a turn-ephemeral line.
+            if ! grep 'turn-ephemeral' "$SES" | grep -q 'truncated_by_cap'; then
+                bad="$bad truncated_by_cap(no-ephemeral-marker)"
             fi
             continue ;;
         *)

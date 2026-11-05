@@ -101,3 +101,90 @@ complete pass: four reviewers, 30 pages, ~35 findings fixed, 21 register items a
 six structural findings deferred with reasons, and the two findings that argued for
 doing this again rather than automating it. Read it before running your own — not
 for its conclusions, but for the shape of an honest report.
+
+## 7. Writing so the review passes — the house rules
+
+The rubric in §2 says what to check. These rules say how to write so the check
+passes. They come from the docs-structure plan
+([plans/2026-09-25-docs-structure-and-writing.md](plans/2026-09-25-docs-structure-and-writing.md)),
+decided by the operator on 2026-09-25. Most are matters of review; one is a lint.
+
+- **A table is for looking something up.** One fact per cell, and short cells: a
+  row fits on one line of a wide screen, **about 200 characters**. When a row needs
+  a paragraph, the paragraph goes under a heading below the table (or on its own
+  page) and the row links to it, so a reader can scan the table and read one section
+  without scrolling a cell sideways. A register (`DECISIONS.md`, `DEFERRED.md`) is
+  one line per entry, linking to the entry's own section. **This one is a lint:**
+  [`tests/smoke/docs_table_rows_lint.sh`](../tests/smoke/docs_table_rows_lint.sh)
+  refuses a new table row over 200 characters in a top-level `docs/*.md` page. It
+  carries a per-page floor of today's counts, a ceiling that only falls, so the
+  existing long rows are grandfathered and come down as pages are revised; the two
+  registers keep large floors until they are rewritten one-line-per-entry.
+- **A diagram must be readable where people read it** — at a laptop's width and a
+  phone's. A flowchart with more than a handful of nodes, or nodes carrying
+  sentences, becomes a table or a list. Mermaid stays where it shows what prose
+  cannot (a sequence of messages, a state machine, a small data flow), and what it
+  shows is also in the text, since a screen reader and a plain-text export cannot
+  draw it. Each existing block is reviewed against this rule, not removed blindly.
+- **Every diagram comes in up to three forms** (decided by the operator on
+  2026-09-29, for a presentation that works on every platform):
+  - **an "In words" paragraph** that says everything the diagram shows, for a
+    screen reader and for anyone who cannot read the picture;
+  - **a small text diagram**, in a ```` ```text ```` block. It looks the same in a
+    git preview, a terminal, `less`, a PDF made with pandoc, and on a phone;
+  - **a Mermaid block, only where it is meaningful and readable**: it adds
+    something the text diagram does not (a sequence, a state machine), and it
+    stays legible at a phone's width.
+
+  **No Graphviz.** Mermaid is for the git preview only, so a page must be complete
+  without it. [WORKBENCH.md](WORKBENCH.md) is the first page written this way, and
+  its conventions are a way to meet the rule, not the rule. It keeps text diagrams
+  to plain ASCII, at most 64 columns wide, and never writes two hyphens directly before a letter,
+  because `docs_flags` reads that as a jichi option. It puts the text diagram first, then the words,
+  then Mermaid, because outside a git preview Mermaid is only source code. Existing
+  pages are brought to the rule as they are revised, not in one sweep.
+- **Every page gives its context.** It opens with who it is for (and who should
+  read something else), what you will be able to do after reading it, what you need
+  first (with a link for each), and where it fits (the page before, the page after,
+  the reference it relies on). Inside, terms are defined at first use or linked to
+  [VOCABULARY.md](VOCABULARY.md), and a rule names the incident that made it, so a
+  reader can tell a rule from a habit. **A ceiling lint since M946:**
+  [`docs_opener_lint`](../tests/smoke/docs_opener_lint.sh) counts the top-level pages
+  without an opener a pattern can find, and the count may only fall.
+- **Honest, and says so.** Measured, expected and unknown are kept apart; a number
+  names its source, its date and its build; the platform words keep their strict
+  meanings ([PLATFORMS.md](PLATFORMS.md)). A correction stays visible next to the
+  number it changed. Limits are stated where the reader meets them, not only in a
+  register. **A lint for the install pages since M945:**
+  [`install_verdict_lint`](../tests/smoke/install_verdict_lint.sh) holds each one's
+  verdict to its PLATFORMS.md row.
+- **References.** A technical page ends with **Read further**, each entry marked
+  primary (a standard, a man page, an RFC, a paper) or secondary (a book, a
+  tutorial), with a line on why to read it; the full entries live in
+  [BIBLIOGRAPHY.md](BIBLIOGRAPHY.md). The same ceiling lint (M946) counts the pages
+  without one.
+- **One question per page.** A page that answers several questions for several
+  readers is split, by task or by reader. The current state comes first; how it
+  came to be — milestones, corrections, dead ends — goes in a section at the end or
+  in the ROADMAP and analysis pages, linked from there.
+
+**What a revised page gains** (added 2026-10-04, from the plan of 2026-10-03, step 7.5,
+after the reading guides were found to have the best structure in the tree):
+
+- **A page that explains a mechanism gives pseudocode before the C**, as Annai's
+  "Idea" sections do: the shape in ten lines a reader can hold, then the real code.
+  It points at the code as `file.c:function`, never by line number, so the pointer
+  survives the next edit ([`reading_refs_lint`](../tests/smoke/reading_refs_lint.sh)
+  holds the reading guides to this).
+- **A page that teaches a command shows three things:** the command, what you
+  should see, and what to do if you see something else.
+  [install/debian-ubuntu.md](install/debian-ubuntu.md) is the model page. The
+  command is run first, in exactly the published form; a headless run carries
+  `< /dev/null` ([`docs_stdin_lint`](../tests/smoke/docs_stdin_lint.sh), M944),
+  because without it a run under ssh or CI waits forever.
+- **A design decision links its DECISIONS row**, which names what was rejected. A
+  reader who disagrees can then see whether their alternative was weighed, and why
+  it lost.
+- **A recommendation says what it rests on: measured, expected or unknown.** A
+  measured one names its source, date and build; an expected one says what would
+  confirm it; an unknown one says so instead of guessing.

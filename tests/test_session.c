@@ -11,7 +11,9 @@
 #include "jc_snprintf.h"
 #include "jc_str.h"
 #include "jc_json.h"
+#include "jc_log.h"     /* M1137 (C-19): jc_redact_register/active */
 #include "jc_fault.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -289,6 +291,72 @@ void test_session(void)
         unsetenv("JICHI_FAULT_WRITE_AFTER");
         jc_fault_reset();
         JC_CHECK(jc_session_save(&fs) == JC_OK);
+        jc_session_delete(fs.id);
+        jc_session_free(&fs);
+    }
+    /* M1137 (C-19): the session save's redaction must fail CLOSED. Register a
+     * real secret and put it in the history so jc_session_serialize carries it
+     * into the on-disk text; arm JC_FAULT_REDACT (stands in for the scrub's
+     * malloc failing) so jc_redact_scrub returns NULL. The pre-fix code did its
+     * OWN malloc, ignored the probe, and wrote the UNREDACTED session -- so
+     * jc_session_save returned JC_OK and the file held the canary (RED). The
+     * fixed helper returns NULL and the site joins jc_session_serialize's
+     * NULL-on-OOM arm: JC_ERR_OOM, and NO file is written. */
+    {
+        struct jc_session fs;
+        char spath[256];
+        const char *sec = "SESSION-CANARY-0123456789";
+        jc_session_new(&fs, jc_test_tmp("workdir"), a);
+        /* A tool result holding the secret lands in the serialized history. */
+        jc_history_add(&fs.history, JC_ROLE_USER, "print it");
+        jc_history_add_tool_result(&fs.history, "c1",
+                                   "leak SESSION-CANARY-0123456789 done", 0);
+        jc_redact_register(sec);
+        JC_CHECK(jc_redact_active() == 1);
+
+        setenv("JICHI_FAULT_REDACT_AFTER", "0", 1);
+        jc_fault_reset();
+        /* The save must REFUSE, not write unredacted. */
+        JC_CHECK(jc_session_save(&fs) == JC_ERR_OOM);
+        jc_snprintf(spath, sizeof(spath),
+                    "%s/jichi_home_test/.jichi.d/sessions/%s.json",
+                    jc_test_tmpdir(), fs.id);
+        /* No file at all: the strongest observable (nothing unredacted). */
+        {
+            FILE *f = fopen(spath, "rb");
+            JC_CHECK(f == NULL);
+            if (f != NULL) {
+                fclose(f);
+            }
+        }
+        unsetenv("JICHI_FAULT_REDACT_AFTER");
+        jc_fault_reset();
+        /* ...and the failure is transient: with the probe cleared the same
+         * session saves normally, redacted (the canary is gone, *** present). */
+        JC_CHECK(jc_session_save(&fs) == JC_OK);
+        {
+            FILE *f = fopen(spath, "rb");
+            char *content = NULL;
+            long clen;
+            if (f != NULL) {
+                fseek(f, 0, SEEK_END);
+                clen = ftell(f);
+                fseek(f, 0, SEEK_SET);
+                content = (char *)malloc((size_t)clen + 1);
+                if (content != NULL) {
+                    size_t rd = fread(content, 1, (size_t)clen, f);
+                    content[rd] = '\0';
+                }
+                fclose(f);
+            }
+            JC_CHECK(f != NULL && content != NULL);
+            if (content != NULL) {
+                JC_CHECK(strstr(content, sec) == NULL);
+                JC_CHECK(strstr(content, "***") != NULL);
+                free(content);
+            }
+        }
+        jc_redact_reset();
         jc_session_delete(fs.id);
         jc_session_free(&fs);
     }
@@ -597,7 +665,7 @@ void test_session_foreign_file(void)
 
     setenv("HOME", jc_test_tmp("jichi_foreign_test"), 1);
     (void)jc_test_rm_rf(jc_test_tmp("jichi_foreign_test"));
-    jc_snprintf(dir, sizeof dir,
+    jc_snprintf(dir, sizeof dir, "%s",
                 jc_test_tmp("jichi_foreign_test/.jichi.d/sessions"));
     JC_CHECK(jc_mkdir_p(dir) == JC_OK);
 
@@ -674,7 +742,7 @@ void test_session_store_version(void)
 
     setenv("HOME", jc_test_tmp("jichi_storev_test"), 1);
     (void)jc_test_rm_rf(jc_test_tmp("jichi_storev_test"));
-    jc_snprintf(dir, sizeof dir,
+    jc_snprintf(dir, sizeof dir, "%s",
                 jc_test_tmp("jichi_storev_test/.jichi.d/sessions"));
     JC_CHECK(jc_mkdir_p(dir) == JC_OK);
 
@@ -721,13 +789,13 @@ void test_session_store_version(void)
     if (JC_REQUIRE(jc_session_load_by_id("bbbbbbbb-0000-4000-8000-000000000002",
                                          &s, a) == JC_OK)) {
         JC_CHECK(s.todos.items.len == 0);
-        /* ...and saving it writes the current shape: "v":2 and a todos array,
+        /* ...and saving it writes the current shape: "v":3 and a todos array,
          * so the next reader can tell "no list" from "written before v2". */
         {
             char *text = jc_session_serialize(&s);
             JC_CHECK(text != NULL);
             if (text != NULL) {
-                JC_CHECK(strstr(text, "\"v\":2") != NULL);
+                JC_CHECK(strstr(text, "\"v\":3") != NULL);
                 JC_CHECK(strstr(text, ",\"todos\":[]}") != NULL);
                 free(text);
             }
@@ -933,6 +1001,80 @@ void test_session_roundtrip(void)
     }
     JC_CHECK(back.mode == JC_MODE_AUTO);
 
+    /* M954 (store v3): the relay's chain fields survive save + load. A v3
+     * session that handed over carries relay_id, leg, prev_session and
+     * notes_path; a fresh load restores all four and stays clean. */
+    {
+        struct jc_session s2, back2;
+        jc_session_new(&s2, jc_test_tmp("v3_work"), a);
+        s2.relay_id = jc_arena_strdup(a, "3fa2a4a0-0000-0000-0000-000000000001");
+        s2.leg = 2;
+        s2.prev_session = jc_arena_strdup(a,
+            "3fa2a4a0-0000-0000-0000-000000000000");
+        s2.notes_path = jc_arena_strdup(a,
+            "/home/u/.jichi.d/relay/3fa2a4a0-0000-0000-0000-000000000001/"
+            "leg-02.md");
+        jc_history_add(&s2.history, JC_ROLE_USER, "the relay task");
+        JC_REQUIRE(jc_session_save(&s2) == JC_OK);
+        memset(&back2, 0, sizeof(back2));
+        JC_REQUIRE(jc_session_load_by_id(s2.id, &back2, a) == JC_OK);
+        JC_CHECK_STR(back2.relay_id,
+            "3fa2a4a0-0000-0000-0000-000000000001");
+        JC_CHECK(back2.leg == 2);
+        JC_CHECK_STR(back2.prev_session,
+            "3fa2a4a0-0000-0000-0000-000000000000");
+        JC_CHECK_STR(back2.notes_path,
+            "/home/u/.jichi.d/relay/3fa2a4a0-0000-0000-0000-000000000001/"
+            "leg-02.md");
+        /* A plain load of a file that already carries the fields is clean:
+         * memory equals disk, so no save is due. */
+        JC_CHECK(!jc_session_needs_save(&back2));
+        jc_session_free(&back2);
+        jc_session_free(&s2);
+    }
+
+    /* M954 (store v3): the load path must leave the relay's chain fields in
+     * their "never handed over" state even when the FILE carries none of
+     * them, because the callers do not initialize the struct first. ACP's
+     * session/load and the headless resume hand load_by_id a plain
+     * `struct jc_session` on the stack -- every other field is written
+     * unconditionally by load_from_text (the history via jc_history_init,
+     * the todos via jc_todo_init, saved_* at the tail), and only the four
+     * chain fields were assigned "when present". The poison below holds the
+     * stack garbage 0xFF-shaped: with the conditional assignments a poisoned
+     * load left s->relay_id != NULL, and the first save_session after a
+     * prompt then ran strlen on it and the ACP process SIGSEGV'd -- the
+     * crash that read as an 80-second "slowdown" in
+     * saved_mode_never_widens (its acp_wait_id loops burn out on the dead
+     * process while all seven checks still pass). */
+    {
+        struct jc_session po;
+        memset(&po, 0xFF, sizeof(po)); /* the ACP caller's uninitialized stack */
+        /* A failed load must not write partial fields into the poisoned
+         * struct (it returns before the field block is reached). */
+        JC_REQUIRE(jc_session_load_by_id("no-such-id-0000-4000-8000-000000000001",
+                                         &po, a) != JC_OK);
+        /* Now a load that SUCCEEDS from a file with none of the relay
+         * fields: the seeded session, whose v2-shaped file predates v3. */
+        memset(&po, 0xFF, sizeof(po));
+        if (!JC_REQUIRE(jc_session_load_by_id(s.id, &po, a) == JC_OK)) {
+            jc_session_free(&s);
+            jc_arena_free(a);
+            return;
+        }
+        /* A poisoned load of a file WITHOUT the relay fields must still end
+         * with the fields at their "never handed over" values. Unfixed, these
+         * four reads were 0xFF stack poison (relay_id/prev_session/notes_path
+         * != NULL, leg != 0), and the first post-load save ran strlen on the
+         * garbage relay_id -- the ACP SIGSEGV the smoke driver's guard now
+         * catches at the wire level. */
+        JC_CHECK(po.relay_id == NULL);
+        JC_CHECK(po.leg == 0);
+        JC_CHECK(po.prev_session == NULL);
+        JC_CHECK(po.notes_path == NULL);
+        jc_session_free(&po);
+    }
+
     /* M606: the task list round-trips with its CONTENT and its STATE. Before
      * M606 nothing here existed: the list lived on jc_app, the codec never saw
      * it, and a resumed conversation read "(todo list is empty)" beside a
@@ -979,6 +1121,94 @@ void test_session_roundtrip(void)
     }
 
     JC_CHECK(jc_session_delete(s.id) == JC_OK);
+
+    /* D-07 (M1139): the ACP entry hands the client's sessionId straight to
+     * jc_session_load_by_id / jc_session_delete, which interpolate it into
+     * the store path. A non-plain id ("../..") must be REFUSED by those
+     * functions themselves, without touching any file outside the store.
+     * Own store (jichi_home_d07, rm'd first) so the teeth have a fresh,
+     * empty store to work against; HOME is restored to the suite's shared
+     * store below, like every other block here. */
+    {
+        struct jc_session tv;
+        char fxdir[300];
+        char fxpath[330];
+        char sdir[300];
+        const char *fxjson =
+            "{\"sessionId\":\"d07-fixture\",\"title\":\"FIXTURE OUTSIDE "
+            "STORE\",\"workspaceDirectory\":\".\",\"mode\":\"chat\","
+            "\"history\":[{\"role\":\"user\",\"content\":\"FIXTURE-MARKER "
+            "outside the store\"}],\"todos\":[]}";
+        setenv("HOME", jc_test_tmp("jichi_home_d07"), 1);
+        (void)jc_test_rm_rf(jc_test_tmp("jichi_home_d07"));
+        jc_snprintf(fxdir, sizeof(fxdir),
+                    "%s/jichi_home_d07/.jichi.d/fx", jc_test_tmpdir());
+        JC_CHECK(jc_mkdir_p(fxdir) == JC_OK);
+        jc_snprintf(fxpath, sizeof(fxpath), "%s/fixture.json", fxdir);
+
+        /* M1139-b: the store dir must EXIST before leg 1 -- the traversal
+         * id becomes jichi_home_d07/.jichi.d/sessions/../fx/fixture.json,
+         * and the kernel resolves the 'sessions/..' only when 'sessions'
+         * is a real directory. Without it the unfixed tree never reaches
+         * the fixture (ENOENT, NOTFOUND / idempotent OK) and the tooth
+         * sees only a status flip, not the destruction. */
+        jc_snprintf(sdir, sizeof(sdir),
+                    "%s/jichi_home_d07/.jichi.d/sessions", jc_test_tmpdir());
+        JC_CHECK(jc_mkdir_p(sdir) == JC_OK);
+
+        /* Plant the fixture OUTSIDE the store (the store is
+         * jichi_home_d07/.jichi.d/sessions; the fixture is a sibling). */
+        {
+            FILE *f = fopen(fxpath, "wb");
+            JC_CHECK(f != NULL);
+            if (f != NULL) {
+                size_t put = fwrite(fxjson, 1, strlen(fxjson), f);
+                JC_CHECK(put == strlen(fxjson));
+                fclose(f);
+            }
+        }
+
+        /* Leg 1: a traversal id is refused by load_by_id WITHOUT touching
+         * the disk. The fixture must survive the call. On the unfixed tree
+         * this leg is RED: the store dir exists (M1139-b), so the
+         * traversal resolves and load returns JC_OK and the fixture's
+         * marker IS read in as a conversation -- the witnessed destruction. */
+        jc_session_new(&tv, jc_test_tmp("d07_work"), a);
+        JC_CHECK(jc_session_load_by_id("../fx/fixture", &tv, a)
+                 == JC_ERR_INVALID);
+        JC_CHECK(jc_file_exists(fxpath));
+        jc_session_free(&tv);
+
+        /* Leg 2: the same refusal on the delete side. On the unfixed tree
+         * this leg is RED: with the store dir present the unfixed delete
+         * returns JC_OK and actually REMOVES the fixture -- the survival
+         * assert below it goes red, not just the status line. */
+        JC_CHECK(jc_session_delete("../fx/fixture") == JC_ERR_INVALID);
+        JC_CHECK(jc_file_exists(fxpath));
+
+        /* Leg 3 (control): a plain id that exists in the store loads and
+         * deletes JC_OK -- the gate must not be a blanket refusal. */
+        {
+            struct jc_session plain;
+            jc_session_new(&plain, jc_test_tmp("d07_work"), a);
+            jc_history_add(&plain.history, JC_ROLE_USER, "d07 plain");
+            JC_CHECK(jc_session_save(&plain) == JC_OK);
+            JC_CHECK(jc_session_load_by_id(plain.id, &tv, a) == JC_OK);
+            jc_session_free(&tv);
+            JC_CHECK(jc_session_delete(plain.id) == JC_OK);
+            jc_session_free(&plain);
+        }
+
+        /* Leg 4 (control): a plain id that does NOT exist is NOTFOUND, not
+         * INVALID -- guards the fix from becoming a blanket refusal. */
+        jc_session_new(&tv, jc_test_tmp("d07_work"), a);
+        JC_CHECK(jc_session_load_by_id("no-such-d07-plain-id", &tv, a)
+                 == JC_ERR_NOTFOUND);
+        jc_session_free(&tv);
+
+        (void)jc_test_rm_rf(jc_test_tmp("jichi_home_d07"));
+    }
+
     setenv("HOME", jc_test_tmp("jichi_home_test"), 1); /* the suite's shared store */
     jc_session_free(&back);
     jc_session_free(&s);

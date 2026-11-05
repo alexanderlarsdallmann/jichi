@@ -146,7 +146,7 @@ jichi 正在驱动一次**大型、自主的 Godot → Zig 移植**——那颗�
 
 ```sh
 make && ./jichi setup            # 引导式设置
-./jichi -p "explain this repo"   # headless
+./jichi -p "explain this repo" < /dev/null   # headless
 ./jichi                          # TUI
 ```
 

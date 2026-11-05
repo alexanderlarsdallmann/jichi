@@ -9,6 +9,7 @@
  */
 
 #include "jc_repomap.h"
+#include "jc_walk.h"
 #include "jc_app.h"
 #include "jc_str.h"
 #include "jc_mem.h"
@@ -608,6 +609,17 @@ int jc_repomap_scan(const char *ext, const char *text, struct jc_vec *out)
 
 /* ---- builder ------------------------------------------------------------ */
 
+/* M1081 (F-01): the high-water mark of the build arena, in bytes, over the
+ * last render_listing run. File-static: it must not leak into the public
+ * header beyond the accessor below, and no other part of the program reads
+ * it. render_listing is the only writer (single-threaded by construction). */
+static jc_size g_last_arena_peak = 0;
+
+jc_size jc_repomap_last_arena_peak(void)
+{
+    return g_last_arena_peak;
+}
+
 /* Extension (after the last '.') of a basename, or "". */
 static const char *path_ext(const char *path)
 {
@@ -644,31 +656,47 @@ int jc_walk_skip_dir(const char *name, const struct jc_vec *extra)
     return 0;
 }
 
+/* Walk a directory tree to collect source files, bounded to JC_REPOMAP_MAX_FILES.
+ * Uses jc_walk_classify() (D-27/D-28/D-29/D-30) to:
+ *   - lstat each entry instead of following symlinks
+ *   - never walk into a link that resolves outside the workspace root
+ *   - track (dev,ino) of directories to avoid hardlink loops (D-29)
+ *   - respect entry and depth bounds (max_depth=128, max_entries=JC_REPOMAP_MAX_FILES)
+ *
+ * The context is created by the caller (render_listing) and passed via ctx. */
 static void rm_walk(const char *dir, struct jc_vec *files, struct jc_arena *a,
-                    const struct jc_vec *ignore)
+                    const struct jc_vec *ignore, struct jc_walk_ctx *ctx, int depth)
 {
     struct jc_vec names;
     jc_size i;
 
-    if (files->len >= JC_REPOMAP_MAX_FILES) return;
+    if (files->len >= (jc_size)ctx->max_entries) return;
     jc_vec_init(&names, sizeof(char *));
     if (jc_list_dir(dir, &names, a) != JC_OK) {
         jc_vec_free(&names);
         return;
     }
-    for (i = 0; i < names.len && files->len < JC_REPOMAP_MAX_FILES; i++) {
+    for (i = 0; i < names.len && files->len < (jc_size)ctx->max_entries; i++) {
         const char *name = *(char **)jc_vec_at(&names, i);
         jc_size flen = (jc_size)(strlen(dir) + strlen(name) + 2);
         char *full = (char *)jc_arena_alloc(a, flen);
         if (full == NULL) break;
         jc_snprintf(full, flen, "%s/%s", dir, name);
-        if (jc_is_dir(full)) {
+
+        switch (jc_walk_classify(ctx, full, depth)) {
+        case JC_WALK_SKIP:
+            continue;
+        case JC_WALK_DIR:
             if (!jc_walk_skip_dir(name, ignore)) {
-                rm_walk(full, files, a, ignore);
+                rm_walk(full, files, a, ignore, ctx, depth + 1);
             }
-        } else if (lang_of(path_ext(full)) != RL_NONE &&
-                   jc_file_size(full) <= RM_MAX_FILE_BYTES) {
-            jc_vec_push(files, &full);
+            continue;
+        case JC_WALK_FILE:
+            if (lang_of(path_ext(full)) != RL_NONE &&
+                jc_file_size(full) <= RM_MAX_FILE_BYTES) {
+                jc_vec_push(files, &full);
+            }
+            continue;
         }
     }
     jc_vec_free(&names);
@@ -682,7 +710,13 @@ static int path_cmp(const void *a, const void *b)
 /* Render the "<relpath>: sym, sym, ..." listing for the source tree rooted at
  * `root` (paths shown relative to `root`), bounded to `limit` bytes. Returns a
  * new arena string, or NULL when the tree has no recognised source files.
- * Shared by the whole-workspace map and the @folder reference (M34/F5). */
+ * Shared by the whole-workspace map and the @folder reference (M34/F5).
+ *
+ * The walk uses a shared walker context (D-27/D-28/D-29/D-30) that:
+ *   - resolves root to its canonical path (under-root check)
+ *   - never follows symlinks out of root
+ *   - avoids hardlink loops with a (dev,ino) visited set
+ *   - respects entry and depth bounds */
 static char *render_listing(struct jc_app *app, const char *root, jc_size limit)
 {
     struct jc_vec files;
@@ -695,18 +729,48 @@ static char *render_listing(struct jc_app *app, const char *root, jc_size limit)
      * keeps those texts (and the walk's path list) out of the session arena,
      * which used to retain ~the whole source tree for the process lifetime;
      * only the bounded rendered map survives (on app->arena, via the caller
-     * or the strdup below). */
+     * or the strdup below).
+     *
+     * M1081 (F-01): M140 fixed the lifetime, not the peak -- ba held EVERY
+     * scanned file's text until after the listing loop, so its high-water
+     * mark was the SUM of the files, bounded by neither JC_REPOMAP_MAX
+     * (which stops the loop, not the retention) nor the per-file cap. The
+     * walk's path list stays on ba; each file's text goes to fa, reset
+     * right after the scan consumes it (the scan mallocs its symbol names,
+     * so the text is dead by then). Peak = one file (<= RM_MAX_FILE_BYTES)
+     * + the path list, no output change. */
     struct jc_arena *ba = jc_arena_new(0);
+    struct jc_arena *fa;
+    jc_size arena_hwm = 0;
+    jc_size file_hwm = 0;
 
+    g_last_arena_peak = 0;
     if (ba == NULL) {
         return NULL;
     }
-    jc_vec_init(&files, sizeof(char *));
-    rm_walk(root, &files, ba, &app->config.ignore_dirs);
-    if (files.len == 0) {
-        jc_vec_free(&files);
+    fa = jc_arena_new(0);
+    if (fa == NULL) {
         jc_arena_free(ba);
         return NULL;
+    }
+
+    {
+        struct jc_walk_ctx walk_ctx;
+        jc_vec_init(&files, sizeof(char *));
+        if (jc_walk_ctx_init(&walk_ctx, root, 128, JC_REPOMAP_MAX_FILES) != 0) {
+            jc_arena_free(ba);
+            return NULL;  /* root doesn't exist or isn't a directory */
+        }
+        rm_walk(root, &files, ba, &app->config.ignore_dirs, &walk_ctx, 0);
+        jc_walk_ctx_free(&walk_ctx);
+        arena_hwm = jc_arena_used(ba, NULL);
+        if (files.len == 0) {
+            jc_vec_free(&files);
+            jc_arena_free(ba);
+            jc_arena_free(fa);
+            g_last_arena_peak = arena_hwm;
+            return NULL;
+        }
     }
     qsort(files.data, files.len, sizeof(char *), path_cmp);
 
@@ -724,9 +788,16 @@ static char *render_listing(struct jc_app *app, const char *root, jc_size limit)
         }
         jc_vec_init(&syms, sizeof(char *));
         if (jc_is_regular_file(full) && /* M198: skip FIFO/socket/device */
-            jc_read_file(full, &text, NULL, ba) == JC_OK) {
+            jc_read_file(full, &text, NULL, fa) == JC_OK) {
             jc_repomap_scan(path_ext(full), text, &syms);
+            {
+                /* M1081 (F-01): the text just read is the per-file peak; fa
+                 * is reset below, so sample before it returns the block. */
+                jc_size now = jc_arena_used(fa, NULL);
+                if (now > file_hwm) file_hwm = now;
+            }
         }
+        jc_arena_reset(fa);   /* M1081 (F-01): one file's text at a time   */
         jc_sb_init(&line);
         jc_sb_append(&line, rel);
         for (j = 0; j < syms.len && (int)j < JC_REPOMAP_FILE_SYMS; j++) {
@@ -750,7 +821,10 @@ static char *render_listing(struct jc_app *app, const char *root, jc_size limit)
         any = 1;
     }
     jc_vec_free(&files);
-    jc_arena_free(ba); /* releases every scanned file text + the path list */
+    if (file_hwm > arena_hwm) arena_hwm = file_hwm;
+    g_last_arena_peak = arena_hwm;
+    jc_arena_free(ba); /* releases the walk's path list (texts went to fa) */
+    jc_arena_free(fa);
 
     /* Scratch, not the session arena: jc_repomap_build re-copies the body it
      * keeps, and build_dir's @folder: callers are per-turn -- so repeated

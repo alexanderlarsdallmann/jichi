@@ -26,6 +26,18 @@ extern "C" {
 /* Maximum canonical path length handled (bytes, incl. terminator). */
 #define JC_PATH_MAX 4096
 
+/* State-file check for .jichi/ directory and files. Used for security-class
+ * D-15: ensure .jichi files are not symlinks and the directory is regular.
+ * Returns JC_OK if the path is valid; JC_ERR_DENIED if the directory part
+ * exists and is a symlink; JC_ERR_INVALID if the directory part exists but
+ * is not a directory, or if the leaf is a symlink or non-regular (FIFO,
+ * device, ...). The helper does NOT check containment under root -
+ * that is guaranteed by construction (the caller builds the path from app->root).
+ * `path` must be the full path to a file under `<cwd>/.jichi/`.
+ * The helper does NOT do realpath: the caller is responsible for ensuring the
+ * root is the workspace root and that the path is built from app->root. */
+jc_status jc_state_file_check(const char *root, const char *path);
+
 /* Pure containment check: is the already-canonical `path` lexically inside the
  * already-canonical `root`? True when path == root, or path begins with
  * `root` followed by a '/' (so "/work" contains "/work/x" but NOT "/workother").

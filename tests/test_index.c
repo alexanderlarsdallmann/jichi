@@ -174,17 +174,12 @@ static void test_endian_tag(void)
     JC_CHECK(strcmp(tag, jc_index_endian_tag()) == 0);
 }
 
-/* Reimplementation of the index's cache-key hash (djb2), so the test can
- * plant a cache where jc_index_build will look for it. */
-static unsigned long t_djb2(const char *s)
-{
-    unsigned long h = 5381u;
-    while (*s != '\0') {
-        h = ((h << 5) + h) + (unsigned char)*s;
-        s++;
-    }
-    return h;
-}
+/* M1097-b: the index cache key is the SAME derivation as the checkpoint/lease/
+ * telemetry stores -- jc_workspace_key, the 64-hex SHA-256 of the raw path.
+ * The test plants a cache through the ONE public derivation (jc_index_cache_dir)
+ * instead of re-implementing the hash, so it cannot drift from the code it
+ * measures. (The old plant used a local t_djb2 copy of the pre-M1097-b key;
+ * that copy is deleted -- nothing else here needed it.) */
 
 /* M141: a fully-clean cache loads OFFLINE (no embedding endpoint touched)
  * and the old blob is adopted as the resident vectors -- mmap'd read-only
@@ -208,9 +203,9 @@ static void test_cached_load(void)
     JC_CHECK(jc_write_file(src, text, strlen(text)) == JC_OK);
 
     /* Plant the cache: manifest built through cJSON so the mtime round-trips
-     * through the same print/parse path the loader uses (exact == compare). */
-    jc_snprintf(cdir, sizeof(cdir), "%s/index/%lu",
-                jc_test_tmp("jichi_home_test/.jichi.d"), t_djb2(ws));
+     * through the same print/parse path the loader uses (exact == compare).
+     * M1097-b: the directory comes from jc_index_cache_dir -- the 64-hex key. */
+    jc_index_cache_dir(ws, cdir, sizeof(cdir));
     jc_mkdir_p(cdir);
     {
         cJSON *root = cJSON_CreateObject();
@@ -290,6 +285,112 @@ static void test_cached_load(void)
     rmdir(ws);
 }
 
+/* M1097-b (the index belt): a manifest whose recorded "root" is NOT the
+ * workspace being indexed belongs to a different tree -- the exact structure
+ * the old djb2 key let Ez and FY share -- and must be REBUILT, not reused.
+ * Plant a fully-valid cache (same model, same endian, matching mtime) whose
+ * root string is a foreign path; jc_index_build must ignore it (embedded > 0,
+ * not 0), where a model/endian mismatch would be the only other reason to
+ * rebuild. Pre-fix this assertion is red: the loader checked model+endian only
+ * and reused the foreign vectors (st.embedded == 0). */
+static void test_root_mismatch_rebuilds(void)
+{
+    const char *ws = jc_test_tmp("jichi_idx_ws_mismatch");
+    const char *src = jc_test_tmp("jichi_idx_ws_mismatch/a.c");
+    const char *foreign = "/does/not/exist/elsewhere";
+    const char *text = "int a;\nint b;\n";
+    char cdir[256];
+    char path[300];
+    struct jc_model_cfg m;
+    struct jc_index *idx = NULL;
+    struct jc_index_stats st;
+
+    setenv("HOME", jc_test_tmp("jichi_home_mismatch"), 1);
+    jc_mkdir_p(ws);
+    JC_CHECK(jc_write_file(src, text, strlen(text)) == JC_OK);
+
+    jc_index_cache_dir(ws, cdir, sizeof(cdir));
+    jc_mkdir_p(cdir);
+    {
+        cJSON *root = cJSON_CreateObject();
+        cJSON *farr = cJSON_AddArrayToObject(root, "files");
+        cJSON *carr;
+        cJSON *fe = cJSON_CreateObject();
+        cJSON *ce = cJSON_CreateObject();
+        char *mtext;
+        cJSON_AddNumberToObject(root, "version", 1);
+        cJSON_AddStringToObject(root, "endian", jc_index_endian_tag());
+        /* THE mismatch: the root is a foreign path, not the one being indexed. */
+        cJSON_AddStringToObject(root, "root", foreign);
+        cJSON_AddStringToObject(root, "model", "test-embed");
+        cJSON_AddNumberToObject(root, "dim", 2);
+        cJSON_AddNumberToObject(root, "count", 1);
+        cJSON_AddStringToObject(fe, "path", src);
+        cJSON_AddNumberToObject(fe, "mtime", jc_file_mtime(src));
+        cJSON_AddNumberToObject(fe, "first", 0);
+        cJSON_AddNumberToObject(fe, "count", 1);
+        cJSON_AddItemToArray(farr, fe);
+        carr = cJSON_AddArrayToObject(root, "chunks");
+        cJSON_AddStringToObject(ce, "path", src);
+        cJSON_AddNumberToObject(ce, "start", 1);
+        cJSON_AddNumberToObject(ce, "end", 2);
+        cJSON_AddItemToArray(carr, ce);
+        mtext = cJSON_Print(root);
+        cJSON_Delete(root);
+        JC_CHECK(mtext != NULL);
+        jc_snprintf(path, sizeof(path), "%s/manifest.json", cdir);
+        JC_CHECK(jc_write_file(path, mtext, strlen(mtext)) == JC_OK);
+        free(mtext);
+    }
+    {
+        float v[2];
+        v[0] = 3.0f;
+        v[1] = 4.0f;
+        jc_snprintf(path, sizeof(path), "%s/vectors.f32", cdir);
+        JC_CHECK(jc_write_file(path, (const char *)v, sizeof(v)) == JC_OK);
+    }
+
+    memset(&m, 0, sizeof(m));
+    m.model = (char *)"test-embed";
+    m.api_base = (char *)"http://127.0.0.1:1/v1";
+    /* The decisive red/green signal. The planted cache is fully valid EXCEPT
+     * its root: same model, same endian, matching mtime, a well-formed blob.
+     *   PRE-FIX (loader checks model+endian only): it is TRUSTED -- the build
+     *     is served entirely from the cache, touches no endpoint, and returns
+     *     JC_OK with embedded == 0.
+     *   POST-FIX (the belt): the root mismatch drops the cache, so the build
+     *     must EMBED the chunk. The endpoint is unreachable, the embed fails,
+     *     and the build returns an error (non-JC_OK). That error is the proof
+     *     the cache was NOT reused -- the belt forced a rebuild.
+     * So: green == (r == JC_OK && st.embedded == 0) is the BUG's signature
+     * reversed; we assert the belt -- the build must NOT be the clean offline
+     * cache-reuse. */
+    {
+        jc_status r = jc_index_build(ws, &m, 0, NULL, 0, &idx, &st, NULL,
+                                     NULL);
+        if (r == JC_OK) {
+            /* Offline success: the foreign cache was TRUSTED (embedded == 0,
+             * no rebuild). That is the pre-M1097-b defect -- THE RED LEG. */
+            JC_CHECK(st.embedded > 0);
+        } else {
+            /* Embed attempted (and failed, no endpoint): the belt REBUILT.
+             * The cache was dropped, not reused. Green. */
+            JC_CHECK(r != JC_OK);
+        }
+        if (idx != NULL) {
+            jc_index_free(idx);
+        }
+    }
+
+    remove(src);
+    jc_snprintf(path, sizeof(path), "%s/manifest.json", cdir);
+    remove(path);
+    jc_snprintf(path, sizeof(path), "%s/vectors.f32", cdir);
+    remove(path);
+    rmdir(cdir);
+    rmdir(ws);
+}
+
 void test_index(void)
 {
     test_chunk_ranges();
@@ -297,4 +398,5 @@ void test_index(void)
     test_docs_html();
     test_endian_tag();
     test_cached_load();
+    test_root_mismatch_rebuilds();
 }

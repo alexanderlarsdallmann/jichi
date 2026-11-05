@@ -30,7 +30,7 @@
 #                   alias table of its own.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 8
+t_plan 11
 smoke_home
 tmp=$(smoke_tmp)
 
@@ -136,6 +136,32 @@ else
     t_fail "control failed: a repairable blob inside the scope was NOT written, so
  check 7 may pass because repair is broken rather than because the fence works:
  $(tail -c 200 "$tmp/out")"
+fi
+
+# --- 9-11: a deny fence written as a human writes it (M843, PAR-3) ----------
+# `permissions.deny` took only a JSON `true` as "all": a 1 or a "true" read as
+# absent, so the fence did not apply -- with a real model and --auto, write_file
+# wrote. Both spellings must refuse, and the positive control (a 0) must write,
+# or the two refusals could pass on a binary that writes nothing at all.
+run_case write_file '{"path":"denied.txt","content":"x"}' '"permissions":{"deny":1}'
+if [ -f "$CASE_WS/denied.txt" ]; then
+    t_fail "\"deny\": 1 did not deny: write_file wrote the file. A fence a human
+ writes as 1 is read as absent (PAR-3)"
+else
+    t_ok "\"deny\": 1 denies every tool, as true does"
+fi
+run_case write_file '{"path":"denied.txt","content":"x"}' '"permissions":{"deny":"true"}'
+if [ -f "$CASE_WS/denied.txt" ]; then
+    t_fail "\"deny\": \"true\" did not deny: write_file wrote the file (PAR-3)"
+else
+    t_ok "\"deny\": \"true\" denies every tool, as true does"
+fi
+run_case write_file '{"path":"allowed.txt","content":"x"}' '"permissions":{"deny":0}'
+if [ -f "$CASE_WS/allowed.txt" ]; then
+    t_ok "control: \"deny\": 0 denies nothing, so the call writes"
+else
+    t_fail "control failed: with \"deny\": 0 write_file did NOT write, so checks
+ 9-10 may pass because nothing writes at all: $(tail -c 200 "$tmp/out")"
 fi
 
 t_done

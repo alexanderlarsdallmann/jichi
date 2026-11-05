@@ -58,6 +58,25 @@ void test_sse(void)
     JC_CHECK_STR(c.last_data, "x");
     jc_sse_free(&p);
 
+    /* A bare CR ends a line (WHATWG allows CR, LF and CRLF), M775. The stream
+     * "data: only-cr\r\r" is a data line then a blank line, so one event. */
+    memset(&c, 0, sizeof(c));
+    jc_sse_init(&p, on_event, &c);
+    jc_sse_feed(&p, "data: only-cr\r\r", 15);
+    JC_CHECK(c.count == 1);
+    JC_CHECK_STR(c.last_data, "only-cr");
+    jc_sse_free(&p);
+
+    /* A CRLF cut between its CR and LF, across two feeds, is ONE terminator, not
+     * two: last_was_cr swallows the LF, so no empty line sneaks in (M775). */
+    memset(&c, 0, sizeof(c));
+    jc_sse_init(&p, on_event, &c);
+    jc_sse_feed(&p, "data: split\r", 12);
+    jc_sse_feed(&p, "\n\r\n", 3);
+    JC_CHECK(c.count == 1);
+    JC_CHECK_STR(c.last_data, "split");
+    jc_sse_free(&p);
+
     /* Multiple data: lines concatenate with '\n'. */
     memset(&c, 0, sizeof(c));
     jc_sse_init(&p, on_event, &c);

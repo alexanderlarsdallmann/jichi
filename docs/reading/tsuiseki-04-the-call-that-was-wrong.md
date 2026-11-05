@@ -48,7 +48,7 @@ Round 2's two events, the call and its result:
 
 ```jsonl docs/reading/traces/wrong-args/expected/stdout.jsonl
 {"v":1,"type":"tool_call","name":"edit_file","args":"{\"path\":\"notes.txt\",\"old\":\"milk\",\"new\":\"oat milk\"}","id":"c1"}
-{"v":1,"type":"tool_result","name":"edit_file","is_error":true,"id":"c1","preview":"error: 'path', 'old_string', and 'new_string' are required"}
+{"v":1,"type":"tool_result","name":"edit_file","is_error":true,"id":"c1","preview":"error: 'path', 'old_string', and 'new_string' are required\n[note: this call ran with the declared arguments only; the argument key(s) `old`, `new` are not declared by this tool's schema and were ignored, not applied.]"}
 ```
 
 `is_error` is `true` and the tool named exactly what it wanted. Then round 3,
@@ -154,12 +154,14 @@ tests/tools/jsonq .messages[5] /tmp/body.json
 ```
 
 ```
-{"role":"tool","tool_call_id":"c1","content":"error: 'path', 'old_string', and 'new_string' are required"}
+{"role":"tool","tool_call_id":"c1","content":"error: 'path', 'old_string', and 'new_string' are required\n[note: this call ran with the declared arguments only; the argument key(s) `old`, `new` are not declared by this tool's schema and were ignored, not applied.]"}
 ```
 
 Three fields: role, id, content. **No error flag.** The model's entire
-knowledge that the call failed is the word `error:` at the start of a string —
-prose, in a channel that carries prose. `is_error` is local: it drives the UI's
+knowledge that the call failed is prose inside a string — and since M1067 that
+prose now also names the keys it got wrong (the `[note: ...]`). Easier to see,
+still not flagged: the note rides in a string the model can read, while
+`is_error` stays where it always was. That field is local: it drives the UI's
 colour, the counters, the loop's bookkeeping, the `jsonl` field you read above.
 
 Two consequences worth carrying out of this chapter. First, the careful
@@ -173,13 +175,18 @@ is the protocol working as designed.
 
 ```text docs/reading/traces/wrong-args/expected/shape
 growth req.1->req.2 = +241 bytes
-growth req.2->req.3 = +297 bytes
+growth req.2->req.3 = +457 bytes
 ```
 
-Chapter 1's second growth was +353 bytes, this one is +297: the error is
-*cheaper* than the diff it did not produce. A failed round trip costs a whole
-round trip and slightly fewer bytes — the budget cannot tell you a run is going
-wrong, because going wrong is not more expensive.
+The error is now *more expensive* than the diff chapter 1 recorded (+457 here
+against +353): since M1067 the tool message also carries the
+undeclared-arguments note (`[note: this call ran with the declared arguments
+only; the argument key(s) `old`, `new` are not declared ...]`), which is 159
+bytes on top of the required-arguments error. The byte arithmetic that once said
+"a failed round trip costs slightly fewer bytes than a successful one" no
+longer holds, and the re-take is recorded as such. The chapter's finding does
+not ride on it: the two runs' `done` summaries still agree field for field, and
+a summary of what was *tried* is still not evidence that it *happened*.
 
 ## What is the system here, and what is the instrument
 

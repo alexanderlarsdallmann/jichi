@@ -80,6 +80,58 @@ static void test_resync(void)
     }
 }
 
+static void test_stream_prefix(void)
+{
+    /* The M1065 helper: the largest k <= len such that s[0..k) is well-formed,
+     * with a trailing INCOMPLETE sequence excluded (held for the next chunk). */
+
+    /* pure ASCII: the whole thing is a well-formed prefix. */
+    JC_CHECK(jc_utf8_stream_prefix("abcdef", 6) == 6);
+
+    /* a tail of E2 (a lone lead of a 3-byte sequence): excluded, k = len - 1. */
+    JC_CHECK(jc_utf8_stream_prefix("abc\xe2", 4) == 3);
+
+    /* a tail of E2 86 (two of three bytes): excluded, k = len - 2. */
+    JC_CHECK(jc_utf8_stream_prefix("abc\xe2\x86", 5) == 3);
+
+    /* a tail of E2 86 92 (a COMPLETE U+2192): the whole thing is well-formed. */
+    JC_CHECK(jc_utf8_stream_prefix("abc\xe2\x86\x92", 6) == 6);
+
+    /* a 4-byte emoji tail F0 9F (two of four bytes): excluded, k = len - 2. */
+    JC_CHECK(jc_utf8_stream_prefix("ab\xf0\x9f", 4) == 2);
+
+    /* a 4-byte emoji tail F0 9F 98 (three of four): excluded, k = len - 3. */
+    JC_CHECK(jc_utf8_stream_prefix("ab\xf0\x9f\x98", 5) == 2);
+
+    /* a complete 4-byte emoji (U+1F600): the whole thing is well-formed. */
+    JC_CHECK(jc_utf8_stream_prefix("\xf0\x9f\x98\x80", 4) == 4);
+
+    /* ASCII-only empty input: 0. */
+    JC_CHECK(jc_utf8_stream_prefix("", 0) == 0);
+    JC_CHECK(jc_utf8_stream_prefix(NULL, 0) == 0);
+    JC_CHECK(jc_utf8_stream_prefix(NULL, 5) == 0);
+
+    /* a stray continuation tail (orphan): excluded, k = len - 1. */
+    JC_CHECK(jc_utf8_stream_prefix("ab\x86", 3) == 2);
+
+    /* the invariant: the returned prefix is always well-formed, and the step
+     * past it (when it is shorter than len) is a lead-or-stray byte. */
+    {
+        jc_size i;
+        const char *cases[] = {
+            "abc\xe2", "abc\xe2\x86", "abc\xe2\x86\x92",
+            "ab\xf0\x9f", "ab" "\xf0\x9f\x98\x80", "\xe3\x81\x82" "ab",
+            NULL
+        };
+        for (i = 0; cases[i] != NULL; i++) {
+            jc_size len = (jc_size)strlen(cases[i]);
+            jc_size k = jc_utf8_stream_prefix(cases[i], len);
+            JC_CHECK(k <= len);
+            JC_CHECK(jc_utf8_valid(cases[i], k));
+        }
+    }
+}
+
 static void test_sanitize(void)
 {
     char *out = NULL;
@@ -192,6 +244,7 @@ void test_utf8(void)
     test_valid();
     test_trunc_len();
     test_resync();
+    test_stream_prefix();
     test_sanitize();
 }
 

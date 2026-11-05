@@ -224,9 +224,9 @@ thing to practise on:
 
 ```sh
 jichi -p "read src/chat/jc_bg.c and list every assignment to .state, with the
-          state it sets and the condition that reaches it"
+          state it sets and the condition that reaches it" < /dev/null
 jichi -p "draw enum jc_bg_state as a mermaid stateDiagram-v2 from the source,
-          and name any state with no path back out"
+          and name any state with no path back out" < /dev/null
 ```
 
 The second prompt is the useful one, and it is useful because it is *checkable*:

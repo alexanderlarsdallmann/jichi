@@ -260,6 +260,14 @@ $ echo $?
 Use it as a fast first gate — it catches a whole class of mistake before anything
 executes, and it costs nothing.
 
+**`--check-only` needs a `--script`.** Given a `project.godot` path but no script to
+check, Godot does not type-check and quit — it *runs the project*, opening its main
+scene, which under `--headless` on a drive runs until something bounds it. On the
+2026-09-28 demos drive a sub-agent did exactly that with no `timeout`, and the game
+ran until the 900 s shell limit. Always name the script (`--script res://…`), and
+bound any Godot invocation with `timeout` so a missing option cannot burn a run:
+`timeout 60 $GODOT --headless --path . --check-only --script res://tests/x.gd`.
+
 ### Scenes load headless too
 
 ```gdscript
@@ -271,6 +279,55 @@ print("SCENE_OK name=", n.name, " type=", n.get_class())
 Measured: `SCENE_OK name=Main type=Node2D`. So *"the scene still loads"* is a
 checkable property, not an opinion — useful as a regression gate once you have
 more than one scene.
+
+### Diagnostics while you edit: the editor's language server (optional)
+
+Godot's GDScript language server lives inside a running editor and speaks LSP over
+TCP, on port 6005 by default. jichi's LSP client starts a program and talks to it
+over stdio, so a small bridge joins the two. Measured on 2026-10-01 with Godot
+4.7.2 and a one-script project, exactly as written here:
+
+1. In a **second terminal**, in your project folder, start an editor with no
+   window:
+
+   ```sh
+   $GODOT --headless --editor --path . --lsp-port 6005
+   ```
+
+   It accepted connections after about 2 seconds. Leave it running; **Ctrl-C**
+   stops it (it exited at once in the test).
+2. In the first terminal, add the bridge to your project's `.jichi/config.json`:
+
+   ```json
+   { "lspServers": [ { "name": "godot", "command": "socat",
+                       "args": ["-", "TCP:127.0.0.1:6005"], "extensions": ["gd"] } ] }
+   ```
+
+   OpenBSD netcat works as the bridge too: `"command": "nc", "args": ["127.0.0.1", "6005"]`.
+3. Check it on a script with a mistake in it. The test's `bad.gd` assigned a string
+   to an `int` variable on line 4:
+
+   ```console
+   $ jichi lsp bad.gd
+   === bad.gd ===
+   Diagnostics (2):
+   bad.gd:4:15: error: Cannot assign a value of type "String" as "int".
+   bad.gd:4:15: error: Cannot assign a value of type String to variable "n" with specified type int.
+   ```
+
+   That took 0.6 s through `socat` (1.1 s through `nc`). From then on, jichi's
+   edits to `.gd` files are checked by the editor as you go.
+
+What to know:
+
+- **Without a running editor, the server is simply unavailable.** jichi printed
+  `[lsp godot: unavailable]` within 11 ms, and the work went on.
+- **The diagnostics are the editor's view of the project,** so the editor must
+  have *this* project open (step 1, from the project folder).
+- **The editor is not small:** in the test it peaked at about 750 MB of resident
+  memory. On a small machine, rely on `--check-only` above instead.
+- **The bridge needs `socat` or `nc` on your machine.** jichi cannot open the TCP
+  connection itself yet ([DEFERRED def-295](DEFERRED.md#def-295)).
 
 ## 7. When it goes wrong
 

@@ -36,6 +36,17 @@ static int os_entropy(unsigned char *buf, int n)
     return ok;
 }
 
+/* C-10 (M1121, half B): the SAME probe read os_entropy does, exported so
+ * `jichi doctor` can report WHICH entropy source the identifiers will use --
+ * the fallback (time-seeded rand()) is silent in the uuid path itself, and
+ * doctor is where the operator reads posture. It reopens /dev/urandom once;
+ * it is not the per-id path (that stays as-is). */
+int jc_entropy_probe(void)
+{
+    unsigned char probe[16];
+    return os_entropy(probe, (int)sizeof(probe));
+}
+
 static void ensure_seed(void)
 {
     if (!g_seeded) {

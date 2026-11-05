@@ -7,6 +7,7 @@
 #include "jc_platform.h"
 #include "jc_voice.h"
 #include "jc_term.h"
+#include "jc_inhist.h"   /* M763: typed input kept across runs */
 #include "jc_agent.h"
 #include "jc_message.h"
 #include "jc_session.h"
@@ -45,6 +46,7 @@
 #include "jc_msg.h"
 #include "jc_provider.h"
 #include "jc_http.h"
+#include "jc_net.h"
 #include "jc_session.h"
 #include "jc_command.h"
 #include "jc_envelope.h"
@@ -127,6 +129,8 @@ struct tui_ctx {
     struct jc_sb    qbuf;         /* the line being typed right now            */
     struct jc_sb    qpend;        /* committed lines awaiting the next boundary */
     int             qesc;         /* escape-sequence swallow state (0/1/2)     */
+    int             esc_stopped;  /* M753: this turn was stopped by Esc        */
+    int             ta_noticed;   /* M753: "not kept" said once this turn      */
     int             at_bol;       /* cursor known to sit at column 0           */
 };
 
@@ -253,6 +257,15 @@ static void clear_thinking(struct tui_ctx *c)
 #define TUI_QUEUE_MAX      4096
 #define TUI_QUEUE_ECHO_MAX 56
 
+/* M753: how long queue_poll waits after a bare ESC for the rest of a sequence
+ * before calling it the Esc KEY. A terminal sends an arrow, a function key or
+ * an Alt chord as one burst, so the rest is there long before this; vim's
+ * ttimeoutlen defaults to the same 100 ms. The decision is made in the same
+ * poll that read the ESC. A timer checked at the NEXT poll, the first version
+ * of this, measured 1.2 s from key to stop: polls come about once a second
+ * while a model call waits, and it needed two. Ctrl-C measured 0.00 s. */
+#define TUI_ESC_WAIT_MS    100
+
 /* Offset into `s` at which a tail-anchored echo of at most `max` bytes starts,
  * snapped forward to a UTF-8 lead byte so a multi-byte character is never split
  * across the truncation. Pure. */
@@ -375,6 +388,20 @@ static void queue_commit(struct tui_ctx *c)
     free(typed);
 }
 
+/* M753: Esc stops a running turn, as Ctrl-C does -- the same flag the SIGINT
+ * handler sets, so the model call is aborted and a running tool killed exactly
+ * as for Ctrl-C. People press Esc, and until M753 nothing happened and nothing
+ * said it would not. Said once per turn, when it happens. */
+static void tui_esc_stop(struct tui_ctx *c)
+{
+    if (c->esc_stopped || c->app == NULL) {
+        return;
+    }
+    c->esc_stopped = 1;
+    c->app->abort_flag = 1;
+    queue_notice(c, jc_msg(JC_MSG_ESC_STOP), "");
+}
+
 /* One keystroke collected during a hold. This is a queue, not the line editor:
  * it accepts text, Enter, Backspace and Ctrl-U, and deliberately swallows
  * escape sequences (arrows, function keys, paste markers) instead of letting
@@ -383,6 +410,12 @@ static void queue_commit(struct tui_ctx *c)
 static void queue_key(struct tui_ctx *c, unsigned char ch)
 {
     if (c->qesc == 1) {
+        if (ch == 0x1b) {
+            /* M753: Esc pressed twice. The first stood alone, so it was the
+             * key; the second is pending in its turn. */
+            tui_esc_stop(c);
+            return;
+        }
         c->qesc = (ch == '[' || ch == 'O') ? 2 : 0;
         return;
     }
@@ -393,7 +426,18 @@ static void queue_key(struct tui_ctx *c, unsigned char ch)
         return;
     }
     if (ch == 0x1b) {
-        c->qesc = 1;
+        c->qesc = 1;   /* the Esc key, if nothing follows: see queue_poll */
+        return;
+    }
+    /* M753: without type-ahead the turn holds the terminal only to hear Esc.
+     * What is typed is not kept -- as before, when it was echoed and then
+     * discarded at the next prompt -- and now that is said at the first key,
+     * once per turn, instead of after the fact. */
+    if (!c->type_ahead) {
+        if (!c->ta_noticed && (ch >= 0x20 || ch == '\r' || ch == '\n')) {
+            c->ta_noticed = 1;
+            queue_notice(c, jc_msg(JC_MSG_TYPEAHEAD_OFF), "");
+        }
         return;
     }
     if (ch == '\r' || ch == '\n') {
@@ -456,6 +500,24 @@ static void queue_poll(struct tui_ctx *c)
         queue_key(c, (unsigned char)ch);
         got++;
     }
+    /* M753: the drain ended on a bare ESC. Wait briefly for the rest of a
+     * sequence; if nothing comes, it was the Esc key. Bounded like the drain,
+     * so a held-down Esc cannot hold the loop either. */
+    while (c->qesc == 1 && got < TUI_QUEUE_MAX) {
+        ch = jc_term_poll_key_wait(c->term, TUI_ESC_WAIT_MS);
+        if (ch < 0) {
+            c->qesc = 0;
+            tui_esc_stop(c);
+            break;
+        }
+        queue_key(c, (unsigned char)ch);
+        got++;
+        while (got < TUI_QUEUE_MAX &&
+               (ch = jc_term_poll_key(c->term)) >= 0) {
+            queue_key(c, (unsigned char)ch);
+            got++;
+        }
+    }
     if (got > 0 && c->thinking) {
         render_thinking(c);   /* show the new keystrokes immediately */
     }
@@ -465,9 +527,16 @@ static void queue_poll(struct tui_ctx *c)
  * instead of being echoed into the output and flushed away. */
 static void queue_hold_begin(struct tui_ctx *c)
 {
-    if (c == NULL || !c->type_ahead || c->holding) {
+    /* M753: every turn on a terminal, not only with type-ahead -- the hold is
+     * how a key reaches this process while the agent works, and Esc must. What
+     * the hold does NOT change is kept: ISIG stays on (Ctrl-C still raises
+     * SIGINT) and nothing typed is sent unless type-ahead is on. */
+    if (c == NULL || c->holding) {
         return;
     }
+    c->qesc = 0;
+    c->esc_stopped = 0;
+    c->ta_noticed = 0;
     if (jc_term_hold_begin(c->term) == 0) {
         c->holding = 1;
     }
@@ -478,7 +547,14 @@ static void queue_hold_end(struct tui_ctx *c)
     if (c == NULL || !c->holding) {
         return;
     }
-    queue_poll(c);            /* keys typed in the last instant still count */
+    /* Keys typed in the last instant still count -- as TYPE-AHEAD. Without it
+     * (M753: the hold exists then only to hear Esc), they are left in the line
+     * discipline, where the next prompt's flush discards them and SAYS so
+     * (M503), exactly as before this hold existed. Draining them here would lose
+     * them in silence once this turn's "not kept" notice has been spent. */
+    if (c->type_ahead) {
+        queue_poll(c);
+    }
     jc_term_hold_end(c->term);
     c->holding = 0;
     /* A line typed but never committed with Enter is NOT silently swallowed --
@@ -1269,7 +1345,12 @@ static void cb_tool_result(void *user, const char *name, const char *result,
          * distinguishes this: JC_FAIL_DENIED covers a human's no and a fence's
          * refusal alike, which is the right generalisation -- neither is the
          * tool going wrong. Everything else keeps JC_MSG_TOOL_FAIL. */
-        if (is_error && jc_fail_classify(result, 0) == JC_FAIL_DENIED) {
+        /* policy_refusal is not available at the TUI call site (the res struct
+         * is not passed to cb_tool_result). Passing 0 means the TUI will still
+         * classify a refusal as DENIED via the substring match (e.g., "read-only"
+         * in the result), but the agent loop (which has the flag) is the primary
+         * consumer of the classifier. */
+        if (is_error && jc_fail_classify(result, 0, NULL, 0) == JC_FAIL_DENIED) {
             printf(jc_msg(JC_MSG_TOOL_REFUSED), name);
         } else {
             printf(jc_msg(is_error ? JC_MSG_TOOL_FAIL : JC_MSG_TOOL_OK), name);
@@ -1623,7 +1704,10 @@ static int cb_confirm(void *user, const char *name, const char *args,
     char summary[200];
     int spoken = 0;
 
-    if (always_has(c, name)) return 1;
+    if (always_has(c, name)) {
+        c->app->why_approval = JC_WHY_ALWAYS_LIST;   /* M762 */
+        return 1;
+    }
     /* M254: collect type-ahead BEFORE prompting. jc_term_read_key enters raw
      * mode with TCSAFLUSH -- deliberately, so stray type-ahead can never
      * answer a permission prompt -- which would otherwise discard whatever was
@@ -1722,11 +1806,13 @@ static int cb_confirm(void *user, const char *name, const char *args,
          * view/edit already denies, which is the fence's deliberate default. */
         if (k == 'y' || k == 'Y' || k == '1') {
             confirm_echo(c, jc_msg(JC_MSG_ALLOWED));
+            c->app->why_approval = JC_WHY_APPROVED_PROMPT;   /* M762 */
             return 1;
         }
         if (k == 'a' || k == 'A' || k == '8') {
             always_add(c, name);
             confirm_echo(c, jc_msg(JC_MSG_ALLOWED_ALWAYS));
+            c->app->why_approval = JC_WHY_APPROVED_ALWAYS;   /* M762 */
             return 1;
         }
         if (k == 'v' || k == 'V' || k == '5') {
@@ -1755,6 +1841,7 @@ static int cb_confirm(void *user, const char *name, const char *args,
                     }
                     free(ln);
                     confirm_echo(c, jc_msg(JC_MSG_ALLOWED_EDITED));
+                    c->app->why_approval = JC_WHY_APPROVED_EDITED;   /* M762 */
                     return 1;
                 }
                 put("  (not valid JSON; keeping original)\n");
@@ -1936,10 +2023,155 @@ static void print_status(struct tui_ctx *c)
     fflush(stdout);
 }
 
+/* M757: /fences -- what bounds the next turn, on one screen. The twelve-questions
+ * plan (item 9) found the posture spread over five places: /status for the mode
+ * and the path fence, the config for the edit scope, /constraints for the rules,
+ * the envelope for the budgets, and nowhere at all for the shell. No fence covers
+ * the shell (AUTONOMY.md), and the M744 incident was one shell command, so this
+ * screen says so in its own line rather than by omission. Every line is words: a
+ * listener gets the same screen as a reader (TUI_PRINCIPLES.md section 4). */
+static const char *fence_policy_word(int p)
+{
+    switch (p) {
+    case JC_PRIVPOL_DENY:  return "refused";
+    case JC_PRIVPOL_ALLOW: return "allowed without asking";
+    default:               return "asked every time";
+    }
+}
+
+static void print_fences(struct tui_ctx *c)
+{
+    struct jc_app *app = c->app;
+    struct jc_vec *scope = &app->config.edit_scope;
+    int authored = 0, inferred = 0, i;
+    jc_size k;
+
+    for (i = 0; i < app->n_constraints; i++) {
+        if (app->constraints[i].origin == JC_CONSTRAINT_INFERRED) {
+            inferred++;
+        } else {
+            authored++;
+        }
+    }
+    if (app->env != NULL && app->env->edit_scope.len > 0) {
+        scope = &app->env->edit_scope;
+    }
+
+    printf("what bounds the next turn:\n");
+    printf("  mode:           %s, %s\n",
+           jc_agent_mode_name((enum jc_agent_mode)app->mode),
+           app->mode == JC_MODE_PLAN ? "it plans and changes nothing"
+           : app->mode == JC_MODE_AUTO ? "tools run without asking"
+           : "tools that change things ask first");
+    printf("  read-only:      %s\n", app->readonly ? "yes" : "no");
+    if (jc_app_path_fence_on(app)) {
+        printf("  path fence:     on, file tools stay inside %s\n", app->root);
+    } else if (app->config.path_fence < 0) {
+        /* M848 (S2, 1e): off for this turn, which asks before a change -- but a
+         * delegate that runs WITHOUT asking (spawn_subagent, a parallel child)
+         * is fenced. Saying only "off" would understate what holds. */
+        printf("  path fence:     off here; on for a delegate that runs "
+               "without asking\n");
+    } else {
+        printf("  path fence:     off\n");
+    }
+    if (scope->len == 0) {
+        printf("  edit scope:     none\n");
+    } else {
+        printf("  edit scope:     ");
+        for (k = 0; k < scope->len; k++) {
+            printf("%s%s", k > 0 ? ", " : "", *(char **)jc_vec_at(scope, k));
+        }
+        printf(" (file tools only)\n");
+    }
+    if (!app->constraints_on) {
+        printf("  constraints:    off\n");
+    } else if (authored + inferred == 0) {
+        printf("  constraints:    none\n");
+    } else {
+        printf("  constraints:    %d yours, which refuse;\n"
+               "                  %d inferred from prompts, which only advise\n",
+               authored, inferred);
+    }
+    printf("  privileged:     sudo and doas are %s\n",
+           fence_policy_word(app->config.privileged_commands));
+    printf("  physical:       kinetic tools are %s\n",
+           fence_policy_word(app->config.kinetic_commands));
+    if (c->always.len == 0) {
+        printf("  approvals:      none remembered\n");
+    } else {
+        printf("  approvals:      always this session for ");
+        for (k = 0; k < c->always.len; k++) {
+            printf("%s%s", k > 0 ? ", " : "", *(char **)jc_vec_at(&c->always, k));
+        }
+        printf("\n");
+    }
+    if (app->env == NULL) {
+        printf("  budgets:        none in this session\n");
+    } else {
+        printf("  budgets:        ");
+        if (app->env->budget_tokens > 0.0) {
+            printf("%.0f tokens; ", app->env->budget_tokens);
+        }
+        if (app->env->deadline_secs > 0) {
+            printf("%ld seconds; ", app->env->deadline_secs);
+        }
+        if (app->env->max_tool_calls > 0) {
+            printf("%d tool calls; ", app->env->max_tool_calls);
+        }
+        printf("as the run was started\n");
+    }
+    if (app->readonly || app->mode == JC_MODE_PLAN) {
+        printf("  the shell:      not offered while read-only\n");
+    } else if (app->env != NULL && app->env->strict_scope &&
+               app->env->edit_scope.len > 0) {
+        printf("  the shell:      refused, strict scope\n");
+    } else {
+        printf("  the shell:      NOT fenced. run_terminal_command runs as you, past the\n"
+               "                  path fence and the edit scope, without your API keys\n");
+    }
+    fflush(stdout);
+}
+
 /* /cost: the running token + estimated-cost rollup for this session, plus the
  * last turn. Cost is billed at the *active* model's pricing (an approximation
  * when routing/fallback used more than one model -- the same one the exit total
  * makes). */
+/* M763: hand a saved line to the editor's recall history. */
+static void inhist_add_cb(void *user, const char *line)
+{
+    jc_term_history_add((struct jc_term *)user, line);
+}
+
+/* M762: /why -- the last tool decision, from the record the gates themselves
+ * wrote (jc_app_why_note), not from the model's account of it: which rule
+ * refused the call, or what let it run, and what the model was told. Words
+ * only, one fact per line, as /fences. */
+static void print_why(struct tui_ctx *c)
+{
+    const struct jc_why *w = &c->app->why;
+
+    if (w->seq == 0) {
+        put("no tool call yet in this session\n");
+        return;
+    }
+    printf("the last tool call%s: %s%s%s\n",
+           w->depth > 0 ? " (in a delegated task)" : "", w->tool,
+           w->args[0] != '\0' ? "  " : "", w->args);
+    if (w->refused) {
+        printf("  refused: %s\n", w->rule[0] != '\0' ? w->rule : "(no rule named)");
+        if (w->told[0] != '\0') {
+            printf("  the model was told: %s\n", w->told);
+        }
+    } else {
+        printf("  it ran: %s\n", w->rule[0] != '\0' ? w->rule : "(no rule named)");
+        if (w->failed) {
+            printf("  and it failed: %s\n", w->told);
+        }
+    }
+    fflush(stdout);
+}
+
 static void print_cost(struct tui_ctx *c)
 {
     struct jc_model_cfg *m = &c->app->config.model;
@@ -2232,6 +2464,10 @@ static void help(struct jc_app *app)
     put("  /compact       summarize older history to free up context\n");
     put("  /cost          this session's token usage and estimated cost\n");
     put("  /status        model, mode, routing, tokens, and cwd\n");
+    put("  /fences        what bounds the next turn: mode, fences, constraints,\n"
+        "                 approvals, budgets, and whether the shell is fenced\n");
+    put("  /why           the last tool call: the rule that refused it or let it\n"
+        "                 run, and what the model was told\n");
     put("  /autocontext [on|off]  toggle automatic retrieval of context (RAG)\n");
     put("  /cache [on|off]     toggle prompt caching; bare shows hit-rate\n");
 
@@ -2249,7 +2485,13 @@ static void help(struct jc_app *app)
     put("  /listen [secs]  record a fixed window, transcribe it, use it as the "
         "prompt\n");
     put("  /memory        show persisted notes (.jichi/memory.md)\n");
-    put("  /learn         draft lessons from this project's logs (the mentor)\n");
+    /* M751: bare /learn is a PACK command (commands/learn.md, which most packs
+     * scaffold); only its three subcommands below are built in. The line used to
+     * read as a built-in, and in a project with no pack /learn does not exist.
+     * builtin_cmds_lint check 4 holds a pack command's line to saying so. */
+    put("  /learn         a pack command (jichi init adds it): draft "
+        "lessons\n"
+        "                 from this project's logs -- the mentor\n");
     put("  /learn analyze [log]  rank recurring problems -- offline, no model "
         "call\n");
     put("  /learn apply [--force]  commit the reviewed draft (memory, skills, "
@@ -2295,6 +2537,9 @@ static void help(struct jc_app *app)
     put("  /design [file|off]       show/set the authoritative design doc\n");
     put("  /language [lang|off]  answer in this natural language\n");
     put("  /markdown [on|off]  toggle markdown/syntax rendering of replies\n");
+    /* M751: in TUI_CMDS[] since it shipped, and missing here. */
+    put("  /accessible [on|off]  linear, screen-reader-friendly output, "
+        "no spinner\n");
     put("  /typeahead [on|off]  type while I work; Enter queues, Ctrl-K "
         "un-queues\n");
     put("  /wisdom [on|off|reload]  idle proverbs from .jichi/wisdom.json\n");
@@ -2317,6 +2562,8 @@ static void help(struct jc_app *app)
         "end\n");
     put("  Ctrl-L         clear the screen;  Ctrl-C  cancel;  Ctrl-D  exit "
         "on an empty line\n");
+    /* M753 */
+    put("  Esc            while jichi works: stop the turn, as Ctrl-C does\n");
 
     /* M573: THE APPROVAL FENCE WAS NOWHERE IN /help, which the operator's
      * question exposed -- "the user, or agent has to know about the three
@@ -2499,6 +2746,8 @@ static const char *TUI_CMDS[] = {
     "/help", "/clear", "/model", "/mode", "/plan", "/auto", "/mcp",
     "/skills", "/output-style", "/design", "/language", "/map", "/board",
     "/status",
+    "/fences",   /* M757 */
+    "/why",      /* M762 */
     "/cost",
     "/timeouts",
     /* M295: /route was handled but absent here, so it never Tab-completed and
@@ -2528,7 +2777,8 @@ static const char *TUI_CMDS[] = {
  * files as they WERE; this one [resume] user message reconciles it with the
  * disk as it IS. Saved immediately, so a second resume detects nothing twice;
  * an unchanged workspace injects nothing. */
-static void tui_note_drift(struct jc_session *s, struct jc_history *hist)
+static void tui_note_drift(struct jc_app *app, struct jc_session *s,
+                           struct jc_history *hist)
 {
     struct jc_sb names, note;
 
@@ -2539,7 +2789,7 @@ static void tui_note_drift(struct jc_session *s, struct jc_history *hist)
         jc_session_drift_render(names.data, &note);
         if (note.len > 0 && note.data != NULL) {
             jc_history_add(hist, JC_ROLE_USER, note.data);
-            jc_session_save(s);
+            jc_app_note_failed_session_save(app, s, jc_session_save(s));
             put("(noted for the model: files changed since this conversation "
                 "last ran)\n");
         }
@@ -2789,8 +3039,13 @@ static jc_size tui_suggest(void *vctx, const char *buf, jc_size cursor,
     req.headers = &headers;
     req.body = body;
     req.body_len = strlen(body);
+    /* M1093 (C-09): a side (non-model) call -- the inline ghost-text suggestion.
+     * 12 s is the short cap that keeps the editor responsive (a judgement call,
+     * not a completion); the connect + dead-stream FENCES are separate and come
+     * from jc_net_side_fences, which never touches this total. */
     req.timeout_secs = 12;
     req.abort_flag = &c->app->abort_flag;
+    jc_net_side_fences(&req, &c->app->config); /* M1093: c->app in scope */
     if (jc_http_perform(&req, &http_status, &resp, NULL) == JC_OK &&
         http_status < 400 && resp != NULL) {
         struct jc_message *reply = jc_history_add(&mini, JC_ROLE_ASSISTANT,
@@ -2878,6 +3133,10 @@ static jc_size tui_advise(void *vctx, const char *buf, jc_size cursor,
     req.body_len = strlen(body);
     req.timeout_secs = 20;      /* a judgement call, not a completion: allow more */
     req.abort_flag = &c->app->abort_flag;
+    /* M1093 (C-09): a side (non-model) call -- the inline /advice suggestion.
+     * 20 s is the allow-more judgement call (kept as the total); the connect +
+     * dead-stream FENCES come from jc_net_side_fences, which never touches it. */
+    jc_net_side_fences(&req, &c->app->config); /* M1093: c->app in scope */
     if (jc_http_perform(&req, &http_status, &resp, NULL) == JC_OK &&
         http_status < 400 && resp != NULL) {
         struct jc_message *reply = jc_history_add(&mini, JC_ROLE_ASSISTANT,
@@ -3009,6 +3268,7 @@ static void print_wisdom(struct tui_ctx *c)
 int jc_tui_run(struct jc_app *app)
 {
     struct jc_term term;
+    char inhist_path[1100];   /* M763 */
     struct jc_session session;
     struct jc_history *hist;
     struct jc_agent_callbacks cb;
@@ -3018,6 +3278,12 @@ int jc_tui_run(struct jc_app *app)
     int consecutive_intr = 0; /* back-to-back empty-prompt Ctrl-C (M107) */
 
     jc_term_init(&term);
+    /* M763: yesterday's lines, for Up and Ctrl-R. */
+    inhist_path[0] = '\0';
+    if (app->config.input_history) {
+        jc_inhist_path(inhist_path, sizeof(inhist_path));
+        (void)jc_inhist_load(inhist_path, inhist_add_cb, &term);
+    }
     /* Zero first: several fields (the spinner state, the parallel board, the
      * prompt-cache totals cb_usage accumulates into) were only ever assigned
      * on their first use, so they were read from an indeterminate stack. The
@@ -3091,9 +3357,14 @@ int jc_tui_run(struct jc_app *app)
             jc_session_new(&session, app->cwd, app->arena);
         } else if (r == JC_SESSION_OPENED) {
             printf("(resumed: %s)\n", session.title ? session.title : session.id);
-            tui_note_drift(&session, &session.history);
-            if (!app->mode_pinned) {
-                jc_app_set_mode(app, session.mode);
+            tui_note_drift(app, &session, &session.history);
+            {   /* M845 (D5): narrow, never widen; say so */
+                char note[256];
+                (void)jc_app_apply_saved_mode(app, session.mode, note,
+                                              sizeof note);
+                if (note[0] != '\0') {
+                    printf("(%s)\n", note);
+                }
             }
         }
     }
@@ -3352,6 +3623,10 @@ int jc_tui_run(struct jc_app *app)
             free(line);
             continue;
         }
+        /* M763: written as submitted, when it is keepable (jc_inhist.h). */
+        if (inhist_path[0] != '\0') {
+            (void)jc_inhist_append(inhist_path, line);
+        }
         /* M550: a leading blank must not turn a COMMAND into a PROMPT.
          *
          * Every dispatch below is a strcmp or a `line[0] == '/'`, so " /markdown"
@@ -3477,10 +3752,13 @@ int jc_tui_run(struct jc_app *app)
                 if (names.data != NULL && names.len > 0) {
                     struct jc_sb note;
                     jc_sb_init(&note);
-                    jc_snapshot_undo_note(what, names.data, &note);
+                    /* M1095 (D-03): names is the NUL-separated -z form; pass
+                     * the buffer length, not strlen. */
+                    jc_snapshot_undo_note(what, names.data, names.len, &note);
                     if (note.len > 0 && note.data != NULL) {
                         jc_history_add(hist, JC_ROLE_USER, note.data);
-                        jc_session_save(&session);
+                        jc_app_note_failed_session_save(app, &session,
+                                                        jc_session_save(&session));
                         put("(noted for the model: earlier reads of the "
                             "reverted files are stale)\n");
                     }
@@ -3541,7 +3819,8 @@ int jc_tui_run(struct jc_app *app)
                     } else if (jc_snapshot_restore_index(app->snapshots, n,
                                                          &lbl) == JC_OK) {
                         jc_history_truncate(hist, (jc_size)cut);
-                        jc_session_save(&session);
+                        jc_app_note_failed_session_save(app, &session,
+                                                        jc_session_save(&session));
                         printf("(rewound to checkpoint %d%s%s; dropped %d "
                                "message%s)\n", n, (lbl && lbl[0]) ? ": " : "",
                                (lbl && lbl[0]) ? lbl : "",
@@ -3930,7 +4209,12 @@ int jc_tui_run(struct jc_app *app)
                     put("(no tutor available -- check the model connection, or "
                         "re-read the task and try /hint)\n");
                 }
-                free(answer);
+                /* M926 (R04-F2): do NOT free(answer) -- the tutor hand-back is
+                 * arena-allocated on the per-turn scratch (jc_subagent_answer_into,
+                 * M911 -- every answer_out site is jc_arena_strdup), so free()
+                 * here is an invalid free of arena memory. The stale
+                 * "malloc'd (caller frees)" contract in jc_tool.h is what
+                 * invited it. */
             }
             free(line);
             continue;
@@ -4292,17 +4576,23 @@ int jc_tui_run(struct jc_app *app)
                 if (app->n_constraints == 0) {
                     put("(no active constraints)\n");
                 } else {
-                    put("Active constraints (enforced every turn):\n");
+                    put("Active constraints:\n");
                     for (i = 0; i < app->n_constraints; i++) {
-                        /* M169: mark provenance. Both are enforced identically;
-                         * only "saved" ones outlive the session, and an operator
-                         * debugging a surprising refusal needs to know which
-                         * kind they are looking at. */
-                        const char *tag =
-                            (app->constraints[i].origin == JC_CONSTRAINT_INFERRED)
-                            ? "this session" : "saved";
+                        /* M169: mark provenance; only "saved" ones outlive the
+                         * session. M872: and since M734 they differ in force
+                         * too -- a saved rule refuses, an inferred one advises
+                         * -- which this header ("enforced every turn") and these
+                         * tags did not say for 138 milestones. An inferred one
+                         * also shows the words it was read from (N45 (b)). */
+                        int inf = (app->constraints[i].origin ==
+                                   JC_CONSTRAINT_INFERRED);
                         printf("  - %s  [%s]\n", app->constraints[i].text != NULL
-                               ? app->constraints[i].text : "(constraint)", tag);
+                               ? app->constraints[i].text : "(constraint)",
+                               inf ? "this session, advisory" : "saved, enforced");
+                        if (inf && app->constraints[i].source != NULL) {
+                            printf("      read from: \"%s\"\n",
+                                   app->constraints[i].source);
+                        }
                     }
                 }
                 put(C_DIM "  (/constraints add <text> saves one; constraints "
@@ -4508,6 +4798,16 @@ int jc_tui_run(struct jc_app *app)
             free(line);
             continue;
         }
+        if (strcmp(line, "/fences") == 0) {
+            print_fences(&ctx);
+            free(line);
+            continue;
+        }
+        if (strcmp(line, "/why") == 0) {
+            print_why(&ctx);
+            free(line);
+            continue;
+        }
         if (strcmp(line, "/cost") == 0) {
             print_cost(&ctx);
             free(line);
@@ -4554,7 +4854,8 @@ int jc_tui_run(struct jc_app *app)
                 /* Save the current conversation before switching. */
                 jc_session_autotitle(&session);
                 session.mode = app->mode;
-                jc_session_save(&session);
+                jc_app_note_failed_session_save(app, &session,
+                                                jc_session_save(&session));
                 if (*arg == '\0') {
                     /* bare /resume: the most recent OTHER session for this
                      * project (M108 #6), for ease of use.
@@ -4601,10 +4902,17 @@ int jc_tui_run(struct jc_app *app)
                     session = tmp;
                     hist = &session.history;
                     app->todos = &session.todos; /* M606: not the old list */
-                    if (!app->mode_pinned) jc_app_set_mode(app, session.mode);
+                    {   /* M845 (D5): narrow, never widen; say so */
+                        char note[256];
+                        (void)jc_app_apply_saved_mode(app, session.mode, note,
+                                                      sizeof note);
+                        if (note[0] != '\0') {
+                            printf("(%s)\n", note);
+                        }
+                    }
                     printf("(resumed: %s)\n",
                            session.title ? session.title : session.id);
-                    tui_note_drift(&session, hist);
+                    tui_note_drift(app, &session, hist);
                 } else {
                     printf("no %ssession matching '%s'\n",
                            r == JC_SESSION_AMBIGUOUS ? "unambiguous " : "", arg);
@@ -4620,9 +4928,11 @@ int jc_tui_run(struct jc_app *app)
             struct jc_session fork;
             jc_session_autotitle(&session);
             session.mode = app->mode;
-            jc_session_save(&session);
+            jc_app_note_failed_session_save(app, &session,
+                                            jc_session_save(&session));
             if (jc_session_fork(&session, &fork, app->arena) == JC_OK) {
-                jc_session_save(&fork);
+                jc_app_note_failed_session_save(app, &fork,
+                                                jc_session_save(&fork));
                 jc_session_free(&session);
                 session = fork;
                 hist = &session.history;
@@ -4644,7 +4954,8 @@ int jc_tui_run(struct jc_app *app)
                        session.title ? session.title : "(none)");
             } else {
                 jc_session_set_title(&session, t);
-                jc_session_save(&session);
+                jc_app_note_failed_session_save(app, &session,
+                                                jc_session_save(&session));
                 printf("(titled: %s)\n", session.title);
             }
             free(line);
@@ -4662,7 +4973,8 @@ int jc_tui_run(struct jc_app *app)
                 put("invalid alias (use up to 64 of [A-Za-z0-9._-], no spaces)\n");
             } else {
                 jc_session_set_alias(&session, nm);
-                jc_session_save(&session);
+                jc_app_note_failed_session_save(app, &session,
+                                                jc_session_save(&session));
                 printf("(named: @%s -- resume with /resume @%s)\n",
                        session.alias, session.alias);
             }
@@ -4964,13 +5276,15 @@ int jc_tui_run(struct jc_app *app)
             cname[cn] = '\0';
             cmd = jc_command_find(&app->commands, cname);
             if (cmd != NULL) {
+                int project_trusted = (app->config.project_trust == JC_PROJ_TRUST_TRUSTED);
+                const char *wsroot = (app->root[0] != '\0') ? app->root : NULL;
                 const char *args_raw = rest + cn;
                 char *expanded;
                 while (*args_raw == ' ') {
                     args_raw++;
                 }
                 jc_command_expand(cmd, args_raw, app->cwd, jc_app_scratch(app),
-                                  &expanded);
+                                  project_trusted, wsroot, &expanded);
                 cmd_agent = cmd->agent;     /* honor `agent:` below   */
                 cmd_model = cmd->model;     /* honor `model:` below   */
                 cmd_output = cmd->output;   /* honor `output:` below  */
@@ -5091,7 +5405,10 @@ int jc_tui_run(struct jc_app *app)
         /* Persist after each turn so a crash or Ctrl-C keeps progress. */
         jc_session_autotitle(&session);
         session.mode = app->mode;
-        jc_session_save(&session);
+        /* M1082 (F-02): the per-turn save. A failure used to be silent -- the
+         * turn's work was unrecoverable while every channel said success. One
+         * diagnostic per session, naming path + reason. */
+        jc_app_note_failed_session_save(app, &session, jc_session_save(&session));
 
         /* Completion notification (F6): ring the bell / run the notify command
          * now that the agent is done with this turn and waiting on you. */
@@ -5100,7 +5417,9 @@ int jc_tui_run(struct jc_app *app)
     }
 
     session.mode = app->mode;
-    jc_session_save(&session);
+    /* M1082 (F-02): the exit save says so on failure, for the sessions this
+     * process's per-turn saves had not already named. */
+    jc_app_note_failed_session_save(app, &session, jc_session_save(&session));
     jc_session_free(&session);
     app->ask = NULL; /* `ask` lived on this stack frame */
     jc_sb_free(&ctx.qbuf);

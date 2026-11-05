@@ -82,9 +82,11 @@ edited on the way. Every one of those gaps is closed by one of the steps below.
   installing the build prerequisites if they are missing.
 - **A C compiler, `make`, `git`, and libcurl's development headers.**
   [`PREPARE_AND_BUILD.md`](PREPARE_AND_BUILD.md) has a section per platform; on a
-  Mac that is Xcode's command-line tools plus Homebrew's `curl` (its §3 and §4 —
-  macOS ships libcurl but not the headers the build needs). If you already
-  compiled jichi, you have all of this — keep the same environment.
+  Mac that is Xcode's command-line tools, which since the first verified build
+  (2026-09-26, Apple Silicon) are known to carry the `curl/curl.h` headers in the
+  SDK — `make info` reported `HAVE_CURL = yes` with no Homebrew `curl` at all, so
+  Homebrew's `curl` is a fallback, not a requirement. If you already compiled
+  jichi, you have all of this — keep the same environment.
 - **A git clone, not a downloaded archive.** `jichi --version` prints a `build:`
   line only when it was built from a git checkout — the Makefile stamps the
   commit from `git rev-parse` — and without it nobody can tell which source you
@@ -322,6 +324,7 @@ and the context window is set differently (below); everything else is the same.
 cat > "$R/live.json" <<'EOF'
 {"models":[{"name":"live","provider":"openai","model":"MODEL-ID",
  "apiBase":"http://127.0.0.1:1234/v1","apiKey":"unused","roles":["chat"]}],
+ "timeouts":{"stall":0},
  "snapshots":false,"repoMap":false,"maxRetries":1,"lowResource":false}
 EOF
 ./jichi --config "$R/live.json" doctor --live > "$R/doctor-live.txt" 2>&1 < /dev/null
@@ -348,6 +351,11 @@ file.
   the model and (for a gateway) how the key is named ever differ. That sameness
   is what makes your result comparable with theirs, and a check keeps this copy
   identical to what the script generates.
+- `"stall":0` turns the 30-second stall **cap** off for the two turns: a slow
+  model's prefill sends no bytes, and a cap that fires mid-prefill would cut a
+  healthy answer and read as a platform failure. The fences stay on — `connect`
+  and the dead-stream backstop are not caps. A `model stalled` line on a local
+  model is the cap firing, not a verdict (2026-10-15 platform campaign).
 - `doctor --live` asks the server one question and reports how the model calls
   tools. You want the line **`tool calling observed "native"`**. A model that
   answers `text` *describes* tool calls in prose instead of making them; it will

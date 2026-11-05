@@ -5,9 +5,9 @@ answer goes to **stdout**, every diagnostic goes to **stderr**, and exit codes
 are meaningful — so it composes cleanly with pipes and scripts.
 
 ```sh
-jichi -p "explain this repo" > answer.txt        # answer on stdout
+jichi -p "explain this repo" > answer.txt < /dev/null        # answer on stdout
 cat error.log | jichi -p "what caused this?"     # stdin = context
-jichi --output json -p "hi" | jq -r .text        # structured output
+jichi --output json -p "hi" < /dev/null | jq -r .text        # structured output
 ```
 
 ## How the prompt and stdin combine
@@ -111,12 +111,12 @@ a driver has to treat it as its own case:
 A supervisor loop therefore wants roughly:
 
 ```sh
-out=$(jichi -p "$task" --output json --continue)
+out=$(jichi -p "$task" --output json --continue < /dev/null)
 case $(printf '%s' "$out" | jq -r .stop_reason) in
   done)       ;;                                  # finished
   max_iters)  # more work to do -- nudge, and count the nudges
               nudges=$((nudges + 1))
-              [ "$nudges" -lt 5 ] && jichi -p "continue" --output json --continue ;;
+              [ "$nudges" -lt 5 ] && jichi -p "continue" --output json --continue < /dev/null ;;
   budget|verify_failed) ;;                        # see work_kept
   *)          ;;                                  # interrupted / timeout / error
 esac
@@ -247,7 +247,7 @@ config as inline JSON:
 ```sh
 jichi --config-json '{"models":[{"name":"m","provider":"openai",
   "model":"gpt-4o-mini","apiBase":"https://api.example.com",
-  "apiKeyEnv":"OPENAI_API_KEY"}]}' --no-session -p "explain this repo"
+  "apiKeyEnv":"OPENAI_API_KEY"}]}' --no-session -p "explain this repo" < /dev/null
 ```
 
 The string is parsed as **the** config: a single explicit source, with no
@@ -272,7 +272,7 @@ visible in `ps`. Two variants address that (see
 ```sh
 # base64: one flat, quoting-safe token (still visible in ps -- NOT secrecy):
 B64=$(printf '%s' "$CONFIG_JSON" | base64 -w0)
-jichi --config-json-b64 "$B64" -p "…"
+jichi --config-json-b64 "$B64" -p "…" < /dev/null
 
 # stdin: keeps the config OFF argv (not in ps); prompt then via -p / --prompt-b64:
 printf '%s' "$CONFIG_JSON" | jichi --config-json - -p "…"
@@ -297,6 +297,10 @@ jichi --config-json - --prompt-b64 "$(base64 -w0 < prompt.txt)" < config.json
 
 - `--no-session` — don't persist the run under `~/.jichi.d/sessions` (good for
   automated/scripted invocations). `--resume` still loads a prior session.
+- `--handoff-in <file>` — relay: start a **fresh** session whose first prompt
+  is this leg's task plus the previous leg's baton (the notes a handover
+  writes under `~/.jichi.d/relay/<id>/`), fenced as untrusted data. Refused
+  alongside `--session`/`-c`; does not turn the relay's config key on.
 - `--` — end of options; everything after it is the prompt, so a prompt that
   starts with `-` works: `jichi -- -weird`.
 
@@ -307,6 +311,7 @@ jichi --config-json - --prompt-b64 "$(base64 -w0 < prompt.txt)" < config.json
 | 0 | success (also: downstream pipe closed early, e.g. `… | head`) |
 | 1 | runtime error (provider/network/IO/…); message on stderr |
 | 2 | usage error (bad/unknown flag, `--output` value, empty prompt) |
+| 129 | hung up (SIGHUP — M988: handled like SIGTERM; the turn aborts, teardown runs, the session is saved) |
 | 130 | interrupted (SIGINT / Ctrl-C) |
 | 143 | terminated (SIGTERM, graceful — M146: the turn aborts, teardown runs; a second SIGTERM terminates immediately) |
 

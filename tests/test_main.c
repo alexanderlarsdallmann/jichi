@@ -9,6 +9,12 @@
 #include "jc_vec.h"
 #include "jc_mem.h"
 #include <errno.h>
+
+/* Forward declarations for tests defined in other files */
+void test_run_timeout_schema(void);  /* L-25: defined in test_tool.c */
+void test_json_print_exact(void);    /* M1076: defined in test_json.c */
+void test_json_trailing_garbage(void); /* M1078: defined in test_json.c */
+void test_http_redirect_guard_decision(void); /* M1124: defined in test_http.c */
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>   /* getenv */
@@ -209,6 +215,8 @@ int main(void)
     /* First: every later test removes its fixtures through this fence. */
     printf("test_harness\n");
     test_harness();
+    printf("test_harness_config\n");
+    test_harness_config();
     printf("test_str\n");
     test_str();
     printf("test_sb_reserve_bounds\n");
@@ -220,14 +228,24 @@ int main(void)
     test_json();
     printf("test_json_number_range\n");
     test_json_number_range();
+    printf("test_json_clamp_helpers\n");
+    test_json_clamp_helpers();
+    printf("test_json_print_exact\n");
+    test_json_print_exact();
+    printf("test_json_trailing_garbage\n");
+    test_json_trailing_garbage();
     printf("test_json_depth_limit\n");
     test_json_depth_limit();
     printf("test_json_string_alloc\n");
     test_json_string_alloc();
     printf("test_json_bool_lenient\n");
     test_json_bool_lenient();
+    printf("test_cjson_append_linear\n");
+    test_cjson_append_linear();
     printf("test_walk_skip_dir\n");
     test_walk_skip_dir();
+    printf("test_walk\n");
+    test_walk();
     printf("test_priv_verdict\n");
     test_priv_verdict();
     printf("test_assign_name_ok\n");
@@ -268,8 +286,20 @@ int main(void)
     test_tool_unstring();
     printf("test_tool_nameless\n");
     test_tool_nameless();
+    printf("test_tool_finish_alias\n");
+    test_tool_finish_alias();
+    printf("test_tool_git_stash_cmd\n");
+    test_tool_git_stash_cmd();
+    printf("test_tool_git_discards_cmd\n");
+    test_tool_git_discards_cmd();
+    printf("test_toolloop_long_key\n");
+    test_toolloop_long_key();
+    printf("test_noprogress_rotation\n");
+    test_noprogress_rotation();
     printf("test_toolcall_scan\n");
     test_toolcall_scan();
+    printf("test_toolcall_recover\n");
+    test_toolcall_recover();
     printf("test_jsonrepair\n");
     test_jsonrepair();
     printf("test_args_repair_execute\n");
@@ -302,10 +332,16 @@ int main(void)
     test_multipart();
     printf("test_multipart_header_injection\n");
     test_multipart_header_injection();
+    printf("test_multipart_payload_boundary\n");
+    test_multipart_payload_boundary();
     printf("test_transcribe\n");
     test_transcribe();
     printf("test_platform\n");
     test_platform();
+    printf("test_disk_space\n");
+    test_disk_space();
+    printf("test_localtime_checked\n");
+    test_localtime_checked();
     printf("test_bounds\n");
     test_bounds();
     printf("test_escape_ctrl\n");
@@ -386,6 +422,8 @@ int main(void)
     test_agentdef();
     printf("test_command\n");
     test_command();
+    printf("test_scopededit\n");
+    test_scopededit();
     printf("test_cli\n");
     test_cli();
     printf("test_agentjson\n");
@@ -398,6 +436,8 @@ int main(void)
     test_compact();
     printf("test_compact_message_estimate\n");
     test_compact_message_estimate();
+    printf("test_spawn\n");
+    test_spawn();
     printf("test_snapshot\n");
     test_snapshot();
     printf("test_skill\n");
@@ -416,6 +456,8 @@ int main(void)
     test_testparse();
     printf("test_repomap\n");
     test_repomap();
+    printf("test_repomap_peak_is_one_file\n");
+    test_repomap_peak_is_one_file();
     printf("test_git\n");
     test_git();
     printf("test_user_tools\n");
@@ -476,6 +518,12 @@ int main(void)
     test_arena();
     printf("test_auditview\n");
     test_auditview();
+    printf("test_sha256\n");
+    test_sha256();
+    printf("test_config_trust\n");
+    test_config_trust();
+    printf("test_landlock\n");
+    test_landlock();
     printf("test_runsview\n");
     test_runsview();
     printf("test_control\n");
@@ -488,6 +536,12 @@ int main(void)
     test_memory();
     printf("test_glossary\n");
     test_glossary();
+    printf("test_glossary_symlink_escape\n");
+    test_glossary_symlink_escape();
+    printf("test_glossary_symlink_control\n");
+    test_glossary_symlink_control();
+    printf("test_glossary_tail_cut\n");
+    test_glossary_tail_cut();
     printf("test_constraint\n");
     test_constraint();
     printf("test_doctor\n");
@@ -522,6 +576,8 @@ int main(void)
     test_http_describe_failure();
     printf("test_http_describe_redirect\n");
     test_http_describe_redirect();
+    printf("test_http_redirect_guard_decision\n");
+    test_http_redirect_guard_decision();
     printf("test_path\n");
     test_path();
     printf("test_redact\n");
@@ -554,16 +610,30 @@ int main(void)
     test_ttools();
     printf("test_lease\n");
     test_lease();
+    printf("test_inhist\n");
+    test_inhist();
     printf("test_env_panel\n");
     test_env_panel();
     printf("test_delegreport\n");
     test_delegreport();
     printf("test_toolloop\n");
     test_toolloop();
+    printf("test_toolloop_atbound\n");
+    test_toolloop_atbound();
+    printf("test_relay\n");
+    test_relay();
+    printf("test_diskguard\n");
+    test_diskguard();
     printf("test_noprogress\n");
     test_noprogress();
     printf("test_constraint_source_line\n");
     test_constraint_source_line();
+    printf("test_run_timeout_schema\n");
+    test_run_timeout_schema();
+    printf("test_cjson_print_parity\n");
+    test_cjson_print_parity();
+    printf("test_utf8_sanitize_parity\n");
+    test_utf8_sanitize_parity();
 
     printf("\n%d checks, %d failures\n", jc_test_checks, jc_test_fails);
     return jc_test_fails == 0 ? 0 : 1;

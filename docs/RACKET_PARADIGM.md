@@ -148,7 +148,7 @@ functionally about failure.
 ## Lists and transformation — map / filter / foldl
 
 jichi loops over `jc_vec`s by hand. `jc_rrf_fuse`
-(`src/index/jc_retrieve.c:65`) fuses two ranked candidate lists by Reciprocal
+(`src/index/jc_retrieve.c:jc_rrf_fuse`) fuses two ranked candidate lists by Reciprocal
 Rank Fusion; `jc_cosine_topn` ranks then trims. Those are **folds and maps**
 wearing a `for` loop. The same RRF as a fold reads as what it *is*:
 

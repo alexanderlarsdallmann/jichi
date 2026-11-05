@@ -9,10 +9,15 @@
 #include "jc_http.h"
 #include "jc_snprintf.h"
 #include "jc_multipart.h"
+#include "jc_net.h"
 #include "net_util.h"
 
 #include <stdlib.h>
 #include <string.h>
+
+/* M1093 (C-09): the transcription side call's named TOTAL cap (a CAP, not a
+ * fence). The connect + dead-stream FENCES come from jc_net_side_fences. */
+#define JC_NET_TRANSCRIBE_TIMEOUT_SECS 120
 
 jc_status jc_transcribe_parse(const char *json, char **out)
 {
@@ -75,8 +80,16 @@ jc_status jc_transcribe_run(const struct jc_model_cfg *m,
     if (language != NULL && language[0] != '\0') {
         jc_multipart_field(&mp, "language", language);
     }
-    jc_multipart_file(&mp, "file", filename != NULL ? filename : "audio",
-                      content_type, audio, len);
+    /* C-10 (M1121): jc_multipart_file now checks the model-chosen payload
+     * against the boundary and regenerates it on a match; it reports the
+     * (impossible under OS entropy) case where the payload still matches. */
+    st = jc_multipart_file(&mp, "file",
+                           filename != NULL ? filename : "audio",
+                           content_type, audio, len);
+    if (st != JC_OK) {
+        jc_multipart_free(&mp);
+        return st;
+    }
     jc_multipart_content_type(&mp, ctype, sizeof(ctype));
     body = jc_multipart_finish(&mp, &body_len);
     jc_multipart_free(&mp);
@@ -102,8 +115,9 @@ jc_status jc_transcribe_run(const struct jc_model_cfg *m,
     req.headers = &headers;
     req.body = body;
     req.body_len = body_len;
-    req.timeout_secs = 120;
+    req.timeout_secs = JC_NET_TRANSCRIBE_TIMEOUT_SECS;
     req.abort_flag = abort;
+    jc_net_side_fences(&req, NULL); /* M1093: no jc_config in scope: built-in */
 
     st = jc_http_perform(&req, &status, &resp, NULL);
     jc_http_headers_free(&headers);
@@ -117,8 +131,12 @@ jc_status jc_transcribe_run(const struct jc_model_cfg *m,
         return st;
     }
     if (status >= 400 || resp == NULL) {
+        /* M1131 (C-13): cap the error body to 2048 before logging (see
+         * jc_log_err_body_cap); resp NULL -> cap NULL -> just the status. */
+        char *cap = jc_log_err_body_cap(resp, 2048);
         jc_logf(JC_LOG_ERROR, "transcription: HTTP %ld%s%s", status,
-                resp != NULL ? " " : "", resp != NULL ? resp : "");
+                cap != NULL ? " " : "", cap != NULL ? cap : "");
+        free(cap);
         free(resp);
         return JC_ERR_PROVIDER;
     }

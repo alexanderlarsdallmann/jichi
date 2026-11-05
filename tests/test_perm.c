@@ -97,11 +97,78 @@ static void test_name_membership(void)
     free_strs(&p.deny);
 }
 
+/* M762: the verdict as the pre-M762 resolver computed it, copied here on purpose.
+ * jc_perm_for_tool is now jc_perm_for_tool_why with a NULL reason, and that
+ * rewrite must not change a single verdict -- so it is compared against the old
+ * logic over the whole input space (3 modes x 2 x 2 x 2 x 3 MCP policies = 72). */
+static enum jc_approval old_resolver(enum jc_agent_mode mode, int ro, int in_allow,
+                                     int in_deny, enum jc_approval mcp)
+{
+    if (in_deny || mcp == JC_APPROVAL_DENY) return JC_APPROVAL_DENY;
+    if (mode == JC_MODE_PLAN && !ro) return JC_APPROVAL_DENY;
+    if (in_allow) return JC_APPROVAL_ALLOW;
+    if (mcp == JC_APPROVAL_ALLOW) return JC_APPROVAL_ALLOW;
+    if (mode == JC_MODE_AUTO) return JC_APPROVAL_ALLOW;
+    return ro ? JC_APPROVAL_ALLOW : JC_APPROVAL_ASK;
+}
+
+static void test_resolver_why(void)
+{
+    static const enum jc_agent_mode modes[3] = {
+        JC_MODE_CHAT, JC_MODE_PLAN, JC_MODE_AUTO
+    };
+    static const enum jc_approval mcps[3] = {
+        JC_APPROVAL_ASK, JC_APPROVAL_ALLOW, JC_APPROVAL_DENY
+    };
+    int mi, ro, al, de, pi, same = 0, named = 0;
+    const char *w;
+
+    for (mi = 0; mi < 3; mi++)
+        for (ro = 0; ro < 2; ro++)
+            for (al = 0; al < 2; al++)
+                for (de = 0; de < 2; de++)
+                    for (pi = 0; pi < 3; pi++) {
+                        w = NULL;
+                        if (jc_perm_for_tool_why(modes[mi], ro, al, de, mcps[pi], &w)
+                                == old_resolver(modes[mi], ro, al, de, mcps[pi]) &&
+                            jc_perm_for_tool(modes[mi], ro, al, de, mcps[pi])
+                                == old_resolver(modes[mi], ro, al, de, mcps[pi])) {
+                            same++;
+                        }
+                        if (w != NULL && w[0] != '\0') {
+                            named++;
+                        }
+                    }
+    JC_CHECK(same == 72);   /* every verdict unchanged */
+    JC_CHECK(named == 72);  /* and every one explained */
+
+    /* Each branch says its own reason: the words /why prints. */
+    (void)jc_perm_for_tool_why(JC_MODE_AUTO, RO, 1, 1, ASK, &w);
+    JC_CHECK(strstr(w, "deny list") != NULL);
+    (void)jc_perm_for_tool_why(JC_MODE_CHAT, MU, 0, 0, DENY, &w);
+    JC_CHECK(strstr(w, "MCP server's policy denies") != NULL);
+    (void)jc_perm_for_tool_why(JC_MODE_PLAN, MU, 1, 0, ASK, &w);
+    JC_CHECK(strstr(w, "plan mode") != NULL);
+    (void)jc_perm_for_tool_why(JC_MODE_CHAT, MU, 1, 0, ASK, &w);
+    JC_CHECK(strstr(w, "allow list") != NULL);
+    (void)jc_perm_for_tool_why(JC_MODE_CHAT, MU, 0, 0, ALLOW, &w);
+    JC_CHECK(strstr(w, "autoApprove") != NULL);
+    (void)jc_perm_for_tool_why(JC_MODE_AUTO, MU, 0, 0, ASK, &w);
+    JC_CHECK(strstr(w, "auto mode") != NULL);
+    (void)jc_perm_for_tool_why(JC_MODE_CHAT, RO, 0, 0, ASK, &w);
+    JC_CHECK(strstr(w, "only reads") != NULL);
+    (void)jc_perm_for_tool_why(JC_MODE_CHAT, MU, 0, 0, ASK, &w);
+    JC_CHECK(strstr(w, "chat mode asks") != NULL);
+    /* a NULL reason pointer is allowed: that is jc_perm_for_tool */
+    JC_CHECK(jc_perm_for_tool_why(JC_MODE_CHAT, MU, 0, 0, ASK, NULL) == ASK);
+}
+
 void test_perm(void)
 {
     test_resolver_truth_table();
     test_mode_parse_name();
     test_name_membership();
+    test_resolver_why();
 }
 
 /* M304: narrowing the posture mid-run. The ordering is the substance here, because
@@ -127,6 +194,47 @@ void test_perm_mode_narrow(void)
     JC_CHECK(jc_perm_mode_narrows(JC_MODE_PLAN, JC_MODE_CHAT) == 0);
     JC_CHECK(jc_perm_mode_narrows(JC_MODE_PLAN, JC_MODE_AUTO) == 0);
     JC_CHECK(jc_perm_mode_narrows(JC_MODE_CHAT, JC_MODE_AUTO) == 0);
+
+    /* M845 (D5): a SAVED session's mode, on a load or a resume -- narrow, never
+     * widen; a pinned --plan/--auto is kept against a stricter saved mode; a
+     * looser saved mode is KEPT_WIDER even when pinned (the reason to report).
+     * All 18 combinations, each with the mode the process ends up in. */
+    {
+        static const struct {
+            enum jc_agent_mode cur;
+            int pinned;
+            enum jc_agent_mode saved;
+            enum jc_saved_mode_outcome want;
+            enum jc_agent_mode to;
+        } sm[] = {
+            { JC_MODE_CHAT, 0, JC_MODE_CHAT, JC_SAVED_MODE_SAME,        JC_MODE_CHAT },
+            { JC_MODE_CHAT, 0, JC_MODE_PLAN, JC_SAVED_MODE_NARROWED,    JC_MODE_PLAN },
+            { JC_MODE_CHAT, 0, JC_MODE_AUTO, JC_SAVED_MODE_KEPT_WIDER,  JC_MODE_CHAT },
+            { JC_MODE_CHAT, 1, JC_MODE_CHAT, JC_SAVED_MODE_SAME,        JC_MODE_CHAT },
+            { JC_MODE_CHAT, 1, JC_MODE_PLAN, JC_SAVED_MODE_KEPT_PINNED, JC_MODE_CHAT },
+            { JC_MODE_CHAT, 1, JC_MODE_AUTO, JC_SAVED_MODE_KEPT_WIDER,  JC_MODE_CHAT },
+            { JC_MODE_PLAN, 0, JC_MODE_PLAN, JC_SAVED_MODE_SAME,        JC_MODE_PLAN },
+            { JC_MODE_PLAN, 0, JC_MODE_CHAT, JC_SAVED_MODE_KEPT_WIDER,  JC_MODE_PLAN },
+            { JC_MODE_PLAN, 0, JC_MODE_AUTO, JC_SAVED_MODE_KEPT_WIDER,  JC_MODE_PLAN },
+            { JC_MODE_PLAN, 1, JC_MODE_PLAN, JC_SAVED_MODE_SAME,        JC_MODE_PLAN },
+            { JC_MODE_PLAN, 1, JC_MODE_CHAT, JC_SAVED_MODE_KEPT_WIDER,  JC_MODE_PLAN },
+            { JC_MODE_PLAN, 1, JC_MODE_AUTO, JC_SAVED_MODE_KEPT_WIDER,  JC_MODE_PLAN },
+            { JC_MODE_AUTO, 0, JC_MODE_AUTO, JC_SAVED_MODE_SAME,        JC_MODE_AUTO },
+            { JC_MODE_AUTO, 0, JC_MODE_CHAT, JC_SAVED_MODE_NARROWED,    JC_MODE_CHAT },
+            { JC_MODE_AUTO, 0, JC_MODE_PLAN, JC_SAVED_MODE_NARROWED,    JC_MODE_PLAN },
+            { JC_MODE_AUTO, 1, JC_MODE_AUTO, JC_SAVED_MODE_SAME,        JC_MODE_AUTO },
+            { JC_MODE_AUTO, 1, JC_MODE_CHAT, JC_SAVED_MODE_KEPT_PINNED, JC_MODE_AUTO },
+            { JC_MODE_AUTO, 1, JC_MODE_PLAN, JC_SAVED_MODE_KEPT_PINNED, JC_MODE_AUTO }
+        };
+        int k;
+        for (k = 0; k < (int)(sizeof sm / sizeof sm[0]); k++) {
+            enum jc_saved_mode_outcome o = JC_SAVED_MODE_SAME;
+            enum jc_agent_mode got = jc_perm_saved_mode(sm[k].cur, sm[k].pinned,
+                                                        sm[k].saved, &o);
+            JC_CHECK(got == sm[k].to);
+            JC_CHECK(o == sm[k].want);
+        }
+    }
 
     /* No move is not a narrowing (the caller reports "already in X"). */
     JC_CHECK(jc_perm_mode_narrows(JC_MODE_AUTO, JC_MODE_AUTO) == 0);

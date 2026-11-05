@@ -11,15 +11,15 @@ _jichi() {
           daemon
           describe docs doctor dream embed export fim glossary grade
           hint improve index init learn ls lsp map mcp memory models
-          output-styles packages prune rerank recover rewind rules runs serve
-          setup skills status sysmsg telemetry test timeouts undo
-          workflow)
+          output-styles packages prune ps rerank recover rewind rules runs serve
+          setup skills status sysmsg telemetry test timeouts trust undo
+          untrust workflow)
     opts=(-p --print --config --model --plan --auto --readonly -c --continue
           --session --all -v --verbose -q --quiet --silent --output --color
           --no-color --no-markdown --type-ahead --no-type-ahead --accessible
           --no-stdin
           --no-session
-          --heartbeat --reindex --acp
+          --heartbeat --handoff-in --reindex --acp
           --route-fast --route-strong --no-route --verify --verify-retries
           --verify-timeout --verify-baseline --verify-kind --no-rollback --strict-scope
           --budget-tokens --deadline --max-tool-calls --edit-scope --journal --control

@@ -55,7 +55,7 @@ jichi
 ヘッドレス（スクリプトや自動化向け）:
 
 ```sh
-jichi -p "src/main.c が何をするか説明して"
+jichi -p "src/main.c が何をするか説明して" < /dev/null
 ```
 
 ## 4. 制御を保つ

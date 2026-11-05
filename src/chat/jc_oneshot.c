@@ -7,11 +7,18 @@
 #include "jc_provider.h"
 #include "jc_message.h"
 #include "jc_http.h"
+#include "jc_net.h"
 #include "jc_str.h"
 #include "jc_json.h"
 
 #include <stdlib.h>
 #include <string.h>
+
+/* M1093 (C-09): the one-shot side call's named TOTAL cap (a CAP, not a fence),
+ * the default used when a caller does not pass one. The connect + dead-stream
+ * FENCES come from jc_net_side_fences. Both call sites (probe and ex) take only
+ * a jc_provider*, so they pass NULL for the config: the built-in fences apply. */
+#define JC_ONESHOT_TIMEOUT_SECS 60
 
 char *jc_oneshot(struct jc_provider *prov, const char *system_msg,
                  const char *user_msg, long timeout_secs,
@@ -80,8 +87,10 @@ jc_status jc_oneshot_probe(struct jc_provider *prov, const char *system_msg,
     req.headers = &headers;
     req.body = body;
     req.body_len = strlen(body);
-    req.timeout_secs = (timeout_secs > 0) ? timeout_secs : 60;
+    req.timeout_secs = (timeout_secs > 0) ? timeout_secs
+                                          : JC_ONESHOT_TIMEOUT_SECS;
     req.abort_flag = abort_flag;
+    jc_net_side_fences(&req, NULL); /* M1093: only prov in scope: built-in */
 
     st = jc_http_perform(&req, &http_status, &resp, NULL);
     jc_http_headers_free(&headers);
@@ -191,8 +200,10 @@ char *jc_oneshot_ex(struct jc_provider *prov, const char *system_msg,
     req.headers = &headers;
     req.body = body;
     req.body_len = strlen(body);
-    req.timeout_secs = (timeout_secs > 0) ? timeout_secs : 60;
+    req.timeout_secs = (timeout_secs > 0) ? timeout_secs
+                                          : JC_ONESHOT_TIMEOUT_SECS;
     req.abort_flag = abort_flag;
+    jc_net_side_fences(&req, NULL); /* M1093: only prov in scope: built-in */
 
     st = jc_http_perform(&req, &http_status, &resp, NULL);
     jc_http_headers_free(&headers);

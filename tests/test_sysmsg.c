@@ -669,25 +669,36 @@ void test_sysmsg_solving_stance_tools(void)
 void test_sysmsg_date(void)
 {
     struct jc_sb sb;
+    const char *tz0 = getenv("TZ");
+    char *saved = (tz0 != NULL) ? jc_strdup(tz0) : NULL;
 
-    setenv("TZ", "UTC", 1);
+    /* "UTC0", not "UTC": POSIX requires the offset, and DJGPP's C library reads a
+     * TZ without one as garbage (M839: the date came out 37 days early). */
+    setenv("TZ", "UTC0", 1);
     tzset();
     jc_sb_init(&sb);
-    /* 1786320000 = 2026-08-10 06:40 UTC. */
+    /* 1786320000 = 2026-08-10 00:00:00 UTC -- midnight, so a zone west of UTC
+     * would read 08-09: the check holds only because TZ is pinned above. */
     jc_sysmsg_append_date(&sb, 1786320000L);
-    JC_CHECK(sb.data != NULL &&
-             strcmp(sb.data, "- Today's date: 2026-08-10\n") == 0);
+    JC_CHECK_STR(sb.data, "- Today's date: 2026-08-10\n");
     jc_sb_free(&sb);
 
     /* A different day renders differently (the line is live, not baked). */
     jc_sb_init(&sb);
     jc_sysmsg_append_date(&sb, 1786320000L + 86400L);
-    JC_CHECK(sb.data != NULL &&
-             strstr(sb.data, "2026-08-11") != NULL);
+    JC_CHECK_STR(sb.data, "- Today's date: 2026-08-11\n");
     jc_sb_free(&sb);
 
     /* NULL sb: no crash. */
     jc_sysmsg_append_date(NULL, 1786320000L);
+
+    if (saved != NULL) {
+        setenv("TZ", saved, 1);
+        free(saved);
+    } else {
+        unsetenv("TZ");
+    }
+    tzset();
 }
 
 /* M358: the context gauge's static half -- present with the configured

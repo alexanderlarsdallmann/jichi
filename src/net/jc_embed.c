@@ -166,8 +166,13 @@ jc_status jc_embed_texts(const struct jc_model_cfg *m,
             break;
         }
         if (status >= 400 || resp == NULL) {
+            /* M1131 (C-13): cap the error body (a multi-MiB transfer-ceiling
+             * body) to 2048 before logging, so it cannot straddle jc_logf's
+             * redaction buffer. resp NULL -> cap NULL -> just the status. */
+            char *cap = jc_log_err_body_cap(resp, 2048);
             jc_logf(JC_LOG_ERROR, "embeddings: HTTP %ld%s%s", status,
-                    resp != NULL ? " " : "", resp != NULL ? resp : "");
+                    cap != NULL ? " " : "", cap != NULL ? cap : "");
+            free(cap);
             free(resp);
             st = JC_ERR_PROVIDER;
             break;

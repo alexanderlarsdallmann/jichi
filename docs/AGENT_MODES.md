@@ -165,7 +165,8 @@ Built-in tools are read-only (`read_file`, `list_files`, `search_code`,
 
 - **`mode`** — `"chat"` | `"plan"` | `"auto"`; the default mode at startup.
 - **`permissions.allow` / `permissions.deny`** — each a list of tool names, or
-  `"*"`/`true` for all tools. `deny` wins over `allow`. Names match the
+  `"*"`/`true` for all tools (`true` in any spelling a person writes: `1`, `"true"`, `"on"`, `"yes"`; before M843 only a JSON
+  `true` counted, so `"deny": 1` denied nothing). `deny` wins over `allow`. Names match the
   *registered* name: a built-in's short name (`write_file`) or an MCP tool's
   namespaced name (`server__tool`). This is distinct from a server's own
   `autoApprove`/`deny` (which use bare, un-namespaced names) — both are honored.

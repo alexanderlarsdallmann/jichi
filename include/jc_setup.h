@@ -222,11 +222,14 @@ jc_status jc_setup_build_config(const struct jc_setup_answers *a,
  * to `out`. Gap-fill semantics: existing top-level keys and models are
  * preserved untouched; only pieces the config lacks are added — the chat/embed
  * model is added only if no existing model already holds that role, and each
- * top-level key only if absent. Returns JC_ERR_PARSE if `existing_json` is not a
- * JSON object, JC_ERR_INVALID if `a` lacks provider/model. Pure (M53). */
+ * top-level key only if absent. If `existing_json` is non-NULL and `arena` is
+ * non-NULL, comments are stripped from `existing_json` before parsing (so JSONC
+ * with C-style comments is accepted). Returns JC_ERR_PARSE if the parsed result
+ * is not a JSON object, JC_ERR_INVALID if `a` lacks provider/model. Pure (M53). */
 jc_status jc_setup_merge_config(const char *existing_json,
                                 const struct jc_setup_answers *a,
-                                struct jc_sb *out);
+                                struct jc_sb *out,
+                                struct jc_arena *arena);
 
 /* Build a project config that INHERITS from an existing (global) config: start
  * from `source_json`, optionally restricted to a subset of top-level keys
@@ -234,11 +237,14 @@ jc_status jc_setup_merge_config(const char *existing_json,
  * the whole config), then gap-fill with `a` (only pieces still missing). Unlike
  * jc_setup_merge_config this does NOT require `a` to carry a model — the source
  * usually supplies one — so a pure `setup --from-global` (no --model) works.
- * Returns JC_ERR_PARSE if source_json isn't a JSON object. Pure (W5). */
+ * If `source_json` is non-NULL and `arena` is non-NULL, comments are stripped
+ * before parsing (so JSONC with C-style comments is accepted). Returns
+ * JC_ERR_PARSE if source_json isn't a JSON object. Pure (W5). */
 jc_status jc_setup_inherit_config(const char *source_json,
                                   const char *inherit_keys,
                                   const struct jc_setup_answers *a,
-                                  struct jc_sb *out);
+                                  struct jc_sb *out,
+                                  struct jc_arena *arena);
 
 /* Append the text of a POSIX `sh` start-script for `preset` that runs
  * `jichi --config <config_path>` with the profile's flags. Pure. */

@@ -5,6 +5,7 @@
 
 #include "jc_test.h"
 #include "jc_app.h"
+#include "jc_perm.h"   /* JC_MODE_* */
 #include "jc_reread.h"
 #include "jc_mem.h"
 #include "jc_path.h"
@@ -133,6 +134,80 @@ static void test_reference_roots_fence(void)
     app.config.path_fence = 0;
     JC_CHECK(jc_app_path_denied_ex(&app, "Makefile", 1) == 0);
 
+    jc_vec_free(&app.config.reference_roots);
+    jc_arena_free(arena);
+}
+
+/* M887 (the demos drive's N49 (a)): a parallel write child's file tools reach
+ * what its shell fence grants -- its own temp dir always, the shellFenceAllow
+ * directories while the shell fence is on -- and nothing else. */
+static void test_write_child_grants(void)
+{
+    struct jc_app app;
+    struct jc_arena *arena = jc_arena_new(0);
+    char ws[JC_PATH_MAX], tmpd[JC_PATH_MAX], grant[JC_PATH_MAX];
+    char other[JC_PATH_MAX], p[JC_PATH_MAX];
+    char *gp;
+
+    jc_snprintf(p, sizeof(p), "%s/jc_m887_ws", jc_test_tmpdir());
+    if (jc_mkdir_p(p) != JC_OK || jc_path_resolve(p, ws, sizeof(ws)) != JC_OK) {
+        jc_arena_free(arena);
+        return;
+    }
+    jc_snprintf(p, sizeof(p), "%s/jc_m887_tmp", jc_test_tmpdir());
+    if (jc_mkdir_p(p) != JC_OK || jc_path_resolve(p, tmpd, sizeof(tmpd)) != JC_OK) {
+        jc_arena_free(arena);
+        return;
+    }
+    jc_snprintf(p, sizeof(p), "%s/jc_m887_grant", jc_test_tmpdir());
+    if (jc_mkdir_p(p) != JC_OK ||
+        jc_path_resolve(p, grant, sizeof(grant)) != JC_OK) {
+        jc_arena_free(arena);
+        return;
+    }
+    jc_snprintf(p, sizeof(p), "%s/jc_m887_other", jc_test_tmpdir());
+    if (jc_mkdir_p(p) != JC_OK ||
+        jc_path_resolve(p, other, sizeof(other)) != JC_OK) {
+        jc_arena_free(arena);
+        return;
+    }
+
+    memset(&app, 0, sizeof(app));
+    app.arena = arena;
+    app.config.path_fence = 1;
+    memcpy(app.root, ws, strlen(ws) + 1);
+    jc_vec_init(&app.config.reference_roots, sizeof(char *));
+    jc_vec_init(&app.config.shell_fence_allow, sizeof(char *));
+    gp = jc_arena_strdup(arena, grant);
+    jc_vec_push(&app.config.shell_fence_allow, &gp);
+    app.config.shell_fence = 1;
+    app.parallel_write = 1;
+    jc_snprintf(app.child_tmpdir, sizeof app.child_tmpdir, "%s", tmpd);
+
+    /* a write child: the grant read and written, its temp dir written */
+    jc_snprintf(p, sizeof(p), "%s/probe.tsv", grant);
+    JC_CHECK(jc_app_path_denied_ex(&app, p, 0) == 0);
+    JC_CHECK(jc_app_path_denied_ex(&app, p, 1) == 0);
+    jc_snprintf(p, sizeof(p), "%s/cc.o", tmpd);
+    JC_CHECK(jc_app_path_denied_ex(&app, p, 1) == 0);
+    /* nothing else */
+    jc_snprintf(p, sizeof(p), "%s/x.tsv", other);
+    JC_CHECK(jc_app_path_denied_ex(&app, p, 1) == 1);
+    /* not a write child: neither grant applies */
+    app.parallel_write = 0;
+    jc_snprintf(p, sizeof(p), "%s/probe.tsv", grant);
+    JC_CHECK(jc_app_path_denied_ex(&app, p, 1) == 1);
+    jc_snprintf(p, sizeof(p), "%s/cc.o", tmpd);
+    JC_CHECK(jc_app_path_denied_ex(&app, p, 1) == 1);
+    /* a write child with the shell fence off: no shellFenceAllow, its temp dir still */
+    app.parallel_write = 1;
+    app.config.shell_fence = 0;
+    jc_snprintf(p, sizeof(p), "%s/probe.tsv", grant);
+    JC_CHECK(jc_app_path_denied_ex(&app, p, 1) == 1);
+    jc_snprintf(p, sizeof(p), "%s/cc.o", tmpd);
+    JC_CHECK(jc_app_path_denied_ex(&app, p, 1) == 0);
+
+    jc_vec_free(&app.config.shell_fence_allow);
     jc_vec_free(&app.config.reference_roots);
     jc_arena_free(arena);
 }
@@ -406,12 +481,41 @@ static void test_run_command_every_stderr(void)
     jc_arena_free(arena);
 }
 
+/* M840: an explicit --readonly survives every mode change. A bounded headless
+ * run is promoted to AUTO and a resumed session re-applies its saved mode, and
+ * both go through jc_app_set_mode, which used to clear readonly for chat and auto. */
+static void test_readonly_pinned(void)
+{
+    struct jc_app a;
+
+    memset(&a, 0, sizeof(a));
+    a.readonly = 1;
+    a.readonly_pinned = 1;
+    jc_app_set_mode(&a, JC_MODE_AUTO);
+    JC_CHECK(a.readonly == 1 && a.auto_approve == 1);
+    jc_app_set_mode(&a, JC_MODE_CHAT);
+    JC_CHECK(a.readonly == 1 && a.auto_approve == 0);
+    jc_app_set_mode(&a, JC_MODE_PLAN);
+    JC_CHECK(a.readonly == 1);
+    /* Without the pin the modes keep their meaning: chat and auto do not refuse
+     * writes, plan does. */
+    a.readonly_pinned = 0;
+    jc_app_set_mode(&a, JC_MODE_CHAT);
+    JC_CHECK(a.readonly == 0);
+    jc_app_set_mode(&a, JC_MODE_PLAN);
+    JC_CHECK(a.readonly == 1);
+    jc_app_set_mode(&a, JC_MODE_AUTO);
+    JC_CHECK(a.readonly == 0 && a.auto_approve == 1);
+}
+
 void test_app(void)
 {
+    test_readonly_pinned();
     test_newest_beats();
     test_scratch_accessor();
     test_scratch_reset_cycle();
     test_reference_roots_fence();
+    test_write_child_grants();
     test_write_file_atomic();
     test_run_command_timeout();
     test_run_command_every_stderr();

@@ -410,7 +410,7 @@ static void json_fill_model(struct jc_ir *ir, struct jc_ir_model *out,
     n = (opts != NULL) ? cJSON_GetObjectItem(opts, "maxTokens") : NULL;
     if (cJSON_IsNumber(n)) {
         out->has_max = 1;
-        out->max_tokens = (long)n->valuedouble;
+        out->max_tokens = jc_json_clamp_long(n->valuedouble);
     }
     n = (opts != NULL) ? cJSON_GetObjectItem(opts, "temperature") : NULL;
     if (cJSON_IsNumber(n)) {
@@ -420,7 +420,7 @@ static void json_fill_model(struct jc_ir *ir, struct jc_ir_model *out,
     n = cJSON_GetObjectItem(m, "contextLength");
     if (cJSON_IsNumber(n)) {
         out->has_ctx = 1;
-        out->context_length = (long)n->valuedouble;
+        out->context_length = jc_json_clamp_long(n->valuedouble);
     }
 }
 

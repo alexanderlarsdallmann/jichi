@@ -31,6 +31,17 @@
 # reported by this host's sanitizer runtime. Without it, check 4 cannot tell
 # "no leaks" from "leak detection is off" -- and detect_leaks is off by default
 # on some platforms, which is precisely the silent-vacuous-pass shape.
+#
+# M882: AND A KEPT CONNECTION, WATCHED FOR A WRITE INTO A RETURNED FRAME. M880
+# handed libcurl a socket watch that lived in the transfer's stack frame. libcurl
+# copies that pointer into the connection, and closes a connection the server kept
+# open after the transfer has returned -- so the close wrote into a dead frame.
+# Every real provider keeps its connection; the mock closed every one itself, so
+# this turn, `make ci` and 2422 smoke checks were green while one turn against LM
+# Studio crashed. Now the mock keeps the connection (MM_KEEPALIVE), the turn runs
+# with detect_stack_use_after_return, check 5 proves a connection carried both
+# requests, check 6 reads AddressSanitizer's verdict, and check 7 proves the binary
+# carries the instrumentation that verdict depends on.
 . "$(dirname "$0")/_smoke.sh"
 
 # ---- preconditions (before t_plan: t_skip is a whole-driver verb) ------------
@@ -56,7 +67,7 @@ EOF
 ${CC:-cc} -fsanitize=address -o "$tmp/leaker" "$tmp/leaker.c" 2>/dev/null \
     || t_skip "no working -fsanitize=address compiler, so the leak detector cannot be armed -- every verdict here would be unvalidated"
 
-t_plan 4
+t_plan 7
 
 # ---- 1: the instrument fires ------------------------------------------------
 ASAN_OPTIONS="detect_leaks=1:exitcode=0" "$tmp/leaker" > /dev/null 2> "$tmp/leaker.err"
@@ -80,14 +91,16 @@ rule
 EOF
 printf 'the quick brown fox\n' > "$ws/hello.txt"
 
+MM_KEEPALIVE=1
 mm_start "$tmp/replies.mm" "$tmp/cap" 4
+MM_KEEPALIVE=
 write_config "$tmp/config.json" "$MM_PORT"
 
 # The exit code is deliberately not asserted, for leakcheck.sh's reason: what is
 # under test is the absence of a leak report, and conflating the two makes the
 # fixture fail for the wrong reason. ASAN_OPTIONS keeps exitcode=0 so a leak
 # shows up as a REPORT here rather than as a process failure the deadline eats.
-(cd "$ws" && ASAN_OPTIONS="detect_leaks=1:exitcode=0" \
+(cd "$ws" && ASAN_OPTIONS="detect_leaks=1:exitcode=0:detect_stack_use_after_return=1" \
     with_deadline 120 "$BIN" --config "$tmp/config.json" \
     -q --no-session --auto --budget-tokens 200k \
     -p "read hello.txt and tell me what it says" < /dev/null) \
@@ -120,6 +133,36 @@ if grep -q "LeakSanitizer: detected memory leaks" "$tmp/err.txt"; then
 $(grep -A12 'detected memory leaks' "$tmp/err.txt" | head_bytes 900)"
 else
     t_ok "no leak reported across one full tool round ($_nreq requests)"
+fi
+
+# ---- 5: the connection outlived its first transfer (M882) -------------------
+# The floor for check 6: unless one connection carried both requests, the client
+# never held a connection past the transfer that opened it, and a clean verdict
+# would cover the case that was never the danger.
+if grep -q '^requests=[2-9]' "$tmp/cap/conns" 2>/dev/null; then
+    t_ok "one connection carried $(sed -n 's/^requests=//p' "$tmp/cap/conns" | sort -n | tail -n 1) requests -- the client kept it past its first transfer"
+else
+    t_fail "no connection carried a second request (conns: $(tr '\n' ' ' < "$tmp/cap/conns" 2>/dev/null)) --
+the kept-alive path did not run, so check 6 has nothing to say"
+fi
+
+# ---- 6: no write into a returned frame, nor any other AddressSanitizer error --
+if grep -q "ERROR: AddressSanitizer" "$tmp/err.txt"; then
+    t_fail "AddressSanitizer reported an error on a turn over a kept connection:
+$(grep -A8 'ERROR: AddressSanitizer' "$tmp/err.txt" | head_bytes 900)"
+else
+    t_ok "no AddressSanitizer error across a kept connection (detect_stack_use_after_return on)"
+fi
+
+# ---- 7: the binary can see a write into a returned frame ---------------------
+# detect_stack_use_after_return reads nothing unless the binary was compiled with
+# the fake-stack instrumentation (clang's default; gcc's needs a param). Without
+# it, check 6 is a disabled checker's silence.
+if strings "$BIN" 2>/dev/null | grep -q '__asan_stack_malloc'; then
+    t_ok "the binary under test carries use-after-return instrumentation"
+else
+    t_fail "the binary has no __asan_stack_malloc hooks: check 6 cannot see a write
+into a returned frame. Build it with clang (make SAN=1 CC=clang jichi)."
 fi
 
 t_done

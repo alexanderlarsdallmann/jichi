@@ -52,7 +52,29 @@ struct jc_message {
                              * message at the model's output-token ceiling
                              * (OpenAI finish_reason "length", Anthropic
                              * stop_reason "max_tokens"). A tool call in a
-                             * truncated message is CUT OFF, not malformed. */
+                             * truncated message is CUT OFF, not malformed.
+                             * (A-07 / M1090 extended the cause set: the same
+                             * flag is also set when JICHI clipped its own
+                             * per-stream accumulation to its ceiling -- see
+                             * truncated_by_cap for that distinction.) */
+    int     truncated_by_cap; /* A-07 / M1090: set when the truncation was
+                             * caused by jichi's OWN per-stream accumulation
+                             * ceiling (text/args clipped at the cap), as
+                             * opposed to the model's output-token limit
+                             * (M334). Like saw_reasoning, it is in-memory
+                             * only, recomputed each call, never serialised.
+                             * jc_prov_flush sets it only when NOT
+                             * hit_length_cap: when both fired, the model's
+                             * limit is the cause the model can act on, and
+                             * the model-facing prose says so. */
+    int     saw_reasoning;  /* M937 (D3): the model emitted reasoning/thinking
+                             * content this turn (provider-specific: OpenAI
+                             * reasoning_content, Anthropic thinking). In-memory
+                             * only, like truncated -- the provider recomputes it
+                             * from the wire each call, so it is never serialised.
+                             * It is the CAUSE that distinguishes a reply that
+                             * spent its answer budget on scratchpad (reasoned,
+                             * said nothing) from one that simply was empty. */
 };
 
 struct jc_history {
@@ -83,6 +105,13 @@ struct jc_message *jc_history_add(struct jc_history *h, jc_role role,
  * message, or NULL. */
 struct jc_message *jc_history_add_operator(struct jc_history *h,
                                            const char *text);
+
+/* Like jc_history_add_operator but with a custom prefix (e.g. "[supervisor] ").
+ * This is used when the control channel inject has a `from` field; the TUI
+ * type-ahead path keeps [operator]. */
+struct jc_message *jc_history_add_with_prefix(struct jc_history *h,
+                                              const char *prefix,
+                                              const char *text);
 
 /* Convenience: append a tool result message. `content` and `tool_call_id`
  * are copied. */

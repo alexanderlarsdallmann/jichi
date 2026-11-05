@@ -19,10 +19,10 @@ fenced to read-only tools.
 | Arg | Type | Required | Meaning |
 |-----|------|----------|---------|
 | `task` | string | yes | The instruction the subagent completes autonomously, then reports a concise final answer on. |
-| `model` | string | no | Which configured model the subagent runs on: a name/id substring, a 1-based index, or a role (e.g. `"summarize"`). Defaults to the current model. |
-| `readonly` | bool | no | If true, the subagent sees only read-only tools (good for research/review). Default false. |
+| `model` | string | no | Which configured model the subagent runs on: a name/id substring, a 1-based index, or a role one of the configured models declares. Omit it, or pass `"default"` or `"current"`, for the current model. A real role no configured model declares runs on the current model, and the result says so (M745). A selector that matches nothing is refused, and the refusal lists the configured models. |
+| `readonly` | bool | no | If true, the subagent is offered only read-only tools, which means no shell (`run_terminal_command`, `run_tests`) and no editing tools, so do not brief it to run a command (good for research/review). Default false. |
 | `agent` | string | no | A named agent profile to run under (see *Named profiles* below). |
-| `skill` | string | no | A skill to seed the subagent with: its body is prepended to the task. When that skill declares `restrict-tools: true`, its `tools` list also becomes the subagent's allow-list — the one place a skill *enforces* tools (W2). |
+| `skill` | string | no | A skill to seed the subagent with: its body is prepended to the task. When that skill declares `restrict-tools: true`, its `tools` list also becomes the subagent's allow-list — the one place a skill *enforces* tools (W2). With a profile too, the fence is the tools both allow; if they share none, the call is refused and names both (M848 -- before it, an empty intersection ran the subagent with every tool). |
 
 The tool returns the subagent's final assistant text — and **only** that text. The
 subagent's token spend, tool-call count and the files it changed are known to the
@@ -42,18 +42,47 @@ and ACP pass no status sink, so there they stay entirely internal.
   *mutating* tool, so calling it goes through the parent's normal permission
   gate (it asks in chat mode, runs in auto mode, and is hidden in plan/read-only
   mode — you can only delegate-to-act from an acting posture). Once the spawn is
-  allowed, the subagent runs **auto-approved within its tool sandbox**.
+  allowed, the subagent runs **auto-approved within its tool sandbox** — with two
+  exceptions since M849. Its **shell** calls (`run_terminal_command`, `run_tests`
+  with a command) follow your posture: in the TUI you are asked, and where the
+  subagent has no way to ask you (headless without `--auto`, an editor, a
+  parallel child, the TUI under `-q`) the call is refused. And it never runs a
+  privileged command (`sudo`, `doas`, ...) through `privilegedCommandsAllow`; it is
+  refused and audited as `delegate_refused`. Its file tools are held inside the
+  workspace by the path fence (M848).
 - **DENY still dominates.** A subagent never runs a tool that the config
   `permissions.deny` or an MCP server's deny list forbids — those are refused
   inside the subagent exactly as for the main agent.
 - **Read-only floor.** A read-only parent (plan mode / `--readonly`) forces a
   read-only subagent regardless of the `readonly` arg; `readonly:true` can only
   tighten, never loosen.
+- **A write subagent works in the LIVE workspace.** Unlike a `spawn_parallel`
+  write child — which edits in an isolated git worktree that the parent merges
+  back — a `spawn_subagent` write subagent edits the parent's live tree directly,
+  and its edits (and any commits its shell makes) land there as it makes them.
+  That is the right tool for one focused change you want applied now; for parallel
+  edits, or for work you want isolated and mergeable, use `spawn_parallel` with
+  `write: true`. A team on the weekend drive learned this only from its own records
+  (its write subagents committed straight onto the team branch), so it is stated
+  here and in the tool's own description.
+- **It starts with a fresh context — no inherited conversation, project rules or
+  memory.** The subagent sees only the system prompt and the task text you write;
+  it does not get the parent's history, the project's `CLAUDE.md`/`AGENTS.md` rules,
+  or `.jichi/memory.md` (only an agent *profile*, if you name one, and jichi's
+  enforced sections at depth). This decides what a task text must **carry**: every
+  fact, path and constraint the subagent needs goes in the task, because nothing
+  else reaches it. (The same limit, from the caller's side, is under § Limitations.)
 - **Its own model.** With a `model` arg the subagent streams against a separate
   provider for the chosen model; otherwise it reuses the parent's provider.
 - **Final answer.** The tool result is the subagent's last assistant message.
   If it produced none (e.g. it only made tool calls and hit its iteration cap),
-  the tool reports an error result.
+  the tool reports an error result. A subagent that ends by calling a tool jichi
+  does not have -- `finish`, `done`, `complete`, `submit`, `task_complete` or
+  `final_answer` -- with a `message` argument ends its turn there, and the message
+  is its final answer (M853). If its last reply was cut off at the output
+  ceiling, the delegate report says so, since that text stops mid-sentence (M858).
+  Without a `message`, the call gets an error that
+  says how a turn ends.
 
 ## Named profiles
 
@@ -128,12 +157,29 @@ Both delegation tools append a bounded `[delegate]` block to their tool result:
            NARROWER subtask, or finish the remainder yourself.
 ```
 
-`stop` is one of `done`, `max_iters`, `budget`, `no_answer`, `aborted`, `error`. Before
+`stop` is one of `done`, `max_iters`, `budget`, `no_answer`, `aborted`, `error`, and
+since M861 `task_budget`: a `spawn_parallel` task's own `max_tool_calls` was reached,
+and since the run goes on, the advice does not forbid delegating again. Before
 M437 a failed delegation returned one of two fixed strings, so a parent could not tell
 an edit-scope denial from a tool error from a refusal — and its only moves were to
 re-delegate identically, paying the whole subtask twice, or give up. Each line names the
 parent's **next move**, since a message stating only a cause is what makes a caller
 retry.
+
+**When the run itself failed on its model calls (M876).** For a stop of `error` the block opens with
+the run's own failure -- `[delegate] the run ended because its model calls failed: could not connect
+within 20s (timeouts.connect) ... (12 attempts, 14:28:47-14:33:58 UTC)` -- and the last failing call
+that follows is marked an earlier event, with no remedy for it. An at-bound call that failed once
+reads "hit its own time limit"; only a repeated one reads "kept hitting". The demos drive's run 0094
+(N47) is why: its worker's gateway went down, and the report named only a time limit.
+
+**When a delegate was stopped from outside (M885).** A `spawn_parallel` child that a SIGTERM stopped,
+while its batch went on, reads `[delegate] it was stopped from outside the run (SIGTERM), not by an
+operator's interrupt, so its answer may be partial -- this says nothing about your own run, which goes
+on: check what it did before relying on it`. `stop` stays `aborted`. A call that the run's stop killed
+reads `(that call was killed because the run was being stopped, not by a limit)` instead of the
+limit's advice; that holds for an operator's interrupt as well. The demos drive's run 0102 is why:
+a supervisor stopped one worker, and its lead wrote "INTERRUPTED by operator" into the team's log.
 
 **A clean, unmeasured delegation prints nothing.** An arriving answer already says the
 delegate finished; a block repeating that on every call is cost with no information.
@@ -223,7 +269,7 @@ so raising the ceiling can't multiply the total tool-call budget combinatorially
 
 ```sh
 ./jichi --auto -p "Use spawn_subagent (model \"fast\", readonly true) to \
-  find where SSE events are parsed, then summarize the approach."
+  find where SSE events are parsed, then summarize the approach." < /dev/null
 ```
 
 The main agent calls `spawn_subagent`; the subagent investigates with read-only

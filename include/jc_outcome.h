@@ -31,6 +31,14 @@
 #ifndef JC_OUTCOME_H
 #define JC_OUTCOME_H
 
+/* M867: its own C++ linkage guard. Without it this header's functions had C
+ * linkage in a unit that reached it through another header's extern "C" block
+ * (jc_agent.h wraps its includes) and C++ linkage where it was included
+ * directly -- the C++ build then failed to link (undefined jc_run_stop_wire). */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Why the run stopped. The wire strings these map to are a STABLE interface
  * (docs/EMBEDDING.md): add values, never renumber or rename. */
 enum jc_run_stop {
@@ -41,7 +49,12 @@ enum jc_run_stop {
     JC_STOP_BUDGET,         /* a token / time / tool-call budget was hit     */
     JC_STOP_VERIFY_FAILED,  /* the verifier was still red at the retry limit */
     JC_STOP_SCOPE_TAINTED,  /* verify passed, but outside the edit scope     */
-    JC_STOP_MAX_ITERS       /* the per-turn tool-iteration cap fired         */
+    JC_STOP_MAX_ITERS,      /* the per-turn tool-iteration cap fired         */
+    JC_STOP_HANDOVER,       /* M920: the window is exhausted; the leg ended at
+                             * a round boundary to hand over (the relay's
+                             * baton follows; the work is kept, resumable)    */
+    JC_STOP_RELAY_STALLED   /* M920: the relay stopped making progress across
+                             * legs (a leg ceiling, or no progress x2)        */
 };
 
 /* The two questions every surface actually branches on, derived from the stop
@@ -97,5 +110,9 @@ const char *jc_run_stop_wire(enum jc_run_stop stop);
  * ended cleanly and there is nothing to say. Never a sentence: the callers
  * embed it. */
 const char *jc_run_stop_clause(enum jc_run_stop stop);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* JC_OUTCOME_H */

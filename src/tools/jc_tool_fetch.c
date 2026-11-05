@@ -8,6 +8,7 @@
 #include "jc_untrusted.h"
 #include "jc_app.h"
 #include "jc_http.h"
+#include "jc_net.h"
 #include "jc_str.h"
 #include "jc_snprintf.h"
 
@@ -21,6 +22,10 @@ static cJSON *fetch_schema(void)
     tu_schema_string(s, "url", "The http/https URL to fetch", 1);
     return s;
 }
+
+/* M1093 (C-09): the fetch_url side call's named TOTAL cap (a CAP, not a fence).
+ * The connect + dead-stream FENCES come from jc_net_side_fences. */
+#define FETCH_TIMEOUT_SECS 30
 
 static jc_status fetch_run(const cJSON *args, struct jc_tool_result *out,
                            struct jc_app *app)
@@ -69,9 +74,11 @@ static jc_status fetch_run(const cJSON *args, struct jc_tool_result *out,
     req.method = "GET";
     req.url = url;
     req.headers = NULL;
-    req.timeout_secs = 30;
+    req.timeout_secs = FETCH_TIMEOUT_SECS;
     req.abort_flag = &app->abort_flag;
     req.block_private_addrs = 1;
+    /* M1093: `app` is in scope, so the real config's fences apply. */
+    jc_net_side_fences(&req, &app->config);
     /* The one caller that SHOULD follow a redirect (M472): fetching a page is
      * exactly the case where a 3xx is normal, and this request carries no
      * credential. Every hop is still re-checked by the M131 connect guard, and

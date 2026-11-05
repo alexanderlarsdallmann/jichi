@@ -30,10 +30,19 @@ magic:
 > text the model generates for itself, because producing the steps in
 > writing makes the next token more likely to be right. It is neither a
 > transcript of thought nor a guarantee: fluent reasoning about a file
-> the model never read is still fiction. jichi streams it to you so you
-> can *audit* it, and the curriculum's Stage 3 exists because auditing it
-> is a skill (`docs/ANECDOTES.md` #17, #19–21 are reasoning that read
-> well and was wrong).
+> the model never read is still fiction. When the model writes that text
+> into its answer, jichi streams it to you, so you can *audit* it, and the
+> curriculum's Stage 3 exists because auditing it is a skill
+> (`docs/ANECDOTES.md` #17, #19–21 are reasoning that read well and was
+> wrong).
+>
+> *Corrected 2026-10-04.* Some models write their reasoning to a separate
+> channel instead (`reasoning_content` on an OpenAI-compatible server, a
+> `thinking` block on Anthropic's). jichi detects that channel and does
+> **not** show it: [Fukabori 11](fukabori-11-ai-supported-coding-examined.md)
+> tells how this page's earlier wording promised otherwise (M628). A setting
+> to show it, off by default, was decided on 2026-10-04 and is not built yet
+> (DEFERRED def-317).
 
 ## The shape
 
@@ -125,15 +134,28 @@ Watch the gate work from both sides. First, the refusal path:
 ```sh
 # anywhere -- this block makes and enters its own directory
 mkdir /tmp/annai4 && cd /tmp/annai4 && echo hi > note.txt
-jichi --readonly --no-session -p \
-  "create a file named out.txt containing the word done" --output jsonl
+jichi --auto --edit-scope 'src/**' --no-session -p \
+  "create a file named out.txt containing the word done" --output jsonl < /dev/null
 ```
 
 Find the `tool_call` for `write_file` and the `tool_result` that refused
-it — then watch what the model does *next* with the refusal (usually: it
+it (`"is_error":true`, *out of edit-scope*: the file is outside `src/`) —
+then watch what the model does *next* with the refusal (usually: it
 explains it could not comply — read that as the loop's design working,
-not the model being polite). Second, the happy path: rerun without
-`--readonly` but with `--auto`, and diff the two event streams.
+not the model being polite).
+
+Second, a gate that acts before the model can ask: rerun with
+`--readonly` in place of `--auto --edit-scope 'src/**'`. Now there is no
+refusal to find. `message_start` says `"mode":"chat"`, and `write_file`
+is not on the menu at all: the request offers only tools that read, so
+the model can only say it cannot. *(Corrected 2026-10-04: this exercise
+used `--readonly` for the refusal. Run that day, a `--readonly` request
+offered ten tools, none that writes, so the model never called
+`write_file` and there was no refusal to find.)*
+
+Third, the happy path: rerun with `--auto` alone, and diff the event
+streams. The model may write the file with `write_file` or with a shell
+command; either way `out.txt` now holds `done`.
 
 Then one reading exercise: in `src/tools/jc_tool.c:jc_toolcall_scan`,
 read only the comment block. It cites the measured motivation. Every

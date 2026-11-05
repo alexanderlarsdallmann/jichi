@@ -22,8 +22,10 @@ kill_background{id:1}          -> "Killed background process 1."
 ## Behaviour
 
 - Output is captured into a per-process buffer (capped at 256 KB; truncation is
-  flagged). Children are drained and reaped opportunistically at each tool-call
-  boundary, and on demand when read.
+  flagged). The child writes to a **spool file** (`~/.jichi.d/bgspool/`, M940)
+  instead of a pipe, so a chatty child never blocks on a reader; the registry
+  re-opens the file at its saved offset and drains it opportunistically at each
+  tool-call boundary, and on demand when read.
 - Background children intentionally **survive an aborted turn** — that is the
   point of detaching. They are SIGTERM/SIGKILL'd and reaped at **session exit**.
 - The registry is bounded (`JC_BG_MAX` = 8). Starting a 9th returns an error
@@ -40,7 +42,9 @@ its own terminal).
 ## Implementation
 
 `src/chat/jc_bg.c` / `include/jc_bg.h` — a bounded registry on `jc_app` (each
-entry owns a pid + non-blocking pipe; malloc/free managed, reaped in
-`jc_bg_mgr_free`), reusing the fork/`select`/SIGTERM discipline of the parallel
-pool. The tools live in `src/tools/jc_tool_bg.c`; `run_in_background` is handled
-in `src/tools/jc_tool_run.c`. Tests: `tests/test_bg.c`, `tests/smoke/bg.sh`.
+entry owns a pid + an output spool file; malloc/free managed, spool unlinked at
+reap and swept at the next boot, reaped in `jc_bg_mgr_free`), reusing the
+fork/`select`/SIGTERM discipline of the parallel pool. The tools live in
+`src/tools/jc_tool_bg.c`; `run_in_background` is handled in
+`src/tools/jc_tool_run.c`. Tests: `tests/test_bg.c`, `tests/smoke/bg.sh`,
+`tests/smoke/bg_output_stall.sh`.

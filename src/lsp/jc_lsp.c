@@ -12,6 +12,7 @@
 
 #include "jc_lsp.h"
 #include "jc_proc.h"
+#include "jc_spawn.h"   /* M832 */
 #include "jc_app.h"
 #include "jc_json.h"
 #include "jc_str.h"
@@ -27,13 +28,18 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/select.h>
+#include "jc_select.h"  /* M834: <sys/select.h> where it exists */
 #include <sys/time.h> /* struct timeval: MiNTLib's <sys/select.h> only forward-declares it (M723) */
 #include <fcntl.h>
 
 #define LSP_INIT_TIMEOUT  30.0
 #define LSP_DIAG_TIMEOUT  15.0
-#define LSP_DIAG_GRACE    0.4   /* keep reading briefly after the first batch */
+/* keep reading briefly after the first batch. The wait below is measured on
+ * the monotonic millisecond clock (M938): a grace of real time, not a whole-
+ * second-boundary expiry. 2.0 s must outlast a server that re-publishes after
+ * re-indexing -- the review's reproduction has the real set 0.6 s behind the
+ * empty one, and the mock proves the fix at 1.4 s. */
+#define LSP_DIAG_GRACE    2.0
 #define LSP_NAV_TIMEOUT   10.0  /* definition/references/symbols round-trip */
 #define LSP_CA_DIAG_TIMEOUT 3.0 /* bounded diagnostics wait for code actions (M57) */
 
@@ -47,6 +53,17 @@ struct jc_lsp_conn {
     int                   initialized;
     int                   dead;
     struct jc_vec         opened; /* of char*: uris opened (heap) */
+    /* M938: document versions, parallel to `opened` (same index). LSP
+     * versions must increase for a document, and a version-aware server will
+     * NOT re-publish for a same-version re-open -- jichi then waits the full
+     * LSP_DIAG_TIMEOUT and reads the timeout as "no diagnostics received",
+     * another stale state. The first didOpen for a URI is version 1; each
+     * subsequent open of the same connection is previous + 1. */
+    struct jc_vec         doc_versions; /* of long */
+    /* M939: the server's position encoding (JC_LSP_ENC_UTF16 / _UTF8), read
+     * once from capabilities.positionEncoding in do_initialize. The spec
+     * default is UTF-16, which calloc gives us before initialize answers. */
+    int                   pos_encoding;
     volatile int         *abort;
 };
 
@@ -82,7 +99,6 @@ static jc_status spawn_server(const struct jc_lsp_server_cfg *cfg, pid_t *pid,
     int outp[2];
     char **argv;
     pid_t child;
-    int devnull;
 
     if (jc_pipe_cloexec(inp) != 0) {
         return JC_ERR_IO;
@@ -96,26 +112,21 @@ static jc_status spawn_server(const struct jc_lsp_server_cfg *cfg, pid_t *pid,
         close(inp[0]); close(inp[1]); close(outp[0]); close(outp[1]);
         return JC_ERR_OOM;
     }
-    child = fork();
-    if (child < 0) {
-        free(argv);
-        close(inp[0]); close(inp[1]); close(outp[0]); close(outp[1]);
-        return JC_ERR_IO;
-    }
-    if (child == 0) {
-        dup2(inp[0], STDIN_FILENO);
-        dup2(outp[1], STDOUT_FILENO);
-        /* Silence the server's stderr (LSP servers are very chatty). */
-        devnull = open("/dev/null", O_WRONLY);
-        if (devnull >= 0) {
-            dup2(devnull, STDERR_FILENO);
-            close(devnull);
+    /* M832: through jc_spawn -- stdin/stdout to the pipes, stderr silenced
+     * (LSP servers are very chatty), on either backend. */
+    {
+        struct jc_spawn_req sr;
+        memset(&sr, 0, sizeof sr);
+        sr.argv = argv;
+        sr.fd_stdin = inp[0];
+        sr.fd_stdout = outp[1];
+        sr.fd_stderr = JC_SPAWN_DEVNULL;
+        sr.scrub_env = 1;
+        if (jc_spawn(&sr, &child) != JC_OK) {
+            free(argv);
+            close(inp[0]); close(inp[1]); close(outp[0]); close(outp[1]);
+            return JC_ERR_IO;
         }
-        close(inp[0]); close(inp[1]); close(outp[0]); close(outp[1]);
-        jc_proc_child_close_fds(); /* M472: and not our fds */
-        jc_proc_child_sigreset(); /* M461 */
-        execvp(argv[0], argv);
-        _exit(127);
     }
     free(argv);
     close(inp[0]);
@@ -189,6 +200,18 @@ static jc_status send_notify(struct jc_lsp_conn *c, const char *method,
 
 /* Read one complete message body (malloc'd) before `deadline`, or NULL on
  * timeout/abort/EOF (EOF sets c->dead). */
+/* M938: the one LSP clock. Every deadline in this module is a RELATIVE
+ * (now + timeout) value, so the whole module must read now from one clock --
+ * the monotonic millisecond clock, in seconds. Mixing this with the wall
+ * clock (jc_now_seconds) made a monotonic deadline (~4.9e5 s) compare
+ * "expired" against wall now (~1.7e9 s) and lsp_recv gave up before reading a
+ * single publish. A wall deadline survives a clock step; a monotonic one
+ * cannot be stepped. */
+static double lsp_now_seconds(void)
+{
+    return jc_now_millis() / 1000.0;
+}
+
 static char *lsp_recv(struct jc_lsp_conn *c, double deadline)
 {
     char *body = NULL;
@@ -202,7 +225,7 @@ static char *lsp_recv(struct jc_lsp_conn *c, double deadline)
         if (c->abort != NULL && *c->abort) {
             return NULL;
         }
-        if (jc_now_seconds() > deadline) {
+        if (lsp_now_seconds() > deadline) {
             return NULL;
         }
         FD_ZERO(&rfds);
@@ -300,7 +323,7 @@ static jc_status lsp_request(struct jc_lsp_conn *c, const char *method,
             cJSON *rid = cJSON_GetObjectItem(root, "id");
             const char *m2 = jc_json_get_str(root, "method", NULL);
             if (m2 == NULL && cJSON_IsNumber(rid) &&
-                (long)rid->valuedouble == id) {
+                jc_json_clamp_long(rid->valuedouble) == id) {
                 got = 1;
                 if (result_out != NULL) {
                     cJSON *res = cJSON_GetObjectItem(root, "result");
@@ -357,13 +380,28 @@ static jc_status do_initialize(struct jc_lsp_conn *c, const char *cwd)
         cJSON_AddItemToObject(td, "codeAction", ca);
     }
     cJSON_AddItemToObject(caps, "textDocument", td);
+    /* M939 (R09-F2): advertise position encodings, UTF-8 first — a server
+     * that supports utf-8 positions will pick it and send byte columns, so
+     * jichi's conversion degenerates to identity. Servers that ignore it
+     * answer utf-16 (the spec default) and are still handled. */
+    {
+        cJSON *gen = cJSON_CreateObject();
+        cJSON *encs = cJSON_CreateArray();
+        cJSON_AddItemToArray(encs, cJSON_CreateString("utf-8"));
+        cJSON_AddItemToArray(encs, cJSON_CreateString("utf-16"));
+        cJSON_AddItemToObject(gen, "positionEncodings", encs);
+        cJSON_AddItemToObject(caps, "general", gen);
+    }
     cJSON_AddItemToObject(params, "capabilities", caps);
     info = cJSON_CreateObject();
     cJSON_AddStringToObject(info, "name", "jichi");
     cJSON_AddItemToObject(params, "clientInfo", info);
 
     st = lsp_request(c, "initialize", params,
-                     jc_now_seconds() + LSP_INIT_TIMEOUT, &result);
+                     lsp_now_seconds() + LSP_INIT_TIMEOUT, &result);
+    /* M939: record the encoding the server actually chose before discarding
+     * the result. Absent/utf-16/other/malformed all fall back to UTF-16. */
+    c->pos_encoding = jc_lsp_encoding_from_initialize(result);
     free(result);
     if (st != JC_OK) {
         return st;
@@ -411,6 +449,32 @@ int jc_lsp_handles(struct jc_lsp_manager *m, const char *path)
     return find_cfg(m, path) != NULL;
 }
 
+int jc_lsp_server_encoding(struct jc_lsp_manager *m, const char *path)
+{
+    const struct jc_lsp_server_cfg *cfg;
+    struct jc_lsp_conn *c;
+    jc_size i;
+
+    if (m == NULL || path == NULL) {
+        return JC_LSP_ENC_UTF16;
+    }
+    cfg = find_cfg(m, path);
+    if (cfg == NULL) {
+        return JC_LSP_ENC_UTF16;
+    }
+    /* The already-initialized connection, if one is up. A tool that applies
+     * edits ran a query first (open_for -> spawn + initialize), so the
+     * encoding is known; but never spawn here — a dead/absent conn falls back
+     * to the spec default (UTF-16), the safe direction. */
+    for (i = 0; i < m->conns.len; i++) {
+        c = *(struct jc_lsp_conn **)jc_vec_at(&m->conns, i);
+        if (c->cfg == cfg && !c->dead) {
+            return c->pos_encoding;
+        }
+    }
+    return JC_LSP_ENC_UTF16;
+}
+
 /* Find an existing connection for `cfg`, or spawn + initialize a new one. */
 static struct jc_lsp_conn *get_conn(struct jc_lsp_manager *m,
                                     const struct jc_lsp_server_cfg *cfg)
@@ -449,6 +513,7 @@ static struct jc_lsp_conn *get_conn(struct jc_lsp_manager *m,
     c->next_id = 1;
     jc_lsp_framer_init(&c->framer);
     jc_vec_init(&c->opened, sizeof(char *));
+    jc_vec_init(&c->doc_versions, sizeof(long));
     c->abort = (m->app != NULL) ? &m->app->abort_flag : NULL;
     jc_vec_push(&m->conns, &c);
 
@@ -471,14 +536,40 @@ static int uri_is_open(struct jc_lsp_conn *c, const char *uri)
     return 0;
 }
 
-/* didClose (if previously open) then didOpen with the current text. */
+/* didClose (if previously open) then didOpen with an INCREMENTING version
+ * (M938): LSP requires document versions to increase, and a server that tracks
+ * them will otherwise treat a re-open as "unchanged" and never re-publish. */
+static long next_doc_version(struct jc_lsp_conn *c, const char *uri)
+{
+    jc_size i;
+    for (i = 0; i < c->opened.len; i++) {
+        if (strcmp(*(char **)jc_vec_at(&c->opened, i), uri) == 0) {
+            return (*(long *)jc_vec_at(&c->doc_versions, i)) + 1;
+        }
+    }
+    return 1;
+}
+
 static void open_document(struct jc_lsp_conn *c, const char *uri,
                           const char *lang, const char *text)
 {
     cJSON *td;
     cJSON *params;
+    long version;
 
+    version = next_doc_version(c, uri);
     if (uri_is_open(c, uri)) {
+        /* bump the version before the didClose: the slot already holds the
+         * previous count, and this call's didOpen carries count + 1. */
+        {
+            jc_size i;
+            for (i = 0; i < c->opened.len; i++) {
+                if (strcmp(*(char **)jc_vec_at(&c->opened, i), uri) == 0) {
+                    *(long *)jc_vec_at(&c->doc_versions, i) = version;
+                    break;
+                }
+            }
+        }
         td = cJSON_CreateObject();
         cJSON_AddStringToObject(td, "uri", uri);
         params = cJSON_CreateObject();
@@ -487,32 +578,41 @@ static void open_document(struct jc_lsp_conn *c, const char *uri,
     } else {
         char *copy = jc_strdup(uri);
         jc_vec_push(&c->opened, &copy);
+        jc_vec_push(&c->doc_versions, &version);
     }
     td = cJSON_CreateObject();
     cJSON_AddStringToObject(td, "uri", uri);
     cJSON_AddStringToObject(td, "languageId", lang);
-    cJSON_AddNumberToObject(td, "version", 1);
+    cJSON_AddNumberToObject(td, "version", version);
     cJSON_AddStringToObject(td, "text", text != NULL ? text : "");
     params = cJSON_CreateObject();
     cJSON_AddItemToObject(params, "textDocument", td);
     send_notify(c, "textDocument/didOpen", params);
 }
 
-/* Wait (bounded by `timeout` seconds, with the usual grace shortcut after the
- * first batch) for the latest `textDocument/publishDiagnostics` matching `uri`,
- * and return its `params` object serialized (malloc'd), or NULL if none arrived.
- * The document must already be opened on `c`. Shared by jc_lsp_diagnostics (text
- * rendering) and jc_lsp_code_actions (line-filtered request context, M57). */
+/* Wait (bounded by `timeout` seconds, with the grace shortcut after the first
+ * batch) for the latest `textDocument/publishDiagnostics` matching `uri`,
+ * and return its `params` object serialized (malloc'd), or NULL if none
+ * arrived. M938: the wait is measured on the monotonic millisecond clock --
+ * the grace is REAL time, not a whole-second-boundary expiry (the old
+ * `lsp_now_seconds() + LSP_DIAG_GRACE` with a 0.4 s grace on a 1 s clock
+ * expired at the next second boundary and read a re-published file as clean).
+ * Every LSP deadline is now read from `lsp_now_seconds()` (the module's one
+ * monotonic clock): a deadline computed from one clock and compared in another
+ * reads "expired" before a single publish is read. The document must already
+ * be opened on `c`.
+ * Shared by jc_lsp_diagnostics (text rendering) and jc_lsp_code_actions
+ * (line-filtered request context, M57). */
 static char *collect_diag_params(struct jc_lsp_conn *c, const char *uri,
                                  double timeout)
 {
     char *latest = NULL;
-    double deadline = jc_now_seconds() + timeout;
+    double deadline = lsp_now_seconds() + timeout;
     double grace = deadline;
 
     for (;;) {
         char *body;
-        double now = jc_now_seconds();
+        double now = lsp_now_seconds();
         const char *method;
         cJSON *root;
         if (now > deadline || now > grace) {
@@ -520,7 +620,7 @@ static char *collect_diag_params(struct jc_lsp_conn *c, const char *uri,
         }
         body = lsp_recv(c, deadline < grace ? deadline : grace);
         if (body == NULL) {
-            if (c->dead) {
+            if (c->dead || lsp_now_seconds() > deadline) {
                 break;
             }
             continue; /* slice elapsed; re-check deadlines */
@@ -537,7 +637,7 @@ static char *collect_diag_params(struct jc_lsp_conn *c, const char *uri,
                 if (ps != NULL) {
                     free(latest);
                     latest = ps;
-                    grace = jc_now_seconds() + LSP_DIAG_GRACE;
+                    grace = lsp_now_seconds() + LSP_DIAG_GRACE;
                 }
             }
         } else if (method != NULL) {
@@ -680,7 +780,7 @@ static char *loc_query(struct jc_lsp_conn *c, const char *method,
     struct jc_sb out;
     int n = 0;
 
-    if (lsp_request(c, method, params, jc_now_seconds() + LSP_NAV_TIMEOUT,
+    if (lsp_request(c, method, params, lsp_now_seconds() + LSP_NAV_TIMEOUT,
                     &result) != JC_OK) {
         return jc_strdup("[lsp: no response from server]");
     }
@@ -725,7 +825,7 @@ static char *workspace_symbols(struct jc_lsp_manager *m, const char *symbol,
     params = cJSON_CreateObject();
     cJSON_AddStringToObject(params, "query", symbol != NULL ? symbol : "");
     if (lsp_request(c, "workspace/symbol", params,
-                    jc_now_seconds() + LSP_NAV_TIMEOUT, &result) != JC_OK) {
+                    lsp_now_seconds() + LSP_NAV_TIMEOUT, &result) != JC_OK) {
         return jc_strdup("[lsp: no response from server]");
     }
     jc_sb_init(&out);
@@ -766,7 +866,7 @@ char *jc_lsp_symbols(struct jc_lsp_manager *m, const char *path, int *count)
     params = cJSON_CreateObject();
     cJSON_AddItemToObject(params, "textDocument", td);
     if (lsp_request(c, "textDocument/documentSymbol", params,
-                    jc_now_seconds() + LSP_NAV_TIMEOUT, &result) != JC_OK) {
+                    lsp_now_seconds() + LSP_NAV_TIMEOUT, &result) != JC_OK) {
         return jc_strdup("[lsp: no response from server]");
     }
     jc_sb_init(&out);
@@ -806,7 +906,8 @@ char *jc_lsp_definition(struct jc_lsp_manager *m, const char *path,
     }
     if (line_hint > 0) {
         line = line_hint - 1;
-    } else if (!jc_lsp_locate_symbol(content, symbol, &line, &col)) {
+    } else if (!jc_lsp_locate_symbol(content, symbol, &line, &col,
+                                     c->pos_encoding)) {
         return jc_strdup("symbol not found in file (pass a line, or omit the "
                          "path to search the workspace)");
     }
@@ -837,7 +938,8 @@ char *jc_lsp_references(struct jc_lsp_manager *m, const char *path,
         }
         if (line_hint > 0) {
             line = line_hint - 1;
-        } else if (!jc_lsp_locate_symbol(content, symbol, &line, &col)) {
+        } else if (!jc_lsp_locate_symbol(content, symbol, &line, &col,
+                                         c->pos_encoding)) {
             return jc_strdup("symbol not found in file (pass a line)");
         }
         return loc_query(c, "textDocument/references",
@@ -861,7 +963,7 @@ char *jc_lsp_references(struct jc_lsp_manager *m, const char *path,
         params = cJSON_CreateObject();
         cJSON_AddStringToObject(params, "query", symbol != NULL ? symbol : "");
         if (lsp_request(wc, "workspace/symbol", params,
-                        jc_now_seconds() + LSP_NAV_TIMEOUT, &result) != JC_OK) {
+                        lsp_now_seconds() + LSP_NAV_TIMEOUT, &result) != JC_OK) {
             return jc_strdup("[lsp: no response from server]");
         }
         ok = (result != NULL) &&
@@ -916,13 +1018,14 @@ char *jc_lsp_rename(struct jc_lsp_manager *m, const char *path, long line_hint,
     }
     if (line_hint > 0) {
         line = line_hint - 1;
-    } else if (!jc_lsp_locate_symbol(content, symbol, &line, &col)) {
+    } else if (!jc_lsp_locate_symbol(content, symbol, &line, &col,
+                                     c->pos_encoding)) {
         return NULL; /* symbol not found in file */
     }
     params = position_params(uri, line, col, 0);
     cJSON_AddStringToObject(params, "newName", new_name);
     if (lsp_request(c, "textDocument/rename", params,
-                    jc_now_seconds() + LSP_NAV_TIMEOUT, &result) != JC_OK) {
+                    lsp_now_seconds() + LSP_NAV_TIMEOUT, &result) != JC_OK) {
         return NULL;
     }
     return result; /* WorkspaceEdit JSON, or NULL when the server declined */
@@ -956,7 +1059,7 @@ char *jc_lsp_format(struct jc_lsp_manager *m, const char *path)
     cJSON_AddBoolToObject(opts, "insertSpaces", 1);
     cJSON_AddItemToObject(params, "options", opts);
     if (lsp_request(c, "textDocument/formatting", params,
-                    jc_now_seconds() + LSP_NAV_TIMEOUT, &result) != JC_OK) {
+                    lsp_now_seconds() + LSP_NAV_TIMEOUT, &result) != JC_OK) {
         return NULL;
     }
     return result; /* TextEdit[] JSON, or NULL */
@@ -1038,7 +1141,7 @@ char *jc_lsp_code_actions(struct jc_lsp_manager *m, const char *path, long line,
     cJSON_AddItemToObject(params, "context", ctx);
 
     if (lsp_request(c, "textDocument/codeAction", params,
-                    jc_now_seconds() + LSP_NAV_TIMEOUT, &result) != JC_OK) {
+                    lsp_now_seconds() + LSP_NAV_TIMEOUT, &result) != JC_OK) {
         return NULL;
     }
     return result; /* (CodeAction|Command)[] JSON, or NULL */
@@ -1064,7 +1167,7 @@ char *jc_lsp_code_action_resolve(struct jc_lsp_manager *m, const char *path,
         return NULL;
     }
     if (lsp_request(c, "codeAction/resolve", params,
-                    jc_now_seconds() + LSP_NAV_TIMEOUT, &result) != JC_OK) {
+                    lsp_now_seconds() + LSP_NAV_TIMEOUT, &result) != JC_OK) {
         return NULL;
     }
     return result; /* the resolved CodeAction (with `edit`), or NULL */
@@ -1100,7 +1203,7 @@ jc_status jc_lsp_execute_command(struct jc_lsp_manager *m, const char *path,
     int got = 0;
     int nedits = 0;
     struct jc_sb edits;
-    double deadline = jc_now_seconds() + LSP_NAV_TIMEOUT;
+    double deadline = lsp_now_seconds() + LSP_NAV_TIMEOUT;
 
     if (edits_out != NULL) {
         *edits_out = NULL;
@@ -1143,7 +1246,7 @@ jc_status jc_lsp_execute_command(struct jc_lsp_manager *m, const char *path,
             cJSON *rid = cJSON_GetObjectItem(root, "id");
             const char *m2 = jc_json_get_str(root, "method", NULL);
             if (m2 == NULL && cJSON_IsNumber(rid) &&
-                (long)rid->valuedouble == id) {
+                jc_json_clamp_long(rid->valuedouble) == id) {
                 got = 1;
                 handled = 1;
             } else if (m2 != NULL &&
@@ -1212,6 +1315,7 @@ static void close_conn(struct jc_lsp_conn *c)
         free(*(char **)jc_vec_at(&c->opened, i));
     }
     jc_vec_free(&c->opened);
+    jc_vec_free(&c->doc_versions);
     jc_lsp_framer_free(&c->framer);
     free(c);
 }

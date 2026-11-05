@@ -5,7 +5,7 @@ system prompt as an **authoritative plan for the task** — a section distinct f
 project rules, memory, and glossary.
 
 ```sh
-jichi --auto --design docs/plans/2026-07-feature.md -p "implement the feature"
+jichi --auto --design docs/plans/2026-07-feature.md -p "implement the feature" < /dev/null
 ```
 
 ## Why
@@ -65,7 +65,7 @@ took one document from one place, so you had to choose. Now you don't.
 { "design": ["docs/ARCHITECTURE.md"] }
 
 # on the command line -- this task, repeatable
-jichi --auto --design docs/plans/2026-08-feature.md -p "implement it"
+jichi --auto --design docs/plans/2026-08-feature.md -p "implement it" < /dev/null
 ```
 
 ```mermaid
@@ -100,21 +100,13 @@ map, and now the design. `jc_sysmsg_fit_caps` arbitrates. What matters is the
 **order in which they give ground**, and that order is an argument about *what
 the model can recover on its own*:
 
-```mermaid
-flowchart TB
-    B{"rules + map + design<br/>fit the budget?"}
-    B -->|yes| K["all three whole"]
-    B -->|no| M["shrink the REPO MAP<br/><i>regenerable: the agent can<br/>list_files / search_code</i>"]
-    M --> R2{"fits now?"}
-    R2 -->|no| RU["then RULES<br/><i>conventions; restated in review</i>"]
-    R2 -->|yes| K2["done"]
-    RU --> R3{"fits now?"}
-    R3 -->|no| DE["only then the DESIGN<br/><i>the plan for the work in flight</i>"]
-    R3 -->|yes| K3["done"]
-    style M fill:#7f5539,color:#fff
-    style RU fill:#9c6644,color:#fff
-    style DE fill:#bc6c25,color:#fff
-```
+When rules + map + design do not all fit the budget, jichi gives ground **in this order**, shrinking the most recoverable first:
+
+1. **The repo map** — regenerable; the agent can `list_files` / `search_code`.
+2. **Then the rules** — conventions, restated in review.
+3. **Only then the design** — the plan for the work in flight.
+
+If it fits at any step, nothing further is dropped.
 
 The design is sacrificed **last** because its failure is the quiet one. A
 truncated repo map costs tool calls. A truncated design makes the agent follow

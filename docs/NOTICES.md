@@ -37,18 +37,22 @@ name a tag but must never contain a structural form.
 | `[delegate]` | `[delegate] stop=` | tool-result addendum on `spawn_subagent`; one per delegated run | M437 |
 | `[delegate]` | `[delegate] last failing call:` | tool-result addendum naming the delegate's last failure + its class | M437 |
 | `[delegate]` | `[delegate] files changed:` | tool-result addendum, `spawn_parallel` write children only | M437 |
+| `[delegate]` | `[delegate] the run ended because its model calls failed:` | tool-result addendum when a delegate's run ended on its model calls | M876 |
+| `[delegate]` | `[delegate] (that call came earlier; it is not why the run ended)` | follows the last failing call in that case | M876 |
 | `[note:` | `[note: the arguments` | rider appended to a repaired call's own tool result | M353 |
-| `[stopped:` | `\n[stopped: ` (four variants: timeout, output cap, memory, interrupt) | rider on a killed command's tool result — the variant names the true cause (M342) | M26/M342 |
+| `[stopped:` | `\n[stopped: ` (five variants: timeout, output cap, memory, interrupt, SIGTERM) | rider on a killed command's tool result — the variant names the true cause (M342) | M26/M342 |
 | `[image:` | `[image: ` | session-store placeholder for turn-ephemeral image attachments | M29 |
 | `[lsp:` | `[lsp: ` | diagnostics rider appended to edit-tool results | LSP (M28-era) |
 | `[codebase]` / `[docs:` | section headers | inside the auto-context block on the user message | M61 |
+| `[merged:` | `[merged: this task changed an existing test assertion in a pin file` | the batch result's note on a write child the metric gate let merge, with both numbers | M875 |
+| `[report]` | `[report] task ` | one line per stored root report in the `spawn_parallel` batch result's `## Reports (kept out of the merge)` section, naming the record path | M1044 |
 
 ## Operator-surface tags (stderr logs, TUI lines, CLI listings — never sent to the model)
 
 `[aborted]` `[acp]` `[auto]` `[command]` `[compact]` `[constraint]`
-`[control]` `[deny]` `[error:` `[fallback]` `[history]` `[hook]`
+`[control]` `[cut]` `[deny]` `[error:` `[fallback]` `[history]` `[hook]`
 `[interrupted]` `[jichi]` `[kinetic]` `[mcp]` `[mem]` `[model]` `[nudge]`
-`[prefix]` `[privileged]` `[provider]` `[reachable]` `[route]`
+`[prefix]` `[privileged]` `[provider]` `[reachable]` `[relay]` `[route]`
 `[self-review]` `[session]` `[telemetry]` `[tool]` `[tools]`
 
 These label diagnostics for the human; the model never sees them, so their

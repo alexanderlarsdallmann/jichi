@@ -43,6 +43,7 @@ delay 400
 send "\x15"
 send "/exit\r"
 waitexit 10
+assertexit 0
 EOF
 
 # M368: 90s, not 45 -- in the full `make ci` tier this driver runs right

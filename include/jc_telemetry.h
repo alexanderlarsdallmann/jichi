@@ -14,6 +14,7 @@ extern "C" {
 #endif
 #include "jc_platform.h"
 #include "jc_vec.h"
+#include <stdio.h>   /* jc_telemetry_feed_file takes a FILE* (F-04) */
 
 struct jc_sb; /* jc_str.h */
 
@@ -40,6 +41,11 @@ struct jc_telem_model {
     double lat_sum;    /* latency_ms sum, for the mean */
     double lat_max;
     long   lat_n;
+    /* M897: first-token time (`ttft_ms`), over the calls that carried it --
+     * post-M897 calls whose stream produced output. 0 calls: not rendered. */
+    double ttft_sum;
+    double ttft_max;
+    long   ttft_n;
     /* M192 input attribution: the estimated composition of each call's prompt
      * (system prompt / tool schemas / history), summed. `attr_n` counts only the
      * calls that carried the fields, so a pre-M192 log leaves it 0 and the
@@ -216,8 +222,36 @@ struct jc_telemetry_summary {
      * sloppy about syntax -- it may not be calling tools natively at all. */
     long nudge_fired;
     long nudge_recovered;
+    /* M949 (def-325): the text-tool-call recovery pass. `md_recovered`
+     * counts tool calls recovered from a reply written as markdown blocks
+     * (model textToolCalls / toolCalling:"text"); a high count on a session is
+     * the signature of a model that narrates instead of calling. */
+    long md_recovered;
+    /* M951 (V2): the relay's leg-budget measurement. `relay_budget` counts
+     * the `relay` events at phase "budget" -- one per handover where the next
+     * leg's tool-call budget was measured from this leg's prompt growth. 0
+     * means no relay ran, or its legs never measured a growth (the budget
+     * then stays the configured cap, not a number worth reporting). */
+    long relay_budget;
+    /* M937 (D3): the delegate "give your answer" nudge. `empty_reasoning_fired`
+     * counts a reasoning-only (no text, no tool call, NOT cut) reply that was
+     * asked once for the final answer; `empty_reasoning_recovered` the retries
+     * that then carried answer text (so the run is not running with the review
+     * owed and missing). */
+    long empty_reasoning_fired;
+    long empty_reasoning_recovered;
     long repair_total;
     long repair_ok;
+    /* M1067: a tool call whose arguments carried top-level keys the schema does
+     * not declare (the M1067 note block in jc_tool.c, `undeclared_args`). The
+     * call still ran on the declared arguments and names the ignored keys on
+     * its own result; this counts how many such calls happened. The `count`
+     * field on each event is the number of ignored keys in that call. */
+    long undeclared_args_calls;   /* the call ran on declared args only        */
+    long undeclared_args_keys;    /* sum of each call's `count` field          */
+    /* M975 (D6): the scoped edit check emitted `scoped_edit` events. */
+    long scoped_edit_trip;     /* kind == "trip"                              */
+    long scoped_edit_detected; /* kind == "detected"                          */
     /* M417: `test_edit` events -- M88's moved-goalpost heuristic firing (a
      * test assertion MODIFIED during an autonomous run). Counted offline so
      * the learn loop can turn the richest lesson a run produces ("the model
@@ -245,6 +279,41 @@ struct jc_telemetry_summary {
     long kinetic_refused;
     long prefix_churn;        /* the cached prompt prefix moved (M365)        */
     long prefix_churn_max;    /* longest streak seen                          */
+    long shell_fence_total;   /* write children the fence was set up for (M831)*/
+    long shell_fence_unfenced;/* of those, how many ran UNFENCED (no Landlock)*/
+    long shell_fence_refused; /* ...and how many were REFUSED: the fence could */
+                              /* not be applied on a Landlock kernel (M852)   */
+    long cut_continue;        /* M859: a cut reply was continued, once        */
+    long task_budget_notes;   /* M861: a task's four-fifths budget note       */
+    long task_budget_stops;   /* M861: a task stopped at its max_tool_calls   */
+    long pre_discard_kept;    /* M863: a write child's worktree kept before a */
+    long pre_discard_failed;  /* discarding git command; ...could not be kept */
+    long test_edit_holds;     /* M865: a child held for an edited assertion   */
+    long new_dir_holds;       /* M888: tasks whose new directories were held  */
+    long new_dir_hold_dirs;   /* M888: ... the directories held               */
+    long new_dir_hold_files;  /* M888: ... their files                        */
+    long new_dir_hold_bytes;  /* M888: ... their bytes                        */
+    long no_merge_kept;       /* M890: write tasks kept, "merge": false       */
+    long metric_gate_merged;  /* M875: a pin edit the metric let merge,       */
+    long metric_gate_held;    /* ...one it held because the metric fell,      */
+    long metric_gate_unknown; /* ...and one it could not measure (held)       */
+    /* M1006: the dirty-tree dispatch guard. `dirty_dispatch` is one per CHECKED
+     * write dispatch (off is unchecked -- it skips the whole check); counted
+     * here so `jichi telemetry` does not require hand-counting (the M167
+     * "emitted but had no reader" gap). `dirty_refused` is the subset that
+     * ended `refused` -- the one that matters: the guard actually stopped a
+     * dispatch from a dirty base. */
+    long dirty_dispatch;      /* a write dispatch was checked for a dirty base */
+    long dirty_refused;       /* of those, refused (outcome == "refused")     */
+    long dirty_unknown;       /* M1006-a: the probe FAILED (outcome ==
+                               * "proceeded_unknown"); the tree state could
+                               * not be read -- distinct from clean */
+    long loop_stop_same;      /* M869: children a loop stop ended: the same   */
+    long loop_stop_refused;   /* successful result (M829), the same refused   */
+    long loop_stop_placeholder; /* call (N27 (a)), copied placeholders ((b))  */
+    long loop_stop_rotation;  /* M870 (N21): a rotation with nothing new      */
+    long finish_alias;        /* a delegate ended its turn by a finish-like   */
+                              /* call, its message the answer (M853)          */
     long retrieve_calls;      /* auto-context attached passages (M61)         */
     long retrieve_blocks;
     long retrieve_tokens;
@@ -291,6 +360,20 @@ void jc_telemetry_summary_init(struct jc_telemetry_summary *s);
  * accumulate into `s` (which must be initialized). Pure. */
 void jc_telemetry_feed(struct jc_telemetry_summary *s, const char *text);
 
+/* Streaming variant of jc_telemetry_feed: read `f` one line at a time and
+ * accumulate into `s` (which must be initialized). F-04: the telemetry log is
+ * one compact JSON line per event with no rotation, so a long-lived workspace
+ * crosses JC_READ_FILE_MAX (64 MiB, include/jc_platform.h) while every line is
+ * still valid. `jc_read_file` refuses to slurp past that cap, which is how the
+ * readers went blind. This path never holds the whole log: the peak is one
+ * line plus `s`, whose vectors hold only DISTINCT names (models/tools/
+ * workspaces/sessions, versions capped at 32) and do not grow with the line
+ * count. A NULL `f` (the caller's fopen failed) returns JC_ERR_IO so the
+ * caller can distinguish "no file" from "file present" and report it; an open
+ * file (even one that later errors) returns JC_OK with whatever fed.
+ * <stdio.h> is required here for FILE*. */
+jc_status jc_telemetry_feed_file(struct jc_telemetry_summary *s, FILE *f);
+
 /* Convenience: init + feed in one call. */
 void jc_telemetry_summarize(const char *text, struct jc_telemetry_summary *out);
 
@@ -309,7 +392,8 @@ void jc_telemetry_summary_free(struct jc_telemetry_summary *s);
  * <home>/.jichi.d/telemetry/<basename>-<key>.jsonl, where <basename> is the
  * workspace's last path component with anything outside [A-Za-z0-9._-]
  * replaced by '_' (at most 40 bytes) and <key> is jc_workspace_key(workspace),
- * the same djb2 the checkpoint store and the run lease use. One derivation,
+ * the same 64-hex SHA-256 digest the checkpoint store and the run lease use
+ * (M1097/D-09: was a decimal djb2). One derivation,
  * used by the writer (main.c's event-log open) and by every reader
  * (jc_app_pick_telemetry_log), so a run writes where `learn analyze` reads
  * (the M533 rule). Appended across runs: one file per project is the shape the

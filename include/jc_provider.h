@@ -97,6 +97,23 @@ struct jc_provider_vtable {
                             double *write_in);
 
     void (*free)(struct jc_provider *self);
+
+    /* M897: has the current stream carried any output yet -- answer text,
+     * reasoning, or a tool call? The agent asks after each SSE event to time
+     * the first token (`ttft_ms` on `model_call`) without learning a dialect.
+     * Optional: NULL means the provider cannot say, and no time is recorded. */
+    int (*stream_started)(struct jc_provider *self);
+
+    /* M909: did the current stream end in an ERROR event -- the server's error
+     * sent inside a stream that began with HTTP 200? Returns the server's
+     * message, or NULL. LM Studio answers a request over the loaded context
+     * this way when streaming (`event: error`, `data: {"error":{...}}`) and
+     * with a plain HTTP 400 when not; the providers used to emit the message as
+     * the ANSWER, so a failed call was recorded as a successful one with 0
+     * tokens and the error text for a reply (curriculum Stage 1, 2026-10-04).
+     * The agent asks after the stream and fails the call as it fails an HTTP
+     * error. Optional: NULL means the provider cannot say. */
+    const char *(*stream_error)(struct jc_provider *self);
 };
 
 struct jc_provider {

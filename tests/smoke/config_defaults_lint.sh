@@ -87,7 +87,7 @@ while read -r field want; do
     stmt=$(printf '%s\n' "$joined" | grep -o "out->$field *=[^;]*;" \
            | grep 'jc_json_get_[a-z]*(root,' | tail -1)
     got=$(printf '%s' "$stmt" \
-        | sed -n "s/.*out->$field *= *\(([a-z_ ]*) *\)\{0,1\}jc_json_get_[a-z]*(root, *\"[^\"]*\", *\(lite *? *-\{0,1\}[0-9.]* *: *\)\{0,1\}\(-\{0,1\}[0-9]*\)\(\.[0-9]*\)\{0,1\}).*/\3/p" \
+        | sed -n "s/.*jc_json_get_[a-z]*(root, *\"[^\"]*\", *\(lite *? *-\{0,1\}[0-9.]* *: *\)\{0,1\}\(-\{0,1\}[0-9]*\)\(\.[0-9]*\)\{0,1\}).*/\2/p" \
         | head -1)
     if [ -z "$got" ]; then
         skipped=$((skipped + 1))
@@ -146,8 +146,8 @@ fi
 # right after `=` silently found only five. The floor caught that -- which is what
 # a floor is for (M295): fix the extraction, never the floor.
 pairs=$(printf '%s\n' "$joined" \
-    | grep -oE 'out->[a-z_.]+ = (\([a-z_ ]+\) *)?jc_json_get_[a-z]+\(root, "[a-zA-Z]+", *lite \? *[0-9.]+ *: *[0-9.]+' \
-    | sed -E 's/out->([a-z_.]+) = (\([a-z_ ]+\) *)?jc_json_get_[a-z]+\(root, "([a-zA-Z]+)".*/\1 \3/' \
+    | grep -oE 'out->[a-z_.]+ = (\([a-z_ ]+\) *)?(jc_json_clamp_[a-z]+\( *)?jc_json_get_[a-z]+\(root, "[a-zA-Z]+", *lite \? *[0-9.]+ *: *[0-9.]+' \
+    | sed -E 's/out->([a-z_.]+) = (\([a-z_ ]+\) *)?(jc_json_clamp_[a-z]+\( *)?jc_json_get_[a-z]+\(root, "([a-zA-Z]+)".*/\1 \4/' \
     | sort -u)
 npairs=$(printf '%s\n' "$pairs" | grep -c .)
 

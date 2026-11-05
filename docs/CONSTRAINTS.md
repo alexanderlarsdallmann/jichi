@@ -86,7 +86,9 @@ Both phrasings are narrowed now, but the general problem is not closable by a
 better keyword list. Capping the blast radius is. So an inferred constraint is
 never written; the store keeps only what you authored. M169 capped a misparse's
 reach in *time*; M734 capped what it can *do* within the run.
-`/constraints` marks each one `[saved]` or `[this session]`.
+`/constraints` marks each one `[saved, enforced]` or `[this session, advisory]`, and shows the sentence
+an inferred one was read from (M872; until then the tags were `[saved]` and `[this session]`, under a
+header that called both enforced).
 
 If jichi infers something you *do* want to keep, the notice names it — add it with
 `/constraints add` (which also promotes an already-inferred one to saved) or write
@@ -136,6 +138,155 @@ refusal into advice. The M459 rule still holds, one step softer: on a path the
 operator's `--edit-scope` names, an inferred read-only is not even advised against,
 and that is announced. To make an inferred rule binding, add it with
 `/constraints add` or write it into the store.
+
+## What the scanner hears, measured again (M743)
+
+**Why again.** The 2026-09-24 zigodot drive's ten complete arms made 240 `--auto` runs and journalled
+**no** `constraint_advisory` event at all, although sixteen of its read-only tasks
+end *"Do not modify any file."* The zero measured the scanner, not the work: its
+read-only rule knew one verb, *edit*. So M743 measured the scanner again, on the
+drive machine's store: every **distinct user message** in it (every turn, since
+`--auto` scans every turn, not just the first, and in both of jichi's store layouts
+and the Continue-format sessions it inherited), plus both drives' task files, 656 in
+all. It inferred 73 rules and **23 were wrong**, by nine mechanisms, none of which
+crossed a sentence. M730's 289 prompts came from the workstation's store, so this is
+a second population, not a re-run of the first; on this machine's version of M730's
+population (first messages only) the scanner inferred six rules, all six wrong. The page is [analysis/2026-09-25-the-scanner-read-again.md](analysis/2026-09-25-the-scanner-read-again.md).
+
+**What it hears now.** Each row comes from a sentence in that corpus, and
+`tests/test_constraint.c` quotes the sentence.
+
+| The scanner now reads | For example | It used to |
+|---|---|---|
+| *modify*, *change* and *touch* as edit verbs, the plural *make any changes*, and an object after *to*/*in*/*on* | "Do not modify any file."; "Make NO edits to any file." | infer nothing |
+| *other*, *else* and *but* as narrowing words | "Do not modify any other file."; "Do not touch anything else." | infer read-only |
+| *code*, *source* and *src* as a **kind** of file, and a kind as a scope | "Do NOT edit any source; your only file output is the design doc" | infer read-only |
+| a backticked, quoted or bracketed object as a **named** one | "Do NOT modify \`src/root.zig\`." | infer read-only |
+| a verb list up to its one object | "Do not edit, create, or modify the parser." | infer read-only |
+| a subject before *do not* as a statement | "These commands do not modify any files." | infer read-only |
+| *read-only* after an article as an adjective | "remains the read-only reference" | infer read-only |
+| a cue glued to a hyphen or a letter as part of a word | "forces never-gated dead code to COMPILE" | ban the build |
+| *not just* / *only* / *merely* / *simply* as asking for more | "(do not just build blindly)" | ban the build |
+| the end of a **clause** -- a semicolon, a spaced `--`, an em or en dash -- as the end of a negation's reach | "do NOT hardcode an external absolute path -- the test must be portable), run it through" | ban the tests |
+| *make* as the build tool only when it is run | "Do not run make." (a ban); "Do not make changes to prepare_sourcedata.py." (not one) | ban the build |
+| a keyword followed by a file extension as a file name | "Do NOT modify \`src/root.zig\`." | ban privileged commands |
+
+**On the same corpus:** 69 rules, 2 of them wrong (both open in
+[DEFERRED](DEFERRED.md)), and every one of the sixteen drive tasks now infers the
+read-only rule. To measure a scanner change the same way:
+
+```sh
+python3 tests/measure/scanner_corpus.py ./jichi --against /path/to/old/jichi
+```
+
+It prints only the messages whose verdict moved, with the line each rule came from;
+read every one of them. The corpus holds the operator's own prompts, so the script
+writes it to a temporary directory and removes it.
+
+**The trade.** *"Do not modify the code."* no longer infers read-only: *code* names
+a kind of file, and a brief that writes a document says *"do not edit any source"*.
+M207's rule still decides the direction. A missed rule gives up a backstop for an
+instruction the prompt still states in full. A false one tells the model something
+the operator never said. Both only advise now, but the model reads the advice.
+
+## What a request quotes or asks, and the words a rule came from (M872)
+
+**The case.** The demos drive's run 0091 (2026-10-02) carried its supervisor's question
+`should a task text say "write REPORT.md, do not commit it", or name a per-task file in /tmp?`,
+and jichi told the lead agent, whose job is to commit merges, for the whole session: *do not use the
+tool `git_commit`, do not commit*. The notice could not show why: it named the canonical rules, and
+"do not commit" was in no message.
+
+**What the scanner skips.** A cue it would read as an order infers nothing when the request
+**quotes** it or **asks** it:
+
+| Skipped | For example |
+|---|---|
+| a fenced code block | a pasted script whose comment says `# never push from here` |
+| an inline code span | `` `tool disabled in read-only mode` `` |
+| a closed pair of double, single or typographic quotes in one paragraph | *the note says "do not commit it"* |
+| a sentence that ends in `?` | *Do not commit?* or *Should I keep this read-only?* |
+
+A straight quote opens only where a word may begin and closes only where one may end, so the
+apostrophes in *don't* and *users'* do neither, and an inch mark (*the 3" screen*) or a quote left
+open quotes nothing. A cue outside the quotes still counts in the same sentence (*the note says "keep
+it short", so do not push*), and so does a target quoted after an unquoted cue (*never invoke
+"make"*, M743).
+
+**The words a rule came from.** Every inferred rule keeps the sentence it was read from, as written
+(blanks collapsed; at most 200 bytes, a window around the cue with `...` where cut), and every place
+that names the rule quotes it:
+
+- the adoption notice: ``... (not enforced, not saved): do not use the tool `git_commit`, do not
+  commit (from "Do not commit.") -- the model is told ...``;
+- the system prompt's advisory block: `- do not commit (read from: "Do not commit.")`;
+- the note on a call that goes against it, and its `[constraint] ... went against` line;
+- the run journal: `from` on `constraint` (the sentences) and on `constraint_advisory` (the rule's);
+- `jichi constraints scan` (`read from: "..."`), `brief-check` (`from line 3: "..."`) and `/constraints`.
+
+**Measured** against M871 with `tests/measure/scanner_corpus.py`: on the workstation's sessions, 761
+distinct messages, no verdict moved; with the internal notes and the drives' task texts, 816 messages,
+3 moved and none added (rules 38 to 33), each a quoted phrase the scanner had read as an order.
+
+**The costs.** A rule the request quotes because it means it (*the policy: "never push to main"*)
+infers nothing, and nor does an order put as a polite question (*can you make sure you don't push?*).
+The request still says both; the restatement and the per-call note are what is lost, and an inferred
+rule only advises. A rule that loses its sentence's object still does: *"Don't commit the build
+output."* infers *do not commit* -- the quote shows the object, it does not narrow the rule.
+
+## Who a read-only phrase speaks of (M878)
+
+**The case.** A supervisor's note for the demos drive's lead said a child "runs in read-only mode", and
+`jichi constraints scan` adopted a session-wide read-only rule from it -- for a lead whose job is to
+merge. The cue before the phrase ("in", "stays") says how, not who.
+
+**What the scanner asks.** Where a cue has made "read-only" an instruction, the clause holding it
+decides:
+
+| The clause | Reads as | For example |
+|---|---|---|
+| starts with a verb whose doer is in the mode | an order | *Stay read-only.* *Review the code in read-only mode.* |
+| speaks to the reader, or names the reader's own scope | an order | *You must stay read-only.* *This session is read-only.* *Everything stays read-only.* |
+| a verb puts the reader's own scope in the mode | an order | *Run everything in read-only mode.* *Keep this read-only.* |
+| a verb puts someone else in the mode | a statement | *Run the children in read-only mode.* *You must keep the workers read-only.* |
+| names someone else | a statement | *The child runs in read-only mode.* *Your children run in read-only mode.* |
+| is taken by "make sure", "check that", "ensure" | judged on its own | *Make sure the child runs in read-only mode.* is a statement |
+| is an aside behind `,`, `(` or a dash | judged by what it interrupts | *figures from this machine, read-only, 2026-08-27* is a statement |
+
+A role after the phrase makes it an adjective, as an article before it does: *Read-only children have
+no shell.* The clause runs back to a sentence's end, a blank line, a heading, a list item's line, a
+table's cell, or a `;`, `:`, `,`, `(` or a dash, so a markdown note is read a block at a time: a
+statement under a heading, in a blockquote or in a table's cell is a statement.
+
+**Measured** against M877: on the workstation's sessions, the internal notes and the drives' tasks,
+816 messages, none moved; the one read-only order that corpus holds on this path is kept. On jichi's
+own docs, 617 paragraphs that mention read-only, the rule was read from 39 and is read from 6.
+
+**The costs.** Where the clause cannot be told it reads as a statement: *Rules -- read-only, no
+commits.* infers nothing, and the request still says it. A paragraph that opens with "Read-only ..."
+(*Read-only tasks investigate the live workspace*) is still read as an order, and so is a list item
+that continues its lead-in's subject (*The children:* then *- run in read-only mode*) -- DEFERRED
+def-312.
+
+## Turning inference off: `constraintsAutoAdopt` (M874)
+
+```json
+{ "constraintsAutoAdopt": false }
+```
+
+turns off reading rules out of an `--auto` request. It is for a harness that assembles its prompt from
+several documents -- a standing prompt, a handoff, a supervisor's notes -- where a "do not ..." in any
+of them would otherwise become a rule for the run. Rules you wrote, in `.jichi/constraints.md` or with
+`/constraints add`, still load and bind.
+
+- **On by default**, with a config file or without one. It is read as a person writes it: `false`,
+  `0`, `"off"` and `"no"` turn it off; anything else leaves the default.
+- **Who may turn it off:** `--config`, `$JC_CONFIG` and your own `~/.jichi`. A project config
+  (`.jichi/config.json`) may leave it on, but its `false` waits for `jichi trust` (M851), and the
+  notice names it until then.
+- **Where it shows:** `jichi doctor` lists "constraint inference off (constraintsAutoAdopt)" when it is
+  off, and `jichi brief-check` adds that an `--auto` run under that config adopts none of what it
+  found.
 
 ## The store: `.jichi/constraints.md`
 
@@ -210,9 +361,15 @@ drifts from what it predicts is a green light that means nothing.
   you expected.
 - Enforcement can only *narrow* (like hooks and the path fence) — it never widens
   permissions.
-- `deny-cmd` matches the command text; a determined workaround via an unusual alias
-  isn't fully caught. Pair with the edit-scope fence and permissions for defense in
-  depth.
+- The scanner reads a cue the request quotes or asks about as mentioned, not said
+  (M872), and misses a rule whose cue and verb a line break separates (DEFERRED
+  def-308).
+- `deny-cmd` matches the command text when you wrote the rule, and what the command
+  runs when jichi inferred it (M873: its command word, the action of a program that
+  takes one, a `make` target -- so `grep -n install build.zig` does not go against an
+  inferred "do not install packages", and `pip install x` does). For a rule you wrote,
+  a determined workaround via an unusual alias isn't fully caught. Pair with the
+  edit-scope fence and permissions for defense in depth.
 
 See also: docs/AGENT_MODES.md (permissions), docs/AUTONOMY.md (edit-scope /
 envelope), docs/COMPACTION.md (why the system prompt survives).

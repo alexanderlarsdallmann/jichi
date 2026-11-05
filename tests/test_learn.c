@@ -8,8 +8,17 @@
 #include "jc_str.h"
 #include "jc_mem.h"
 #include "jc_vec.h"
-
+#include "jc_snprintf.h"
+#include "jc_platform.h"   /* jc_mkdir_p */
+#include "jc_app.h"
+#include "jc_reread.h"
+#include "jc_tool.h"
+#include <sys/types.h>
+#include <unistd.h>        /* symlink */
 #include <string.h>
+#include <stdlib.h>        /* getenv */
+#include <sys/stat.h>
+#include <sys/wait.h>      /* WIFSIGNALED, WIFEXITED, waitpid */
 
 /* M292: the `learn analyze` report is now shared between the CLI and the TUI.
  * It lived as two statics in main.c, so only the CLI could produce it and a TUI
@@ -337,6 +346,302 @@ static void test_rules_correct(void)
     jc_sb_free(&out);
 }
 
+/* M1001: learn_apply at a symlinked rules file must be refused, not applied.
+ *
+ * With the four `return -1;` sites in jc_learn.c perturbed to `return 0;`,
+ * the child writes through the symlink and faults on reload (short read -> FAIL)
+ * or exits with nonzero verdict (FAIL) — a clean FAIL test_learn.c:<N>, and the
+ * suite continues. Without the fork, a fault would segfault the whole unit run.
+ * The control arm (real file) also runs in a forked child with the same pattern. */
+
+/* Child: run the apply (symlink or control case) and send verdict via pipe.
+ * verdict bit0 = outside file byte-for-byte changed vs planted content
+ * bit1 = (st.rules_added != 0)
+ * bit2 = (st.rules_retracted != 0)
+ * bit3 = (st.corrections_unmatched != 0)
+ * bit4 = detail lacks 'denied'/'symlink' (refusal line MISSING)
+ * bit5 = was_symlink case (0=control, 1=symlink)
+ * bit6 = detail lacks the REFUSAL-SPECIFIC 'correction skipped: .jichi/rules.md denied or symlink' line (set when the correction path's refusal is missing; must be CLEAR in BOTH cases -- in the symlink case because the line IS present, in the control case because the correction applies and there is no refusal line) */
+static void child_learn_apply(int fd, const char *dir, const char *outside_file,
+                              const char *outside_content, int was_symlink)
+{
+    struct jc_arena *a, *scratch, *tool_scratch;
+    struct jc_app app;
+    struct jc_vec *read_files = &app.read_files;
+    struct jc_vec *read_recs = &app.read_recs;
+    char draft_path[600], draft_dir[600];
+    char rules_link[600];
+    struct jc_learn_apply_stats st;
+    struct jc_sb detail;
+    char *after = NULL;
+    int verdict = 0;
+
+    /* Build a minimal jc_app. */
+    a = jc_arena_new(0);
+    scratch = jc_arena_new(0);
+    tool_scratch = jc_arena_new(0);
+    memset(&app, 0, sizeof(app));
+    app.arena = a;
+    app.scratch = scratch;
+    app.tool_scratch = tool_scratch;
+    jc_vec_init(read_files, sizeof(char *));
+    jc_vec_init(read_recs, sizeof(struct jc_read_rec));
+    jc_snprintf(app.cwd, sizeof app.cwd, "%s", dir);
+
+    /* Create .jichi directory and the lessons.draft.md. */
+    jc_snprintf(draft_dir, sizeof(draft_dir), "%s/.jichi", dir);
+    jc_snprintf(draft_path, sizeof(draft_path), "%s/lessons.draft.md", draft_dir);
+    {
+        const char *draft_text =
+            "## Rules\n"
+            "- prefer semicolons\n"
+            "## Corrections\n"
+            "- remove: \"use tabs not spaces\"\n";
+        (void)jc_write_file(draft_path, draft_text, strlen(draft_text));
+    }
+
+    /* If was_symlink==0 (control), we need a real AGENTS.md instead of a symlink. */
+    if (!was_symlink) {
+        jc_snprintf(rules_link, sizeof(rules_link), "%s/AGENTS.md", dir);
+        /* Create a real file (not a symlink) for the control case. */
+        (void)jc_write_file(rules_link, outside_content, strlen(outside_content));
+    }
+
+    /* Apply rules and corrections. */
+    memset(&st, 0, sizeof(st));
+    jc_sb_init(&detail);
+    (void)jc_learn_apply(&app, JC_LEARN_RULES | JC_LEARN_CORRECTIONS, 0, &st, &detail);
+
+    /* Build verdict. */
+    /* bit0: outside file changed? */
+    if (jc_read_file(outside_file, &after, NULL, tool_scratch) == JC_OK) {
+        if (strcmp(outside_content, after) != 0) {
+            verdict |= 1;
+        }
+    }
+    /* bit1: rules_added != 0 */
+    if (st.rules_added != 0) {
+        verdict |= 2;
+    }
+    /* bit2: rules_retracted != 0 */
+    if (st.rules_retracted != 0) {
+        verdict |= 4;
+    }
+    /* bit3: corrections_unmatched != 0 */
+    if (st.corrections_unmatched != 0) {
+        verdict |= 8;
+    }
+    /* bit4: refusal line missing? */
+    if (detail.data == NULL ||
+        (strstr(detail.data, "denied") == NULL && strstr(detail.data, "symlink") == NULL)) {
+        verdict |= 16;
+    }
+    /* bit5: was_symlink flag */
+    if (was_symlink) {
+        verdict |= 32;
+    }
+    /* bit6: refusal-specific correction-skip line missing? */
+    if (detail.data == NULL || strstr(detail.data, "correction skipped: .jichi/rules.md denied or symlink") == NULL) {
+        verdict |= 64;
+    }
+    jc_sb_free(&detail);
+
+    /* Send verdict. */
+    {
+        int result = write(fd, &verdict, sizeof(verdict));
+        if (result != (int)sizeof(verdict)) {
+            _exit(0xFF);
+        }
+    }
+
+    /* Clean up. */
+    (void)close(fd);
+    jc_arena_free(a);
+    jc_arena_free(scratch);
+    jc_arena_free(tool_scratch);
+    _exit(0);
+}
+
+static void test_learn_apply_symlinked_rules(void)
+{
+    struct jc_arena *a, *scratch, *tool_scratch;
+    struct jc_app app;
+    struct jc_vec *read_files = &app.read_files;
+    struct jc_vec *read_recs = &app.read_recs;
+    const char *dir;
+    char outside_dir[512], outside_file[600], rules_link[600];
+    char draft_path[600], draft_dir[600];
+    char *outside_content = NULL;
+    int pipefd[2];
+    pid_t pid;
+    int verdict;
+    int child_status;
+    int got_verdict = 0;
+    int was_symlink;
+
+    /* Build a minimal jc_app: test_memory.c shape (parent only for fixture). */
+    a = jc_arena_new(0);
+    scratch = jc_arena_new(0);
+    tool_scratch = jc_arena_new(0);
+    memset(&app, 0, sizeof(app));
+    app.arena = a;
+    app.scratch = scratch;
+    app.tool_scratch = tool_scratch;
+    jc_vec_init(read_files, sizeof(char *));
+    jc_vec_init(read_recs, sizeof(struct jc_read_rec));
+
+    /* Fresh workspace dir. M729 way: a setup step whose failure leaves a NULL
+     * or a dead path behind is a REQUIRE (record + stop), not a CHECK
+     * (record + continue into a segfault) -- the host gate's unwritable-TMPDIR
+     * stage (supervisor 16:40) crashes otherwise: outside_content below is
+     * dereferenced at the control arm and in the child. */
+    dir = jc_test_tmp("jichi_learn_symlink_test");
+    (void)jc_test_rm_rf(dir);
+    if (!JC_REQUIRE(jc_mkdir_p(dir) == JC_OK)) {
+        jc_arena_free(a);
+        jc_arena_free(scratch);
+        jc_arena_free(tool_scratch);
+        return;
+    }
+    jc_snprintf(app.cwd, sizeof app.cwd, "%s", dir);
+
+    /* Create a sibling temp dir for the OUTSIDE real file. */
+    jc_snprintf(outside_dir, sizeof(outside_dir), "%s", jc_test_tmp("jichi_learn_outside"));
+    (void)jc_test_rm_rf(outside_dir);
+    if (!JC_REQUIRE(jc_mkdir_p(outside_dir) == JC_OK)) {
+        (void)jc_test_rm_rf(dir);
+        jc_arena_free(a);
+        jc_arena_free(scratch);
+        jc_arena_free(tool_scratch);
+        return;
+    }
+
+    /* Plant an OUTSIDE real file containing the rule text. */
+    jc_snprintf(outside_file, sizeof(outside_file), "%s/AGENTS.md", outside_dir);
+    {
+        const char *outside_rules =
+            "# Project rules\n"
+            "\n"
+            "## Learned conventions\n"
+            "\n"
+            "- use tabs not spaces\n";
+        if (!JC_REQUIRE(jc_write_file(outside_file, outside_rules,
+                                      strlen(outside_rules)) == JC_OK)) {
+            (void)jc_test_rm_rf(dir);
+            (void)jc_test_rm_rf(outside_dir);
+            jc_arena_free(a);
+            jc_arena_free(scratch);
+            jc_arena_free(tool_scratch);
+            return;
+        }
+    }
+
+    /* Read the outside file content for later comparison. */
+    if (!JC_REQUIRE(jc_read_file(outside_file, &outside_content, NULL,
+                                 tool_scratch) == JC_OK &&
+                    outside_content != NULL)) {
+        (void)jc_test_rm_rf(dir);
+        (void)jc_test_rm_rf(outside_dir);
+        jc_arena_free(a);
+        jc_arena_free(scratch);
+        jc_arena_free(tool_scratch);
+        return;
+    }
+
+    /* Symlink the OUTSIDE file as AGENTS.md in the workspace.
+     * was_symlink: 1 = symlink created, 0 = symlink unsupported (control case). */
+    was_symlink = 0;
+
+    jc_snprintf(rules_link, sizeof(rules_link), "%s/AGENTS.md", dir);
+    if (symlink(outside_file, rules_link) == 0) {
+        was_symlink = 1;
+    } else {
+        /* Symlink unsupported — control case: write a real file. */
+        JC_CHECK(jc_write_file(rules_link, outside_content, strlen(outside_content)) == JC_OK);
+        was_symlink = 0;
+    }
+
+    /* Create .jichi directory and the lessons.draft.md. */
+    jc_snprintf(draft_dir, sizeof(draft_dir), "%s/.jichi", dir);
+    JC_CHECK(jc_mkdir_p(draft_dir) == JC_OK);
+    jc_snprintf(draft_path, sizeof(draft_path), "%s/lessons.draft.md", draft_dir);
+    {
+        const char *draft_text =
+            "## Rules\n"
+            "- prefer semicolons\n"
+            "## Corrections\n"
+            "- remove: \"use tabs not spaces\"\n";
+        JC_CHECK(jc_write_file(draft_path, draft_text, strlen(draft_text)) == JC_OK);
+    }
+
+    /* Fork to run the apply in a child. */
+    if (pipe(pipefd) != 0) {
+        goto cleanup;
+    }
+
+    pid = fork();
+    if (pid == -1) {
+        (void)close(pipefd[0]);
+        (void)close(pipefd[1]);
+        goto cleanup;
+    }
+
+    if (pid == 0) {
+        /* Child: run the apply. was_symlink tells child whether symlink or control. */
+        (void)close(pipefd[0]);
+        child_learn_apply(pipefd[1], dir, outside_file, outside_content, was_symlink);
+        /* NOTREACHED */
+    } else {
+        /* Parent: read the child's verdict. */
+        (void)close(pipefd[1]);
+        got_verdict = (read(pipefd[0], &verdict, sizeof(verdict)) == sizeof(verdict));
+        if (!got_verdict) {
+            /* Short read: child died or didn't send full verdict (fault). */
+            JC_CHECK(0 && "child died or sent short verdict (fault in apply)");
+            /* verdict is uninitialised on this path, so the bit checks below are gated on got_verdict; this check is the red there. */
+        }
+        (void)close(pipefd[0]);
+
+        /* Wait for child and verify exit status. */
+        if (waitpid(pid, &child_status, 0) == -1) {
+            goto cleanup;
+        }
+        /* If the child died of a signal, report it. */
+        if (WIFSIGNALED(child_status)) {
+            JC_CHECK(0 && "child killed by signal");
+        }
+        /* Child must exit 0. */
+        JC_CHECK(WIFEXITED(child_status) && WEXITSTATUS(child_status) == 0);
+
+        /* Verdict must be 0: no changes, no rules applied, refusal present.
+         * Also verify bit5 (was_symlink) matches our expectation. */
+        if (got_verdict) {
+            if (was_symlink) {
+                /* Symlink case: bit5 should be set, and other bits should be 0. */
+                JC_CHECK((verdict & 31) == 0);  /* bits 0-4 should all be 0 */
+                JC_CHECK((verdict & 32) != 0);  /* bit5 should be set */
+                JC_CHECK((verdict & 64) == 0);  /* bit6 must be CLEAR: the correction-specific refusal line IS present (the path ran AND was refused) */
+            } else {
+                /* Control case: bit5 should be 0, rules_added should be 1 (real file).
+                 * NOTE: on Linux, symlink() always succeeds, so this control arm never runs.
+                 * The bit6-clear assertion here is therefore vacuous (no refusal line can
+                 * be measured because the branch is never executed). */
+                JC_CHECK((verdict & 31) == 0);  /* bits 0-4 should all be 0 */
+                JC_CHECK((verdict & 32) == 0);  /* bit5 should be 0 */
+                JC_CHECK((verdict & 64) == 0);  /* bit6 must be CLEAR (vacuous control: symlink() never fails on Linux, so this branch never runs) */
+            }
+        }
+    }
+
+cleanup:
+    /* Clean up. */
+    (void)jc_test_rm_rf(dir);
+    (void)jc_test_rm_rf(outside_dir);
+    jc_arena_free(a);
+    jc_arena_free(scratch);
+    jc_arena_free(tool_scratch);
+}
+
 void test_learn(void)
 {
     struct jc_arena *a = jc_arena_new(0);
@@ -362,6 +667,7 @@ void test_learn(void)
     test_analyze_render();
     test_apply_summary();
     test_rules_correct(); /* M601 */
+    test_learn_apply_symlinked_rules(); /* M1001 */
 
     jc_learn_draft_init(&d);
     jc_learn_parse_draft(draft, a, &d);

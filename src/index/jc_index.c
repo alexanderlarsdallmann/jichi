@@ -3,7 +3,9 @@
  * Author: Alexander-Lars Dallmann */
 /* jc_index.c - codebase chunk index with a persisted, incremental cache.
  *
- * On-disk layout (per workspace, keyed by a hash of the absolute root):
+ * On-disk layout (per workspace, keyed by the 64-hex SHA-256 of the absolute
+ * root -- jc_workspace_key, the SAME derivation as the checkpoint/lease/
+ * telemetry stores, M1097/M1097-b):
  *   ~/.jichi.d/index/<key>/manifest.json   metadata + chunk map
  *   ~/.jichi.d/index/<key>/vectors.f32      raw host-endian float32 blob
  *
@@ -13,11 +15,15 @@
  * simply rebuilt (model/dim/size mismatch => full re-embed). The manifest also
  * records the writer's byte order (`"endian"`, M136) so a cache written on a
  * foreign-endian machine -- a shared $HOME mounted across architectures -- is
- * rebuilt instead of silently misread.
+ * rebuilt instead of silently misread. The manifest records the workspace's
+ * root too (M1097-b) and the load path compares it: a root mismatch means the
+ * cache belongs to a different tree and is rebuilt, not reused.
  */
 
 #include "jc_index.h"
+#include "jc_snapshot.h"  /* jc_workspace_key: the ONE per-workspace key (M1097-b) */
 #include "jc_repomap.h"  /* jc_walk_skip_dir: one skip list, both walkers */
+#include "jc_walk.h"
 #include "jc_embed.h"
 #include "jc_json.h"
 #include "jc_mem.h"
@@ -28,7 +34,7 @@
 #include "jc_pdf.h"
 #include "jc_docs.h" /* jc_docs_html_to_text -- as jc_rss.c uses it (M667) */
 
-#include <fcntl.h>
+#include "jc_fcntl.h"   /* <fcntl.h> + JC_O_BINARY (M837) */
 #ifndef JC_NO_MMAP
 #include <sys/mman.h>
 #endif
@@ -81,20 +87,18 @@ static char *dup_n(const char *s, jc_size n)
     return p;
 }
 
-static unsigned long djb2(const char *s)
-{
-    unsigned long h = 5381u;
-    while (*s != '\0') {
-        h = ((h << 5) + h) + (unsigned char)*s;
-        s++;
-    }
-    return h;
-}
-
 static void cache_dir(const char *root, char *buf, jc_size cap)
 {
-    jc_snprintf(buf, cap, "%s/.jichi.d/index/%lu",
-                jc_home_dir(), djb2(root));
+    /* M1097-b (D-09): the index cache was a FOURTH per-workspace store keyed by
+     * its OWN djb2 (h*33+c), so djb2-colliding workspaces (/p/Ez, /p/FY) shared
+     * one index and could reuse each other's vectors on load. It now uses the
+     * SAME derivation as the checkpoint/lease/telemetry stores -- the 64-hex
+     * SHA-256 of the raw path, jc_workspace_key (M1097) -- so one project, one
+     * key, across all four stores. */
+    char key[65];
+    jc_workspace_key(root, key, sizeof(key));
+    jc_snprintf(buf, cap, "%s/.jichi.d/index/%s",
+                jc_home_dir(), key);
 }
 
 void jc_index_cache_dir(const char *root, char *buf, jc_size cap)
@@ -291,10 +295,19 @@ static int chunk_text(struct jc_vec *chunks, const char *path,
 /* `depth` separates the two cases the old code gave one answer to (M483):
  * the ROOT failing to list is not a partial result -- there is no index to
  * speak of -- while a subdirectory failing is a hole, and a hole must be
- * COUNTED rather than swallowed. `unreadable` accumulates the holes. */
+ * COUNTED rather than swallowed. `unreadable` accumulates the holes.
+ *
+ * This walker now uses jc_walk_classify() (D-27/D-28/D-29/D-30) to:
+ *   - lstat each entry instead of following symlinks (jc_is_dir uses stat)
+ *   - never walk into a link that resolves outside the workspace root
+ *   - track (dev,ino) of directories to avoid hardlink loops (D-29)
+ *   - respect entry and depth bounds
+ *
+ * The context is threaded through via ctx. The depth argument is the caller's
+ * current depth; it is passed directly to classify. */
 static jc_status walk(const char *dir, struct jc_vec *files, struct jc_arena *a,
                       int with_pdf, int depth, int *unreadable,
-                      const struct jc_vec *ignore)
+                      const struct jc_vec *ignore, struct jc_walk_ctx *ctx)
 {
     struct jc_vec names;
     jc_size i;
@@ -319,29 +332,36 @@ static jc_status walk(const char *dir, struct jc_vec *files, struct jc_arena *a,
         }
         jc_snprintf(full, strlen(dir) + strlen(name) + 2, "%s/%s", dir, name);
 
-        if (jc_is_dir(full)) {
+        switch (jc_walk_classify(ctx, full, depth)) {
+        case JC_WALK_SKIP:
+            continue;
+        case JC_WALK_DIR:
             if (jc_walk_skip_dir(name, ignore)) {
                 continue;
             }
             st = walk(full, files, a, with_pdf, depth + 1, unreadable,
-                      ignore);
+                      ignore, ctx);
             if (st != JC_OK) {
                 jc_vec_free(&names);
                 return st;
             }
-        } else {
+            continue;
+        case JC_WALK_FILE:
             /* PDFs are normally skipped; when PDF indexing is on they're kept
              * (their extracted text is indexed) with a larger raw-size cap. */
-            int is_pdf = with_pdf && jc_pdf_is_pdf(name);
-            long maxsz = is_pdf ? PDF_MAX_FILE_BYTES : MAX_FILE_BYTES;
-            if ((skip_file_ext(name) && !is_pdf) ||
-                jc_file_size(full) > maxsz) {
-                continue;
+            {
+                int is_pdf = with_pdf && jc_pdf_is_pdf(name);
+                long maxsz = is_pdf ? PDF_MAX_FILE_BYTES : MAX_FILE_BYTES;
+                if ((skip_file_ext(name) && !is_pdf) ||
+                    jc_file_size(full) > maxsz) {
+                    continue;
+                }
+                if (jc_vec_push(files, &full) != JC_OK) {
+                    jc_vec_free(&names);
+                    return JC_ERR_OOM;
+                }
             }
-            if (jc_vec_push(files, &full) != JC_OK) {
-                jc_vec_free(&names);
-                return JC_ERR_OOM;
-            }
+            continue;
         }
     }
     jc_vec_free(&names);
@@ -404,7 +424,7 @@ static float *map_blob(const char *path, jc_size nfloats, jc_size *maplen)
     if (nfloats == 0) {
         return NULL;
     }
-    fd = open(path, O_RDONLY);
+    fd = open(path, O_RDONLY | JC_O_BINARY);
     if (fd < 0) {
         return NULL;
     }
@@ -736,13 +756,20 @@ jc_status jc_index_build(const char *root, const struct jc_model_cfg *m,
             if (old != NULL) {
                 const char *omodel = jc_json_get_str(old, "model", "");
                 const char *oendian = jc_json_get_str(old, "endian", "");
-                old_dim = (int)jc_json_get_num(old, "dim", 0.0);
-                old_count = (int)jc_json_get_num(old, "count", 0.0);
+                const char *oroot = jc_json_get_str(old, "root", "");
+                old_dim = jc_json_clamp_int(jc_json_get_num(old, "dim", 0.0));
+                old_count = jc_json_clamp_int(jc_json_get_num(old, "count", 0.0));
                 /* Different model, or a blob written with a foreign byte order
-                 * (M136; a pre-M136 manifest has no tag and rebuilds once):
-                 * ignore the cache. */
+                 * (M136; a pre-M136 manifest has no tag and rebuilds once), or
+                 * a manifest whose recorded root is NOT this workspace (M1097-b
+                 * -- the index belt): ignore the cache. A root mismatch means
+                 * the cache belongs to a different tree -- exactly the Ez/FY
+                 * djb2-collision case this key change closes, or a hand-planted
+                 * foreign manifest -- so it is rebuilt, not reused. Same shape
+                 * as the model/endian mismatch: drop `old`, rebuild. */
                 if ((m->model != NULL && strcmp(omodel, m->model) != 0) ||
-                    strcmp(oendian, jc_index_endian_tag()) != 0) {
+                    strcmp(oendian, jc_index_endian_tag()) != 0 ||
+                    strcmp(oroot, root) != 0) {
                     cJSON_Delete(old);
                     old = NULL;
                     old_dim = old_count = 0;
@@ -768,12 +795,26 @@ jc_status jc_index_build(const char *root, const struct jc_model_cfg *m,
     old_files = (old != NULL) ? jc_json_get_obj(old, "files") : NULL;
 
     /* Walk the workspace. PDF text indexing is opt-in (pdf_cmd != NULL — set by
-     * docs sources, not the codebase index). */
-    n_unreadable = 0;
-    st = walk(root, &files, a, pdf_cmd != NULL, 0, &n_unreadable,
-              ignore_dirs);
-    if (st != JC_OK) {
-        goto done;
+     * docs sources, not the codebase index).
+     *
+     * The walk uses a shared walker context (D-27/D-28/D-29/D-30) that:
+     *   - resolves root to its canonical path (under-root check)
+     *   - never follows symlinks out of root
+     *   - avoids hardlink loops with a (dev,ino) visited set
+     *   - respects entry and depth bounds */
+    {
+        struct jc_walk_ctx walk_ctx;
+        n_unreadable = 0;
+        if (jc_walk_ctx_init(&walk_ctx, root, 128, 500000) != 0) {
+            st = JC_ERR_INVALID;  /* root doesn't exist or isn't a directory */
+            goto done;
+        }
+        st = walk(root, &files, a, pdf_cmd != NULL, 0, &n_unreadable,
+                  ignore_dirs, &walk_ctx);
+        jc_walk_ctx_free(&walk_ctx);
+        if (st != JC_OK) {
+            goto done;
+        }
     }
 
     /* Chunk every file; reuse cached vectors for unchanged files. */
@@ -844,8 +885,8 @@ jc_status jc_index_build(const char *root, const struct jc_model_cfg *m,
         cached = (old_files != NULL) ? find_cached_file(old_files, path) : NULL;
         if (cached != NULL) {
             double omt = jc_json_get_num(cached, "mtime", -1.0);
-            int ocount = (int)jc_json_get_num(cached, "count", -1.0);
-            old_first = (int)jc_json_get_num(cached, "first", -1.0);
+            int ocount = jc_json_clamp_int(jc_json_get_num(cached, "count", -1.0));
+            old_first = jc_json_clamp_int(jc_json_get_num(cached, "first", -1.0));
             if (omt == mt && ocount == produced && old_first >= 0 &&
                 old_first + produced <= old_count) {
                 reuse_ok = 1;

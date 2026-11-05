@@ -155,21 +155,28 @@ Note the aliases only cover the *executable*. A wrapper that also relies on
 
 Renaming the *repository directory* is separate from the rename and not required —
 both shipped wrappers try `../jichi/jichi` and `../jlu_continue/jichi`. If you do
-move it, two per-user caches are keyed by a `djb2` hash of the **workspace path**
-and must come along, or you silently lose this repo's undo history:
+move it, two per-user caches are keyed by the **workspace path** -- both the
+checkpoint store and the index cache by the 64-hex SHA-256 digest (M1097 /
+M1097-b; the index manifest's recorded root is compared on load, so a cache that
+was planted for a different path is rebuilt rather than reused) -- and both must
+come along, or you silently lose this repo's undo history:
 
 ```sh
 BASE=~/development/miscellaneous            # adjust
 mv $BASE/jlu_continue $BASE/jichi
 ln -s jichi $BASE/jlu_continue              # optional: keep stale absolute paths working
 
-# carry the caches (compute the keys with the djb2 of each absolute path).
+# carry the caches (the checkpoint key and the index key are BOTH the 64-hex
+# SHA-256 of each absolute path, M1097/M1097-b -- one derivation, two stores).
 # The same nesting trap as above, and MORE likely here: <newkey> already exists
 # the moment you run jichi once from the new path -- which is exactly when you
 # notice the undo history is gone and come looking for this section.
 [ -e ~/.jichi.d/checkpoints/<newkey> ] && echo "newkey exists -- see the warning above"
 mv ~/.jichi.d/checkpoints/<oldkey> ~/.jichi.d/checkpoints/<newkey>
 git -C ~/.jichi.d/checkpoints/<newkey> config core.worktree $BASE/jichi
+# M1097: the store also pins its work tree (the belt); re-pin it to the new
+# path or the first run refuses a store "pinned to a different work tree".
+git -C ~/.jichi.d/checkpoints/<newkey> config jichi.worktree $BASE/jichi
 mv ~/.jichi.d/index/<oldkey> ~/.jichi.d/index/<newkey>
 ```
 

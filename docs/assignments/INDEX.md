@@ -67,6 +67,12 @@ contributor guide was never being marked. Measured effect on `00-hello`: system 
 12,149 → **3,952** tokens per call, calls 6 → **3**, total 128k → **~32k**. Pass
 `--with-rules` if you actually want project conventions in play.
 
+**What an attempt records (M898).** `jichi attempt --output json` prints one row per
+attempt: the verdict, and what it cost -- `tokens`, `wall_s` (the whole attempt, from the
+checkpoint to the verify), `model_calls`, `tool_calls`, and the `model` and `model_id` it
+ran on. The attempt also keeps a run journal, so `jichi runs` lists it, with
+`attempt=PASS` (or the other verdict) in its notes; the row's `run` is the journal's id.
+
 What to expect now:
 
 - **`--budget-tokens 60k` is a sane floor** for the small tasks; the larger ones want

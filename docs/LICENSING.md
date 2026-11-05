@@ -4,6 +4,11 @@ Two questions, and since **2026-08-27** both are answered: the copyright is held
 by Justus-Liebig-Universität Gießen with Alexander-Lars Dallmann as the author,
 and the licence is **Apache-2.0**.
 
+> **What "SPDX" means here.** SPDX is the industry-standard short code for a licence
+> — `Apache-2.0`, `MIT`, and so on — placed in a source file's header so that tools
+> and people can read its terms at a glance. The full list is at
+> [spdx.org/licenses](https://spdx.org/licenses/).
+
 ## Current state
 
 *This is the one section that changes when the decision changes. `license_lint`
@@ -111,7 +116,8 @@ surprise later:
   clause for anyone who sues over patents. This is the main reason Apache-2.0 is
   preferred over MIT/BSD for institutional software.
 * **section 5** -- contributions are licensed inbound under the same terms unless
-  stated otherwise, so no separate CLA is needed for ordinary patches.
+  stated otherwise, so no separate CLA (Contributor License Agreement) is needed
+  for ordinary patches.
 * **section 6** -- no trademark rights are granted; the name "jichi" is not covered
   by the licence either way.
 * **appendix** -- the boilerplate header. The three-line SPDX form used here
@@ -130,3 +136,10 @@ while authorship, and the author's name in the notice, remain with
 **MIT**, and `docs/licenses/MIT.txt` stands ready so that switch is the same
 one-command sweep (`scripts/set-license.sh MIT`), gated by the same lint.
 Applying the answer cost one command, as prepared.
+
+## Read further
+
+- [`licenses/README.md`](licenses/README.md) — the candidate licence texts and the checksums that keep them verbatim *(primary — the files the sweep applies)*.
+- [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — the inbound-contribution terms (Apache-2.0 §5) in practice *(primary)*.
+- [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) — the licence text itself *(primary)*.
+- [spdx.org/licenses](https://spdx.org/licenses/) — the SPDX identifier list *(primary)*.

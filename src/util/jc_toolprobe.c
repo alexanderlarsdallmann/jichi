@@ -75,6 +75,10 @@ const char *jc_toolprobe_suggested_setting(enum jc_toolprobe_verdict v)
      * default. Recommending "none" here would be the M166 mistake with a new
      * name -- degrading a capable model on no evidence. */
     if (v == JC_TOOLPROBE_UNKNOWN) return "native";
+    /* M949: a model that emits its calls as markdown is NOT "none" (that
+     * strips the tools and the textToolCalls recovery pass with them); it is
+     * "text" -- native attempts plus recovery of the prose calls. */
+    if (v == JC_TOOLPROBE_TEXT) return "text";
     return (v == JC_TOOLPROBE_NATIVE) ? "native" : "none";
 }
 

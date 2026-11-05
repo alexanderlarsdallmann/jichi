@@ -21,6 +21,7 @@
 #include "jc_pdf.h"
 #include "jc_path.h"
 #include "jc_http.h"
+#include "jc_net.h"
 #include "jc_str.h"
 #include "jc_snprintf.h"
 
@@ -31,6 +32,9 @@
 #define DOCS_URL_TTL 86400.0
 /* Cap a fetched page (bytes) before stripping/indexing. */
 #define DOCS_FETCH_MAX (2 * 1024 * 1024)
+/* M1093 (C-09): the documentation-URL fetch's named TOTAL cap (a CAP, not a
+ * fence). The connect + dead-stream FENCES come from jc_net_side_fences. */
+#define DOCS_FETCH_TIMEOUT_SECS 30
 
 /* Case-insensitive prefix test: does `s` begin with `pfx`? */
 static int ci_prefix(const char *s, const char *pfx)
@@ -329,14 +333,19 @@ static jc_status materialize_url(struct jc_app *app,
     memset(&req, 0, sizeof(req));
     req.method = "GET";
     req.url = src->url;
-    req.timeout_secs = 30;
+    req.timeout_secs = DOCS_FETCH_TIMEOUT_SECS;
     req.abort_flag = &app->abort_flag;
+    /* M1093: `app` is in scope, so the real config's fences apply. */
+    jc_net_side_fences(&req, &app->config);
     /* A documentation URL is a CONTENT fetch with no credential attached, and
      * doc sites redirect constantly (http->https, /latest->/v1.2, trailing
      * slash). So this is one of the three callers that should follow (M472).
      * Note it must be set explicitly now: the check below is `status >= 400`,
      * so an unfollowed 302 would have stored an empty page as the cached doc. */
     req.follow_redirects = 1;
+    /* C-08 (M1120): the docs URL is user-named (first hop allowed), a
+     * redirect target is not. */
+    req.block_redirect_private = 1;
     st = jc_http_perform(&req, &status, &body, &len);
     if (st != JC_OK || status >= 400) {
         free(body);

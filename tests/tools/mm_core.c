@@ -24,6 +24,14 @@
 
 /* --- small utilities ----------------------------------------------------- */
 
+/* M882: see mm_core.h. */
+int mm_keep_alive = 0;
+
+static const char *conn_header(void)
+{
+    return mm_keep_alive ? "" : "Connection: close\r\n";
+}
+
 static char *mm_strdup_n(const char *s, size_t n)
 {
     char *p = (char *)malloc(n + 1);
@@ -276,6 +284,35 @@ int mm_script_parse(const char *text, struct mm_script *out,
             cur.delay_ms = ms;
             continue;
         }
+        if (strncmp(s, "drip ", 5) == 0) {
+            long ms = strtol(s + 5, NULL, 10);
+            if (ms < 1) {
+                return mm_parse_fail(&cur, out, err, errcap, line,
+                                     "drip must be >= 1ms");
+            }
+            cur.drip_ms = ms;
+            continue;
+        }
+        if (strncmp(s, "usage grow ", 11) == 0) {
+            /* M951: a growing prompt -- prompt_tokens = BASE + STEP*(req-1).
+             * Lets a long run measure a real per-call growth, which the relay's
+             * leg-budget controller needs (a fixed `usage IN OUT` cannot prove
+             * the measurement is wired). The OUT default (5) still applies:
+             * only the INPUT grows. Must be checked BEFORE the `usage ` test
+             * below, which would read "grow" as a negative IN. */
+            char *e2 = NULL;
+            long base = strtol(s + 11, &e2, 10);
+            long step = (e2 != NULL) ? strtol(e2, NULL, 10) : -1;
+            if (base < 0 || step < 0) {
+                return mm_parse_fail(&cur, out, err, errcap, line,
+                                     "usage grow needs BASE STEP (both >= 0)");
+            }
+            cur.usage_grow = 1;
+            cur.usage_grow_base = base;
+            cur.usage_grow_step = step;
+            cur.usage_in = -1;   /* grow wins; a fixed IN would be ignored */
+            continue;
+        }
         if (strncmp(s, "usage ", 6) == 0) {
             char *end = NULL;
             long in_tok = strtol(s + 6, &end, 10);
@@ -308,6 +345,20 @@ int mm_script_parse(const char *text, struct mm_script *out,
         if (strncmp(s, "text ", 5) == 0 || strcmp(s, "text") == 0) {
             const char *t = (s[4] == '\0') ? s + 4 : mm_skip_ws(s + 5);
             cur.action = MM_ACT_TEXT;
+            cur.arg1 = mm_strdup_n(t, strlen(t));
+            if (cur.arg1 == NULL) {
+                return mm_parse_fail(&cur, out, err, errcap, line,
+                                     "out of memory");
+            }
+            continue;
+        }
+        if (strncmp(s, "text-stream ", 12) == 0) {
+            const char *t = mm_skip_ws(s + 12);
+            if (*t == '\0') {
+                return mm_parse_fail(&cur, out, err, errcap, line,
+                                     "text-stream needs TEXT");
+            }
+            cur.action = MM_ACT_TEXT_STREAM;
             cur.arg1 = mm_strdup_n(t, strlen(t));
             if (cur.arg1 == NULL) {
                 return mm_parse_fail(&cur, out, err, errcap, line,
@@ -402,9 +453,11 @@ int mm_script_parse(const char *text, struct mm_script *out,
                 cur.action = MM_ACT_STALL_HEADER;
             else if (strcmp(w, "mid") == 0)
                 cur.action = MM_ACT_STALL_MID;
+            else if (strcmp(w, "none") == 0)
+                cur.action = MM_ACT_STALL_NONE;
             else {
                 return mm_parse_fail(&cur, out, err, errcap, line,
-                              "stall needs header|mid");
+                              "stall needs header|mid|none");
             }
             continue;
         }
@@ -572,8 +625,8 @@ static int mm_head_sse(struct mm_buf *b, size_t body_len)
         return -1;
     if (body_len != (size_t)-1) {
         int n = jc_snprintf(tmp, sizeof(tmp),
-                            "Connection: close\r\nContent-Length: %lu\r\n",
-                            (unsigned long)body_len);
+                            "%sContent-Length: %lu\r\n",
+                            conn_header(), (unsigned long)body_len);
         if (n < 0 || mm_buf_add(b, tmp, (size_t)n) != 0)
             return -1;
     }
@@ -592,10 +645,23 @@ static int mm_sse_text_delta(struct mm_buf *b, const char *content)
     return mm_buf_adds(b, "\"},\"finish_reason\":null}]}\n\n");
 }
 
-static int mm_body_text(struct mm_buf *b, const struct mm_rule *r)
+/* M951: the prompt_tokens a rule reports for this request. A `usage grow`
+ * rule grows per request (BASE + STEP*(req-1)); a fixed `usage IN OUT` and the
+ * default are constant. The text and tool paths share it so "unspecified" and
+ * "growing" each mean one thing. req_index is 1-based (mm_select's index). */
+static long mm_in_tokens(const struct mm_rule *r, int req_index)
+{
+    if (r->usage_grow) {
+        long k = (req_index > 1) ? req_index - 1 : 0;
+        return r->usage_grow_base + r->usage_grow_step * k;
+    }
+    return (r->usage_in >= 0) ? r->usage_in : MM_USAGE_IN_DEFAULT;
+}
+
+static int mm_body_text(struct mm_buf *b, const struct mm_rule *r, int req)
 {
     char tmp[160];
-    long in_tok = (r->usage_in >= 0) ? r->usage_in : MM_USAGE_IN_DEFAULT;
+    long in_tok = mm_in_tokens(r, req);
     long out_tok = (r->usage_out >= 0) ? r->usage_out : MM_USAGE_OUT_DEFAULT;
     int n;
 
@@ -617,7 +683,7 @@ static int mm_body_text(struct mm_buf *b, const struct mm_rule *r)
  * shape a real provider sends when the model calls several tools in one
  * assistant message. With ntools == 1 the bytes are identical to the
  * single-tool form this replaced. */
-static int mm_body_tool(struct mm_buf *b, const struct mm_rule *r)
+static int mm_body_tool(struct mm_buf *b, const struct mm_rule *r, int req)
 {
     int i;
     int n = (r->ntools > 0) ? r->ntools : 1;
@@ -680,7 +746,7 @@ static int mm_body_tool(struct mm_buf *b, const struct mm_rule *r)
         return -1;
     {
         char tmp[160];
-        long in_tok = (r->usage_in >= 0) ? r->usage_in : MM_USAGE_IN_DEFAULT;
+        long in_tok = mm_in_tokens(r, req);
         long out_tok = (r->usage_out >= 0) ? r->usage_out : MM_USAGE_OUT_DEFAULT;
         int nn = jc_snprintf(tmp, sizeof(tmp),
                             "data: {\"id\":\"1\",\"object\":"
@@ -696,7 +762,26 @@ static int mm_body_tool(struct mm_buf *b, const struct mm_rule *r)
     return 0;
 }
 
-int mm_render_response(const struct mm_rule *r, char **out, size_t *outlen)
+/* The SSE body of a text-stream rule (the part sent AFTER the headers +
+ * delay): the same chunks mm_body_text renders, including finish/usage/
+ * [DONE]. Returns 0 on success; malloc'd *out. */
+int mm_render_text_stream_body(const struct mm_rule *r, char **out,
+                               size_t *outlen, int req_index)
+{
+    struct mm_buf body;
+    memset(&body, 0, sizeof(body));
+    if (mm_body_text(&body, r, req_index) != 0) {
+        free(body.data);
+        return -1;
+    }
+    *out = body.data;
+    *outlen = body.len;
+    body.data = NULL;
+    return 0;
+}
+
+int mm_render_response(const struct mm_rule *r, char **out, size_t *outlen,
+                       int req_index)
 {
     struct mm_buf head, body;
     int rc = -1;
@@ -708,13 +793,13 @@ int mm_render_response(const struct mm_rule *r, char **out, size_t *outlen)
 
     switch (r->action) {
     case MM_ACT_TEXT:
-        if (mm_body_text(&body, r) != 0)
+        if (mm_body_text(&body, r, req_index) != 0)
             goto done;
         if (mm_head_sse(&head, body.len) != 0)
             goto done;
         break;
     case MM_ACT_TOOL:
-        if (mm_body_tool(&body, r) != 0)
+        if (mm_body_tool(&body, r, req_index) != 0)
             goto done;
         if (mm_head_sse(&head, body.len) != 0)
             goto done;
@@ -741,12 +826,18 @@ int mm_render_response(const struct mm_rule *r, char **out, size_t *outlen)
                 goto done;
         }
         n = jc_snprintf(tmp, sizeof(tmp),
-                        "Connection: close\r\nContent-Length: %lu\r\n\r\n",
-                        (unsigned long)body.len);
+                        "%sContent-Length: %lu\r\n\r\n",
+                        conn_header(), (unsigned long)body.len);
         if (n < 0 || mm_buf_add(&head, tmp, (size_t)n) != 0)
             goto done;
         break;
     }
+    case MM_ACT_TEXT_STREAM:
+        /* Headers only, no Content-Length: the caller sends these, waits
+         * (the delay modifier), then sends mm_render_text_stream_body(). */
+        if (mm_head_sse(&head, (size_t)-1) != 0)
+            goto done;
+        break;
     case MM_ACT_STALL_HEADER:
         if (mm_head_sse(&head, (size_t)-1) != 0)
             goto done;
@@ -756,6 +847,11 @@ int mm_render_response(const struct mm_rule *r, char **out, size_t *outlen)
             goto done;
         if (mm_sse_text_delta(&body, "partial") != 0)
             goto done;
+        break;
+    case MM_ACT_STALL_NONE:
+        /* M1062: render NOTHING (no headers, no body) -- the caller sends
+         * zero bytes and then holds the socket until the peer aborts.
+         * head and body are empty at this point, so *outlen stays 0. */
         break;
     case MM_ACT_SSE_FILE:
     case MM_ACT_EMBED:
@@ -788,8 +884,8 @@ int mm_render_status_body(int status, const char *body, size_t body_len,
     n = jc_snprintf(tmp, sizeof(tmp),
                     "HTTP/1.1 %d Status\r\n"
                     "Content-Type: application/octet-stream\r\n"
-                    "Connection: close\r\nContent-Length: %lu\r\n\r\n",
-                    status, (unsigned long)body_len);
+                    "%sContent-Length: %lu\r\n\r\n",
+                    status, conn_header(), (unsigned long)body_len);
     if (n < 0 || mm_buf_add(&b, tmp, (size_t)n) != 0 ||
         mm_buf_add(&b, body, body_len) != 0) {
         free(b.data);

@@ -15,7 +15,7 @@
 #include <unistd.h>
 #include <termios.h>
 #include <sys/ioctl.h>
-#include <sys/select.h>
+#include "jc_select.h"  /* M834: <sys/select.h> where it exists */
 #include <sys/time.h> /* struct timeval: MiNTLib's <sys/select.h> only forward-declares it (M723) */
 
 void jc_term_init(struct jc_term *t)
@@ -230,11 +230,45 @@ int jc_term_poll_key(struct jc_term *t)
 {
     unsigned char ch;
     ssize_t n;
+    fd_set r;
+    struct timeval tv;
     if (t == NULL || !t->holding) {
+        return -1;
+    }
+    /* M768: ASK, THEN READ. The hold sets VMIN=0 and VTIME=0, under which POSIX
+     * says a read with nothing waiting returns 0 at once, and Linux does
+     * (measured). GNU/Hurd's term server blocks until a byte arrives (measured: an idle
+     * read that did not return in 3 s, where select() honoured a 100 ms timeout
+     * at 107-110 ms). So on Hurd the first poll of a turn froze the TUI before its
+     * model call was sent. That was the type-ahead path only, until M753 took the
+     * hold on every turn and made it everyone's. A zero-timeout select() first
+     * means the read happens only when a byte is waiting, on every system. */
+    FD_ZERO(&r);
+    FD_SET(t->in_fd, &r);
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+    if (select(t->in_fd + 1, &r, NULL, NULL, &tv) <= 0) {
         return -1;
     }
     n = read(t->in_fd, &ch, 1);
     return (n == 1) ? (int)ch : -1;
+}
+
+int jc_term_poll_key_wait(struct jc_term *t, int ms)
+{
+    fd_set r;
+    struct timeval tv;
+    if (t == NULL || !t->holding) {
+        return -1;
+    }
+    FD_ZERO(&r);
+    FD_SET(t->in_fd, &r);
+    tv.tv_sec = ms / 1000;
+    tv.tv_usec = (long)(ms % 1000) * 1000L;
+    if (select(t->in_fd + 1, &r, NULL, NULL, &tv) <= 0) {
+        return -1;
+    }
+    return jc_term_poll_key(t);
 }
 
 int jc_term_read_key(struct jc_term *t)

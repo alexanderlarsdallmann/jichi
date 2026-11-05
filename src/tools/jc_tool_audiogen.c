@@ -69,6 +69,7 @@ static jc_status audiogen_run(const cJSON *args, struct jc_tool_result *out,
     char msg[1100];
     jc_status st;
     long http;
+    int overflow = 0;
 
     if (text == NULL || text[0] == '\0' || path == NULL || path[0] == '\0') {
         tu_err(out, "error: 'text' and 'path' are required");
@@ -91,10 +92,27 @@ static jc_status audiogen_run(const cJSON *args, struct jc_tool_result *out,
         return JC_OK;
     }
 
+    /* C-06: the configured cap is computed BEFORE the call so it can be passed
+     * down as the transfer's max_bytes -- the audio aborts AT the cap instead of
+     * buffering the whole (possibly multi-MB) body and only then being
+     * compared to the cap. */
+    cap = jc_config_cap(app->config.audio_gen_max_bytes, AUDIOGEN_MAX_BYTES);
     http = 0;
     st = jc_audiogen_run(m, text, voice, fmt, &bytes, &len, &app->abort_flag,
-                         &http);
+                         &http, (long)cap, &overflow);
     if (st != JC_OK || bytes == NULL) {
+        /* C-06: when the transfer was cut at the cap, report the cap (the
+         * response was too large), not a generic network failure. The overflow
+         * flag is only ever set by jc_http_perform's collect-ceiling abort. */
+        if (overflow) {
+            jc_snprintf(msg, sizeof(msg),
+                        "error: generated audio exceeded the %lu-byte cap "
+                        "(the transfer was cut at the cap, no file written)",
+                        (unsigned long)cap);
+            free(bytes);
+            tu_err(out, msg);
+            return JC_OK;
+        }
         free(bytes);
         /* M500: name the status and what it implies. The old message was the
          * same sentence for a 500, a 401 and an unreachable host, so a model
@@ -104,7 +122,9 @@ static jc_status audiogen_run(const cJSON *args, struct jc_tool_result *out,
                                      http, "/audio/speech"));
         return JC_OK;
     }
-    cap = jc_config_cap(app->config.audio_gen_max_bytes, AUDIOGEN_MAX_BYTES);
+    /* The post-hoc cap check is now a no-op backstop: with max_bytes set to
+     * the cap, the transfer already aborted on overflow, so len can never
+     * exceed cap here (rounding to exactly the cap is the only edge case). */
     if (len > cap) {
         free(bytes);
         jc_snprintf(msg, sizeof(msg),

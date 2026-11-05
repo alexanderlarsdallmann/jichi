@@ -104,7 +104,7 @@ Fifteen minutes with the living binary — no source reading required yet:
 make && ./jichi --version     # what was probed at build time (chapter 3)
 ./jichi doctor                # the program examining its own setup
 ./jichi describe              # the machine-readable self-description
-./jichi -p "say hello in five words"
+./jichi -p "say hello in five words" < /dev/null
 ```
 
 Then the first act of *reading*: run `./jichi map` and compare its output

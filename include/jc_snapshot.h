@@ -74,6 +74,11 @@ struct jc_snapshot_mgr {
      * add a line. Which also keeps the wording in the surface's own voice --
      * `/undo` in the TUI and `jichi undo` in a script want different text. */
     char           preserve_last[64];
+    /* M809: the full ref the last preservation created
+     * (refs/jichi/discarded/<why>/<time>-<n>), or "" if none did. The parallel
+     * pool reads it right after each preserve to list the kept states at the top
+     * of its result -- a ref a successor can hand to `jichi attempts show`. */
+    char           preserve_last_ref[256];
 };
 
 /* M338: should a preserved-discarded state be kept? Pure, so the policy can be
@@ -97,11 +102,17 @@ int jc_snapshot_retain(long age_days, int rank, int keep_days, int keep_n);
 const char *jc_snapshot_preserved_last(const struct jc_snapshot_mgr *m);
 
 /* Pure: derive the shadow-repo git dir for a workspace under `home`. */
-/* M431e: the per-workspace store key -- djb2 of the canonical work tree. Public
- * because more than one store is keyed by workspace (the checkpoint repo here, the
- * M431e run lease under ~/.jichi.d/leases/), and two derivations of one key would
- * drift into two different numbers for one project. Pure; unit-tested. */
-unsigned long jc_workspace_key(const char *work_tree);
+/* M431e, M1097 (D-09): the per-workspace store key -- the SHA-256 digest of the
+ * work-tree path, rendered as 64 lowercase hex chars into `out` (needs cap >= 65
+ * for the NUL-terminated digest). Public because more than one store is keyed by
+ * workspace (the checkpoint repo here, the M431e run lease under ~/.jichi.d/leases/,
+ * and the M599 telemetry log under ~/.jichi.d/telemetry/), and two derivations of
+ * one key would drift into two different names for one project. `out` is left
+ * empty (just a NUL) when work_tree is NULL or cap is too small for the digest.
+ * The old djb2 derivation collided on names differing by (+1,-33) in adjacent
+ * bytes (/p/Ez and /p/FY), so two workspaces shared one shadow repo. Pure;
+ * unit-tested. */
+void jc_workspace_key(const char *work_tree, char *out, jc_size cap);
 
 void jc_snapshot_git_dir(const char *home, const char *work_tree,
                          char *buf, jc_size cap);
@@ -213,10 +224,32 @@ jc_status jc_snapshot_restore_paths(struct jc_snapshot_mgr *m,
 jc_status jc_snapshot_discarded_list(struct jc_snapshot_mgr *m,
                                      struct jc_sb *out);
 
+/* M815 (P5): the full record of one discarded state for `jichi attempts show`:
+ * `git show --stat --format=%B <ref>` -- the commit body (the §4.2 end record) then
+ * a diffstat of the kept state against the base it was made from. `ref` is a commit
+ * sha or a refs/jichi/discarded/... ref. JC_ERR_IO if git fails, JC_ERR_NOTFOUND if
+ * snapshots are unavailable. */
+jc_status jc_snapshot_discarded_show(struct jc_snapshot_mgr *m, const char *ref,
+                                     struct jc_sb *out);
+
 /* Create a detached worktree at `path` materialising `base_commit`
  * (`git worktree add --detach`). The dir is created by git. */
 jc_status jc_snapshot_worktree_add(struct jc_snapshot_mgr *m,
                                    const char *base_commit, const char *path);
+
+/* M816 (P5): apply a kept state's change onto worktree `wt_path` for a `from:`
+ * resume. `ref` names a preserved commit (a refs/jichi/discarded/... ref or a sha)
+ * whose parent is the base the worktree was created from; a 3-way
+ * `cherry-pick --no-commit` replays the predecessor's diff onto the (possibly
+ * newer) base. On a merge conflict the cherry-pick is aborted so the worktree is
+ * left clean at the base, the conflicting paths are appended to `conflicts` (one
+ * per line), and JC_ERR_INVALID is returned -- the caller turns that into a
+ * tool-error value, never a crash. JC_ERR_NOTFOUND if `ref` is not a commit in the
+ * shared object store or snapshots are unavailable; JC_ERR_IO on a git plumbing
+ * failure; JC_OK when the change applied (cleanly or with an auto-resolved 3-way
+ * merge). */
+jc_status jc_snapshot_resume_apply(struct jc_snapshot_mgr *m, const char *wt_path,
+                                   const char *ref, struct jc_sb *conflicts);
 
 /* Stage everything in worktree `wt_path` and append its changes vs
  * `base_commit` to `out`, one `<status>\t<path>` line each
@@ -227,9 +260,84 @@ jc_status jc_snapshot_worktree_changes(struct jc_snapshot_mgr *m,
                                        const char *base_commit,
                                        struct jc_sb *out);
 
+/* M927 (R04-F1): the NUL form of the same listing (`diff -z`, records are
+ * `<status>\0<path>\0`, never quoted, newline-safe). Parse with
+ * jc_parallel_parse_changes_z. MERGES use this; the line form above stays
+ * for the telemetry files_changed field (M415). */
+jc_status jc_snapshot_worktree_changes_z(struct jc_snapshot_mgr *m,
+                                         const char *wt_path,
+                                         const char *base_commit,
+                                         struct jc_sb *out);
+
 /* Remove the worktree at `path` (`git worktree remove --force` + prune). */
+/* M803: pass as `why` for a worktree whose content is already in the parent's tree
+ * (a child merged in full) -- preservation is skipped, the tree is just removed.
+ * Every OTHER caller names a real reason (becomes the ref path segment), so the
+ * compiler enumerates the destroyers and none can silently forget to preserve. */
+extern const char *const JC_WT_MERGED;
+
+/* M803: preserve the worktree's content (its last commit plus uncommitted changes)
+ * under refs/jichi/discarded/<why>/... before removing it, unless why==JC_WT_MERGED
+ * or preservation is off. `record` is the commit message (the end record). If
+ * preservation FAILS, the tree is KEPT (returns JC_ERR_IO) rather than destroyed --
+ * nothing jichi does on its own initiative may lose the only copy of work. */
+/* M855 (N34): pin every entry of the shadow repo's stash stack as
+ * refs/jichi/discarded/<tag>/<ts>-<n>, then delete the stack. The stack is SHARED
+ * by every linked worktree (measured with git 2.43: one worktree's `git stash pop`
+ * applied another worktree's entry), so a parallel batch empties it before its
+ * children start and after they end: no child pops another batch's change, and no
+ * entry is left where only a stray pop would find it. Appends one line per pinned
+ * ref to `refs` (if non-NULL) and returns how many were pinned. Does nothing, and
+ * returns 0, when preservation is off (`preserveDiscarded: false`) or the stack is
+ * empty. If any entry fails to pin, the stack is left as it is: the only reference
+ * to a stashed change is never deleted. */
+/* M856 (N30): the paths a kept state changed against the base it started from
+ * (its end record's `base:`), one per line into `out` -- its own commits and what
+ * it left uncommitted. Without a recorded base, the kept commit's own paths. */
+/* M863 (N44 (a)): keep a LIVE worktree's state -- its files, tracked and
+ * untracked (not ignored), on its HEAD -- as a commit pinned under
+ * refs/jichi/discarded/<why>/<time>-<pid>-<n>, WITHOUT touching its HEAD, its index or
+ * its files: the tree is built in a temporary index at `index_path` (outside the
+ * worktree; removed after), so the git command that follows does exactly what it
+ * would have done. jc_snapshot_preserve and the batch's own keep COMMIT in the tree,
+ * which would turn a `git checkout -- f` into a no-op. Returns JC_OK with the ref
+ * in `ref_out` and `last` set to "<head> <tree>"; JC_ERR_NOTFOUND, pinning nothing,
+ * when there is nothing to lose (the files are HEAD's and HEAD is `base`) or the
+ * state equals `last`; JC_ERR_IO when git fails. */
+jc_status jc_snapshot_worktree_pin(struct jc_snapshot_mgr *m,
+                                   const char *wt_path, const char *index_path,
+                                   const char *base, const char *why,
+                                   const char *record, char *last,
+                                   jc_size last_cap, char *ref_out,
+                                   jc_size ref_cap);
+
+/* M886 (the demos drive's N50): a fingerprint of a worktree's CONTENT, as 64 hex
+ * characters into `out` (at least 65 bytes): every path git lists under `root` as
+ * modified, deleted or untracked-and-not-ignored, each with the SHA-256 of its
+ * bytes. Content, not `git status`: a second edit to a file that is already
+ * modified leaves its status line as it was. Nothing is written -- no index, no
+ * object. A file over 8 MB, or one that is not a regular file, counts by its size
+ * and mtime instead of its bytes. Returns JC_OK, or JC_ERR_IO when `root` is not in
+ * a git worktree or git fails, which a caller reads as "cannot tell". */
+jc_status jc_snapshot_worktree_fingerprint(const char *root, char *out,
+                                           jc_size cap);
+
+/* M865: the diff of one `path` in a worktree against `base` (`git diff
+ * --unified=0 <base> -- <path>`, the working tree as it stands), appended to `out`.
+ * JC_ERR_NOTFOUND without snapshots, JC_ERR_IO when git fails. */
+jc_status jc_snapshot_worktree_diff(struct jc_snapshot_mgr *m,
+                                    const char *wt_path, const char *base,
+                                    const char *path, struct jc_sb *out);
+
+jc_status jc_snapshot_kept_changes(struct jc_snapshot_mgr *m, const char *ref,
+                                   struct jc_sb *out);
+
+int jc_snapshot_stash_keep(struct jc_snapshot_mgr *m, const char *tag,
+                           struct jc_sb *refs);
+
 jc_status jc_snapshot_worktree_remove(struct jc_snapshot_mgr *m,
-                                      const char *path);
+                                      const char *path,
+                                      const char *why, const char *record);
 
 /* Restore the work tree to the most recent checkpoint and pop it. Returns
  * JC_ERR_NOTFOUND if the stack is empty, JC_ERR_* on git failure. On success,
@@ -238,8 +346,8 @@ jc_status jc_snapshot_undo(struct jc_snapshot_mgr *m, const char **label_out);
 
 /* M349: the files an undo would revert RIGHT NOW -- the working tree diffed
  * against the newest checkpoint, in jc_snapshot_changed_since's
- * newline-separated format. Read it BEFORE jc_snapshot_undo: the undo pops
- * the checkpoint this diffs against. JC_ERR_NOTFOUND when there is nothing
+ * NUL-separated raw format (M1095). Read it BEFORE jc_snapshot_undo: the undo
+ * pops the checkpoint this diffs against. JC_ERR_NOTFOUND when there is nothing
  * to undo. */
 jc_status jc_snapshot_undo_changes(struct jc_snapshot_mgr *m,
                                    struct jc_sb *out);
@@ -249,13 +357,15 @@ jc_status jc_snapshot_undo_changes(struct jc_snapshot_mgr *m,
  * conversation (the M34c split; /rewind is the both-halves form), so every
  * earlier tool result describing the reverted files is stale the moment the
  * restore runs -- and a model that is not told builds its next edit on
- * phantom state. `names` is newline-separated (jc_snapshot_undo_changes); at
- * most 8 are listed, then "+K more". Appends NOTHING when no file changed:
- * nothing became stale, so there is nothing to say. /rewind deliberately gets
+ * phantom state. `names` is NUL-separated (jc_snapshot_undo_changes, M1095);
+ * names_len is its buffer length (strlen is wrong for NUL-separated input --
+ * it would see only the first segment). At most 8 are listed, then "+K more".
+ * Appends NOTHING when no file changed: nothing became stale, so there is
+ * nothing to say. /rewind deliberately gets
  * no note -- truncation removes the beliefs along with the work. Pure;
  * unit-tested. */
 void jc_snapshot_undo_note(const char *label, const char *names,
-                           struct jc_sb *out);
+                           jc_size names_len, struct jc_sb *out);
 
 /* (Re)load the checkpoint stack from the shadow repo's git history (oldest
  * first), capped at the most recent JC_SNAPSHOT_MAX_LIST. Called at init so the
@@ -294,8 +404,14 @@ jc_status jc_snapshot_scope_index(struct jc_snapshot_mgr *m, int n,
 jc_status jc_snapshot_diff(struct jc_snapshot_mgr *m, int n, struct jc_sb *out);
 
 /* List the paths changed in the work tree since `commit` (a shadow-repo SHA),
- * newline-separated, into `out` -- `git add -A` (shadow index) + `git diff
- * --cached --name-only <commit>`. Used by the M83 edit-scope out-of-scope guard
+ * NUL-separated, into `out` -- `git add -A` (shadow index) + `git diff
+ * --cached --name-only -z <commit>`. M1095 (D-03): -z is load-bearing. The
+ * line form C-quotes non-ASCII names (café.txt -> "caf\303\251.txt", literal
+ * backslash-escapes), which the edit-scope glob matched as a violation and
+ * the per-path revert unlinked as a name that is not on disk. With -z the
+ * output is raw bytes: one path per NUL-terminated segment, a trailing NUL
+ * after the last (an empty list is an empty buffer). Every consumer splits
+ * on NUL. Used by the M83 edit-scope out-of-scope guard
  * to see every file a run touched (including shell-introduced changes the
  * file-write fence can't see). Returns JC_ERR_NOTFOUND when unavailable. */
 jc_status jc_snapshot_changed_since(struct jc_snapshot_mgr *m,

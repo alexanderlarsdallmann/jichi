@@ -6,6 +6,12 @@ validated, role-tailored jichi project in one flow. Where `init` only scaffolds
 an executable **start-script**, and ends in a **validation pass** — closing the
 old three-step gap (`init` → hand-write config → `doctor`).
 
+**Who this is for:** anyone standing up a jichi project, new or experienced. If this is
+your very first session, read [`TUTORIAL_BEGINNER.md`](TUTORIAL_BEGINNER.md) first and
+come back — this page is the reference for what the wizard does and every flag it takes.
+**What you need first:** jichi built ([`INSTALL.md`](INSTALL.md)) and a model to point it
+at (a free local server needs no key).
+
 ```
 jichi setup
 ```
@@ -34,13 +40,16 @@ flowchart TD
   L --> M
   M --> A{"accept the role's\ndefault features?"}
   A -->|yes| W{"write config where?"}
-  A -->|no| O["customize optional subsystems:\nmode · snapshots · references · repoMap ·\ntestCommand · verify · hooks · telemetry ·\nembed · LSP · MCP · docs · routing · web"]
+  A -->|no| O["customize optional subsystems\n(listed below the diagram)"]
   O --> W
   W -->|"local / global / custom"| SC["scaffold the preset's pack\n(non-destructive; --force to overwrite)"]
   SC --> CF["write config.json\n(cJSON; secrets via apiKeyEnv only)"]
   CF --> SH["emit + chmod +x the start-script"]
   SH --> D["done: print next steps\n(export KEY, ./run.sh, doctor)"]
 ```
+
+The optional subsystems the **no** branch walks: mode, snapshots, references, repoMap,
+testCommand, verify, hooks, telemetry, embed, LSP, MCP, docs, routing, web.
 
 ## Domain presets (the first question)
 
@@ -151,18 +160,25 @@ Python or C project picks the right pack with no prompt.
 
 ## Flags (headless / scripting)
 
+The simplest free start is a **local OpenAI-compatible server** (LM Studio,
+llama.cpp, vLLM, Ollama's OpenAI endpoint) — no API key needed. Give its address
+with `--api-base`:
+
 ```
 jichi setup --preset developer --provider openai \
-  --model gpt-4o --key-env OPENAI_API_KEY --config-target local
+  --api-base http://localhost:1234/v1 --model local-model --config-target local
 ```
 
-For a **local or self-hosted** server, add the endpoint — this is the form the
-`small-local` and `constrained` presets need, since both exist for models that are
-not at a provider's cloud address:
+Add `--machine small-local` when the model itself is small (a 7–14B model), so the
+lean profile and a smaller context window are chosen for it.
+
+For a **hosted** model, name the provider, the model, and the env-var that holds
+your key instead — the key stays out of the config. A hosted model may be **paid**,
+so choosing a priced one is your decision:
 
 ```
-jichi setup --preset developer --machine small-local --provider openai \
-  --api-base http://localhost:1234/v1 --model my-local-model
+jichi setup --preset developer --provider anthropic \
+  --model <model-id> --key-env ANTHROPIC_API_KEY --config-target local
 ```
 
 | Flag | Meaning |
@@ -172,12 +188,12 @@ jichi setup --preset developer --machine small-local --provider openai \
 | `--stance <name>` | How you are working (M326m): `learner` or `instructor`. Unset means professionally — the flag path does **not** inherit the interactive learner default. |
 | `--machine <name>` | The hardware axis (M326k): `small-local`. What you are *running on*, not who you are — it composes with any role, so `--preset learner --machine small-local` is a learner on a 7–14B model. On its own it is still a valid `--preset`. |
 | `--journey <name>` | A project journey layered **on top of** the role (M326j): `small-project`, `contributor`, `refactor`, `rewrite`, `architect`. Its features fill whatever the role left unset and its scaffold pack is written beside the role's. A journey on its own is still a valid `--preset`. |
-| `--provider <p>` | `anthropic` or `openai`. **Required** in headless mode (unless `--from-global`). |
+| `--provider <p>` | `anthropic`, `openai`, or `openai` with `--api-base` for a local/self-hosted server. **Required** in headless mode (unless `--from-global`). |
 | `--model <id>` | The chat model id. **Required** in headless mode (unless `--from-global`). |
 | `--api-base <URL>` | The endpoint, for anything that is not the provider's default — LM Studio, LocalAI, vLLM, a gateway. **Ends in `/v1`** for OpenAI-compatible servers, so chat *and* embeddings resolve. Added at M488: the interactive wizard had always prompted for it and the config writer had always written it, but the headless form had no flag — so following `setup`'s own printed guidance produced a config pointing at the provider's cloud, which bit precisely the two presets that exist for locally hosted models. |
 | `--key-env <VAR>` | Env-var **name** holding the API key (e.g. `OPENAI_API_KEY`) — **not the key**. A value no shell could export (a pasted `sk-…`) is refused before anything is written, and the refusal does not echo it (M326e). |
 | `--config-target <t>` | `local` (default), `global`, or a custom path. |
-| `--from-global` | Seed the project config **from your global `~/.jichi`** (W5): the global models/roles/`apiKeyEnv`/routing/etc. carry over, and the preset's answers gap-fill only what's missing. No `--provider`/`--model` needed (the global config supplies them). |
+| `--from-global` | Seed the project config **from your global `~/.jichi`** (W5): the global models/roles/`apiKeyEnv`/routing/etc. carry over, and the preset's answers gap-fill only what's missing. No `--provider`/`--model` needed (the global config supplies them). A literal `apiKey` is **never** inherited — only `apiKeyEnv` (the env-var name) is; if one was present, a one-time stderr warning names the affected model. Likewise a literal `env` or `headers` member on an inherited MCP server, and a literal `env` member on an inherited tool, is dropped (only its name/command/args carry over), each with its own warning. |
 | `--inherit <keys>` | Like `--from-global` but copies only the named top-level keys (comma-separated, e.g. `models,routing`); the rest is filled by the preset defaults. Implies `--from-global`. |
 | `--lang <pack>` | Language pack for `developer`/`tester` (e.g. `c-cli`). |
 | `--non-interactive` | Never prompt, even on a TTY (requires the flags above). |
@@ -240,7 +256,7 @@ value.
 {
   "_comment": "Generated by `jichi setup`. Secrets are read from the apiKeyEnv ...",
   "models": [
-    { "name": "chat", "provider": "openai", "model": "gpt-4o",
+    { "name": "chat", "provider": "openai", "model": "<model-id>",
       "apiKeyEnv": "OPENAI_API_KEY", "roles": ["chat", "edit", "apply"] }
   ],
   "references": true
@@ -299,6 +315,14 @@ command (`agent: project-analyst`, `subtask: true`, `output:
   pieces it lacks are added (the chat/embed model only if no model already holds
   that role). `--force` writes a fresh config instead. The start-script and
   scaffold assets stay non-destructive (skipped unless `--force`).
+- **Comments in the config are preserved in a backup** (D-22/M980) — the config
+  supports JSONC (C-style `//` line and `/* */` block comments, plus trailing
+  commas). On merge, the original raw text (comments included) is backed up to
+  `<config>.bak` before writing the merged result. If the existing config is
+  unparsable (e.g. `{ oops`), `setup` **refuses to replace it** without `--force`,
+  printing a message: `"config could not be parsed; refusing to replace it
+  without --force"`. With `--force`, the merge proceeds and the broken original
+  is backed up, so the original bytes are never lost.
 
 See also: [SCAFFOLDING.md](SCAFFOLDING.md) (the packs), [DOCTOR.md](DOCTOR.md)
 (the validation), [CONFIG_TUTORIAL.md](CONFIG_TUTORIAL.md) (the config format),

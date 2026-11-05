@@ -231,6 +231,7 @@ send "n"
 delay 1500
 send "/exit\r"
 waitexit 20
+assertexit 0
 EOF
 
 mm_start "$tmp/edit.mm" "$tmp/cap5"

@@ -17,7 +17,9 @@
  *   drain MS               # read and discard output for a duration
  *   winsize ROWS COLS      # TIOCSWINSZ + SIGWINCH to the child
  *   signal TERM|INT|HUP|KILL
- *   waitexit [SECS]        # child must exit within SECS (default 10)
+ *   waitexit [SECS]        # child must exit within SECS (default 10); a
+ *                          #   death by a signal fails the script unless an
+ *                          #   assertexit expects it (M758, exit 7)
  *   assertexit N           # last waitexit's status must equal N
  *
  * expect matches plain substrings -- no regex, no VT interpretation

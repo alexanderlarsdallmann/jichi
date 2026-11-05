@@ -54,7 +54,7 @@ jichi
 无界面模式（用于脚本与自动化）：
 
 ```sh
-jichi -p "解释 src/main.c 的作用"
+jichi -p "解释 src/main.c 的作用" < /dev/null
 ```
 
 ## 4. 保持掌控

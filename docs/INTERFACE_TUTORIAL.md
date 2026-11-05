@@ -105,13 +105,13 @@ Here is the idea from §1, applied. Three commands, three answers:
 
 ```console
 $ jichi describe
-jichi 0.12.0 -- interface contract
+jichi 0.13.0 -- interface contract
 
 Output formats: text, json, jsonl (one object/line, versioned).
 Exit codes: 0 ok, 1 error, 2 usage/config, 130 interrupted (SIGINT), 143 terminated (SIGTERM, graceful).
 Modes: chat, plan, auto.
 
-Drive headless:  jichi -p 'task' --output jsonl
+Drive headless:  jichi -p 'task' --output jsonl < /dev/null
 ```
 
 That is *what you can do here*, written for a program as much as for a person —
@@ -134,6 +134,8 @@ $ jichi doctor
 ✓ private files really are private
 ✓ provider transport: https (or loopback)
 ✓ libcurl available (networking enabled)
+    8.18.0 (TLS: OpenSSL/3.5.5; CA path: /etc/ssl/certs/ca-certificates.crt)
+✓ CA bundle: library default (/etc/ssl/certs/ca-certificates.crt)
 ```
 
 That is *what happened, and what you can do about it*. The design decision worth
@@ -383,6 +385,10 @@ grow worked examples in this tree, they grow sections here.
 6. Does every diagram answer a question the prose cannot?
 7. Does every step have an **escape route** when it fails?
 8. Have you watched **one person** use it without coaching them?
+
+For jichi itself, item 8 has a protocol, [`LEARNER_STUDY.md`](LEARNER_STUDY.md) (M756), and has
+not yet been done. The rules this tutorial and four other pages decided are collected, with
+their sources, in [`TUI_PRINCIPLES.md`](TUI_PRINCIPLES.md).
 
 Seven of those you can check yourself. The eighth is the only one that finds
 what you cannot imagine.

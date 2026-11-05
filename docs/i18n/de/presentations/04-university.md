@@ -73,7 +73,7 @@ jichi --auto \
   --journal artifacts/run-$(date +%s).jsonl \
   --output json \
   -p "implement the FFT variant from the spec and pass the tests" \
-  > artifacts/result.json
+  > artifacts/result.json < /dev/null
 ```
 
 Jeder Modell- und Tool-Aufruf, jede Kosten- und Ergebnisangabe wird erfasst —
