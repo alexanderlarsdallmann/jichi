@@ -161,18 +161,28 @@ void jc_control_close(struct jc_control *c)
 }
 
 /* Read one bounded request line from `fd` (the client writes immediately;
- * wait up to 2s). Returns malloc'd line (no newline) or NULL. */
+ * wait up to 2s). Returns malloc'd line (no newline) or NULL.
+ *
+ * M1149: the bound is JC_CONTROL_LINE_MAX_INJECT (8 * the old cap), not the old
+ * 16384 -- a supervisor's inject-task carries its text in the line, and driver
+ * cell 14 sends a ~70000-byte request over the old cap. Every other verb's
+ * input stays far under the old cap; this just stops the socket from truncating
+ * a legitimately large inject-task line into incomplete JSON ("not a JSON
+ * object"). Still bounded: a line over the cap is refused at the codec
+ * (JC_ERR_PARSE) or the pool's per-task queue cap (JC_ERR_TOOBIG), never
+ * stored. */
 static char *read_request(int fd)
 {
     char *buf;
     jc_size used = 0;
     long deadline = (long)time(NULL) + 2;
 
-    buf = (char *)malloc(JC_CONTROL_LINE_MAX + 1);
+    buf = (char *)malloc(JC_CONTROL_LINE_MAX_INJECT + 1);
     if (buf == NULL) {
         return NULL;
     }
-    while (used < JC_CONTROL_LINE_MAX && (long)time(NULL) <= deadline) {
+    while (used < JC_CONTROL_LINE_MAX_INJECT &&
+           (long)time(NULL) <= deadline) {
         fd_set rf;
         struct timeval tv;
         long n;
@@ -183,7 +193,7 @@ static char *read_request(int fd)
         if (select(fd + 1, &rf, NULL, NULL, &tv) <= 0) {
             continue;
         }
-        n = (long)read(fd, buf + used, JC_CONTROL_LINE_MAX - used);
+        n = (long)read(fd, buf + used, JC_CONTROL_LINE_MAX_INJECT - used);
         if (n <= 0) {
             break;
         }
@@ -278,6 +288,10 @@ static char *status_reply(struct jc_app *app, struct jc_control *c)
     s.last_tool = c->last_tool;
     s.mode = jc_agent_mode_name((enum jc_agent_mode)app->mode);  /* M304 */
     s.outcome = "running";
+    /* M1149: the live pool's snapshot, or NULL (no batch). The builder emits
+     * the "batch" object ONLY when non-NULL, so an idle run's reply is
+     * byte-identical to today (driver cell 12's ST_BEFORE half). */
+    s.batch = (c->pool_ops != NULL) ? c->pool_ops->snap : NULL;
     if (app->env != NULL) {
         s.run_id = app->env->run_id;
         s.elapsed = (long)time(NULL) - app->env->start_time;
@@ -348,6 +362,18 @@ static int serve_pending(struct jc_app *app, struct jc_control *c,
         free(line);
         if (st == JC_ERR_PARSE) {
             write_reply(fd, jc_control_build_err("not a JSON object"));
+            close(fd);
+            continue;
+        }
+        if (st == JC_ERR_TOOBIG) {
+            /* M1149: an inject-task whose text ALONE exceeds the per-task queue
+             * cap. The codec will not store it; the refusal names the target
+             * ("task <N>'s queue is full") -- behaviour 10. cmd.task is already
+             * set (the index was validated before the text was length-checked). */
+            char msg[96];
+            jc_snprintf(msg, sizeof(msg),
+                        "task %d's queue is full", cmd.task);
+            write_reply(fd, jc_control_build_err(msg));
             close(fd);
             continue;
         }
@@ -459,6 +485,73 @@ static int serve_pending(struct jc_app *app, struct jc_control *c,
             }
             break;
         }
+        case JC_CTL_STOP_TASK: {
+            /* M1149: stop one pool worker by index. The hook is NULL when no
+             * batch is live -> the EXACT refusal "no batch is live". A refusal
+             * signals nothing (no child touched) and is NOT journaled; an
+             * accepted stop IS journaled (index + reason visible). The pool
+             * acts on it at its next ~200 ms wake (kill_one), so the reply
+             * names the wake, not an instant. */
+            char why[192];
+            char jtxt[256];
+            jc_status rst;
+            if (c->pool_ops == NULL || c->pool_ops->stop == NULL) {
+                write_reply(fd, jc_control_build_err("no batch is live"));
+                break;
+            }
+            rst = c->pool_ops->stop(cmd.task, cmd.reason, why, sizeof(why));
+            if (rst != JC_OK) {
+                write_reply(fd, jc_control_build_err(why));
+                break;
+            }
+            jc_snprintf(jtxt, sizeof(jtxt), "task=%d%s%s",
+                        cmd.task,
+                        cmd.reason != NULL && cmd.reason[0] != '\0'
+                            ? " reason=" : "",
+                        cmd.reason != NULL ? cmd.reason : "");
+            journal_cmd(app, "stop-task", jtxt, 0, -1);
+            write_reply(fd, jc_control_build_ok(
+                "stopping the task at the next pool wake"));
+            break;
+        }
+        case JC_CTL_INJECT_TASK: {
+            /* M1149: steer one pool worker by index. Same NULL-hook / refusal
+             * shape as stop-task; the text follows the INJECT journal's
+             * convention (the steering text, bounded + scrubbed), prefixed with
+             * the target index so a reader joins it to the right worker.
+             * M1149-b2: the journal text is BOUNDED to JC_CONTROL_LINE_MAX
+             * (journal_cmd scrubs + truncates to that cap anyway), so it is
+             * heap-allocated -- a 65 KB stack frame was the wave-2 review's
+             * hygiene finding. The bound is the same text cap the journal
+             * applies, so nothing is kept that would not have been kept. */
+            char why[192];
+            char *jtxt = NULL;
+            jc_status rst;
+            if (c->pool_ops == NULL || c->pool_ops->inject == NULL) {
+                write_reply(fd, jc_control_build_err("no batch is live"));
+                break;
+            }
+            rst = c->pool_ops->inject(cmd.task, cmd.text, why, sizeof(why));
+            if (rst != JC_OK) {
+                write_reply(fd, jc_control_build_err(why));
+                break;
+            }
+            jtxt = (char *)malloc(JC_CONTROL_LINE_MAX + 64);
+            if (jtxt == NULL) {
+                journal_cmd(app, "inject-task", NULL, 0, -1);
+                write_reply(fd, jc_control_build_ok(
+                    "applied at the task's next tool boundary"));
+                break;
+            }
+            jc_snprintf(jtxt, JC_CONTROL_LINE_MAX + 64, "task=%d %s",
+                        cmd.task,
+                        cmd.text != NULL ? cmd.text : "");
+            journal_cmd(app, "inject-task", jtxt, 0, -1);
+            free(jtxt);
+            write_reply(fd, jc_control_build_ok(
+                "applied at the task's next tool boundary"));
+            break;
+        }
         default:
             write_reply(fd, jc_control_build_err("unknown command"));
             break;
@@ -486,6 +579,80 @@ int jc_control_boundary(struct jc_app *app, struct jc_history *hist)
         return 0;
     }
     c = app->control;
+
+    /* M1149: the POOL CHILD's inject drain. Guarded by the child-only flag the
+     * pool sets in run_child (the lead never sets it), so it is reached here
+     * BEFORE the serve_pid guard below -- a FORKED child inherits a different
+     * pid and must not serve the lead's socket, but it must still fold its
+     * parent's queued steering into ITS OWN history. The drain is non-blocking
+     * (the parent wrote the queue at its ~200 ms wake); whatever is available
+     * up to a newline folds as ONE "[operator] " user message into `hist` (the
+     * M31 cached prefix stays byte-stable, the text lands in the NEXT model
+     * call). A partial line (no newline yet) is left in a process-static
+     * buffer to complete at a later boundary -- there is exactly one draining
+     * child per process (the pool forks each child, and the lead itself never
+     * sets the flag), so the buffer cannot be shared between drainers. It does
+     * NOT touch the lead's `c->pending` buffer, and must not fire when `hist`
+     * is NULL (the periodic service point passes hist=NULL). */
+    if (app->pool_inject_fd_valid && hist != NULL) {
+        static struct jc_sb sb_pending;
+        int folded = 0;
+        char rb[512];
+        char *nl;
+        char *line;
+        long oldfl;
+        ssize_t r;
+        jc_size ll;
+        jc_size rest;
+        if (sb_pending.data == NULL) {
+            jc_sb_init(&sb_pending);
+        }
+        for (;;) {
+            oldfl = fcntl(JC_CTL_INJECT_FD, F_GETFL);
+            if (oldfl >= 0) {
+                (void)fcntl(JC_CTL_INJECT_FD, F_SETFL,
+                            oldfl | O_NONBLOCK);
+            }
+            r = read(JC_CTL_INJECT_FD, rb, sizeof(rb) - 1);
+            if (oldfl >= 0) {
+                (void)fcntl(JC_CTL_INJECT_FD, F_SETFL, oldfl);
+            }
+            if (r <= 0) {
+                break;   /* EAGAIN (nothing more) or 0 (parent closed the write end) */
+            }
+            rb[r] = '\0';
+            jc_sb_append(&sb_pending, rb);
+            /* Fold every complete newline-terminated line (one [operator] msg
+             * each; in practice the parent sends whole notes). */
+            for (;;) {
+                nl = (char *)memchr(sb_pending.data != NULL
+                                        ? sb_pending.data : "",
+                                    '\n', sb_pending.len);
+                if (nl == NULL) {
+                    break;
+                }
+                ll = (jc_size)(nl - sb_pending.data);
+                line = (char *)malloc(ll + 1);
+                if (line == NULL) {
+                    break;
+                }
+                memcpy(line, sb_pending.data, ll);
+                line[ll] = '\0';
+                /* Drop the line + its newline from the pending buffer. */
+                rest = sb_pending.len - ll - 1;
+                memmove(sb_pending.data, nl + 1, rest);
+                sb_pending.len = rest;
+                sb_pending.data[rest] = '\0';
+                if (line[0] != '\0') {
+                    jc_history_add_operator(hist, line);
+                    folded = 1;
+                }
+                free(line);
+            }
+        }
+        return folded;
+    }
+
     /* SV:1848 (M1103): the serve guard is the socket's OWNER, not the depth.
      * A FORKED pool child inherits the listening fd and a different pid, and
      * must not answer it -- or it would steal the lead's supervisor

@@ -11,7 +11,7 @@ paginate: true
 
 ### An AI coding agent in **C89**, one small binary
 
-A ground-up rewrite of the Continue CLI: chat, an agentic tool loop, RAG,
+A coding agent built from the ground up: chat, an agentic tool loop, RAG,
 autonomy, MCP, LSP, a TUI — in portable ANSI C, no runtime.
 
 <!-- Opener: the pitch is "a full modern coding agent that fits in ~1.2 MB

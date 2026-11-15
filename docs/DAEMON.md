@@ -140,7 +140,7 @@ as *Stable* in [EMBEDDING.md](EMBEDDING.md), so a handshake is never required an
 a client that has never heard of `hello` keeps working unchanged. Its reply:
 
 ```json
-{"v":1,"type":"hello.ok","agent":"jichi 0.13.0","proto":[1],
+{"v":1,"type":"hello.ok","agent":"jichi 0.14.1","proto":[1],
  "groups":["session"],
  "limits":{"maxLine":1048576,"maxConcurrent":4},
  "auth":{"transport":"unix","mechanism":"socket-mode","uid":1000,
@@ -312,8 +312,11 @@ rather than a quiet exposure.
   `format` is served as text rather than refused, so a newer client cannot make an
   older daemon error out — but it *will* get text, so pin both versions when you
   depend on the shape (the `EMBEDDING.md` advice).
-- **Warm session** — history persists across requests until the daemon restarts
-  (continuity is usually what you want; restart for a clean slate).
+- **Warm start, not a warm conversation** — the daemon keeps what its startup loaded,
+  and each request runs in a forked child that starts from that state, answers and
+  exits (`src/main.c`, the request loop). No history carries from one request to the
+  next. (Until 2026-11-11 this bullet said that history persists. It never did:
+  [the gap analysis](analysis/2026-10-05-JICHI-DAEMON-GAP-ANALYSIS.md).)
 - **Workspace is the daemon's cwd** — the path fence root and snapshot key are
   bound at startup, so run one daemon per project. A request's `cwd` is currently
   advisory.

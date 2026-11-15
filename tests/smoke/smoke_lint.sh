@@ -159,7 +159,16 @@ for f in $drivers; do
         # drivers whose only "$BIN" was the skip-guard check 5 asks for -- they
         # read src/ and docs/ only and never run the binary (same shape as
         # docs_flags.sh), so they are exempt here, not excluded in the sweep
-        *_lint.sh|docs_flags.sh|hooks_docs.sh|lease_advisory_docs.sh|teeth_restore.sh|release_mode.sh|static_mode.sh|snprintf_fallback.sh) continue ;;
+        # ci_32bit_probe (M1184, run 0049): it runs the ci 32-bit stage's
+        # multilib probe (a compiler under a PATH-shadow gcc) and scans the
+        # Makefile -- no $BIN (same shape as o2_unit_stage, which also runs a
+        # compiler, not jichi); the stage itself is the host gate's.
+        # deferred_platform_rows (M1185, run 0049): a pure docs-scan
+        # (PLATFORMS.md vs DEFERRED.md), no $BIN (same shape as docs_flags).
+        # o2_unit_stage (M1160-a, run 0039): it builds the gate's whole -O2
+        # universe of 353 TUs (make -n extraction, gcc, -o /dev/null) -- it
+        # runs a COMPILER, not jichi -- so the "$BIN" rule does not apply
+        *_lint.sh|docs_flags.sh|hooks_docs.sh|lease_advisory_docs.sh|teeth_restore.sh|release_mode.sh|static_mode.sh|snprintf_fallback.sh|o2_unit_stage.sh|ci_32bit_probe.sh|deferred_platform_rows.sh) continue ;;
     esac
     grep -q '"\$BIN"' "$f" || bad="$bad $(basename "$f")"
     # M270: the ABSENCE side, which this check's own message has always

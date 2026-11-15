@@ -21,15 +21,20 @@ static void test_type_names(void)
 }
 
 /* M752: the verb list is generated from the enum, so it names all six, in
- * order -- `mode` included, which two hand-typed lists had lost. */
+ * order -- `mode` included, which two hand-typed lists had lost. M1149: the two
+ * per-worker verbs, appended after mode, make it eight. */
 static void test_verb_list(void)
 {
     char buf[128];
     char tiny[8];
     jc_control_verb_list(buf, sizeof(buf), "|");
-    JC_CHECK(strcmp(buf, "status|inject|pause|resume|abort|mode") == 0);
+    JC_CHECK(strcmp(buf,
+                    "status|inject|pause|resume|abort|mode"
+                    "|stop-task|inject-task") == 0);
     jc_control_verb_list(buf, sizeof(buf), "/");
-    JC_CHECK(strcmp(buf, "status/inject/pause/resume/abort/mode") == 0);
+    JC_CHECK(strcmp(buf,
+                    "status/inject/pause/resume/abort/mode"
+                    "/stop-task/inject-task") == 0);
     jc_control_verb_list(tiny, sizeof(tiny), "|");
     JC_CHECK(strlen(tiny) < sizeof(tiny));   /* truncates, stays terminated */
 }
@@ -107,6 +112,34 @@ static void test_request_roundtrip(void)
     /* Not JSON at all. */
     JC_CHECK(jc_control_parse_request("garbage", &cmd, a) == JC_ERR_PARSE);
     JC_CHECK(jc_control_parse_request(NULL, &cmd, a) == JC_ERR_PARSE);
+
+    /* M1149: build -> parse for the two per-worker verbs. stop-task carries
+     * its index + optional reason; inject-task its index + required text. */
+    line = jc_control_build_task_request("stop-task", 0, "fixture");
+    if (JC_REQUIRE(line != NULL)) {
+        JC_CHECK(jc_control_parse_request(line, &cmd, a) == JC_OK);
+        JC_CHECK(cmd.type == JC_CTL_STOP_TASK);
+        JC_CHECK(cmd.task == 0);
+        JC_CHECK(cmd.reason != NULL && strcmp(cmd.reason, "fixture") == 0);
+        free(line);
+    }
+    line = jc_control_build_task_request("inject-task", 1, "steer this child");
+    if (JC_REQUIRE(line != NULL)) {
+        JC_CHECK(jc_control_parse_request(line, &cmd, a) == JC_OK);
+        JC_CHECK(cmd.type == JC_CTL_INJECT_TASK);
+        JC_CHECK(cmd.task == 1);
+        JC_CHECK(cmd.text != NULL &&
+                 strcmp(cmd.text, "steer this child") == 0);
+        free(line);
+    }
+    /* A reason-less stop-task builds and parses with reason NULL. */
+    line = jc_control_build_task_request("stop-task", 3, "");
+    if (JC_REQUIRE(line != NULL)) {
+        JC_CHECK(jc_control_parse_request(line, &cmd, a) == JC_OK);
+        JC_CHECK(cmd.type == JC_CTL_STOP_TASK && cmd.task == 3);
+        JC_CHECK(cmd.reason == NULL);
+        free(line);
+    }
 
     jc_arena_free(a);
 }

@@ -105,6 +105,85 @@ LIVE_KEY_ENV=""
 KEEP=0
 DRY=0
 TARGET=""
+
+# P6c (M1166): the unit-suite count, as a function that takes the gate log FILE.
+# M1166-f (SV:0438): the extraction is the ANCHORED ANY-COUNT line -- the first
+# line of the log that is exactly '<N> checks, <M> failures'. The unit summary
+# is a bare printf and occupies its own line, and in a check-target run it
+# prints before any smoke driver, so it is the FIRST such line, not the last.
+# The old unanchored '[0-9]+ checks, 0 failures' was false-green in two ways:
+# since M1164 (check-target continues to smoke when test fails) a FAILING unit
+# summary ('37966 checks, 4 failures') no longer matched at all, so the
+# extraction skipped it and picked up a smoke driver's ok-line that CONTAINS
+# '7 checks, 0 failures' mid-line -- a row whose unit suite has 4 failures
+# printed 'ok - unit suite: 7 checks, 0 failures'. Anchoring both ends removes
+# the mid-line match; dropping the zero from the pattern removes the skip.
+# The check-target smoke summary ('smoke: (554 of 555 drivers passed, 3470
+# checks)') does not match: it ends in 'checks)' and starts with 'smoke:'.
+bdev_units() {
+    grep -E '^[0-9]+ checks, [0-9]+ failures$' "$1" 2>/dev/null | head -1
+}
+
+# --selftest: plant a gate log in $TMPDIR, assert what bdev_units returns, and
+# exit non-zero iff any assertion failed. Runs before any ssh.
+# The tooth (P6c): a gate log where the unit line '37960 checks, 0 failures'
+# precedes a smoke driver's own '7 checks, 0 failures' line -- bdev_units must
+# return the unit line, not the last line.
+# The tooth (M1166-f, SV:0438), in the supervisor's own words: a log whose line
+# 1 is the REAL failing unit summary '37966 checks, 4 failures', followed by a
+# line that is a smoke driver's ok-line CONTAINING the old pattern's bait
+# mid-line ('ok 1 - 7 checks, 0 failures'), plus the check-target smoke summary
+# line, which must never be mistaken for a unit marker. bdev_units must return
+# the failing unit line with BOTH numbers (the failed shape).
+if [ "${1:-}" = "--selftest" ]; then
+    selftest() {
+        d=${TMPDIR:-/tmp}/tier_selftest.$$ ; mkdir -p "$d"
+        N=0
+        { echo "== check-target: unit suite"
+          echo "37960 checks, 0 failures"
+          echo "== check-target: smoke tier"
+          echo "ok 1 - smoke mini driver"
+          echo "7 checks, 0 failures"
+          echo "smoke: OK (1 drivers, 7 checks)"
+        } > "$d/gate.txt"
+        U=$(bdev_units "$d/gate.txt")
+        [ "$U" = "37960 checks, 0 failures" ] \
+            && echo "ok 1 - bdev_units returns the UNIT line 37960 checks, 0 failures" \
+            || { N=1; echo "not ok 1 - bdev_units returns '$U' as the unit count, not the unit suite's line"; }
+        [ "$U" = "7 checks, 0 failures" ] \
+            && { N=1; echo "not ok 2 - the smoke driver's '7 checks, 0 failures' line was taken as the unit count"; } \
+            || echo "ok 2 - the smoke driver's own count is not returned"
+        { echo "== smoke only"; echo "smoke: OK (1 drivers, 5 checks)"; } > "$d/gate-smoke.txt"
+        S=$(bdev_units "$d/gate-smoke.txt" || true)
+        [ -z "$S" ] \
+            && echo "ok 3 - a log with no unit marker yields nothing" \
+            || { N=1; echo "not ok 3 - no-marker log yielded '$S'"; }
+        { echo "== check-target: unit suite"
+          echo "37966 checks, 4 failures"
+          echo "== check-target: smoke tier"
+          echo "ok 1 - 7 checks, 0 failures"
+          echo "smoke: (554 of 555 drivers passed, 3470 checks)"
+        } > "$d/gate-fail.txt"
+        F=$(bdev_units "$d/gate-fail.txt")
+        [ "$F" = "37966 checks, 4 failures" ] \
+            && echo "ok 4 - a FAILING unit summary is returned with both numbers (the failed shape)" \
+            || { N=1; echo "not ok 4 - bdev_units returned '$F' for the failing unit summary, not '37966 checks, 4 failures' (the failed shape)"; }
+        [ "$F" = "7 checks, 0 failures" ] \
+            && { N=1; echo "not ok 5 - the smoke driver's mid-line '7 checks, 0 failures' bait was taken as the unit count (a row whose unit suite has 4 failures would print ok)"; } \
+            || echo "ok 5 - the smoke driver's mid-line bait is not returned"
+        { echo "== smoke summary only"
+          echo "smoke: (554 of 555 drivers passed, 3470 checks)"
+        } > "$d/gate-smokefail.txt"
+        SF=$(bdev_units "$d/gate-smokefail.txt" || true)
+        [ -z "$SF" ] \
+            && echo "ok 6 - the check-target smoke summary line is not a unit marker" \
+            || { N=1; echo "not ok 6 - the smoke summary line was matched as a unit marker: '$SF'"; }
+        rm -rf "$d"
+        if [ $N -eq 0 ]; then echo "b-device selftest: all assertions ok"; else echo "b-device selftest: FAILED"; fi
+        exit $N
+    }
+    selftest
+fi
 SSH="${JC_TB_SSH:-ssh}"
 
 while [ $# -gt 0 ]; do
@@ -431,8 +510,18 @@ dev "make clean >/dev/null 2>&1; \
      make check-target" \
     > "$OUT/gate.txt" 2>&1 || true
 
-# Positive markers only: the counts must be present and zero-failure.
-UNITS=$(grep -oE '[0-9]+ checks, 0 failures' "$OUT/gate.txt" | tail -1 || true)
+# Positive markers only: the unit summary line must be PRESENT, and a row is
+# ok on it only when its failures are ZERO. Since M1166-f (SV:0438) a FAILING
+# unit summary is recorded as a failed shape with BOTH numbers, never skipped
+# to a smoke driver's mid-line 'N checks, 0 failures'.
+# P6c: the unit count is extracted by bdev_units (defined above), so this line
+# and the --selftest share one implementation.
+UNITS=$(bdev_units "$OUT/gate.txt" || true)
+# Split the anchored '<N> checks, <M> failures' line into its two numbers.
+# Both are non-empty iff UNITS came from bdev_units (its pattern guarantees the
+# shape), so the ok test below is: line present AND failures zero.
+COUNT=$(printf '%s\n' "$UNITS" | sed -n 's/^\([0-9][0-9]*\) checks, [0-9][0-9]* failures$/\1/p')
+FAILS=$(printf '%s\n' "$UNITS" | sed -n 's/^[0-9][0-9]* checks, \([0-9][0-9]*\) failures$/\1/p')
 # JC_SMOKE_KEEP_GOING=1 above is what makes a count EXIST on a failing row, and
 # it is the root cause of the gap this page and PLATFORM_RETEST.md both record.
 # Without it the tier stops at the first failing driver and never prints its
@@ -452,8 +541,19 @@ UNITS=$(grep -oE '[0-9]+ checks, 0 failures' "$OUT/gate.txt" | tail -1 || true)
 SMOKE=$(grep -oE 'smoke: OK \([0-9]+ drivers, [0-9]+ checks\)|smoke: \([0-9]+ of [0-9]+ drivers passed, [0-9]+ checks\)' \
         "$OUT/gate.txt" | tail -1 || true)
 
-if [ -n "$UNITS" ]; then ok "unit suite: $UNITS"; note "    $UNITS"
-else bad "unit suite: no '<N> checks, 0 failures' marker in the output"; fi
+# ok ONLY when the anchored unit line exists AND its failures are zero; a
+# failing unit summary is the failed shape with BOTH numbers (the count and
+# the failure count are exactly what the reader wants on a red row); a missing
+# line is the empty shape.
+if [ -n "$UNITS" ]; then
+    if [ -n "$FAILS" ] && [ "$FAILS" -eq 0 ] 2>/dev/null; then
+        ok "unit suite: $UNITS"; note "    $UNITS"
+    else
+        bad "unit suite: $UNITS"; note "    $UNITS (the unit suite FAILED)"
+        grep 'FAILED (in suite)' "$OUT/gate.txt" 2>/dev/null \
+            | sed 's/^/      /' >> "$OUT/results.txt" || true
+    fi
+else bad "unit suite: no '<N> checks, <M> failures' marker in the output (the unit suite did not produce a summary line)"; fi
 
 # A count that is not "OK" is still a RESULT, and is recorded as one: the row
 # says how much of the tier ran, and the failing drivers are named below.

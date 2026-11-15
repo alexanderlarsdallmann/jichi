@@ -1,4 +1,7 @@
 <!-- tracks: ../../PHILOSOPHY.md @ 8ad8468 -->
+<!-- 原始初稿：Claude（2026 年 7 月）。2026-11-07（M1147，batch H7）：
+     “巨人”段中关于 Continue 的句子——它的 CLI 是 jichi 起点规格，而非
+     本项目重新实现的对象——由 jlu/qwen3-coder-next 修订。 -->
 <!-- 注意：本翻译为机器初译，欢迎母语者审校。 -->
 > ⚠️ 本翻译为初译稿。涉及细微语义时请以英文原版（`../../PHILOSOPHY.md`）为准。
 
@@ -91,7 +94,7 @@ llama.cpp 服务器上；也正因如此，当两者都被取代之后，它依�
 所能遇见的人；内嵌的 cJSON 的 API 设计；git，它的底层命令默默驱动着快照与
 worktree 机制；Language Server Protocol、Model Context Protocol 与
 Agent Client Protocol，每一个都是以私利换公器的慷慨之举；
-[Continue](https://continue.dev)，本项目重新实现的正是它的 CLI，是它的
+[Continue](https://continue.dev)，jichi 最初以它的 CLI 作为起点规格，是它的
 设计证明了这个形态值得一造；还有各家模型提供商，是他们的 API 让这个循环
 有了对话的对象。
 

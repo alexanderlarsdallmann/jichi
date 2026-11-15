@@ -7390,3 +7390,213 @@ because they share a root cause.
   the cadence shifting from check to assert, stop, and do the one small check
   that would make the assert a measurement.
 
+## 125. The summary that overruled the record (2026-11-06)
+
+One afternoon of the 2026-11-05 harness-port drive, run with the operator in the loop: Claude
+supervising and writing notes, jichi's lead (a local 27B model) acting on them. Seven times
+that afternoon, someone acted on what they assumed was there instead of reading what was there:
+the code, the documentation, or what had been decided or discarded earlier. None of it was
+hidden. Every answer was in the tree, usually one `grep` away.
+
+**The seven.**
+
+1. **The supervisor told the team "do not machine-translate; record the lag".** The tree
+   says `llm-jp-4-8b-thinking` is fit to draft Japanese for a reviewer (DECISIONS #dec-m651,
+   2026-09-17), and every translated page carries a machine-draft banner
+   (`docs/i18n/README.md`). The operator uses that model. Found by the operator: "it has been
+   known for quite some time".
+2. **The supervisor wrote that an edit to `CLAUDE.md` "stays well under 32 KB".**
+   `rules_budget_lint` (M516) holds `CLAUDE.md` to **80%** of the cap, 26,214 bytes, and the
+   edit left **5**. Found while reading M516 to write this entry.
+3. **The supervisor told the operator `CLAUDE.md` had "about 6.5 KB to spare".** Against the
+   same 80% line it had 86 bytes. Found in the same reading.
+4. **The supervisor briefed a design decision on rules priority with its alternatives listed
+   from scratch.** The rules chain already had a decided, unbuilt change
+   (#dec-2026-10-01-rules-names, def-289). And M516's 80% line *was* the earlier answer to the
+   very same squeeze: keep the project file small enough to leave room for a global file.
+   Found in the same reading.
+5. **The supervisor built a fixture with `head -c 30000 CLAUDE.md`, assuming it made a
+   30,000-byte file.** The file is 26,128 bytes. The fixture never reached the cap, and the
+   first run read "project rule delivered: 1", which looked like no problem. Found because
+   the command printed its own sizes.
+6. **The lead took the gate note's "6 HOLDS, 1 WEAK, 1 WRONG" to mean two bad rows, and wrote
+   both into its log, with reasons.** The review attached to the same note says "No WEAK or
+   WRONG findings." The count was the host script's `grep -c -w`, counting that sentence.
+   Found when the supervisor read the attachment.
+7. **The lead fixed a missing ROADMAP entry with the banner, and reported the count lints
+   "green standalone".** `milestone_currency_lint` reads the `### M` heading, and its own
+   header says so. Found by the gate's pre-sweep: RED.
+
+Earlier that day, the lead had also explained a failing driver as "load" twice, widening its
+probe window each time. The code had a 128-byte buffer and an unchecked `jc_snprintf` (M1146).
+That one was found by measurement: varying only the `TMPDIR` length, 76 bytes passed and 77
+failed.
+
+**What made it look right.** Each assumption came from a *summary* that had been true when
+written: a one-line memory note ("local Japanese models fail in meaning; draft for a reviewer
+only"), a number from earlier the same day, a gate note's count, a lint's name. Each summary
+had dropped the qualifier that mattered. The note dropped M651's exception, the one model
+that is fit. The number dropped the lint's 80%. The count dropped "lines naming", which is
+not "verdicts". And each was used in a hurry, because the requests came minutes apart and
+every one of them was reasonable.
+
+**The instruction that felt safe.** "Do not machine-translate" sounds like the careful
+choice, so it was not checked. But it was not conservative: it overruled a recorded decision
+and the operator's working practice. *Don't do it* is an instruction like any other. It
+needs the same check as *do it*.
+
+**What was done.** Every instruction was superseded by a dated note before the team acted on
+it. The host script now counts a verdict only where a verdict is written: bold, or after a
+`--`, `:` or `|` on the milestone's own line or under its heading. If it finds none, it says
+UNKNOWN, never clean. It was tested on four real reviews, including the calibration review
+whose WEAK and WRONG findings are known. The lead withdrew its two invented rows. The
+supervisor's memory notes now lead with the decision, and point to the record instead of
+standing in for it.
+
+**Lesson.** Before you tell anyone what to do *or not to do* about something, read what the
+tree already says about it. That means `docs/DECISIONS.md` and `docs/DEFERRED.md` for what
+was decided or discarded, the page that documents it, and the source of the gate that guards
+it. A summary — in memory, in a note, in a count — is a pointer to the record, not the
+record. The check costs one `grep`. Skipping it cost seven corrections in one afternoon, and
+one of them overruled the operator. The tell is the same as in #123: the work starts
+*asserting* ("it is under the cap", "that model is not fit") with no command behind the
+words. And the record can be wrong too: the same afternoon, `CREDITS.md` still said no Mac
+had built jichi, while `docs/PLATFORMS.md` had shown it Partly verified since 2026-09-26. So
+read the record that owns the fact, and when two records disagree, believe the one closer to
+the measurement.
+
+## 126. The hang that was a loop (2026-11-10)
+
+The harness-port drive was porting the gate's `redfirst` stage into C. On the evening of 2026-11-10 the new stage
+never finished. A worker ran it in the foreground of its shell tool, with no limit of its own, and waited two hours
+until jichi's `runTimeout` (7200 s) ended the call. The supervisor (Claude) looked at the stuck process with `ps` and
+`/proc`: no child, a short timed wait, an output file open. It concluded "a reap hang": the stage was waiting for a
+child that was already gone. It told the operator, wrote it to the lead as "the reap hang is real", and put it in a
+design note.
+
+**The dead ends.**
+
+- The first fix, a missing `tok += cplen` in the commit loop, stopped one storm.
+- That uncovered an early `break` that skipped the last commit of every range.
+- Removing the `break` brought the hang back.
+- The lead's own experiment (a small C program copying the stage's start-and-collect pattern) had already pointed
+  away from the collector. The supervisor argued from its snapshot anyway.
+
+**The root cause.** The next worker instrumented instead of guessing.
+
+- Its counter in the collector saw **197 different child pids in about 8 seconds**, each reaped cleanly.
+- Its loop trace printed `b=gd dp=gd` over and over: the loop over test drivers read the name `gd` and never moved
+  its cursor past it (`dp += blen` was missing).
+- So it was not a lost child. It was a spawn storm, the same bug class as the first fix, one loop further down.
+- A single `ps` frame shows no child between two spawns, or a just-exited zombie. Both pictures fit a stuck
+  collector, and both were wrong.
+
+**Lesson.** A snapshot cannot measure a rate. Before you name a mechanism for a process that never finishes, count
+events over time, preferably with a counter inside the program that produces them, and describe what you saw ("no
+child in three snapshots"), not what it means. The supervisor withdrew its claim in writing the same night.
+
+The same evening asked a second question: how often does a foreground command not finish? 66 commands in 251 drive
+runs (13.7 h) ended by a command limit, and a shell `&` held seven calls open for 10 min or more. That study became
+six design proposals (def-376). The full account, written for learners, with four exercises:
+[`analysis/2026-11-11-the-hang-that-was-a-loop.md`](analysis/2026-11-11-the-hang-that-was-a-loop.md).
+
+## 127. The worker that went in circles (2026-11-11)
+
+On the harness-port drive, the lead gave one worker the core of the new test gate and waited inside
+`spawn_parallel`. The worker changed code for two and a half hours and reached 67 of 93 checks. Then it
+ran for four more hours without changing the code again. It proved the same fault in the test script
+four times, wrote one workaround script four times, copied 11 placeholders, and its context was compacted
+13 times. jichi's placeholder safeguard ended it after 387 minutes. The batch report read
+`stop=max_iters`.
+
+**The dead ends.**
+
+1. **The supervisor (Claude) had approved the test script that morning.** It checked that 28 checks
+   failed, and the right 28, and wrote "the red-first claim holds". Two helpers in the script could never
+   pass: one wanted four fields of a five-field line, the other passed its options through an unquoted
+   variable, 46 words for 12. A red run cannot show that.
+2. **The worker tried to make the program accept the script's broken input.** It was not its task to fix
+   the script. It applied the workaround once, undid it two minutes later, and wrote it three more times.
+3. **The supervisor told the operator there was no way to stop one worker.** It had read the control
+   command's help, which printed the general page. `stop-task` had been built three days earlier and was
+   in the running binary.
+4. **The first fix was broken in a new way.** A fix worker replaced the option string with a function and
+   tested the function's words. All 17 call sites passed the function's name as a word. The count stayed
+   at 70.
+
+**The root cause.** Nothing watched for progress. Each of jichi's loop safeguards needs an exact
+repetition, and the worker's repeated checks differed by a temporary file name each time. The worker tells
+its parent that a tool is starting and how many tokens it has used, and nothing about whether anything
+changed. And the lead cannot look: it waits until every worker has ended.
+
+**What made it look right.** The worker was never idle. An hour-by-hour look showed calls, model
+answers and compactions, all the way to the end. Activity fell from 129 tool calls an hour to 8, slowly
+enough to read as "working on something hard".
+
+**What the records say.** The supervisor then read the telemetry of 880 workers in 254 runs. Leads spent
+55% of their run time waiting inside a batch. 851 of 866 endings read "done". Two signals would have
+flagged this worker early: 60 minutes without a code change after the first one (it flags 7 of 563
+workers, and this one 174 minutes before it was stopped), and a second copied placeholder (4 of 880; 143
+minutes before).
+
+**What was done.** The lead merged the result honestly at 67 of 93 and split the repair into two tasks.
+It took both signals into its briefs the same evening. A design for worker supervision was written, with
+its builder's decisions and no code, and the operator placed it in the queue (DEFERRED def-377).
+
+**The lesson.** Watch for change, not for activity. Show that a failing test can pass before you build
+on it. Test a helper where it is used. And "I did not find it" is a statement about a search: search a
+second way before telling someone that a thing does not exist. The full account, with four exercises, is
+[`analysis/2026-11-11-the-worker-that-went-in-circles.md`](analysis/2026-11-11-the-worker-that-went-in-circles.md).
+
+## 128. The default that nobody ran, and the type that is not there (2026-11-11)
+
+The same evening the operator asked for a review of jichi's design decisions: C89, Linux, the other
+platforms, the processor types, the use cases. Five read-only helper agents each read one area of a pinned
+copy of the tree. The supervisor (Claude) re-read about 55 of their claims and measured what was cheap.
+
+**What it found.**
+
+1. **A clock that stops fitting.** The worker pool converts the millisecond clock from `double` to `long`
+   in six places. On a 32-bit system that has been up for 24.86 days both stamps become -2147483648, and
+   the per-task timeout never fires. Measured with a small program built for 32 bits.
+2. **A kernel field packed by hand.** C89 has no 64-bit integer, so the shell fence builds the kernel's
+   64-bit attribute byte by byte, lowest byte first, on every host. On a big-endian system the kernel
+   reads a different number and jichi refuses every parallel write task. Measured under emulation with
+   the tree's own function. The commit that introduced it ends "BE is unpinned -- follow-ups", and no
+   register row followed.
+3. **A default that the real tool refuses.** The gate watcher's port keeps `systemd-run` as its default
+   and appends the unit's name, a description and the command as plain words. The real tool takes the
+   first plain word as the program to run and answers "Failed to find executable". Measured with a
+   harmless name.
+4. **A function hidden by a flag.** A newer call to `mkdtemp` is undeclared wherever the build adds the
+   older X/Open feature level. Measured with one compile.
+
+**The dead ends.**
+
+- **The supervisor wrote "five" where there were six.** It searched for the clock function's name next to
+  a conversion. The sixth site stores the value in a variable first. A helper found it.
+- **The supervisor had reported "the shadow agreed on all 300 ticks" every hour for two days.** That
+  comparison runs the port dry: it decides what to do and does not do it. The port's own tests replace
+  `systemd-run` with a stand-in. The defect sits in the one step that neither performs.
+- **A helper wrote that the README never names the third program.** It does, in its milestone banner.
+  Only the re-check caught that.
+
+**The root cause, for three of the four.** A limit lived only in people's heads: how wide a `long` is,
+which byte order the kernel reads, which feature level a file was compiled under. No compiler flag and no
+lint held any of them.
+
+**What else it found.** The decisions that shape the whole tree were never recorded with their
+alternatives: the register starts at M293 and the roadmap at M7. C99 was never weighed against C89; the
+tree builds and passes its unit suite unchanged as C99 and as C11. Some pages had drifted from the code:
+the daemon page promised a conversation that the code does not keep.
+
+**What was done.** The four defects went to the team, with the condition that the watcher's default is
+fixed before the watcher is switched to the port. The drifted pages were corrected in one batch, and
+seven foundational decisions got their rows in the register, labelled as written after the fact
+(DEFERRED def-378).
+
+**The lesson.** Ask of every reason what would show it to be false, and try that. Run each external
+program once for real. When a check says "all agree", write down what it does not exercise. And a
+follow-up that is written only in a commit message will not be followed up. The full account, with
+five exercises, is
+[`analysis/2026-11-11-reviewing-our-own-decisions.md`](analysis/2026-11-11-reviewing-our-own-decisions.md).

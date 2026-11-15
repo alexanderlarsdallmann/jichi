@@ -401,7 +401,8 @@ static void print_help(const char *argv0)
     printf("      --control [path]      Open a mid-run control socket "
            "(default ~/.jichi.d/control/<pid>.sock;\n");
     printf("                            steer with `jichi control "
-           "<sock> status|inject|pause|resume|abort|mode`)\n");
+           "<sock> status|inject|pause|resume|abort|mode|"
+           "stop-task|inject-task`)\n");
     printf("\nEvent logging / telemetry (metrics on by default; what `learn "
            "analyze` reads):\n");
     printf("      --log-level <tier>    off | metrics | full "
@@ -5226,10 +5227,22 @@ static int run_map(struct jc_app *app)
     char *map = jc_repomap_render(app);
     if (map == NULL) {
         printf("(no recognised source files in this workspace)\n");
-        return 0;
+    } else {
+        printf("%s", map);
+        free(map);
     }
-    printf("%s", map);
-    free(map);
+    /* M1186 (TEST-ONLY door, NOT a flag and NOT a config knob): when the
+     * env var JC_MAP_ARENA_PEAK is set (any value), print the scan arena's
+     * OWN high-water mark to stderr, AFTER the map body. The accessor
+     * (jc_repomap_last_arena_peak, include/jc_repomap.h) is load-independent
+     * -- a property of the code path, not the machine -- so the smoke driver
+     * repomap_peak.sh (check 4) asserts the F-01 bound on the arena directly
+     * instead of a load-sensitive ru_maxrss diff. No env var: output is
+     * byte-identical to today (no extra stdout or stderr bytes). */
+    if (getenv("JC_MAP_ARENA_PEAK") != NULL) {
+        fprintf(stderr, "map arena peak: %lu\n",
+                (unsigned long)jc_repomap_last_arena_peak());
+    }
     return 0;
 }
 
@@ -9180,6 +9193,15 @@ static const char *describe_control_summary(enum jc_control_cmd_type t)
     case JC_CTL_MODE:
         return "NARROW the operating posture (auto -> chat -> plan), never "
                "widen; persists past the turn (M304)";
+    case JC_CTL_STOP_TASK:   /* M1149 */
+        return "SIGTERM one worker of a live spawn_parallel batch by 0-based "
+               "argument index; reason journaled, named in the batch report; "
+               "refusals: 'no batch is live', 'task <N> is not live "
+               "(<total> tasks)' (M1149)";
+    case JC_CTL_INJECT_TASK: /* M1149 */
+        return "queue steering text for one worker; it lands as ONE [operator] "
+               "user message at that task's next tool boundary; per-task queue "
+               "capped (65536), refusal 'task <N>'s queue is full' (M1149)";
     default:
         return NULL;
     }
@@ -9363,7 +9385,7 @@ static int run_describe(int json)
     cJSON_AddStringToObject(root, "author", JC_AUTHOR); /* M619 */
     cJSON_AddStringToObject(root, "license", JC_LICENSE_SPDX);
     cJSON_AddStringToObject(root, "summary",
-        "C89 reimplementation of the Continue CLI coding agent. Drive it "
+        "A coding agent written in C89. Drive it "
         "headless with -p + --output jsonl, over a warm Unix socket "
         "(daemon), or as an ACP server (serve).");
 
@@ -9526,6 +9548,22 @@ static int run_describe(int json)
                 cJSON *fl = cJSON_CreateObject();
                 cJSON_AddStringToObject(fl, "mode",
                                         "chat|plan (required; a widening is refused)");
+                cJSON_AddItemToObject(r, "fields", fl);
+            } else if (ct == JC_CTL_STOP_TASK) {
+                /* M1149: the per-worker verbs are enumerated by the loop above, so
+                 * a fields object here cannot go missing -- same discipline. */
+                cJSON *fl = cJSON_CreateObject();
+                cJSON_AddStringToObject(fl, "task",
+                                        "number (required; the worker's 0-based argument index)");
+                cJSON_AddStringToObject(fl, "reason",
+                                        "string (optional; journaled and named in the batch report)");
+                cJSON_AddItemToObject(r, "fields", fl);
+            } else if (ct == JC_CTL_INJECT_TASK) {
+                cJSON *fl = cJSON_CreateObject();
+                cJSON_AddStringToObject(fl, "task",
+                                        "number (required; the worker's 0-based argument index)");
+                cJSON_AddStringToObject(fl, "text",
+                                        "string (required, non-empty; queued up to 65536 bytes per task)");
                 cJSON_AddItemToObject(r, "fields", fl);
             }
             cJSON_AddStringToObject(r, "summary",
@@ -17629,6 +17667,7 @@ static int run_control(const struct cli_args *args)
     const char *sock;
     const char *verb;
     char *text = NULL;
+    int task_idx = 0;
     char *reqline;
     char reply[JC_CONTROL_LINE_MAX + 1];
     jc_size used = 0;
@@ -17639,14 +17678,16 @@ static int run_control(const struct cli_args *args)
     if (args->npos < 3) {
         fprintf(stderr, "usage: jichi control <socket> "
                         "status|pause|resume|abort|inject <text...>"
-                        "|mode <chat|plan>\n");
+                        "|mode <chat|plan>|stop-task <n> [reason...]"
+                        "|inject-task <n> <text...>\n");
         return 2;
     }
     sock = args->pos[1];
     verb = args->pos[2];
     if (jc_control_type_parse(verb) == JC_CTL_UNKNOWN) {
         fprintf(stderr, "error: unknown control verb '%s' "
-                        "(status|inject|pause|resume|abort|mode)\n", verb);
+                        "(status|inject|pause|resume|abort|mode|"
+                        "stop-task|inject-task)\n", verb);
         return 2;
     }
     if (strcmp(verb, "mode") == 0) {
@@ -17684,6 +17725,47 @@ static int run_control(const struct cli_args *args)
         text = jc_sb_finish(&sb);
         jc_sb_free(&sb);
     }
+    if (strcmp(verb, "stop-task") == 0 || strcmp(verb, "inject-task") == 0) {
+        /* M1149: the per-worker verbs. `stop-task <n> [reason...]` and
+         * `inject-task <n> <text...>` -- the numeric index, then the reason or
+         * text is the remaining positional args joined with a space (as inject
+         * does today). Validated client-side so a bad index or empty text costs
+         * a local error rather than a round trip. */
+        struct jc_sb sb;
+        int i;
+        long n;
+        char *end;
+        if (args->npos < 4) {
+            fprintf(stderr, "error: %s needs a task index%s\n", verb,
+                    strcmp(verb, "inject-task") == 0
+                        ? " and text" : " (and an optional reason)");
+            return 2;
+        }
+        end = NULL;
+        n = strtol(args->pos[3], &end, 10);
+        if (end == NULL || *end != '\0' || n < 0 ||
+            n > 2147483647L) {
+            fprintf(stderr, "error: %s needs a numeric task index, not '%s'\n",
+                    verb, args->pos[3]);
+            return 2;
+        }
+        task_idx = (int)n;
+        jc_sb_init(&sb);
+        for (i = 4; i < args->npos; i++) {
+            if (i > 4) {
+                jc_sb_append(&sb, " ");
+            }
+            jc_sb_append(&sb, args->pos[i]);
+        }
+        text = jc_sb_finish(&sb);
+        jc_sb_free(&sb);
+        if (strcmp(verb, "inject-task") == 0 &&
+            (text == NULL || text[0] == '\0')) {
+            fprintf(stderr, "error: inject-task needs the steering text\n");
+            free(text);
+            return 2;
+        }
+    }
     if (strlen(sock) >= sizeof(addr.sun_path)) {
         fprintf(stderr, "error: socket path too long: %s\n", sock);
         free(text);
@@ -17706,10 +17788,14 @@ static int run_control(const struct cli_args *args)
         free(text);
         return 1;
     }
-    reqline = jc_control_build_request(verb, text,
-                                       args->extend &&
-                                       strcmp(verb, "pause") == 0,
-                                       NULL);
+    if (strcmp(verb, "stop-task") == 0 || strcmp(verb, "inject-task") == 0) {
+        reqline = jc_control_build_task_request(verb, task_idx, text);
+    } else {
+        reqline = jc_control_build_request(verb, text,
+                                           args->extend &&
+                                           strcmp(verb, "pause") == 0,
+                                           NULL);
+    }
     free(text);
     if (reqline == NULL || write(fd, reqline, strlen(reqline)) < 0) {
         fprintf(stderr, "error: could not send the request\n");

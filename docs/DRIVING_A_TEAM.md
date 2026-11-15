@@ -125,7 +125,9 @@ user can write. The fence refused exactly what it should have. The task told the
 the thing the fence refuses, so the worker found another way.
 
 **What jichi does today.** The file fence refuses a write outside the workspace, as it did here.
-Shell confinement is not built, so a task that points at the live tree still gets there.
+Since M831 the shell of a parallel write task is confined to its own worktree where Linux offers
+Landlock, so there this route is closed. On other systems, and for the top-level agent, the shell is
+not confined, and a task that points at the live tree still gets there.
 
 **What you write:**
 - In the task, relative paths only: "your worktree is your working directory; every path in this

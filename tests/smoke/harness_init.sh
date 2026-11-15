@@ -64,6 +64,23 @@
 #  13. (S3) an init with a 200-char drive.branchPrefix in the config exits 2
 #      (usage class) naming branchPrefix BEFORE the layout: nothing is created
 #      (no runs/, no team/, no mirror.git in the dir).
+#
+# M1147 (H7, the init extension) adds three cells. THE FIXTURE'S branchPrefix
+# is drive/2026-10-23-harness (dated, so the cells below are deterministic --
+# the undated fallback is init's job to keep, not the fixture's).
+#  14. the recs README text is built from the config (SV:2303.2): title and
+#      docs line carry the prefix's DATE part (2026-10-23), the plan line
+#      carries <prefix>/plan, and NOTHING in the layout is the hard-coded
+#      "drive of 2026-10-23" literal of an undated prefix (the defect the fix
+#      removes). The fixture's dir is under $tmp, so the README cannot carry a
+#      literal 2026-10-23 from the old constant -- only from the prefix.
+#  15. the recs stored config copy (<dir>/recs.git-config.harness-copy) holds
+#      the EXACT bytes of recs/.git/config (the mirror's stored copy is the
+#      pattern) and names the recs' origin -- the records push's URL guard
+#      reference.
+#  16. the host push home: a config WITH a host block creates <pushHome> with
+#      push.git + recs-push.git (both bare) and reports it; the main fixture
+#      (no host block) creates no host dirs.
 
 . "$(dirname "$0")/_smoke.sh"
 
@@ -75,7 +92,7 @@ HBIN="${JC_SMOKE_HBIN:-$ROOT/jichi-harness}"
 # setting would defeat the fixtures below, so clear all three.
 unset JICHI_HARNESS_DIR JICHI_HARNESS_MODEL_KEY_FILE JICHI_HARNESS_GIT_TOKEN_FILE
 
-t_plan 13
+t_plan 16
 smoke_home
 tmp=$(smoke_tmp)
 
@@ -92,7 +109,7 @@ src="$tmp/src"
 git init -q "$src"
 git -C "$src" -c user.name="Harness Smoke" -c user.email="harness-smoke@example.com" \
     commit -q --allow-empty -m "source: the plan branch's base"
-git -C "$src" branch harness-plan/plan
+git -C "$src" branch drive/2026-10-23-harness/plan
 
 # A FAKE pinned jichi: a shell script that answers --version --verbose with a
 # build: line (the pinned-binary report needs one). It is not the real jichi's
@@ -100,9 +117,11 @@ git -C "$src" branch harness-plan/plan
 printf '#!/bin/sh\nif [ "$1" = "--version" ] || [ "$1" = "-V" ]; then\n  echo "jichi 0.0.0-fake"\n  echo "build: deadbeef"\nfi\nexit 0\n' > "$tmp/jichi"
 chmod 755 "$tmp/jichi"
 
-# The harness config: dir, drive.branchPrefix, the git identity (for the
-# records commit) and the secret references. The model-key reference names a
-# canary file so the drive-mode cases can test it offline.
+# The harness config: dir, drive.branchPrefix (dated, so the M1147 cells are
+# deterministic), the git identity (for the records commit) and the secret
+# references. The model-key reference names a canary file so the drive-mode
+# cases can test it offline. NO host block: a container config names none, so
+# the main layout must create no host push home.
 _kc=$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n'); [ -n "$_kc" ] || _kc="keycanary$$_"
 printf '%s\n' "$_kc" > "$tmp/kreal"
 chmod 600 "$tmp/kreal"
@@ -110,7 +129,17 @@ printf 'CANARY-TOKEN-DO-NOT-PRINT\n' > "$tmp/tokfile"
 chmod 600 "$tmp/tokfile"
 cat > "$tmp/cfg.json" <<EOF
 {"dir":"$tmp/dir",
-"drive":{"branchPrefix":"harness-plan","gitName":"Harness Test","gitEmail":"harness-test@example.com"},
+"drive":{"branchPrefix":"drive/2026-10-23-harness","gitName":"Harness Test","gitEmail":"harness-test@example.com"},
+"modelKeyFile":"$tmp/kreal","gitTokenFile":"$tmp/tokfile"}
+EOF
+
+# A host-block variant of the same config (cell 16): dir + the SAME dated
+# prefix + the host block (dir + pushHome). A separate layout dir so the main
+# fixture stays host-free.
+cat > "$tmp/cfg-host.json" <<EOF
+{"dir":"$tmp/dirh",
+"drive":{"branchPrefix":"drive/2026-10-23-harness","gitName":"Harness Test","gitEmail":"harness-test@example.com"},
+"host":{"dir":"$tmp/dirh","pushHome":"$tmp/pushhome"},
 "modelKeyFile":"$tmp/kreal","gitTokenFile":"$tmp/tokfile"}
 EOF
 
@@ -174,12 +203,12 @@ fi
 # points back at it with an origin. So the port must leave it origin-less.
 if [ ! -d "$dir/standin.git" ] || \
    ! git -C "$dir/standin.git" rev-parse --is-bare-repository >/dev/null 2>&1 || \
-   ! git -C "$dir/standin.git" rev-parse --verify -q refs/heads/harness-plan/plan >/dev/null 2>&1; then
-    t_fail "4: standin.git is missing, not bare, or does not carry the source's plan branch (harness-plan/plan)"
+   ! git -C "$dir/standin.git" rev-parse --verify -q refs/heads/drive/2026-10-23-harness/plan >/dev/null 2>&1; then
+    t_fail "4: standin.git is missing, not bare, or does not carry the source's plan branch (drive/2026-10-23-harness/plan)"
 else
     _so=$(git -C "$dir/standin.git" config remote.origin.url 2>/dev/null)
     if [ -z "$_so" ]; then
-        t_ok "4: standin.git is bare, carries harness-plan/plan, and has NO origin (a sink the source is pushed into, never a real remote)"
+        t_ok "4: standin.git is bare, carries drive/2026-10-23-harness/plan, and has NO origin (a sink the source is pushed into, never a real remote)"
     else
         t_fail "4: standin.git has an origin ($_so) -- the reference leaves it origin-less; it is a sink, not a client (setup-dir.sh 72-76)"
     fi
@@ -192,10 +221,10 @@ else
     _tb=$(git -C "$dir/team" rev-parse --abbrev-ref HEAD 2>/dev/null)
     _to=$(git -C "$dir/team" remote get-url origin 2>/dev/null)
     _ns=$(ls "$dir/team/.git/hooks/"*.sample 2>/dev/null)
-    if [ "$_tb" != "harness-plan/main" ] || [ "$_to" != "/nonexistent-the-harness-pushes" ] || [ -n "$_ns" ]; then
-        t_fail "5: team/ on branch '$_tb' (want harness-plan/main), origin '$_to' (want /nonexistent-the-harness-pushes), sample hooks: $_ns"
+    if [ "$_tb" != "drive/2026-10-23-harness/main" ] || [ "$_to" != "/nonexistent-the-harness-pushes" ] || [ -n "$_ns" ]; then
+        t_fail "5: team/ on branch '$_tb' (want drive/2026-10-23-harness/main), origin '$_to' (want /nonexistent-the-harness-pushes), sample hooks: $_ns"
     else
-        t_ok "5: team/ on harness-plan/main, origin /nonexistent-the-harness-pushes (the team never fetches or pushes; the harness pushes from the mirror), no *.sample hooks"
+        t_ok "5: team/ on drive/2026-10-23-harness/main, origin /nonexistent-the-harness-pushes (the team never fetches or pushes; the harness pushes from the mirror), no *.sample hooks"
     fi
 fi
 
@@ -221,10 +250,10 @@ else
     _rb=$(git -C "$dir/recs" rev-parse --abbrev-ref HEAD 2>/dev/null)
     _ro=$(git -C "$dir/recs" remote get-url origin 2>/dev/null)
     _rf=$(git -C "$dir/recs" log -1 --name-only --format= 2>/dev/null)
-    if [ "$_rb" != "harness-plan/records" ] || [ -z "$_ro" ] || ! printf '%s\n' "$_rf" | grep -q '^README\.md$'; then
-        t_fail "7: recs/ on branch '$_rb' (want harness-plan/records), origin '$_ro' (want set), first commit files: $_rf"
+    if [ "$_rb" != "drive/2026-10-23-harness/records" ] || [ -z "$_ro" ] || ! printf '%s\n' "$_rf" | grep -q '^README\.md$'; then
+        t_fail "7: recs/ on branch '$_rb' (want drive/2026-10-23-harness/records), origin '$_ro' (want set), first commit files: $_rf"
     else
-        t_ok "7: recs/ on harness-plan/records (orphan), README.md committed, origin set ($_ro)"
+        t_ok "7: recs/ on drive/2026-10-23-harness/records (orphan), README.md committed, origin set ($_ro)"
     fi
 fi
 
@@ -269,12 +298,12 @@ fi
 # --- 10: the drive key-file indirection (offline, canary-tested) ---------------
 cat > "$tmp/dcfg.json" <<EOF
 {"dir":"$tmp/d2",
-"drive":{"branchPrefix":"harness-plan","gitName":"Harness Test","gitEmail":"harness-test@example.com"},
+"drive":{"branchPrefix":"drive/2026-10-23-harness","gitName":"Harness Test","gitEmail":"harness-test@example.com"},
 "modelKeyFile":"$tmp/kreal","gitTokenFile":"$tmp/tokfile"}
 EOF
 cat > "$tmp/dcfg-nok.json" <<EOF
 {"dir":"$tmp/d3",
-"drive":{"branchPrefix":"harness-plan","gitName":"Harness Test","gitEmail":"harness-test@example.com"},
+"drive":{"branchPrefix":"drive/2026-10-23-harness","gitName":"Harness Test","gitEmail":"harness-test@example.com"},
 "gitTokenFile":"$tmp/tokfile"}
 EOF
 kreal_bytes=$(cat "$tmp/kreal")
@@ -396,6 +425,85 @@ else
     else
         t_ok "13: a 200-char drive.branchPrefix exits 2 (usage class) naming branchPrefix and lays out NOTHING (no runs/, no team/, no mirror.git)"
     fi
+fi
+
+# --- 14: the recs README text is built from the config (SV:2303.2) -----------
+# The fixture's prefix is drive/2026-10-23-harness (dated): the title and the
+# docs line carry the DATE part (2026-10-23), the plan line carries
+# <prefix>/plan, and the docs line is the ABSOLUTE <dir>/docs/internal/
+# drive/2026-10-23/. The unfixed tree writes the hard-coded recs_readme[]
+# whose docs line is the RELATIVE "docs/internal/drive/2026-10-23-harness/." --
+# so grepping the absolute form is red on the unfixed tree.
+_dircanon=$(cd "$dir" && pwd -P 2>/dev/null)
+_rm="$dir/recs/README.md"
+if [ ! -f "$_rm" ]; then
+    t_fail "14: recs/README.md is missing (the records README)"
+else
+    _want_docs="$_dircanon/docs/internal/drive/2026-10-23/."
+    _bad_rel="docs/internal/drive/2026-10-23-harness/."
+    _r14=1
+    grep -qF "# Records of the jichi-harness drive of 2026-10-23" "$_rm" || _r14=0
+    grep -qF "branch drive/2026-10-23-harness/plan," "$_rm" || _r14=0
+    grep -qF "$_want_docs" "$_rm" || _r14=0
+    grep -qF "$_bad_rel" "$_rm" && _r14=0
+    if [ "$_r14" -ne 1 ]; then
+        t_fail "14: the recs README is not built from the config (SV:2303.2) -- want title 'drive of 2026-10-23', plan line 'branch drive/2026-10-23-harness/plan,', docs line '$_want_docs', and NO hard-coded relative '$_bad_rel'; got:
+$(cat "$_rm")"
+    else
+        t_ok "14: the recs README is built from the config (SV:2303.2): title/docs carry the prefix's date part (2026-10-23), the plan line carries <prefix>/plan, and the docs line is the absolute <dir>/docs/internal/drive/2026-10-23/ (not the hard-coded relative)"
+    fi
+fi
+
+# --- 15: the recs stored config copy (B1.1) -----------------------------------
+# After init writes recs/.git/config (remote add origin), it copies the EXACT
+# bytes to <dir>/recs.git-config.harness-copy (the mirror's stored copy is the
+# pattern). The copy must equal recs/.git/config byte-for-byte and name the
+# recs' origin (the records push's URL guard reference).
+_rcc="$dir/recs.git-config.harness-copy"
+_rclive="$dir/recs/.git/config"
+_standin_canon="$_dircanon/standin.git"
+if [ ! -f "$_rcc" ]; then
+    t_fail "15: the recs stored config copy <dir>/recs.git-config.harness-copy is missing (init must copy the EXACT bytes of recs/.git/config, the mirror's stored-copy pattern)"
+else
+    _r15=1
+    if [ ! -f "$_rclive" ]; then
+        _r15=0; _e15="recs/.git/config is missing (cannot compare the stored copy)"
+    elif ! cmp -s "$_rcc" "$_rclive"; then
+        _r15=0; _e15="the stored copy differs from recs/.git/config (it must hold the EXACT bytes init wrote):
+copy: $(cat "$_rcc" 2>/dev/null)
+live: $(cat "$_rclive" 2>/dev/null)"
+    elif ! grep -qF "url = $_standin_canon" "$_rcc" 2>/dev/null; then
+        _r15=0; _e15="the stored copy does not name the recs' origin ($_standin_canon): $(tr '\n' ' ' < "$_rcc" | head_bytes 200)"
+    fi
+    if [ "$_r15" -ne 1 ]; then
+        t_fail "15: the recs stored config copy is wrong -- $_e15"
+    else
+        t_ok "15: the recs stored copy <dir>/recs.git-config.harness-copy holds the EXACT bytes of recs/.git/config and names the recs' origin (the records push's URL guard reference)"
+    fi
+fi
+
+# --- 16: the host push home (B1.1) --------------------------------------------
+# A config WITH a host block creates <pushHome> with push.git + recs-push.git
+# (both bare) and reports it. The main fixture (no host block) must create no
+# host dirs -- a container config names none. Exactly one t_ok/t_fail.
+_ph="$tmp/pushhome"
+_r16=1; _e16=""
+# (a) the no-host main layout (check 1) created no host push home:
+[ -e "$_ph" ] && { _r16=0; _e16="the no-host layout (check 1) created a host push home ($_ph) -- a container config names no host block"; }
+# (b) the host-block layout creates it:
+"$HBIN" init --config "$tmp/cfg-host.json" rehearsal \
+    "$tmp/dirh" --from "$src" --jichi-bin "$tmp/jichi" \
+    < /dev/null > "$tmp/i16" 2> "$tmp/i16.err"
+rc16=$?
+[ "$rc16" -ne 0 ] && { _r16=0; _e16="init with a host block exited $rc16 (want 0): $(head_bytes 160 "$tmp/i16" "$tmp/i16.err")"; }
+[ "$_r16" -eq 1 ] && { [ -d "$_ph" ] || { _r16=0; _e16="the host push home ($_ph) was not created by init with a host block"; }; }
+[ "$_r16" -eq 1 ] && { git -C "$_ph/push.git" rev-parse --is-bare-repository >/dev/null 2>&1 || { _r16=0; _e16="push.git is missing or not bare"; }; }
+[ "$_r16" -eq 1 ] && { git -C "$_ph/recs-push.git" rev-parse --is-bare-repository >/dev/null 2>&1 || { _r16=0; _e16="recs-push.git is missing or not bare"; }; }
+[ "$_r16" -eq 1 ] && { grep -qF "host push home: $_ph" "$tmp/i16" || { _r16=0; _e16="init did not report the push home: $(tr '\n' ' ' < "$tmp/i16" | head_bytes 200)"; }; }
+if [ "$_r16" -eq 1 ]; then
+    t_ok "16: a host block creates <pushHome> with push.git + recs-push.git (both bare) and reports it; the no-host layout creates nothing"
+else
+    t_fail "16: the host push home was wrong -- $_e16"
 fi
 
 t_done

@@ -15,6 +15,17 @@ void test_run_timeout_schema(void);  /* L-25: defined in test_tool.c */
 void test_json_print_exact(void);    /* M1076: defined in test_json.c */
 void test_json_trailing_garbage(void); /* M1078: defined in test_json.c */
 void test_http_redirect_guard_decision(void); /* M1124: defined in test_http.c */
+void test_harness_setflag(void); /* M1147: defined in test_harness_setflag.c */
+void test_harness_gitrun(void);   /* M1151c: defined in test_harness_gitrun.c */
+void test_control_stopinject(void); /* M1149: defined in test_control_stopinject.c */
+void test_watchgate(void);         /* M1153: defined in test_watchgate.c */
+void test_gateledger(void);        /* M1154 T2: defined in test_gateledger.c */
+void test_gateverdict(void);       /* M1154 T3: defined in test_gateverdict.c */
+void test_gatesweep(void);         /* M1154 T5: defined in test_gatesweep.c */
+void test_gateci(void);            /* M1154 T8: defined in test_gateci.c */
+void test_gateref(void);           /* M1157 T9: defined in test_gateref.c */
+void test_tt_wait(void);           /* M1164: defined in test_tt_wait.c */
+void test_snprintf_fallback(void); /* M1172: defined in test_snprintf_fallback.c */
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>   /* getenv */
@@ -217,6 +228,22 @@ int main(void)
     test_harness();
     printf("test_harness_config\n");
     test_harness_config();
+    printf("test_harness_setflag\n");
+    test_harness_setflag();
+    printf("test_harness_gitrun\n");
+    test_harness_gitrun();
+    printf("test_watchgate\n");
+    test_watchgate();
+    printf("test_gateledger\n");
+    test_gateledger();
+    printf("test_gateverdict\n");
+    test_gateverdict();
+    printf("test_gatesweep\n");
+    test_gatesweep();
+    printf("test_gateci\n");
+    test_gateci();
+    printf("test_gateref\n");
+    test_gateref();
     printf("test_str\n");
     test_str();
     printf("test_sb_reserve_bounds\n");
@@ -528,6 +555,8 @@ int main(void)
     test_runsview();
     printf("test_control\n");
     test_control();
+    printf("test_control_stopinject\n");
+    test_control_stopinject();
     printf("test_kinetic\n");
     test_kinetic();
     printf("test_sound\n");
@@ -586,6 +615,10 @@ int main(void)
     test_hooks();
     printf("test_bg\n");
     test_bg();
+    printf("test_tt_wait\n");
+    test_tt_wait();
+    printf("test_snprintf_fallback\n");
+    test_snprintf_fallback();
     printf("test_websearch\n");
     test_websearch();
     printf("test_output_style\n");

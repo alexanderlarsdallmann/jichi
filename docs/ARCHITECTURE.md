@@ -29,12 +29,13 @@ architecture in general, using jichi as the worked example).*
   file/dir/sleep helpers incl. `jc_write_file_atomic` (same-dir temp +
   rename, 0600 — jichi's private sinks: sessions, calibration; M146),
   `jc_now_seconds` + monotonic `jc_now_millis` for
-  latency), `jc_mem` (arena allocator: a session arena plus a per-turn scratch
-  arena reset each top-level turn — see `jc_app_scratch`; `jc_arena_used`
+  latency), `jc_mem` (arena allocator: a session arena, a per-turn scratch
+  arena reset each top-level turn — see `jc_app_scratch` — and a per-tool-call arena,
+  `jc_app_tool_scratch` (M199); `jc_arena_used`
   reports used/reserved bytes, surfaced in `/context`, M140), `jc_str`
   (`jc_sb` growable buffer), `jc_vec` (generic dynamic array), `jc_log`,
   `jc_snprintf` (C89-safe bounded formatting — **never call `sprintf`**),
-  `jc_uuid`, `jc_eventlog` (opt-in append-only JSONL telemetry sink generalizing
+  `jc_uuid`, `jc_eventlog` (append-only JSONL telemetry sink, `metrics` on by default since M599, generalizing
   the envelope journal — `_open`/`_begin`/`_end`/`_close`, off/metrics/full
   tiers; installed on `jc_app.telemetry` via config `logging`/`--log`/
   `--log-level` (M21a/b); the agent core emits `turn`/`model_call`/`model_retry`/
@@ -730,7 +731,7 @@ architecture in general, using jichi as the worked example).*
   via the `--verify`/`--budget-*`/`--edit-scope`/`--journal` flags, config
   `verify`/`editScope`, and the TUI `/verify`. See docs/AUTONOMY.md. The
   envelope's JSONL journal (`jc_env_journal_begin`/`_end`) is the proven
-  structured-event pattern that the **opt-in telemetry sink** (ROADMAP M21)
+  structured-event pattern that the **telemetry sink** (ROADMAP M21; opt-in then, `metrics` on by default since M599)
   generalizes: the reusable `jc_eventlog` module, emitted from the agent *core*
   (M21a–c, so
   TUI/headless/ACP produce identical data), default off, written **outside** the

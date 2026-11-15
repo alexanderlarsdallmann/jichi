@@ -25,21 +25,15 @@
 #include "jc_landlock.h"
 
 #include <ctype.h>
+#include <string.h>
 
 #if defined(__linux__)
 
 #include <unistd.h>
 #include <fcntl.h>
-#include <string.h>
 #include <errno.h>
 #include <sys/syscall.h>
 #include <sys/prctl.h>
-
-/* M1018 E-02: byte-packing helper. Packs sizeof(v) bytes of an unsigned long into
- * 8 bytes in little-endian order, leaving the rest of the zeroed buffer alone.
- * On 64-bit platforms this is byte-identical to an 8-byte memcpy; on 32-bit it
- * packs only 4 bytes, and the memset(0,8) ensures bytes [4..7] remain zero.
- * C89-clean (8*i with int i). The implementation follows after the #defines. */
 
 /* Syscall numbers (Landlock, since Linux 5.13). Since Linux 5.1 a new syscall has
  * ONE number on every architecture but alpha, so these hold on x86_64/aarch64/... */
@@ -82,16 +76,6 @@
 #ifndef O_PATH
 #define O_PATH 010000000
 #endif
-
-/* M1018 E-02: byte-packing implementation (C89-clean, 8*i with int i). */
-void jc_landlock_pack_u64(unsigned char *dst8, unsigned long v)
-{
-    int i;
-    memset(dst8, 0, 8);   /* zero first: ensures bytes [sizeof v .. 8) are zero on 32-bit */
-    for (i = 0; i < (int)sizeof v; i++) {
-        dst8[i] = (unsigned char)((v >> (8 * i)) & 0xff);
-    }
-}
 
 int jc_landlock_abi(void)
 {
@@ -227,6 +211,23 @@ jc_status jc_landlock_write_fence_ex(const char *const *dirs, int n_dirs,
 }
 
 #endif
+
+/* M1018 E-02: byte-packing implementation. Packs sizeof(v) bytes of an
+ * unsigned long into 8 bytes in little-endian order, leaving the rest of the
+ * zeroed buffer alone. On 64-bit platforms this is byte-identical to an
+ * 8-byte memcpy; on 32-bit it packs only 4 bytes, and the memset(0,8) ensures
+ * bytes [4..7] remain zero. C89-clean (8*i with int i). The helper is pure
+ * (no syscall, no platform type), so it lives in the unconditional region:
+ * jc_landlock.h declares it for every platform and the unit tests link it
+ * there too (SV:1802 P3c). */
+void jc_landlock_pack_u64(unsigned char *dst8, unsigned long v)
+{
+    int i;
+    memset(dst8, 0, 8);   /* zero first: ensures bytes [sizeof v .. 8) are zero on 32-bit */
+    for (i = 0; i < (int)sizeof v; i++) {
+        dst8[i] = (unsigned char)((v >> (8 * i)) & 0xff);
+    }
+}
 
 jc_status jc_landlock_write_fence(const char *const *dirs, int n_dirs,
                                   const char *const *files, int n_files)

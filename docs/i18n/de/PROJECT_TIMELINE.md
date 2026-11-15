@@ -1,4 +1,7 @@
 <!-- tracks: ../../PROJECT_TIMELINE.md @ 34a65b7 -->
+<!-- Original draft: Claude (July 2026). Today (M1147/batch H7): the reference-implementation
+     bullet — Continue CLI rephrased from "the one this project rebuilds" to "the first-phase
+     starting specification" — was revised by jlu/qwen3-coder-next. -->
 <!-- figures-behind: 29 (that many numbers of three digits or more appear here and not
      in the English page). PROJECT_TIMELINE.md was re-counted at M579; this translation
      still carries the earlier figures. One went from the count at M587: the false
@@ -360,10 +363,10 @@ Hinweise:
   Sicherheits-Gates unterhalb der Freigabe, das Fuzzing-Harness) sind für einen
   Junior realistisch nicht in dieser Qualität **ohne Mentoring** lieferbar — das
   echte Risiko ist, *nicht fertig zu werden*, nicht bloß *langsamer* zu sein.
-- Eine **Referenzimplementierung existierte** (die Continue CLI, die hier
-  nachgebaut wird), was die Anforderungs- und Design-Unsicherheit in *allen*
-  Szenarien deutlich senkte — ein echter Planungshebel (Bekanntes bauen ≪ Neues
-  erfinden). Die P5-Bänder (Autonomie, Steuerung, Robotik) hatten **keine** solche
+- Eine **Referenzimplementierung existierte** (die Continue CLI, die als
+  Ausgangsspezifikation der ersten Phase diente), was die Anforderungs- und
+  Design-Unsicherheit in *allen* Szenarien deutlich senkte — ein echter
+  Planungshebel (Bekanntes bauen ≪ Neues erfinden). Die P5-Bänder (Autonomie, Steuerung, Robotik) hatten **keine** solche
   Referenz — sie wurden hier von Grund auf entworfen, weshalb jedes zuerst ein
   Proposal hervorbrachte.
 

@@ -42,7 +42,10 @@ static void sweep_stale_spools(const char *dir)
 {
     DIR *d;
     struct dirent *ent;
-    static char path[256];
+    /* M1146: 256 silently cut a deep spool_dir + /bg-<id>-<pid>.out (SV:0540).
+     * 1024 holds the largest plausible path; the jc_snprintf below refuse on
+     * truncation (same class fix as the spool name in jc_bg_start). */
+    static char path[1024];
     if (dir == NULL || dir[0] == '\0') {
         return;
     }
@@ -64,7 +67,10 @@ static void sweep_stale_spools(const char *dir)
          * reap-time unlink is the normal path; this sweep is the fallback).
          * 24 h outlives any realistic run; it only costs the residue's
          * eventual cleanup, which the next session's sweep repeats. */
-        jc_snprintf(path, sizeof(path), "%s/%s", dir, nm);
+        jc_size plen = (jc_size)jc_snprintf(path, sizeof(path), "%s/%s", dir, nm);
+        if (plen >= sizeof(path)) {
+            continue; /* path unformable; refuse rather than unlink a cut name */
+        }
         if (stat(path, &st) != 0 || st.st_mtime > time(NULL) - 86400L) {
             continue;
         }
@@ -105,7 +111,11 @@ static void sweep_stale_spools(const char *dir)
         if (!all_digits) {
             continue;
         }
-        jc_snprintf(path, sizeof(path), "%s/%s", dir, nm);
+        plen = (jc_size)jc_snprintf(path, sizeof(path), "%s/%s", dir, nm);
+        if (plen >= sizeof(path)) {
+            continue; /* refuse: unlinking a truncated path could remove the
+                       * wrong file (the pre-M1146 silent-truncation class). */
+        }
         unlink(path);
     }
     closedir(d);
@@ -136,11 +146,16 @@ void jc_bg_mgr_init(struct jc_bg_mgr *m)
      * under ~/.jichi.d, OUTSIDE the workspace and the snapshot/rollback blast
      * radius (ANECDOTES #1: observability lives outside the tree it watches). */
     {
-        char dir[160];
-        jc_snprintf(dir, sizeof(dir), "%s/.jichi.d/bgspool", jc_home_dir());
+        /* M1146: 160 silently cut a deep jc_home_dir() + "/.jichi.d/bgspool"
+         * (SV:0540); 512 matches the spool_dir[] destination and the spool
+         * path it builds. A truncated name would mkdir a cut directory, so
+         * refuse on truncation (the same class as the spool file name). */
+        char dir[512];
+        jc_size dlen = (jc_size)jc_snprintf(dir, sizeof(dir),
+                                            "%s/.jichi.d/bgspool", jc_home_dir());
         /* 0700 (M488): a spool holds whatever a background command printed --
          * build output, logs, and in principle secrets the command echoed. */
-        if (jc_mkdir_p_private(dir) == JC_OK) {
+        if (dlen < sizeof(dir) && jc_mkdir_p_private(dir) == JC_OK) {
             jc_snprintf(m->spool_dir, sizeof(m->spool_dir), "%s", dir);
         }
     }
@@ -379,7 +394,9 @@ static void drain(struct jc_bg_proc *p)
              * keeps the oversized-but-intact file rather than a truncated
              * one: that is the whole point of the temp. */
             {
-                char tmp[160];
+                /* M1146: 160 cut a spool path of 512 bytes + .tmp<pid>; 1024
+                 * holds the spool name (now up to 512) + ".tmp" + 20-digit pid. */
+                char tmp[1024];
                 int tlen;
 
                 tlen = jc_snprintf(tmp, sizeof(tmp), "%s.tmp%ld",
@@ -545,8 +562,27 @@ int jc_bg_start(struct jc_bg_mgr *m, const char *command)
     /* bg ids restart at 1 each session; the parent pid keeps two concurrent
      * jichi of one HOME from truncating each other's live spool (review
      * finding, 2026-10-12). */
-    jc_snprintf(p->spool, sizeof(p->spool), "%s/bg-%ld-%ld.out", m->spool_dir,
-                (long)p->id, (long)getpid());
+    /* M1146 (SV:0540): the spool NAME is the thing that must never be silently
+     * cut. With a deep jc_home_dir() (e.g. a drive run dir) + 7-digit pids, the
+     * full path overflowed the old 128-byte buffer and open() created a
+     * truncated-name file the bg-*.out probe never sees. Refuse on truncation,
+     * routing through the existing spool-error path the model reads. */
+    {
+        int spool_len;
+        spool_len = jc_snprintf(p->spool, sizeof(p->spool),
+                                "%s/bg-%ld-%ld.out", m->spool_dir,
+                                (long)p->id, (long)getpid());
+        if (spool_len < 0 || (jc_size)spool_len >= sizeof(p->spool)) {
+            p->spool[0] = '\0';
+            jc_snprintf(s_spool_err, sizeof(s_spool_err),
+                        "spool path too long for the %lu-byte buffer: %s "
+                        "(need %d bytes) -- run with a shorter TMPDIR/HOME, "
+                        "or build without this deep directory; the background "
+                        "command was NOT started", (unsigned long)sizeof(p->spool),
+                        m->spool_dir, spool_len);
+            return -1;
+        }
+    }
     sfd = open(p->spool, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND | JC_O_BINARY, 0600);
     if (sfd < 0) {
         /* def-324: set error message with path, errno, and fence hint.

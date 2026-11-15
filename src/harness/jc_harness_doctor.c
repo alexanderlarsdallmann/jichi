@@ -27,6 +27,7 @@
 #include "jc_json.h"
 #include "jc_snprintf.h"
 #include "jc_str.h"
+#include "jc_proc.h"            /* M1190 (F3): the memory protection state */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -107,6 +108,60 @@ static int
 hdoc_exists(const char *path)
 {
     return (path != NULL) ? (access(path, F_OK) == 0) : 0;
+}
+
+/* M1190 (def-383, D-F8-1/D-F8-2): report the protection state main() left, as
+ * one line. The label is fixed for every state (the driver greps it); only the
+ * status (ok / warn) and the detail vary with the state (jc_proc.h:319-327).
+ * The state is a property of the RUNNING PROCESS, not of the config (B2), so it
+ * reports on EVERY doctor run -- the valid-config path, and the no-config /
+ * load-failed paths alike. The detail is fixed wording; it never names a key's
+ * value (the canary is a secret file's contents, which the state line cannot
+ * carry). */
+static void
+hdoc_add_harden(struct hdoc_result *r, int *n)
+{
+    int hs = jc_proc_harden_state();
+    int stat;
+    const char *det;
+    switch (hs) {
+    case JC_HARDEN_ON:
+        stat = HDOC_OK;
+        det = "the harness is non-dumpable (PR_SET_DUMPABLE 0), so a "
+              "same-user process can neither read /proc/<pid>/environ nor "
+              "use its fd/ nor core it; set JICHI_KEEP_DUMPABLE=1 only to "
+              "get a core dump or attach a debugger";
+        break;
+    case JC_HARDEN_OFF_OPTOUT:
+        stat = HDOC_WARN;
+        det = "JICHI_KEEP_DUMPABLE is set, so the harness stays dumpable: a "
+              "same-user process can read its /proc/<pid>/environ and use "
+              "its fd/. Unset it once you have the core dump or the "
+              "debugger session";
+        break;
+    case JC_HARDEN_FAILED:
+        stat = HDOC_WARN;
+        det = "prctl (PR_SET_DUMPABLE, 0) was refused here (a seccomp "
+              "filter or an emulated kernel can do that), so nothing stops "
+              "a same-user process from reading the harness's environment "
+              "by whatever route this system offers";
+        break;
+    case JC_HARDEN_UNAVAILABLE:
+        stat = HDOC_WARN;
+        det = "this build has no same-user environment protection (no "
+              "PR_SET_DUMPABLE and no procctl PROC_TRACE_CTL); the class "
+              "may exist here by another route, unmeasured";
+        break;
+    default:
+        /* JC_HARDEN_NOT_RUN: main() calls jc_proc_harden_environ() first, so
+         * reaching it here is a bug. (JC_HARDEN_ON_PARTIAL, an
+         * OpenBSD/NetBSD/illumos scrub state, is unreachable on the Linux
+         * harness, which calls only jc_proc_harden_environ.) */
+        stat = HDOC_WARN;
+        det = "a bug: main() calls jc_proc_harden_environ() first";
+        break;
+    }
+    hdoc_add(r, n, stat, "the harness's memory protection", det);
 }
 
 /* Append `s` as a JSON string body (no surrounding quotes), escaped -- the
@@ -216,6 +271,7 @@ jc_harness_doctor_run(const char *config_path, int output_json,
     if (config_path == NULL) {
         hdoc_add(r, &n, HDOC_FAIL, "no configuration",
                  "pass --config <file> to point at the harness config");
+        hdoc_add_harden(r, &n);   /* B2: the state is a process property */
         goto render;
     }
 
@@ -225,6 +281,7 @@ jc_harness_doctor_run(const char *config_path, int output_json,
         hdoc_add(r, &n, HDOC_FAIL, "the config loads",
                  (msg != NULL) ? msg
                                : "the harness config could not be loaded");
+        hdoc_add_harden(r, &n);   /* B2: the state is a process property */
         goto render;
     }
 
@@ -377,6 +434,10 @@ jc_harness_doctor_run(const char *config_path, int output_json,
                     cfg.n_tenants, pre, end, lead);
         hdoc_add(r, &n, HDOC_OK, "the tenants and the drive identity", det);
     }
+
+    /* M1190 (def-383): the protection state, on EVERY doctor run (B2) -- here
+     * on the valid-config path, after the six walk-checks (before render). */
+    hdoc_add_harden(r, &n);
 
 render:
     exit_code = hdoc_count(r, n, HDOC_FAIL) > 0 ? 1 : 0;

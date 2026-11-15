@@ -4084,8 +4084,25 @@ the next batch.
 | the gateway-up probe in `jichi-harness run` (parking a run while the endpoint is down) | [details](#def-357) |
 | the `.gz` notes in `jichi-harness run`'s handoff (the reference gunzips a previous run's compressed notes) | [details](#def-358) |
 | the elided-arguments repair (a copied tool-output placeholder's `ticket` is never read by the refusal that names it) | [details](#def-359) |
-| the records-branch push in `jichi-harness drive` (the loop commits `records: run N (KIND)` into `dir/recs` but does not push the records branch) | [details](#def-360) |
+| the records-branch push in `jichi-harness drive` (BUILT in M1147/H7 -- the `push records` command + the in-loop records push, teamPush-gated) | [details](#def-360) |
 | the credential-helper classify_url userinfo + percent-escape + the driver bare grep (M1066, SV:0904.5 -- latent, neither applies to this drive remote) | [details](#def-361) |
+| the shipped docs' bare "this machine" phrase (SV:2342, M1145 -- the operator's 2026-11-05 docs finding: recorded, not fixed) | [details](#def-362) |
+| a learner page on the C print functions (the printf family, snprintf and jc_snprintf, the sprintf rule) -- recorded, not written (SV:0026) | [details](#def-363) |
+| servers and providers, the docs part (one verdict page, a claims lint, verify-server.sh, doctor window probes, page fixes) -- recorded, not built (SV:0045) | [details](#def-364) |
+| jc_snprintf path builds from jc_home_dir() without a truncation check (M1146 swept the spool set; the rest of the class, counted, is in the row) | [details](#def-365) |
+| jichi cuts rules files past the 32 KB cap without a warning; `jichi context` shows only tokens (a configurable cap: later) | [details](#def-366) |
+| the dangling credential setflag in jichi-harness mirror push (M1056, shipped in 0.13.0; fixed in M1147/H7 -- the next public cut carries the fix) | [details](#def-367) |
+| the run's prompt as one exec argument past MAX_ARG_STRLEN + the bare rc 127 + the dead-at-exec notes and handoff (def-368; the harness-port drive's runs 0004-0015, SV:0741) | [details](#def-368) |
+| no ci stage before RELEASE builds the harness subcommand objects at -O2 (M1151's H7 gate RED, 16819897, was found only at the gate) | [details](#def-369) |
+| pre-M1147 drives need a hand step for `push records` / `push tick` (the recs config copy, SV:2042) | [details](#def-370) |
+| two M1147 review points (SV:2042): backlog cell 5's per-step total; `pushOnCalendar` unmarked CHANGED | [details](#def-371) |
+| `--dump-requests` cannot see a forked spawn_parallel worker's model requests (the shared static counter; def-372, the M1149 live cell, SV:0640) | [details](#def-372) |
+| foreground tool calls that cannot finish (B1-B6 designed 2026-11-10; B3+B1 queued after H9b) | [details](#def-376) |
+| a lead cannot tell a broken worker from a working one, or stop it (W1-W6, designed 2026-11-11; queued after B3 and B1) | [details](#def-377) |
+| the design review of 2026-11-11: four measured defects and sixteen further findings (C89, Linux, platforms, architectures, use cases), none fixed | [details](#def-378) |
+| the pool narrows its millisecond clock to `long` in six places: a 32-bit task timeout stops firing past ~25 days of uptime (design review F1, SV:1939) | [details](#def-379) |
+| the Landlock attribute bytes are packed little-endian on every host: a big-endian host sends the wrong attribute list (design review F2, SV:1939) | [details](#def-380) |
+| `mkdtemp` is undeclared where the build adds `-D_XOPEN_SOURCE=600`: an implicit declaration breaks -Werror (design review F4, SV:1939) | [details](#def-384) |
 
 <a id="def-327"></a>
 #### the self-driving harness (D4 of 2026-10-04)
@@ -4557,7 +4574,7 @@ model's work entirely.
 repair; it is not H4 work.
 
 <a id="def-360"></a>
-#### the records-branch push in `jichi-harness drive`
+#### the records-branch push in `jichi-harness drive` (BUILT in M1147/H7 -- the push records command + the in-loop records push, teamPush-gated)
 **Why:** M1059 (H5) ported the loop's `snapshot N (KIND)` exactly as far as the COMMIT: the
 reference pushes the records branch to the remote (loop.sh 83-84, `git push ... origin HEAD:refs/heads/$RB`),
 but in **Mode A** there is no separate records remote the harness owns -- the records clone's
@@ -4573,8 +4590,13 @@ decision, not a P2 one) -- the same credential-helper the `mirror push` uses, th
 **Rejected:** pushing the records to the TEAM's remote (the stand-in in the driver) -- the
 records are a separate branch and a separate concern; mixing them would make the loop's
 `mirror push` and the records push the same push, and the reference keeps them apart.
-**When:** a drive that needs the records on a remote -- the rehearsal (the milestone after H5,
-not yet in the ROADMAP) reads the records from the local clone, so it does not block on this.
+**Status (BUILT in M1147/H7):** the push records command + the in-loop records push, teamPush-gated.
+`push records --config <cfg> <recs-dir>` ports push.sh's records half (the stored origin URL,
+key-scan only with no size check, push by the stored absolute URL never `--force`), and the
+loop's NO-OP now runs the same records push in process when `drive.teamPush` is TRUE and a token
+is readable (false in this drive, so the in-loop path is fixture-only). The row is kept -- it
+still records the why -- but marked built; nothing is deferred. The NO-OP log line it names is
+now the teamPush-false arm only.
 
 <a id="def-361"></a>
 #### the credential-helper classify_url keeps userinfo in the host and compares a percent-escaped path raw
@@ -4599,3 +4621,1222 @@ must be normalised, not the comparison loosened.
 **When:** the next drive that names a remote whose URL carries userinfo or a percent-escaped path;
 the style fix (`grep` -> `$G` in cell 31) can ride any later touch of that driver. Files:
 `src/harness/jc_harness_cred.c`, `tests/smoke/harness_mirror_push.sh`.
+
+<a id="def-362"></a>
+#### the shipped docs' bare "this machine" phrase (the operator's 2026-11-05 docs finding)
+**Why:** SV:2342, registered by the operator on 2026-11-05 and recorded by M1145 (this batch's
+record commit) as **recorded, not fixed**. The shipped docs use the bare phrase "this machine"
+in three different senses, and on a reader page the reader cannot tell which one. Re-counted on
+head 89109f57, case-sensitive `grep -rn` on shipped docs (docs/ minus docs/internal/, which is
+export-ignored): bare "this machine" = **144 lines in 56 shipped pages** (the supervisor measured
+145/55 at 9ada7cd7; the shipped tree is unchanged between those heads, so the 1-line/1-page delta
+is method -- case, or a line-boundary spelling -- recorded, not argued). With "this host/bench/
+workstation/box" added = **292 lines in 97 shipped files** (supervisor: 353/128, same class of
+method delta). The largest concentrations are dated records (ROADMAP 33 lines, ANECDOTES 10, dated
+analysis pages 21, plans 3); the reader pages are the rest. Named reader-page sites:
+docs/CPP_BUILD.md:147 and :167, docs/DOCTOR.md:73.
+**Design:** the bare phrase has three meanings, and each is fixed by a different rewrite --
+(1) the maintainer's workstation on a reader page: name the machine and say what the claim means
+for the reader; (2) the reader's own machine: say "your machine"; (3) the measuring machine in a
+dated record: name it once. Plus a lint against the bare phrase on reader pages. Fixed as one
+docs batch when the hardening drive resumes, beside the README version lint (the operator's
+2026-11-05 carried item 3, the unpinned "This tree reads X").
+**Rejected:** fixing it as scattered per-file edits across this drive -- the finding spans 56+
+pages and the rewrite depends on the lint landing with it; a partial sweep would leave the reader
+pages in a mix of the three senses and the lint would fire on the un-fixed sites. Recorded not
+fixed keeps the shipped tree honest without re-opening every reader page now.
+**When:** the hardening drive resumes -- one docs batch, beside the README version lint. Files:
+the 56 shipped pages carrying bare "this machine" (named sites docs/CPP_BUILD.md:147/:167,
+docs/DOCTOR.md:73) and the new reader-page lint.
+
+<a id="def-363"></a>
+#### a learner page on the C print functions (recorded, not written)
+**Why:** SV:0026, recorded by the operator on 2026-11-06 as **record, not write**. A learner page
+on the C print functions: `printf`/`fprintf`/`sprintf` and their `va_list` forms; `snprintf`/
+`vsnprintf` and why jichi carries `jc_snprintf` (the C89 vs C99 divergence: `snprintf` is C99,
+not C89, so the project's own bounded wrapper is the standard-conformant path -- the reason the
+"never `sprintf`" rule exists); `puts`/`fputs`/`fputc`/`fwrite`; what lies outside C89 (the C99/
+`<stdio.h>` extras); jichi's `sprintf` rule with its incidents (the raw-string-call lint and the
+M1136 strcpy/strcat/gets widening); and the pitfalls (attacker-controlled format strings, `%lu`
+not `%zu`, buffering and `fork`, signal-handler safety, and reading the return value).
+**Design:** one page in `docs/` (the learner's-page shape), cross-linked from the C89 rules and
+`CONTRIBUTING.md`; the `jc_snprintf` provenance and the M1136 incidents quoted, not re-narrated.
+A driver or lint is not owed (it is a page, like the other learner pages).
+**Rejected:** folding it into `CONTRIBUTING.md` -- that file is the rules, not the lesson; the
+page is where a new contributor learns why the rule exists.
+**When:** the documentation batch at the hardening-drive resume, **beside the def-362 ("this
+machine") fix**. Operator decided 2026-11-06.
+
+<a id="def-364"></a>
+#### servers and providers, the documentation part (recorded, not built)
+**Why:** SV:0045, recorded by the operator on 2026-11-06 as **record, not build**. Five items,
+one batch: (1) one verdict page, with a **row per server and per protocol**, with its gaps
+and its strengths;
+(2) a lint tying every "works with X" claim in the docs to that page; (3) `scripts/verify-server.sh`
+(Step 7 for one server -- drive one text turn and one tool-calling turn whose result the model
+must use, record the task, the model and the seconds on the row, the `PLATFORMS.md` "Driven"
+column); (4) `doctor` reading the context window from `llama-server` `/props` and Ollama
+`/api/show`; (5) the page fixes -- `docs/VERIFY_A_PLATFORM.md`'s 12k-token figure (where 4.4k was
+measured) and `docs/LOCAL_MODELS.md`'s unmeasured example model.
+**Evidence already gathered:** `llama-server` b11836 and Ollama v0.40.14 **passed Step 7** on
+2026-11-05/06 (measured by the supervisor), so those two verdicts are measured, not asserted.
+**Rejected:** building it in this drive -- it is the hardening drive's documentation scope, and
+the operator asked to record it here and build it at the resume. New protocols are to be
+discussed with the operator later, and paid-vendor tests happen only on the operator's explicit
+word (the free-models rule).
+**When:** the documentation batch at the hardening-drive resume, **beside the def-362 and
+def-363 items**. Operator decided 2026-11-06.
+
+<a id="def-365"></a>
+#### the fixed buffers that build paths from `jc_home_dir()`/`TMPDIR` without a truncation check
+**Why:** M1146 (batch H6, SV:0540) found and fixed one instance of this class: the background
+spool path (`include/jc_bg.h` `spool[128]`/`spool_dir[128]`, `src/chat/jc_bg.c`'s unchecked
+`jc_snprintf`) silently cut the name past 127 characters when a deep HOME plus a 7-digit pid
+pushed the path over the buffer, and the spool file got a name the probe's glob never saw.
+The M1146 fix sized those buffers and made every build of one of the spool paths refuse on
+truncation. **The rest of the class, read from the tree (SV:0738: count and files from the
+tree, not the report; SV:0840: counted per STATEMENT -- a `jc_snprintf(` up to its `;`, kept
+when the statement names `jc_home_dir()`, "checked" only when its result is assigned, tested
+or returned -- and re-run from the tree root before any citation):** at the commit this row
+lands on, **64 unchecked statements in 18 files** (excluding the fixed `jc_bg.c`, whose
+statement the same count reads "0 unchecked 1 checked" -- the classifier's positive control):
+`src/main.c` (37), `src/tools/jc_tool_parallel.c` (5), `src/convert/jc_convert_main.c` (3),
+`src/chat/jc_app.c` (2), `src/config/jc_config.c` (2), `src/config/jc_config_trust.c` (2),
+`src/session/jc_session.c` (2), and one each in `src/chat/jc_control.c`,
+`src/chat/jc_glossary.c` (`:94`), `src/command/jc_agentdef.c`, `src/command/jc_command.c`,
+`src/command/jc_output_style.c`, `src/index/jc_docs.c`, `src/index/jc_index.c`,
+`src/skill/jc_skill.c`, `src/util/jc_audit.c`, `src/util/jc_inhist.c`, `src/util/jc_voice.c`.
+The count is line-insensitive: most statements are one line, but 28 are wrapped (the
+`jc_home_dir()` argument on a later line) -- 17 of the 37 in `main.c`, 3 of the 5 in
+`jc_tool_parallel.c`, and 1 of the 2 in `jc_app.c`. A third form is a HELPER call that takes
+`jc_home_dir()` and sizes its own output -- `src/snapshot/jc_snapshot.c:549`
+(`jc_snapshot_git_dir(jc_home_dir(), ..., sizeof(m->git_dir))`): the helper's check decides
+it, so the sweep must read the helper, not the call site. The sweep must re-derive the count
+on its head (the command is the one SV:0840 published; `src/` calls `jc_home_dir()` at 83
+sites in 22 files). **Recorded, not swept**:
+M1146 was scoped to the spool set (the one with a measured incident); a sweep of the remaining
+sites is an audit, not a fix, and needs its own red-first per site or a single lint.
+**When:** a later audit batch (the harness drive's own, or the hardening drive's resume). A
+lint in the shape of the `raw-string-call` allowlist (M1136) -- or a targeted one that names
+the `jc_home_dir()`/`TMPDIR` roots -- is the durable gate; the neighbour list in the report is
+the seed. Supervisor asked for the list at SV:0540 (rec 2); the lead recorded it here rather
+than sweeping it in M1146.
+
+<a id="def-366"></a>
+#### the rules cap cuts silently
+**Why:** `src/chat/jc_rules.c` caps the rules block at `JC_RULES_MAX` (32 KB, the per-file headers
+included). The block holds the global `~/.config/jichi/AGENTS.md`, then each directory's `AGENTS.md`
+(else `CLAUDE.md`) from the repository root down to the working directory, then the config's
+`instructions`. Past the cap the text is cut at a character boundary, `... [rules truncated]` is
+appended for the model, and every later file is skipped. Nothing tells the user: no log line, and
+`jichi context` shows only a token count. Measured with jichi 0.13.0 (9ada7cd7) on 2026-11-06: a
+36,149-byte `CLAUDE.md` (this tree's, plus 10,000 of its bytes and a marker line) reaches the model
+without its last line, and stderr has no line naming rules; the 26,149-byte control arrives whole.
+The memory file already has the warning this lacks (M143; since M825 it names the notes it drops).
+Because the global file is read first and the working directory's last, the cut drops the MOST
+specific rules first. Nothing is cut today: at e0fd1995 this tree's `CLAUDE.md` is 26,128 bytes,
+86 under `rules_budget_lint`'s guard line (80% of the cap, 26,214; M516), which keeps room for a
+global file; the drive hosts have no global `AGENTS.md`.
+**Fix (small):** warn when the cap cuts, naming the file, the bytes dropped and any file skipped, as
+the memory loader does; show the rules bytes against the cap in `jichi context` and `doctor`; a
+driver that builds an over-cap `CLAUDE.md` and asserts the warning, red first.
+**Later -- a configurable cap (the operator's question, 2026-11-06):** a config value for this
+load-time ceiling, default 32 KB, with a hard upper bound (the read is bounded by it, M1109), shown
+by `context` and `doctor`. It does not replace the context fit (`jc_sysmsg_fit_caps`: rules, repo
+map and design share 45% of a DECLARED context and shrink further on a small model). The static cap
+is what protects a config that declares no context, where the fit never shrinks. Raising it costs
+every request (prefill time on a local model), so the warning comes first. Open with it: should the
+cut keep the most specific file rather than the global one?
+**When:** the warning in a later audit or docs batch; the configurable cap only on the operator's
+word.
+
+<a id="def-367"></a>
+#### the dangling credential setflag in jichi-harness mirror push (shipped in 0.13.0)
+**Why:** M1056's static `credential_args` (`src/harness/jc_harness_push.c`) built the SET
+credential flag on its own stack (`char setflag[PATH_CAP + 32]`) and returned
+`argv_out[1] = setflag` -- a pointer into a dead frame. At both M1056 call sites (the
+key-scan/size-check ls-remote child and the push child) the caller runs `jc_snprintf` three
+times and `credential_env` BEFORE the git child reads the flags, each reusing that stack:
+the SET string could be clobbered between being built and being exec'd. The undefined
+behaviour shipped in the published **0.13.0** (`src/harness/` is not export-ignored; came in
+with 551017e6, M1056/H3c). `harness_mirror_push` cell 15 (the push child's argv capture) was
+green by luck, not by construction. The M1147 restructure had ALSO added a second, broken
+copy (`jc_hp_cred_flags`: a 512-byte setflag + guessed credential params); both went in the
+fix.
+**The fix (M1147/H7, SV:1939):** `credential_args` now takes an arena and allocates the SET
+string in it, so it survives the caller's later stack use; both call sites pass the arena
+already in scope. The M1147 export copy is replaced by ONE thin wrapper
+(`jc_hp_cred_flags(struct jc_arena *a, const char *harness_path, char *flags[4])`) over the
+fixed helper -- the real three flags need only the harness path. M1056's three -c VALUES are
+byte-identical (cell 15 still green). The next public cut carries the fix; whether to tell
+anyone more is the operator's decision (internal row + ROADMAP line only -- no public
+changelog/announcement).
+**When:** already fixed on the drive's branch (M1147/H7); this row is the PUBLISHED-0.13.0
+record for the next public cut.
+**A second instance of a DIFFERENT class landed here too (M1147/H7, SV:2239):** the M1056
+mirror-push KEY SCAN -- the very gate named above -- had the 0-byte-blob fail-closed defect
+at `src/harness/jc_harness_push.c:1506` (shipped in 0.13.0): its per-blob read refused on
+`brc != 0 || blob.data == NULL || blob.len == 0`, so a legitimate read of git's EMPTY blob
+(`e69de29...`, a 0-byte object) -- rc 0, no bytes -- was mistaken for a read failure and
+refused the push fail-closed. The IDENTICAL condition had been fixed moments earlier in the
+records key scan (`jc_hp_records.c`, edb2d992). Both loops now call ONE shared helper
+(`jc_hp_blob_read`, exported from `jc_harness_push.c` / declared in `jc_harness_push.h`):
+0 = read ok (the bytes may be EMPTY -- an empty blob is a valid, clean read, a 0-byte object
+cannot hold a secret), 1 = a genuine cat-file failure (the loop's existing fail-closed
+refusal, its message byte-identical). Fail-closed: it BLOCKS the push and leaks nothing
+(the path is named, never the secret). The published **0.13.0** carries the defect; the
+next public cut carries the fix.
+<a id="def-368"></a>
+#### the run's prompt travels as one exec argument past the kernel's MAX_ARG_STRLEN, and the dead-at-exec run leaves no trace
+**Why:** Runs 0004-0015 of the harness-port drive died with rc 127 after ~10 s
+(`stream.jsonl` and `stderr.log` empty), and every retry died the same way -- the
+loop could not recover. The supervisor measured the kernel boundary on 2026-11-07
+(SV:0741); the four parts:
+**(a) The prompt is one argv element.** The run's spawn
+(`src/harness/jc_harness_run.c:1451`) passes the whole prompt as
+`--prompt-b64 <b64>`. Linux refuses an exec argument of 131,072 bytes or more
+(MAX_ARG_STRLEN, E2BIG), so a base64 prompt fits only up to 98,301 bytes of
+prompt text. Measured in run 0016 against the pinned binary: a 131,072-char
+argument execs rc 126, and `Argument list too long` is the SHELL's message
+(dash prints it when execve refuses the over-length argv with E2BIG -- the exec
+failed, so jichi never ran and its stderr is empty); a 131,071-char one runs
+clean. The UNLIMITED route exists and is documented: jichi reads piped stdin as
+the prompt (`src/main.c` `--prompt -` -> `read_all_stdin`, :20404; the
+bare-piped route at :18727) -- the fix is the harness's, to deliver the prompt
+on the child's stdin (or a prompt file) instead of argv. **When:** a harness
+batch with the supervisor (the run path is host-side; the switch-over must
+agree).
+**(b) The spawn failure is a bare rc 127.** `jc_spawn`'s child
+(`src/util/jc_spawn.c:179`) `_exit(127)`s when exec fails, and nothing in the
+run's stderr.log names the errno (E2BIG). The errno should reach the run's log,
+so a dead-at-exec run is diagnosable in 10 s, not by a supervisor measuring the
+kernel boundary.
+**(c) A run that dies at exec keeps its notes.** A run that dies before its
+first model call leaves its inbox notes (behaviour 13), so every retry carries
+the identical prompt and the loop cannot recover. The harness must treat a
+dead-at-exec run as a delivered run (notes to inbox-delivered) or refuse to
+re-queue them.
+**(d) The quick failures overwrite the handoff.** Each failed run writes its own
+`handoff.md` ("rc 127 after 0 min"), so the last REAL handoff (run 0003's) was
+buried under run 0004's; it survives only in `runs/0004/handoff.md`. A
+dead-at-exec run (no model call) must not overwrite the previous run's
+handoff -- the handoff is the last run's evidence.
+**Rejected:** fixing the harness in the drive's container -- the run path is
+host-side (this container holds only the drive directory), so the change is the
+supervisor's beside the script, with the switch-over agreed.
+
+**Recurrence (2026-11-12, SV:1454):** run 0040 died at exec, 2026-11-12 14:43:49-14:43:59, prompt 102,170 B, rc 127 -- over the def-368 98,301-B argv limit, and it overwrote run 0039's real handoff (5,889 B) with its own stub (299 B), def-368 part (d). Run 0041 started only because the handoff had shrunk to that 299-B stub (prompt 96,580 B, under the limit). The fix (prompt on the child's stdin, not argv; a dead-at-exec run must not overwrite the prior handoff) is an agenda item for after the pause -- not started here.
+
+<a id="def-369"></a>
+### def-369 -- no ci stage before RELEASE compiles the harness subcommand objects at -O2 (M1151, H7 re-gate, SV:1241 part 2)
+
+**The gap.** The H7 gate RED on 16819897 (2026-11-07 12:31) failed at the
+RELEASE line (Makefile:1837, `make -k RELEASE=1 WERROR=1 jichi jichi-harness
+test`, `-O2 -D_FORTIFY_SOURCE=3 -ftrivial-auto-var-init=zero`): the fortified
+compiler's `-Wstringop-overflow` on `jc_hp_git_run`'s `args[64]` prototype
+bound, over the callers' 16-48-byte `argv`s (fixed in M1151(a) by the
+incomplete parameter). No stage before RELEASE compiled `jc_hp_backlog.o` /
+`jc_hp_records.o` (and the rest of the `jc_hp_*.o`) at -O2: the M996 stage
+(Makefile:1718, `OPT=-O2 test`) builds `run_tests`, which links
+`HARNESS_CONFIG` and `HARNESS_PUSH` but none of the `jc_hp_*.o` (Makefile:1507);
+the sweep's O2 unit suite is the same `test`; the leak check is a SAN build.
+So the error reached the gate only after the full sweep, and H7 never reached
+the RELEASE line before 12:31.
+
+**The improvement.** Add `jichi-harness` to the M996 stage's targets
+(Makefile:1718: `OPT=-O2 test` -> `OPT=-O2 jichi jichi-harness test`, the shape
+the RELEASE line itself uses), so the next error of this class fails ~45
+minutes earlier in the gate (the M996 stage sits before the c++/SAN/leak
+stages), at the cost of one more hardened link.
+
+**Why deferred (M1151's call).** This batch stays exactly what the gate and
+the review name: the two M1147 defects and the guard they exposed. The
+Makefile change is a stage-ordering improvement, not a defect fix; it is
+captured here for the batch that next touches the harness's ci stages (a
+natural moment: H9, which owns the gate's own lines), with this row as the
+teeth reference (the 16819897 log, ci-16819897.log:12744, is the evidence).
+
+<a id="def-370"></a>
+### def-370 -- a drive laid out before M1147 cannot run `push records` (and so `push tick`) without a hand step (SV:2042, the push switch-over)
+
+**The gap.** `push records` (and therefore `push tick`) needs
+`<dir>/recs.git-config.harness-copy`: a byte copy of `recs/.git/config`, stored
+at `init` time so the records push's URL guard can check the remote's stored
+URL against it without re-blessing a live URL unchecked (the reason the `init`
+comment at `jc_harness_init.c:1214-1217` gives: "on a re-run where `recs/`
+already exists this is skipped"). Only `init` writes that copy, and only when it
+CREATES `recs/`. A drive whose `recs/` predates M1147 therefore has no copy,
+and `push records` refuses. The push switch-over found it: this drive's `recs/`
+predates M1147, so the supervisor wrote the copy by hand at 20:40 (a byte copy
+of `recs/.git/config`, its URL checked against the mirror's stored copy and
+`recs-push.git` -- the same remote, with no token in it).
+
+**The improvement.** An upgrade path for an existing drive: a `jichi-harness`
+verb (or an `init --adopt` mode) that writes `<dir>/recs.git-config.harness-copy`
+from a drive whose `recs/` already exists, and runs the SAME URL check the guard
+runs (the stored copy against the mirror's stored copy and `recs-push.git`),
+refusing to re-bless a live URL unchecked -- i.e. it must not silently copy a
+`recs/.git/config` whose URL it cannot confirm is the configured remote.
+
+**Why deferred (SV:2042's call).** The switch-over is in flight: the script is
+authoritative until a day of ticks agrees, and the hand step is one command per
+drive (already done for this one). The upgrade path belongs to the batch that
+next owns the records push (H11, the re-pin, or the switch-over close), with
+this row as the teeth reference (the 20:40 hand copy is the evidence that the
+gap is real and one-step).
+
+<a id="def-371"></a>
+### def-371 -- two smaller M1147 review points (SV:2042): backlog cell 5's per-step-total coverage; `host.pushOnCalendar` not marked CHANGED in notes/M1147.md
+
+**Point 1 (backlog cell 5).** The reference's backlog step split is bounded TWO
+ways: an 8 MB per-FILE limit and a 20 MB per-STEP total. Driver cell 5 exercises
+the per-FILE limit (one file over 8 MB is split) but never the per-step total
+(two 11 MB files in one step, under the file limit each, over the total, would
+test it). The port's split is believed to honour both (M1147's note carries the
+rule), but the total has no cell. A later batch that touches
+`push-backlog.sh`'s port adds the two-file cell; until then the total is pinned
+only by the note, not the driver.
+
+**Point 2 (`host.pushOnCalendar` CHANGED marker).** The reference `push.sh`
+reads a `pushOnCalendar` flag; the port refuses it when absent (the drive runs
+on the host timer, so the field is not in the config shape). `notes/M1147.md`
+does not mark this CHANGED with the reason, though the port's behaviour
+differs from the script's on a config shape the script would accept. A one-line
+CHANGED row in the note (or a fix to make the port accept the field the way the
+script does) resolves it.
+
+**Why deferred (SV:2042's call).** Both are review polish, not defect: the port
+is right on the per-file split and on the timer shape, and the H7 batch is
+already landed and re-pinned. Both belong to the next batch that touches the
+push port's driver or note (a natural moment: H11, the re-pin), with SV:2042 as
+the teeth reference (the full review, attached to run 0023's notes, carries both
+rows).
+
+<a id="def-372"></a>
+### def-372 -- `--dump-requests` cannot see a forked spawn_parallel worker's model requests (the M1149 live cell's instrument gap, SV:0640)
+
+**The defect.** `jc_toolout_dump_request` (src/util/jc_toolout.c:155) keeps its
+request counter as a process `static int nreq`. The parallel pool FORKS its
+workers (src/tools/jc_tool_parallel.c:1759), so every worker inherits the
+lead's counter value at fork time: all workers write the same `req-NNNN.json`
+names, and the lead's next request overwrites a worker's file (and vice
+versa). On the M1149 live cell (run 0023, 06:08) both files in the cap
+directory held the LEAD's prompt; neither held a worker's task. The lead
+misread this as "the workers made no model call" -- the batch report shows
+they did (one each).
+
+**Consequence.** A live-model witness of the per-worker inject (behaviour 13:
+the marker in the target child's request, in no other child's) cannot be read
+from `--dump-requests` as built. The deterministic mock-model driver
+(parallel_abnormal_endings.sh cells 10 and 14) pins that leg by construction;
+the live cell can only witness the channel from the parent side (status `batch`,
+accept, refuse-by-value, the batch report) until this is fixed.
+
+**The fix (when a live witness of the child side is wanted again).** Give each
+child its own counter or its own dump subdirectory: the journal already solves
+exactly this problem for event logs -- `JC_EVENTLOG_CHILD_SEQ_STRIDE`
+(band * stride, src/tools/jc_tool_parallel.c) makes child sequence numbers
+disjoint from the parent's. The analogous move is a per-task dump
+subdirectory (or an nreq offset per band) chosen at fork. Then a live cell
+can grep each worker's requests independently.
+
+**Why deferred.** The M1149 batch's behaviour 13 is met without it: the
+child-side fold is pinned by the driver (14/14), and the live cell witnessed
+the parent-side channel on a real free model (the wire shape, the accept, the
+refuse-by-value). This row is the instrument's gap, named so the next live
+witness of a forked worker's requests does not repeat the misread.
+
+<a id="def-373"></a>
+~~### def-373 -- the per-worker inject pool guard (`injq_len + add > JC_CONTROL_QUEUE_MAX`, src/tools/jc_tool_parallel.c:1596) is untested by the smoke teeth (M1149 WEAK row, SV:0837.1)~~
+
+**Retired 2026-11-08 (run 0024).** The guard's reachability is now a measurement: cell 15 of `parallel_abnormal_endings.sh` is its pipe-size-free reachability tooth (several under-cap ~40000-byte notes to a child in one long tool call reach :1596 by refusal on any pipe; the mock's global `cap/req.N` capture is the witness, SV:1237), and probe a's `if (0 && ...)` perturbation is the tooth that turns it red. The body below is kept as history.
+
+**The untested guard.** `pool_op_inject`'s accumulated-cap check, `if
+(t->injq_len + add > JC_CONTROL_QUEUE_MAX)` at src/tools/jc_tool_parallel.c:1596
+(with its counter released by the drain's decrement at
+src/tools/jc_tool_parallel.c:1645), refuses a note when the per-task queue's
+unwritten tail plus the new note would exceed the cap. It IS REACHABLE by
+ordinary input -- the parse layer (src/util/jc_control_proto.c:168) bounds ONE
+note, and the child reads its inject pipe only at a boundary
+(src/chat/jc_control.c:597, `pool_inject_fd_valid && hist != NULL`; called
+from src/chat/jc_agent.c:2623 and :5298), so several UNDER-cap notes sent to
+a child in one long tool call (or model stream) accumulate in `t->injq`
+regardless of the host pipe size, and :1596 is the ONLY bound on the lead's
+per-task queue for that case -- without it the lead's memory grows without
+limit while the supervisor keeps sending. What NO tooth does today is reach
+it by REFUSAL: no cell sends several under-cap notes to one task while its
+child sits unread, and the decrement's only observable effect in the teeth is
+a <=17-byte residual (cell 14's short note) no sequence approaches.
+(Corrected 2026-11-08, SV:1138: the original wording claimed the guard was
+unreachable on any input and a defense-in-depth behind the parse cap --
+both false; the reachability reading is confirmed by the two probes'
+perturbations, which turned nothing red, i.e. nothing the guard guards is
+in the teeth.)
+
+**The probes' evidence (this drive, 2026-11-08).** Two effect probes, each
+rebuild + full teeth: (a) making the :1596 guard never fire turned NOTHING
+red -- driver 14/14, unit 37529/0, cell 14 still printing the "queue is full"
+refusal (docs/internal/drive/2026-11-05-harness-port/reports/2026-11-08-M1149-probe-a.md);
+(b) removing the :1645 decrement turned NOTHING red -- driver 14/14, unit
+37529/0 (docs/internal/drive/2026-11-05-harness-port/reports/2026-11-08-M1149-probe-b.md).
+Both probes also settled the bound question: behaviour 10's cap is the
+UNWRITTEN TAIL -- the bytes still queued and not yet written to the child's
+pipe, released as the drain writes -- not a lifetime high-water; the comment
+at src/tools/jc_tool_parallel.c:1589 now says so.
+
+**Why deferred (the DEFERRED choice, over adding a cell).** No cell exists yet:
+the guard is reachable by several under-cap notes to a child in one long tool
+call (the reading above, SV:1138 -- the original row named three false reasons,
+chief among them a host pipe-buffer dependency that does not exist, because a
+larger pipe only takes more notes to fill, and once full every further byte
+stays in `t->injq` and counts in `injq_len`, on any pipe), and it bounds the
+lead's memory. The pipe-size-FREE cell (a write child sleeping in one tool
+call; 40,000-byte notes each with its own marker, sent until the first refusal;
+assert a refusal comes, every accepted marker lands in the child's next
+request, the refused marker does not; fail if no refusal after notes far above
+pipe-max-size + the cap) needs the child's NEXT REQUEST to carry the accepted
+markers -- and that cannot be observed with `--dump-requests` (def-372: a
+forked worker's requests are not dumpable), so the assertion would ride on the
+def-372 dump gap or on a weaker marker (the batch report alone). Once def-372
+is closed, the cell is built as described and this row is retired. The
+decrement (probe b) needs a second phase the single-phase cell does not give:
+let the child drain at its boundary, then send again and assert acceptance, to
+distinguish the unwritten tail from a lifetime bound.
+
+<a id="def-374"></a>
+### def-374 -- portability_lint checks 37/38 read a trailing comment as a stream/file-open call (the M1158 over-match, SV:0438)
+
+**The defect.** `tests/smoke/portability_lint.sh`'s `_bin_awk` (the `scan_file`
+function, at 1577-1637 as on main) decides whether a line is code by skipping
+only a line that **starts** with `/*` or `*` (`if (line ~ /^[ \t]*(\/\*|\*)/)
+continue`). A comment that sits AFTER code on the same line is scanned as code.
+So `#include <fcntl.h>   /* open (the per-check output file) */` is read as an
+`open` call, and `#include <unistd.h>   /* fdopen (the per-check output file) */`
+as an `fdopen` call. Check 38 (every `open()` of a file carries `JC_O_BINARY`)
+and check 37 (every `fopen`/`fdopen`/`freopen` mode is binary) both inherit
+this: `fopen`/`open` inside a trailing comment on a code line is a finding.
+
+**The measurement (SV:0438, 2026-11-11).** The supervisor copied the lint's
+`_bin_awk` into a scratch directory and ran it with check 38's and check 37's
+`WANT` patterns on a four-line file:
+
+    #include <fcntl.h>   /* open (the per-check output file) */
+    int x; /* fopen (later) */
+    /* open (a leading comment line) */
+    int fd = open(path, O_RDONLY);
+
+Check 38's pattern reported line 1 (`open ?non-literal`) AS WELL AS the real
+call on line 4. Check 37's pattern reported line 2 (`fopen ?non-literal`).
+Line 3 (a leading comment) was skipped. `scan_file` skips only a line that
+starts with `/*` or `*`; a comment after code on the same line is scanned as
+code.
+
+**Consequence.** The next comment like `/* open (...) */` after code anywhere in
+`src/`, `include/` or `tests/*.c` reds the lint again, and its author rewords
+around it. A lint that reports a comment as a call is the "else-branch as a
+finding" class in CLAUDE.md: the `?non-literal` / unflagged-comment fallback
+reads as a positive call. In the M1158 wave this was the cause of
+`jc_hp_gateref.c:36` (check 38) and `:39` (check 37) being flagged as real
+calls when gateref has no `fdopen` call and only one (already-`"rb"`) `fopen`.
+
+**The fix (a small task in its own).** Strip `/* ... */` spans from the line
+before the match, the way `in_string` already skips string literals: in
+`scan_file`, before or at the point the `WANT` match is tested, blank out every
+`/* ... */` run on the line (honouring that a comment never crosses a newline
+in C) so a word inside a trailing comment is not seen. Red-first cell: a line
+with a trailing comment that contains `open (` / `fopen (` must NOT be flagged,
+while a real call on the same line (and a call on a following line) must still
+be flagged -- so the teeth prove the strip removes the comment without
+removing the code. The reworded gateref comments (the immediate reds) can stay
+as-is; the fix is for the NEXT author who writes such a comment.
+
+**Why deferred.** M1158 already clears the two reds (Task B reworded the two
+gateref `#include` comments and fixed the real call sites in the five harness
+files + test_gateci.c), and the portability driver is green on main. The
+over-match is a latent defect of the lint, not a live red; it is registered here
+so its fix is a deliberate small task with its own red-first cell, not a
+reword-and-move-on that leaves the trap in place for the next trailing comment.
+
+<a id="def-375"></a>
+### def-375 -- read-before-edit compares path strings, not files (`jc_app_mark_read` / `jc_app_was_read`, SV:0640)
+
+**The defect.** The read-before-edit fence records the path argument **as
+given**: `read_file` marks `jc_app_mark_read(app, path)` (src/tools/
+jc_tool_read.c:193), `edit_file` / `apply_patch` check `jc_app_was_read`
+(src/tools/jc_tool_apply_patch.c:198), and `jc_app_was_read` compares the
+strings with `strcmp` (src/chat/jc_app.c:1146). The relative and the absolute
+spelling name the same file but are different strings, so a read by one
+spelling does not satisfy an edit by the other. Nothing clears the read set
+during a session, and a subagent shares it with the lead, so the spelling is
+the only difference between a pass and a refusal.
+
+**The measurement (SV:0640, 2026-11-11, from runs/0036 telemetry, the pinned
+build 53a1ef4e).** Task A (the M1159 red-first driver) read
+`tests/smoke/harness_gate_run.sh` by its **absolute** path (the whole file,
+95,039 bytes, 05:30:57), then 49 minutes later its `apply_patch` named the
+**relative** path and was refused: `error: edit 1: read tests/smoke/
+harness_gate_run.sh before editing it`. The worker then re-read two small
+ranges, again absolute; each turn took 5-6 minutes. The task ended with
+nothing merged and no report (a clean tree at a72c7dd2). The fix inside a
+brief (applied to the re-dispatch): name ONE path form, the absolute, in
+`read_file`, `apply_patch` and `edit_file` alike.
+
+**The fix (its own small task, NOT in H9b -- the operator's order stands).**
+Compare a normalised path on both sides, the workspace-relative or
+realpath form: `jc_app_mark_read` and `jc_app_was_read` canonicalise their
+argument before the strcmp. Red-first unit cell: a read by the absolute path
+must allow an edit by the relative path (and vice versa); today that cell is
+red by construction on the strcmp. A second cell pins that two DIFFERENT
+files (one an ancestor-prefix spelling of the other is the tempting
+misnormalisation) still refuse.
+
+**Why deferred.** The H9b orchestrator work proceeds with the brief-level
+mitigation (one path form), which is what the supervisor asked for; the fence
+fix touches `jc_app.c`'s session state and is out of this batch's file set.
+Registered so the next absolute/relative worker does not burn an hour on the
+same refusal before the fix lands.
+
+<a id="def-376"></a>
+### def-376 -- foreground tool calls that cannot finish (designed 2026-11-10; B3 and B1 queued after H9b)
+
+*Renumbered from def-374 at the docs handover of 2026-11-14: the drive had taken def-374 on 2026-11-11 (the
+portability_lint over-match, SV:0438) while this row waited on its branch.*
+
+**The case.** On 2026-11-10 a harness-port worker ran `jichi-harness gate run --stage redfirst` in the foreground of
+`run_terminal_command`. The stage never finished (a re-spawn storm of the same per-check child: a token loop that never advanced; corrected
+2026-11-11 from "no child process", a misread snapshot), and the worker waited 7200 s until `runTimeout`
+ended the call. `control status` showed the block. No control verb ends only the current command: `inject-task`
+lands after the call, and `stop-task` ends the worker.
+
+**The measurement** (251 drive runs, `docs/internal/2026-11-10-blocked-foreground-calls.md`):
+
+- 66 calls ended by jichi's own command timeout (13.7 h): 56 at a per-call `timeout` the model set, 10 at
+  `runTimeout`. 16 of them were full smoke runs cut at 600-2,000 s, against 1,510-2,470 s when one finished.
+- 7 calls of 10 min or more were held open by a shell `&` (3.7 h). The output pipe is read to EOF
+  (src/chat/jc_app.c:810), and a backgrounded subshell keeps it.
+- 530 commands wrap themselves in `timeout`, and at least 27 of those wrappers fired. A fired wrapper's output reads
+  like a result.
+- 285 of 1,416 mid-turn compactions were unrelieved, with streaks of up to 61. M920's relay is off by default and
+  runs at depth 0 only.
+
+**The proposals** (the note's B1-B6, none built). **The operator, 2026-11-10: "B3 and B1 after H9b lands. Document all of them for later review."** B3 and B1 are queued after H9b, ahead of H9c, def-284 and G1-G6 (the operator's order, the same evening). On 2026-11-11 the operator placed def-377 (lead-side worker supervision, on branch `analysis/2026-11-11-worker-supervision`) between B3+B1 and H9c; B2, B4, B5 and B6 are written up in the note for later review.
+
+- **B1:** return when the shell exits.
+- **B2:** make a silent foreground command visible: liveness in `status` and telemetry, and later a
+  detach-on-silence into a background job, counting spawns per interval (the case was a re-spawn storm). It never
+  kills: many spawns with no output is a hint, not proof.
+- **B3:** `control cancel-cmd [task]`.
+- **B4:** name a fired model-set limit in the result.
+- **B5:** stop re-compacting after K unrelieved passes; a worker returns "context exhausted".
+- **B6:** the tool description names the shell-`&` trap.
+
+Each says what to measure before it is built.
+
+**Why deferred.** It was found by the drive's supervisor while H9b runs. The drive's batches own the harness for
+now, and the operator picks which of B1-B6 to build and when. A recurring case is the trigger.
+
+<a id="def-377"></a>
+### def-377 -- a lead cannot tell a broken worker from a working one, or stop it (designed 2026-11-11; queued after B3 and B1)
+
+**The case.** The harness-port drive's M1159 Task B ran 387 minutes, from 09:35 to 16:03 on 2026-11-11.
+
+- Its last code edit was at minute 154. After that it compacted 13 times, copied 11 placeholders, and its
+  tool calls fell from 129 to 8 per hour.
+- None of the exact-match stops caught it early: M829's `same_result`, M870's `rotation`, and M869's
+  placeholders-in-a-row. M869 ended it at the 11th copy.
+- The batch report read `stop=max_iters`.
+- The lead was blocked inside `spawn_parallel` the whole time. M1149's `stop-task` serves the supervisor,
+  not the lead, and its `idle_s` stays near zero for a worker that cycles.
+
+**The operator, 2026-11-11:** "The lead must be able to identify broken workers, and stop them."
+
+**The measurement** (880 workers in 254 drive runs; `docs/internal/2026-11-11-lead-worker-supervision.md`
+and its two scripts):
+
+- Leads spent 310.0 of 563.5 run-hours (55%) inside spawn calls. 552 of 672 batches had one task.
+- 851 of 866 matched endings read `done`, so the ending is not a label.
+- There are four shapes of broken worker: cycling with a full context, blocked, a model-bound crawl, and
+  a long silence that recovers.
+- Two rules are provisional:
+  - R1: 60 min without a code edit after the first. It flags 7 of 563 workers and fires on Task B at
+    minute 214.
+  - R2: a second copied placeholder. It flags 4 of 880 and fires on Task B at minute 244.
+
+**The operator, 2026-11-11 18:37:** "def-377 after B3 and B1, then H9c, def-284, G1-G6". The order after
+H9b is: the docs handover, B3+B1, def-377, H9c, def-284, G1-G6.
+
+**The proposals** (none built). Inside the slot the note's own order applies: its measure-first steps,
+then W1-W4 and W6, then W5.
+
+- W1: the child sends its signals (`{"t":"sig",...}`).
+- W2: the parent shows them in `status`, on the board and in a `worker_flag` event. Observe only; the
+  default.
+- W3: the flag rule (R1 or R2; never inside one running tool call), configurable.
+- W4: a per-batch `supervise` policy the lead sets: report, wrapup or stop.
+- W5: the live form, def-304 (O7 of 2026-09-27).
+- W6: the loop kind as a field on the batch summary line, and a `worker_outcome` record so the next
+  analysis has a label. (W6 first proposed a new stop name, `stop=looped:<kind>`. That was withdrawn on
+  2026-11-11: M885 rejected new stop names on the wire. See the note's section 12.)
+
+The builder's decisions (what counts as progress, where the settings live, what a stop does to the
+worker's work, the records) are laid out with options and evidence, and no code, in
+`docs/internal/2026-11-11-lead-worker-supervision-decisions.md`.
+
+Measure first:
+
+1. the fingerprint's cost against the edit-call proxy;
+2. a second corpus for R1 and R2;
+3. wrapup on a context-exhausted worker;
+4. no default action beyond `report` until outcomes are recorded.
+
+O4 and O6 of `docs/internal/drives/2026-09-26-zigodot/agentic/design-options.md` were never registered.
+This row carries them.
+
+**Where:**
+
+- `src/tools/jc_tool_parallel.c`: the 200 ms wake, the progress-line handler, M1149's snapshot and stop.
+- `src/tools/jc_parallel.c` and `include/jc_parallel.h`: the message kinds.
+- `src/chat/jc_agent.c`: the loop stops and their `max_iters` label.
+- `src/util/jc_toolloop.c`: the novelty ring.
+
+**The number is provisional:** the drive's main uses numbers up to def-375, and def-376 is kept for the
+2026-11-10 blocked-calls row. Renumber at landing if it is taken. (2026-11-14, the docs handover: it was
+free; def-377 stands.)
+
+<a id="def-378"></a>
+### def-378 -- the design review of 2026-11-11: four measured defects and sixteen further findings, none fixed
+
+**The request.** The operator, 2026-11-11: find "design decisions, alternatives, implications,
+specifically regarding c89, linux, possibly the other supported platforms, and systems (risc-v, arm64),
+and the various use-cases for jichi", regardless of the drive.
+
+**The review** is `docs/internal/2026-11-11-design-review.md`, made at master 53a1ef4e: five read-only
+agents, about 55 of their claims re-checked by hand, and eight measurements. Its section 9 is the findings
+register, F1 to F20.
+
+**Measured defects:**
+
+- **F1:** the millisecond clock is narrowed to `long` in six places
+  (`src/tools/jc_tool_parallel.c:1334, 1341, 1808, 1871, 1898`; `src/chat/jc_app.c:1627`). On a 32-bit
+  system up for 24.86 days, the pool's task timeout never fires, `idle_s` reads 0 and the batch heartbeat
+  stops throttling.
+- **F2:** the Landlock attribute is packed little-endian on every host (`src/util/jc_landlock.c:87-94`).
+  On big-endian Linux the kernel is asked for the wrong rights, and every parallel write task is refused.
+  M1018's commit message says "BE is unpinned -- follow-ups"; no row followed.
+- **F3:** `watch gate`'s default unit-start command is not `systemd-run` syntax
+  (`src/harness/jc_hp_watchgate.c:1053, 1457-1481`): `systemd-run` fails with "Failed to find executable".
+- **F4:** `mkdtemp` is undeclared wherever the build adds the older X/Open feature level
+  (`src/platform/jc_platform_posix.c:29-31, 253`; `Makefile:286-296`), which fails a strict build.
+
+**Read in the code:**
+
+- F5: `push run-drive` prints stray value tokens.
+- F6: the shell fence grants the whole shadow git directory (security-relevant).
+- F7: truncation is unfenced below Landlock ABI 3.
+- F8: the harness applies no memory protection and needs `/proc/self/exe`.
+- F9 to F11: sizes, timeouts and token counts narrowed without a range check.
+- F12 to F14 and F16: pages that contradict the code or each other.
+
+**About the decisions:**
+
+- F15: the foundational decisions have no register rows, and C99 was never weighed. The tree builds and
+  passes its unit suite unchanged as C99 and as C11.
+- F18: the gate covers one architecture.
+- F19: the primary user has never been observed.
+- F20: ten findings of the 2026-10-15 analysis are open with no row.
+
+**Decided on 2026-11-11** (the operator: "Please, follow your recommendations"): F3 is fixed before the gate
+watcher is switched to the port; F1 goes with def-377; F2 and F4 are small fixes; the contradicting pages are
+corrected in one batch (done on the review's branch); the foundational decisions get register rows (done). The
+code is the team's (SV:1926, SV:1939). No code is fixed yet. The review's section 11 has the details.
+
+**Where:** the review's section 9 gives each finding's lines and a cheap check. The probes are in
+`docs/internal/2026-11-11-design-review/`: the first two since the review, the other two since its
+section 12.
+
+**Added on 2026-11-11, 23:25** (the operator asked what F8 means for portability when it is taken with F3;
+the review's section 12):
+
+- **F3 is three faults, measured:**
+  - the unit name and the description are passed as plain arguments;
+  - the command is passed as one argument.
+
+  Cells 4 and 6 of the watcher's driver require the one-argument form. A wrapper script is the only
+  override that works. The drive registered F3 as def-381.
+- **F8's protection half** is built and already linked into the harness.
+  - On this host it would mainly prevent a core dump of `run`, which holds the model key for a whole agent
+    run, and close the descriptor route.
+  - It would blind three of the supervisor's instruments, which have to change first.
+- **F8's self-path half** is the real portability work. The harness needs `/proc/self/exe` in nine places.
+  - `argv[0]` is unsafe as a fallback, because the path becomes git's credential helper.
+  - Lifting the refusal alone would expose the gate watcher's team-smoke wait, which treats an unreadable
+    process as no smoke.
+- **Open, the operator's:**
+  - whether the harness protects the keys it holds;
+  - every command or only the secret-holding ones;
+  - whether the harness is declared a Linux-with-systemd program for now;
+  - when a non-Linux harness host is wanted.
+
+  The review's section 12.9 gives a recommendation for each.
+
+**Decided on 2026-11-12, about 00:10.** The operator: "D-F8-1 to D-F8-3 as you recommend".
+
+- The harness protects the keys it holds, in every command, as jichi does.
+- It is a Linux-with-systemd program for now.
+- When a non-Linux harness host is wanted stays open.
+
+The rows are `docs/DECISIONS.md` `dec-2026-11-12-harness-protection` and `dec-2026-11-12-harness-linux`.
+The drive's host scripts were changed first, so that they no longer depend on reading the loop's
+`/proc/<pid>/exe`. The lead was told in SV:0013. The code is the team's, with its F3 batch.
+
+**The number is provisional:** the drive's main uses numbers up to def-375, and def-376 and def-377 are
+kept for two other analysis branches. Renumber at landing if it is taken.
+
+**2026-11-14, the docs handover:** def-378 was free and stands. Since this row was written, the drive has
+registered F1 to F5 and F8 as def-379 to def-384; none of them is fixed yet.
+
+<a id="def-379"></a>
+### def-379 -- the pool narrows its millisecond clock to `long` in six places: a 32-bit task timeout stops firing past ~25 days of uptime (design review F1, SV:1939)
+
+**The defect.** The worker-pool task-timeout arithmetic holds the
+millisecond clock value in `long` at six places:
+src/tools/jc_tool_parallel.c:1334, 1341, 1808, 1871, 1898 and
+src/chat/jc_app.c:1627. On a 32-bit system a `long` wraps at 2^31 ms
+(~24.86 days of uptime); past that the difference a task timeout waits on
+goes negative or zero and the timeout never fires. The probe is
+`docs/internal/2026-11-11-design-review/ms32-probe.c` on branch
+`analysis/2026-11-11-design-review` (e4e1a588).
+
+**The fix.** Widen the six spots to a 64-bit clock. A test must SET the
+clock value (the gate's 32-bit stage cannot see it by waiting), so
+red-first is a unit cell that stamps a wrapped value and expects the
+timeout to still fire. def-377's W1 touches the same stamps, so the two go
+in together in the operator's order (def-377 step 3: with def-377).
+
+**Why deferred.** The operator's order (SV:1939, 2026-11-11): F1 is fixed
+WITH def-377, after the docs handover, after B3+B1, after H9b lands.
+
+<a id="def-380"></a>
+### def-380 -- the Landlock attribute bytes are packed little-endian on every host: a big-endian host sends the wrong attribute list (design review F2, SV:1939)
+
+**The defect.** src/util/jc_landlock.c:87-94 builds the attribute bytes in
+little-endian order unconditionally; the kernel reads them in the host's
+endian, so on a big-endian host the attributes are misinterpreted and the
+shell fence is refused (the review's finding F2, measured on the probe
+`docs/internal/2026-11-11-design-review/ll-endian-probe.c` on branch
+`analysis/2026-11-11-design-review`). The existing unit test pins the
+LITTLE-endian bytes, so it passes on a big-endian host too.
+
+**The fix.** Pack the attribute list in the host's endian (or use the
+kernel's own byte order). A red-first unit cell that runs on a big-endian
+host (the gate has no such rig today) or a byte comparison against a
+known-good kernel layout. Small; the operator's order (SV:1939) puts it
+"as a small fix in a slot you choose after the docs handover".
+
+**Why deferred.** See the slot above.
+
+<a id="def-381"></a>
+### def-381 -- `watch gate`'s default unit-start command is not `systemd-run` syntax (design review F3, SV:1926)
+
+**The defect.** The default unit-start command in
+src/harness/jc_hp_watchgate.c:1053 is `systemd-run` with its user/collect/
+nice options; the unit name, a description and the command are then
+appended as THREE plain arguments (:1457-1481). The reference passes the
+unit name as an OPTION (the unit-name form) and the description as a PROPERTY (the description property) BEFORE the command
+(docs/internal/drive/2026-10-27-hardening-host/gate-watch.sh:113-114).
+Measured on this host with a harmless name: in the port's shape,
+`systemd-run` answers "Failed to find executable <name>: No such file or
+directory", rc 1, and creates no unit; in the reference's shape it answers
+"Running as unit: ...", rc 0.
+
+**The fix.** Emit the reference's token order: the user and collect options, the unit-name option naming `jhp-gate-<sha8>`, the description property, then the command words. A check
+worth having (per SV:1939): start a unit through the REAL `systemd-run`
+with a harmless command, once, on the host or in a cell that has it -- a
+stand-in cannot show this defect.
+
+**The third fault (SV:2327).** Beyond the unit name and the description,
+the COMMAND is appended as ONE plain argument
+(jc_hp_watchgate.c:1466-1467): real `systemd-run` then fails "Failed to
+find executable <the whole line>" (measured). The port's cells 4 and 6 of
+tests/smoke/harness_gate_watch.sh require that one-argument form, so the
+fix changes the cells too. SV:2327 also
+WITHDRAWS the earlier claim that "the unit-run flag or the config
+field can carry a correct command" until then: a flag value still becomes
+that one argument, so ONLY a wrapper script can carry a correct start.
+
+**The register line (SV:0238, 2026-11-12 02:38; written at M1160, run 0039,
+05:35 -- SV:0539's ask).** The hunk audit of the `gate units` commit (M1159,
+the run 0038 LOG) recorded A6, that the template's verbatim `ExecStart=` is
+only startable when the gateRun is ONE word. SV:0238 corrects it, measured on
+this host (systemd 255, `systemd-analyze --user verify`):
+`ExecStart=sh /bin/true a %i` gives rc 0, while
+`ExecStart="/bin/true a b"` gives rc 1, "Command /bin/true a b is not
+executable". So a MULTI-word `ExecStart=` is valid in a unit FILE; only a line
+QUOTED AS ONE WORD fails -- the same fault as F3's first. The template must
+not quote the gateRun as one word; A6's "only startable for one word" does not
+stand, and the audit's finding 3 (the unquoted gateRun) remains open for the
+switch-over batch. SV:0238's second point, measured against the tree: the
+template gives the command NEITHER the sha8 NOR the batch. Its `ExecStart=` is
+the gateRun verbatim, with no `%i`, so an instance
+`jhp-gate@<sha8>.service` runs the command with no argument at all; the
+reference's start (gate-watch.sh:115-116) runs
+`/bin/sh gate-run.sh "$s" "$batch"`. A template instance carries one string
+(`%i`), so the batch has no route at all
+(`gate run <SHA8> [BATCH]`; the batch is optional there). At the switch-over
+one of these three has to be chosen and pinned by a cell: (1) the template
+appends ` %i` itself; (2) the operator's gateRun must carry a `%i`; (3) the
+template is NOT the switch-over form -- the corrected systemd-run start (this
+def) is.
+
+**Why deferred.** The switch-over of the gate watcher to the port must NOT
+happen with this open (the operator's standing rule, SV:1939). F3 and F5
+(def-382) go in the harness batch that follows the docs handover, before
+H9c.
+
+**Closed (M1188/M1188-b, 2026-11-14; SV:1653).** The fix landed: the port's
+start emits the reference's token order (the unit name as the `--unit=`
+option, the description as the `-p` property, the command as separate words),
+pinned by the driver's cells 4/6/17, the `-p` token itself among them
+(M1188-b). The row's last check -- start a unit through the REAL
+`systemd-run` with a harmless command, once, on the host (SV:1939) -- is
+green: the supervisor ran it 2026-11-14 at 16:52, one `watch gate` tick, the
+real systemctl and `systemd-run --user --collect --nice=19` with no shim, a
+gateRun that is a harmless script recording its argv one element per line, and
+only the team-smoke wait pinned (`--pgrep /bin/false`):
+
+- **Green on 7d745972** (pins/7d745972/jichi-harness): tick rc=0; `BATCH 381
+  READY at ee200bef (LOG.md:1): starting jhp-gate-ee200bef`; `Running as unit:
+  jhp-gate-ee200bef.service; invocation ID: d209565347fb4bf3ae2e75201d2b6531`;
+  state `ee200bef started`; the journal carries `Started jhp-gate-ee200bef
+  .service - jichi drive gate on ee200bef (BATCH 381).` and `gate.sh[...]:
+  HOSTCELL-GATE-RAN: ee200bef 381`; the gate script's argv: `ee200bef` / `381`
+  (two words). The unit name is the `--unit=` option, the description the `-p`
+  property, the command separate words: all three faults fixed by effect.
+- **Red on 10174de1** (pins/10174de1/jichi-harness, the build before M1188,
+  the same script, a fresh fixture): tick rc=1; `Failed to find executable
+  jhp-gate-7adfb51f: No such file or directory`; `systemd-run failed (rc=1)`;
+  no unit, no journal entry, the gate script never ran -- the row's own
+  measured symptom, so the check fires.
+
+What the row leaves behind is not a defect of the port: the `watch units`
+template (SV:0238) is NOT the switch-over form -- the timer keeps calling the
+corrected `watch gate` start (SV:1653) -- and the M1188 review findings F1-F3
+both ride def-395, with the switch-over batch.
+
+<a id="def-382"></a>
+### def-382 -- `push run-drive` prints a podman line with a stray bare value token after each `-e NAME=value` (design review F5, SV:1926)
+
+**The defect.** src/harness/jc_hp_rundrive.c:188-196, after each
+`-e NAME=value` token in the podman command, also appends the bare value
+(the home directory, /tmp and Europe/Berlin as the TZ). The reference
+(docs/internal/drive/2026-10-27-hardening-host/run-drive.sh:26) has only
+the `-e NAME=value` forms. podman takes the first stray token -- a
+directory path -- as the image name, so the printed line cannot run.
+
+**The fix.** Drop the three stray bare tokens; keep only the
+`-e NAME=value` pairs. A red-first cell that compares the printed token
+list against the reference's line, token by token.
+
+**Why deferred.** Grouped with F3 in the post-handover harness batch
+(SV:1939).
+
+**Closed (M1189, 2026-11-14).** The three stray bare tokens are dropped; the
+printed token list is compared against the reference's line, token by token,
+red first (`harness_push_rundrive.sh` cells 1-7). Landed in the DOCS batch
+(7d745972, GREEN).
+
+<a id="def-383"></a>
+### def-383 -- the harness applies no memory protection (design review F8, SV:2237)
+
+**The defect.** src/harness/ calls none of the `jc_proc_harden` functions
+while jichi calls them first thing in main (src/main.c). The harness
+reads the model key from a file, and it runs as the operator's user,
+beside jichi's own processes -- same-user processes can dump it while it
+holds the key. `drive` also refuses when /proc/self/exe cannot be read
+(jc_harness_drive.c:1541-1548) where jichi falls back to argv[0].
+
+**Decision (the operator, 2026-11-12, SV:0013): D-F8-1 to D-F8-3.** The
+harness protects the keys it holds with jichi's protection call, in every
+command, first thing in main (`JICHI_KEEP_DUMPABLE` honoured; doctor
+reports it). It joins the F3 batch (def-381), before the switch-over.
+D-F8-4 stays open: it is a Linux-with-systemd program for now, so the
+/proc/self/exe requirement stays (no argv[0] fallback). HARNESS.md:21
+keeps its memory-protection claim -- the code will bear it. (SV:0013:
+the loop-start line should name the build and own path. The review's
+section 12 and two DECISIONS.md rows dated 2026-11-12 are on
+analysis/2026-11-11-design-review, for the docs handover after H9b.
+`gate run`'s gf_self_path (jc_hp_gate.c:195) is the ninth
+/proc/self/exe site.)
+
+**Why deferred.** After H9b lands, in the F3 batch, per the operator's
+order (SV:1939).
+
+**Closed (M1190, 2026-11-14).** D-F8-1..3 are built: the protection call
+(`jc_proc_harden_environ()`) is the first statement of the harness's `main()`
+for every command (D-F8-2), `JICHI_KEEP_DUMPABLE` honoured by the function
+itself; `doctor` reports the five states (`jc_proc.h:319-327`) on every run
+(B2: a property of the process, so even the no-config path); `drive`'s loop
+start line names the build (`jc_build_rev`, NULL -> `(none)`) and the resolved
+path -- the second route to the loop's build, replacing the supervisor's
+`/proc/<loop pid>/exe` read that the protection breaks (design review 12.9
+step 0); the platform is documented (D-F8-3: `docs/HARNESS.md`'s Platform
+section and its corrected :20-21 claim, the `docs/PLATFORMS.md` line, the
+`docs/DECISIONS.md` row `dec-2026-11-12-harness-linux`). The red was measured
+and witnessed (the run 0053 LOG's /tmp reproduction: the canary readable from
+environ, the readlink succeeding; the driver `tests/smoke/harness_proc_hide.sh`
+cells 1/2 red on the unhardened tree, the witness cell 3 green before and
+after). D-F8-4 stays open in `docs/DECISIONS.md` (`dec-2026-11-12-harness-
+linux`): the nine `/proc/self/exe` refusals remain the clear signal, and the
+self-path option (12.5.1), the team-smoke wait's fail-open and the non-Linux
+row are deferred to the first non-Linux harness host.
+
+<a id="def-384"></a>
+### def-384 -- `mkdtemp` is undeclared where the build adds `-D_XOPEN_SOURCE=600` (design review F4, SV:1939)
+
+**The defect.** src/platform/jc_platform_posix.c:29-31,253 calls
+`mkdtemp`; the Makefile:286-296 feature probe adds
+`-D_XOPEN_SOURCE=600` on hosts whose glibc feature macros then hide the
+prototype, so the call compiles with an implicit declaration (a warning
+that breaks -Werror) or fails to link, depending on the toolchain.
+
+**Why deferred.** SV:1939 item 3: a small fix in a slot chosen after the
+docs handover, not before H9b lands.
+
+**What it would take.** Declare `mkdtemp` before the feature macros
+(`#include <stdlib.h>` first, or an explicit `extern char *mkdtemp(char
+*);` guard), plus a probe that fails the build when the prototype is
+hidden. Red-first: build with the declaration removed and the probe in.
+
+<a id="def-385"></a>
+### def-385 -- the fork spawn backend cannot tell its caller that `exec` failed (M1179, after 0.14.0)
+
+**The defect.** When jichi starts a child with `fork` and then `exec` and the
+`exec` fails, the child calls `_exit(127)`. The parent therefore sees a command
+that ran and exited 127, not a command that failed to start. M1179 fixed the one
+caller that was silent about it -- the harness `push tick`'s page command now
+reports every non-zero exit, 127 named, on stderr (`harness_push_tick` cell 10,
+the learners' page section 3) -- but the root is in the shared spawn code
+(`src/util/jc_spawn.c`): its fork backend has no channel back to the caller for
+the child's `exec` error, so every other caller still reads "could not run" and
+"ran and failed" as the same 127.
+
+**Why deferred.** The fix is a pipe that the child writes the error to and
+closes on a successful `exec`; that code starts every process jichi runs
+(`run_terminal_command`, the git children, the model spawn), so the operator
+chose it for after 0.14.0 (SV:1523).
+
+**What it would take.** A child->parent error pipe in the fork backend, closed
+on `exec` success, so a failed `exec` reports the errno the parent got (the
+distinguishing bit M1179's 127 report cannot supply), with a red-first cell on
+the fork backend. `docs/analysis/2026-11-13-three-defects-the-review-found.md`
+section 3, "Not done yet", is the reference.
+
+## Open — the 2026-11-13 platform re-measure, what it left unclassified (2026-11-13)
+
+The 0.14.0 re-measure (SV:1524) re-ran eight rows that left failures
+**unclassified** (the M1181 landing, written into PLATFORMS.md's
+`2026-11-13, 0.14.0` lines). SV:2307 card 6 asks for a register row for each,
+with its measured numbers, no fix in this drive. Reading the failures on the
+guest is later work, ordered by the platform-widening page
+(`docs/plans/2026-11-13-platform-widening.md`, section 2 step 2: "For a defect,
+write the smallest program with no project code that shows it"). The set is the
+same eight the CHANGELOG's [0.14.0] known-issues list names.
+
+| Platform (PLATFORMS.md, 2026-11-13, 0.14.0) | Measured | Detail |
+|---|---|---|
+| Debian 12 in 256 MB with one core (v2e, KVM) | 37980 checks / 0 failures; smoke stopped at release_mode | [details](#def-386-debian-12) |
+| Debian 9, kernel 4.9 (v2f, KVM) | 37996 checks / 0 failures; smoke stopped at platform_retest_lint check 6 | [details](#def-387-debian-9) |
+| FreeBSD (FreeBSD 15.1 amd64, clang 19.1.7) | 37963 checks / 2 failures; smoke 530 of 555 (25 failed, 3047 checks) | [details](#def-388-freebsd) |
+| NetBSD (NetBSD 10.1 amd64) | 37974 checks / 2 failures (4758a7ad); 37982 / 0 (9eedacd2, 714ea4fa); smoke 536 of 555 (19 failed, 3157 checks) | [details](#def-389-netbsd) |
+| OpenBSD (OpenBSD 7.9 amd64, ksh) | 37963 checks / 16 failures; smoke 531 of 555 (24 failed, 3050 checks) | [details](#def-390-openbsd) |
+| illumos / Solaris (OmniOS r151058, gcc 14.3.0) | 37982 checks / 0 failures (M1175); smoke unclassified | [details](#def-391-illumos) |
+| FreeMiNT (Atari) / MiNTLib (ARAnyM, cross gcc 4.6.4, MiNTLib 0.60.1) | 37859 checks / 42 failures | [details](#def-392-freemint) |
+| FreeDOS / DJGPP (DJGPP 1.3, under QEMU) | 37692 checks / 154 failures (September: 103) | [details](#def-393-freedos) |
+| the gate's redfirst replay builds no jichi-harness: a harness_* driver's "RED" is hollow (SV:1552; the port's copy, jc_hp_gateref.c:1254) | [details](#def-394) |
+| M1188's review findings F1-F3 (the gate's independent review confirmed all three) and the `watch units` template (SV:0238) -- for the switch-over batch | [details](#def-395) |
+| the dead-clone cell's S0-only pre-creation: the window form (S0..S0+600) is after 0.14.1 (SV:1800 addendum) | [details](#def-397) |
+
+<a id="def-386-debian-12"></a>
+### def-386 -- v2e, Debian 12 in 256 MB with one core (KVM): the smoke tier stopped at release_mode, unclassified
+
+**Measured.** Debian 12 in 256 MB with one core (KVM). 2026-11-13, 0.14.0
+(d0484e4c): 37980 checks, 0 failures; peak RSS 11.4 / 12.4 MB; TIERV_LIVE ok
+agentic turn: the model called a tool and reported TIER-V-7B1EAE (Driven). The
+smoke tier stopped at release_mode: make -j4 RELEASE=1 jichi failed in the
+throwaway copy. Unclassified (four -O2 compiles in 256 MB are the first suspect,
+unmeasured).
+
+**Why deferred.** Reading the failure on the guest is later work, ordered by the
+platform-widening page; no fix in this drive (B5: the row stands as written at
+M1181).
+
+**What it would take.** Read the release_mode stop on the guest and classify it
+per the page's section 2 step 2 (measurement, not guess): is the throwaway
+release build an OOM in 256 MB, a toolchain assumption, or a product defect. If
+a defect, write the smallest program with no project code that shows it.
+
+<a id="def-387-debian-9"></a>
+### def-387 -- v2f, Debian 9, kernel 4.9 (KVM): the smoke tier stopped at platform_retest_lint check 6, unclassified
+
+**Measured.** Debian 9, kernel 4.9 (KVM). 2026-11-13, 0.14.0 (d0484e4c,
+1bb88df1): at d0484e4c the build failed on the old-glibc st_atim error M1177
+fixed. At 1bb88df1: TIERV_BUILD_STATUS=ok (8 s, gcc 6.3.0, glibc 2.24); 37996
+checks, 0 failures; peak RSS 8.0 / 10.6 MB; TIERV_LIVE ok agentic turn: the
+model called a tool and reported TIER-V-5C7FA3 (Driven). The smoke tier stopped
+at platform_retest_lint check 6 (the debt table yielded 0 computable rows),
+which passes on the host: the lint's table extraction reads nothing in this
+guest. Unclassified (the guest's older text tools are the first suspect,
+unmeasured). Results: the supervisor's vm-2026-11-13-1bb88df1/results-v2f.txt.
+
+**Why deferred.** Reading the failure on the guest is later work, ordered by the
+platform-widening page; no fix in this drive (B5).
+
+**What it would take.** Read the platform_retest_lint check 6 stop on the guest
+and classify per section 2 step 2: the lint's table extraction read nothing in
+the guest -- is that the older text tools, the rig's table shape, or a product
+defect? If a defect, the smallest program with no project code.
+
+<a id="def-388-freebsd"></a>
+### def-388 -- FreeBSD: 2 unit failures and 25 smoke drivers unclassified
+
+**Measured.** FreeBSD 15.1 amd64, clang 19.1.7. 2026-11-13, 0.14.0 (d0484e4c):
+ok - WERROR=1 build clean on FreeBSD (9s); 37963 checks, 2 failures; smoke:
+(530 of 555 drivers passed, 3047 checks); offline: doctor failed, which is the
+rig's known false red (doctor exits 1 with no model configured, SV:1109). Not
+driven today. The 2 unit failures and the 25 smoke drivers are unclassified
+(platform-widening items, docs/plans/2026-11-13-platform-widening.md).
+
+**Why deferred.** Reading the failures on the guest is later work, ordered by the
+platform-widening page; no fix in this drive (B5).
+
+**What it would take.** Read the 2 unit failures and the 25 smoke drivers on the
+guest and classify each per section 2 step 2 (product defect, test assumption,
+or environment). If a defect, the smallest program with no project code.
+
+<a id="def-389-netbsd"></a>
+### def-389 -- NetBSD: 19 smoke drivers unclassified
+
+**Measured.** NetBSD 10.1 amd64. 2026-11-13, 0.14.0 (d0484e4c, 4758a7ad,
+9eedacd2, 714ea4fa): at d0484e4c the build failed (M1173's duplicate
+declarations). On the M1173 tree (team commit 4758a7ad): ok - WERROR=1 build
+clean on NetBSD (12s), 37974 checks, 2 failures (the two M1174 fixes), smoke:
+(536 of 555 drivers passed, 3157 checks), ok - child_fds RAN: M472's descriptor
+fence verified on a non-Linux kernel, ok - agentic turn: the model called a tool
+and reported TIER-V-5A9B8B (Driven). At 22d72c93 (team 9eedacd2) and at
+75e9c427 (team 714ea4fa): ok - WERROR=1 build clean on NetBSD (11s), 37982
+checks, 0 failures; those runs were stopped after the unit step, so their later
+offline surface failed lines are the stop, not jichi. The 19 smoke drivers are
+unclassified.
+
+**Why deferred.** Reading the failures on the guest is later work, ordered by the
+platform-widening page; no fix in this drive (B5).
+
+**What it would take.** Read the 19 smoke drivers on the guest and classify each
+per section 2 step 2. If a defect, the smallest program with no project code.
+
+<a id="def-390-openbsd"></a>
+### def-390 -- OpenBSD: 16 unit failures and 24 smoke drivers unclassified
+
+**Measured.** OpenBSD 7.9 amd64, ksh. 2026-11-13, 0.14.0 (d0484e4c): ok -
+WERROR=1 build clean on OpenBSD (12s); 37963 checks, 16 failures; smoke: (531
+of 555 drivers passed, 3050 checks); offline surface failed: doctor (the rig's
+known false red); ok - agentic turn: the model called a tool and reported
+TIER-V-413EFD (Driven). The 16 unit failures and the 24 smoke drivers are
+unclassified.
+
+**Why deferred.** Reading the failures on the guest is later work, ordered by the
+platform-widening page; no fix in this drive (B5).
+
+**What it would take.** Read the 16 unit failures and the 24 smoke drivers on the
+guest and classify each per section 2 step 2. OpenBSD's shell is ksh, so the
+POSIX-sh drivers carry the suspicion; if a defect, the smallest program with no
+project code.
+
+<a id="def-391-illumos"></a>
+### def-391 -- illumos / Solaris: the smoke tier unclassified
+
+**Measured.** OmniOS r151058, gcc 14.3.0. 2026-11-13, 0.14.0 (d0484e4c,
+9eedacd2, 714ea4fa): at d0484e4c the build failed (M1173). At 22d72c93 (team
+9eedacd2): ok - WERROR=1 build clean on illumos (15s), 37983 checks, 7
+failures, the smoke tier did not pass, ok - agentic turn: the model called a
+tool and reported TIER-V-A0D770 (Driven). With M1175 (team 714ea4fa), built by
+hand in the kept guest (SV:1122): 37982 checks, 0 failures. Smoke unclassified.
+
+**Why deferred.** Reading the failures on the guest is later work, ordered by the
+platform-widening page; no fix in this drive (B5).
+
+**What it would take.** Read the smoke failures on the guest and classify each
+per section 2 step 2. If a defect, the smallest program with no project code.
+
+<a id="def-392-freemint"></a>
+### def-392 -- FreeMiNT (Atari) / MiNTLib: 42 unit failures unclassified
+
+**Measured.** ARAnyM, cross gcc 4.6.4, MiNTLib 0.60.1. 2026-11-13, 0.14.0
+(714ea4fa): at 75e9c427 (team 714ea4fa): the cross-build is clean again (M1176);
+37859 checks, 42 failures. Unclassified.
+
+**Why deferred.** Reading the failures on the guest is later work, ordered by the
+platform-widening page; no fix in this drive (B5).
+
+**What it would take.** Read the 42 unit failures in the guest and classify each
+per section 2 step 2 (the row's history points at utilities the minimal guest
+lacks; confirm by measurement). If a defect, the smallest program with no
+project code.
+
+<a id="def-393-freedos"></a>
+### def-393 -- FreeDOS / DJGPP: 154 unit failures unclassified
+
+**Measured.** DJGPP 1.3, under QEMU. 2026-11-13, 0.14.0 (5470ba5f): at
+d664beb0f (team 5470ba5f): cross-build ok; 37692 checks, 154 failures
+(September: 103). Unclassified.
+
+**Why deferred.** Reading the failures on the guest is later work, ordered by the
+platform-widening page; no fix in this drive (B5).
+
+**What it would take.** Read the 154 unit failures under QEMU and classify each
+per section 2 step 2 (up from 103 in September; confirm the growth by
+measurement). If a defect, the smallest program with no project code.
+
+## Closed at 2026-11-14 -- the F3 batch of the hardening drive (design review F3/F5/F8, SV:1926/SV:1939/SV:2237)
+
+| `watch gate`'s default unit-start command is not `systemd-run` syntax (three faults, SV:2327; design review F3, SV:1926) | [details](#def-381) |
+| `push run-drive` prints a podman line with a stray bare value token after each -e pair (design review F5, SV:1926) | [details](#def-382) |
+| the harness applies no memory protection while the page claims it does (the operator decided D-F8-1..3, 2026-11-12, SV:0013; design review F8, SV:2237) | [details](#def-383) |
+
+## Closed at 2026-11-14 -- def-396, the dead-clone name collision (SV:1701)
+
+| `gate run --stage ci` moves a dead clone to a one-second name: two moves in one second nest and the third is a silent rc 1 (SV:1701; the 0.14.0 hosted trial's red) | [details](#def-396) |
+
+<a id="def-394"></a>
+### def-394 -- the gate's redfirst replay builds no `jichi-harness`, so a `harness_*` driver's "RED" is hollow (SV:1552)
+
+**The defect.** The host's redfirst stage (redfirst.sh:36, measured 2026-11-14
+by the supervisor, SV:1552) replays each red-first commit's driver with
+`make -j8 WERROR=1 jichi smoke-tools` -- it never builds `jichi-harness`. A
+replay of a `harness_*` driver therefore reads "the harness binary ... is not
+built (run `make jichi-harness` first)" and exits 127 on every cell, and the
+stage reports it as RED. Of 30 harness_* replays across the drive's gates, 20
+are hollow ("jichi-harness is not built", 0 ok) at 12 distinct commits:
+c684df5d harness_push_backlog, e81575a9 harness_push_tick, bbb55ba9
+harness_push_records, 3e660734 harness_notify, 44864c08 and 8b64ad08
+harness_gate_watch, 11656ef3 / 4cf26125 / 5b3f8388 / 4b291eee
+harness_gate_run, 353e4541 harness_drive, 7d745972 harness_gate_watch.
+**All their "RED" lines are withdrawn** (SV:1552): the gate never observed
+those tests failing. The red lines in the drive's own reports, and the
+reviews' perturbations, are separate measurements and stand. No landing
+depended on them (the red-first stage is informational).
+
+**The fix (host side, the operator's decision).** A red-first replay of a
+`harness_*` driver must build `jichi-harness`, and a replay whose driver never
+ran (binary not built, rc 127 on every cell) is **INVALID, not RED**. The
+host's redfirst.sh now builds it and calls such a driver INVALID (installed
+2026-11-14, SV:1701). The host script is the supervisor's and the operator
+decides on it.
+
+**The port's copy of the reference line.** The C port carries the same
+build-line shape: src/harness/jc_hp_gateref.c:1254 builds `bt = "make -j8
+WERROR=1 jichi smoke-tools";` -- byte for byte the reference's line. The port
+is faithful; the defect is in the reference. When the host's redfirst.sh
+changes, the port's redfirst stage must carry the same change (build
+`jichi-harness`; a never-ran driver is INVALID, not RED) so a future gate
+replay of a `harness_*` red-first commit is not hollow.
+
+**Why deferred.** The host side is installed (SV:1701); the port's copy waits
+for the operator's decision on the reference to change, and for a red-first
+`harness_*` commit to make the INVALID path testable in-container. The switch-
+over batch (def-395) or the REL5 range takes it.
+
+<a id="def-395"></a>
+### def-395 -- M1188's review findings F1-F3 and the `watch units` template (SV:0238), for the switch-over batch
+
+**The defect.** The gate's independent review of the REL4/DOCS batch confirmed
+three LOW findings on M1188 (def-381's fix, 00bb81c9) that the driver does not
+pin, and one design-review point (SV:0238) the port never addresses:
+
+- **F1.** Two overflow refusals in the gate-watch start arm (the
+  `jc_hp_gateref.c` / `jc_hp_watchgate.c` start path) return 1 with no say --
+  a silent refusal, not an error a model or an operator reads.
+- **F2.** The `n_cmd <= 0` say reads "too long to tokenize" for an arm that
+  also covers OOM -- the message names the wrong cause for one of the two
+  paths.
+- **F3.** An unquoted `printf %%s\n` in the notify.sh stub at
+  tests/smoke/harness_gate_watch.sh:288 -- a real dash `%sn` bug (the same
+  class M1188's unit-run.sh stub had) that makes every argv element land on
+  one line, so an exact-line tooth could never fire.
+- **SV:0238, the template.** The `watch units` template's verbatim
+  `ExecStart=` is the gateRun with no `%i` and no batch, so a template
+  instance `jhp-gate@<sha8>.service` runs the command with no argument at all;
+  the reference's start (gate-watch.sh:115-116) runs `/bin/sh gate-run.sh
+  "$s" "$batch"`. The template is NOT the switch-over form -- the timer keeps
+  calling the corrected `watch gate` start (SV:1653) -- but at the switch-over
+  one of three must be chosen and pinned by a cell: (1) the template appends
+  ` %i` itself; (2) the operator's gateRun must carry a `%i`; (3) the template
+  is not the switch-over form (the corrected `watch gate` start is).
+
+**Why deferred.** None is a defect of the landed port (the switch-over uses
+the corrected `watch gate` start, and the review's F1-F3 are LOW, non-
+behavioural). They belong to the switch-over batch, which is when the template
+and the start arm's say/refusal paths become the live path a cell can pin.
+The operator's standing rule (SV:1939) holds the switch-over until the F3
+batch is closed; def-383 (M1190) closes it, so the switch-over batch takes
+these next, with def-376 (B3+B1) per the operator's order (SV:1253).
+
+<a id="def-396"></a>
+### def-396 -- the dead-clone aside in `gate run --stage ci` uses a one-second name, and nests (SV:1701)
+
+**CLOSED at M1191 (2eeba980 -> e66c1d7a red, f9967513 fix; SV:1701).** The
+aside moved a dead clone home to `<home>.dead-<UTC %Y%m%d-%H%M%S>` with a
+second-resolution stamp (src/harness/jc_hp_gateci.c Step 1, at 7d745972):
+two moves in the same second picked the same name, `mv` onto that now-existing
+directory NESTED the second clone silently, and a third move in the same second
+failed with no record line, the stage returning 1 as `invalid-ci`. Measured on
+the host 2026-11-14 10:36 (four back-to-back runs on one `--work`: run 1 green,
+runs 2-3 nested into the same name, run 4 rc 1 with no record line); the same
+four runs 1.1 s apart: all green, three distinct names. This is what made
+GitHub's hosted `make ci` red on the 0.14.0 candidate (run 43579196433; the red
+driver was tests/smoke/harness_gate_run.sh, cells 68-78 / G13-G22, which share
+one gate home and one sha8). The reference's copy of the latent defect
+(gate-run.sh:72, `mv "$CI" "$CI.dead-$(date +%Y%m%d-%H%M%S)"`) was FIXED on the
+host on 2026-11-14 by the operator (SV:1701 addendum 17:37): first free
+`.dead-` name, `mv -T`, and a failed move ends the gate as `invalid-host`. The
+port's fix (B1-B4 of notes/M1191.md): `rename()` (ISO C, which fails on an
+existing directory instead of nesting), the target the first free name
+(`<home>.dead-<S>` then `-1`, `-2`, ...), the record line naming the target
+actually used, and a failed move writing a record line with both paths and
+`strerror(errno)` before rc 1. Nothing is ever removed. Red first: the
+deterministic cell (e66c1d7a, alone, before the fix) pre-creates the colliding
+`<home>.dead-<S0>` name and runs the stage four times back-to-back; on the
+unfixed tree it printed `not ok 100 ... rcs=[ 0 1 1 1]`, `not ok 103 ... holds
+another clone (.../ci-3301e21c/.git)` (the nesting); on the fix 104/104. See
+def-397 for the one window that is NOT yet closed.
+
+<a id="def-397"></a>
+### def-397 -- the dead-clone cell's S0-only pre-creation: the window form is after 0.14.1 (SV:1800)
+
+**The finding.** The M1191 red cell pre-creates the colliding name for ONE
+second, S0, and D5 asserts that at least two of the four moves share a second
+(or land in S0's). On a runner whose four back-to-back stages span MORE than
+one second, nothing collides, D5 fails, and a FIXED tree reads red. SV:1800
+point 1 (2026-11-14) asked for the window form -- pre-create
+`<home>.dead-<S>` for every second S from S0 through S0+600 (601 names), and
+assert the four targets are distinct members of that space, dropping the
+wall-clock "share a second" assertion -- so that no runner speed can redden a
+fixed tree.
+
+**Why deferred to AFTER 0.14.1.** SV:1800's addendum (19:52, 2026-11-14)
+measured point 1 on the host: f9967513's cell put all four moves in S0 itself
+in 3 of 3 runs (the stages take under a second together), and the 0.14.0 hosted
+runner put three of its moves into one second too. On that measurement the
+supervisor's addendum took the window form off the READY: ship the cell as it
+is (S0-only) in 0.14.1, and take the window form after the cut -- where the
+hosted runner, the one that needs the guarantee, is the same shape the
+measurement saw. (The addendum measured that all the moves land in one second;
+it compared no runner speeds.) The window form was built once and proven (the
+lint-repair worker: 601-name pre-creation green 104/104, and red again against
+the unfixed C), so it is a known-good change waiting on the queue; its driver
+text is the 601-name form of the D-group.
+
+**What it would take.** Re-apply the 601-name pre-creation loop to
+tests/smoke/harness_gate_run.sh's D-group (replacing the S0-only `mkdir -p`
+and the D5 wall-clock assertion), re-run the driver green, and close this row.
+No C change (the fix is landed).

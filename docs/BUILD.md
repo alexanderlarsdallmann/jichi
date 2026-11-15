@@ -436,7 +436,7 @@ without it (DEFERRED). **Use M768 or later for the TUI.** Before it, the key pol
 One unit check fails there and is deferred: M461's, which reads a group-killed process as alive
 for a while ([the analysis](analysis/2026-09-25-gnu-hurd-first-row.md)).
 
-## macOS (should build; unverified)
+## macOS (partly verified and driven, M817)
 
 ```sh
 brew install curl pkg-config
@@ -446,9 +446,11 @@ make
 
 The code is BSD/POSIX (`fork`/`exec`/`pipe`/`select`/`termios`/`sigaction`), and
 the three BSD rows above are the closest evidence there is that it will build
-here — none of them needed a single source conditional. But **nobody has ever
-compiled this tree on a Mac**, so this section is a prediction, not a
-measurement.
+here — none of them needed a single source conditional. The first build on a Mac was
+on 2026-09-26 (M817): a MacBook Air M4, Apple clang 21 and the libcurl of the Xcode
+SDK, `make WERROR=1` clean after one Darwin-only build fix. That build needed neither
+of the two Homebrew lines above. `make ci` has never run on a Mac, which is what
+*Partly verified* names ([the record](platform-notes/macos.md)).
 
 There is exactly **one Darwin-specific code path**: total-RAM detection prefers
 `sysctl(HW_MEMSIZE)` on Darwin and falls back to `sysconf(_SC_PHYS_PAGES)`. This

@@ -39,7 +39,11 @@ extern char **environ;
  * resolves in libc, so a local extern declaration -- not a hidden prototype --
  * is what makes the call below compile. It is load-bearing: under the build's
  * -Werror an implicit declaration of fchdir would fail the build. */
-#ifdef JC_HAVE_FCHDIR
+/* M1173: NetBSD's <unistd.h> already declares fchdir under the same flags, and a
+ * second declaration fails -Wredundant-decls under -Werror (gcc; clang does not
+ * implement that warning). The Makefile's JC_FCHDIR_DECLARED probe asks whether
+ * <unistd.h> alone declares it; the local extern is added only where it does not. */
+#if defined(JC_HAVE_FCHDIR) && !defined(JC_FCHDIR_DECLARED)
 extern int fchdir(int);
 #endif
 

@@ -95,7 +95,9 @@ user, in a container or VM, on a machine whose devices it may touch. That is
 stated with its reasoning in [DEPLOYMENT.md](DEPLOYMENT.md) §5 and tracked as this
 project's oldest open safety item in [DEFERRED.md](DEFERRED.md) ("fence hardening
 and isolation"). The file tools *are* fenced to the workspace (step 9); the shell
-is not, and no page here will pretend otherwise.
+is not, with one exception since M831: where Linux offers Landlock, the shell of a
+parallel *write* task is confined to its own worktree. No page here will pretend the
+rest is fenced.
 
 ## Reading it live
 

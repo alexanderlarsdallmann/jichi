@@ -15,12 +15,12 @@ paginate: true
 
 # The one-sentence version
 
-> A faithful reimplementation of the Continue CLI coding agent's core —
-> chat, an agentic tool loop, config, sessions, headless mode, a TUI —
-> written in **C89**, Linux/POSIX-only, in about a megabyte.
+> A coding agent written from scratch in **C89** — chat, an agentic tool
+> loop, config, sessions, headless mode, a TUI — Linux/POSIX-only, in about
+> a megabyte.
 
-The original `cn` is ~39k lines of TypeScript/React/Node. This is the focused C
-core of the same idea.
+It began as a reimplementation of the Continue CLI (`cn`, ~39k lines of
+TypeScript/React/Node); its design since is its author's.
 
 ---
 

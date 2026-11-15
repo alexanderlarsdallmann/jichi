@@ -202,15 +202,19 @@ cheat-sheet of what bites in practice.
 - **No `inline`, no `__func__`, no variable-length arrays.**
 - **No variadic macros.** Logging is a variadic *function* (`jc_logf`); that
   is fine. `__VA_ARGS__` is not.
-- **String literals** are only guaranteed to hold 509 chars and logical lines
-  4095 chars. Split long literals via adjacent-literal concatenation
-  (`"part one " "part two"`), e.g. the system prompt and tool descriptions.
+- **String literals** are only guaranteed to hold 509 chars, counted *after*
+  adjacent literals are concatenated, and a logical source line 509 chars too
+  (4095 is C99's figure). So build long text from separate strings joined at run
+  time, as the system prompt and the tool descriptions do. `-pedantic` warns about
+  an overlong literal; nothing checks the line length.
 
 ## Library
 
 - **No `snprintf` / `vsnprintf`** in strict C89. Use `jc_snprintf` /
   `jc_vsnprintf` (and `jc_sb_append_fmt`) from `jc_snprintf.h`. **Never call
-  `sprintf`** anywhere; there is no vendored code to exempt.
+  `sprintf`** in new code. One file is exempt on purpose: the JSON printer in
+  `src/json/cJSON.c` has four fixed-format calls, and `tests/smoke/sprintf_lint.sh`
+  allowlists them by line.
 - **Format size_t as `%lu`** with an `(unsigned long)` cast. Never `%zu`.
 - **No `strdup`** (POSIX, not C89). Use `jc_strdup` (heap) or
   `jc_arena_strdup` (arena).
@@ -324,7 +328,14 @@ use a footprint assertion (`test_session_footprint`), massif's peak, or
   `docs/ROADMAP.md` remains the engineering log.
 - Every user-visible change lands with an entry under `## [Unreleased]`
   **in the same commit**. Cutting a release = retitle `[Unreleased]` to
-  `[X.Y.Z] — <date> — <name>` and bump `JC_VERSION`, together.
+  `[X.Y.Z] — <date> — <name>` and bump `JC_VERSION`, together. A version bump
+  touches, at minimum: `include/jc_version.h` (the constant + its version
+  history comment), `CHANGELOG.md` (the `[Unreleased]` retitle), the two
+  sample outputs that print the version (`docs/DAEMON.md`'s `hello.ok` line,
+  `docs/INTERFACE_TUTORIAL.md`'s contract header), the release re-count in
+  `docs/PROJECT_TIMELINE.md` (+ its `docs/i18n/ja` mirror), and the man page
+  (`man/jichi.1` — its `.TH` line carries the version; `man_page_lint` check 9
+  reds if the page is left behind).
 
 ## The quality gate (`make ci`)
 
@@ -355,7 +366,7 @@ Since the M209–M217 port, the smoke tier carries the bulk of what was the
 Python e2e suite: the headless round trip, `--output json/jsonl`, stall/signal
 exit codes, sessions, the media/embeddings/routing/posture surfaces, the
 AF_UNIX daemon + control channel, the MCP + ACP stdio protocols, the PTY line
-editor, and the `spawn_parallel` fork pool — 542 drivers, all Python-free. What
+editor, and the `spawn_parallel` fork pool — 558 drivers, all Python-free. What
 remains under `make e2e` is a small permanently-Python residual (see the table
 above), so **`make check-target` (= `test` + `smoke`) is now a full build gate
 on any POSIX box**, and `make e2e` is optional (it skips loudly without

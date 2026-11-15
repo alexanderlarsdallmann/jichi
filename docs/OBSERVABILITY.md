@@ -81,11 +81,11 @@ structural now: observability is written under `~/.jichi.d/`, owner-only
 can reach it (the path fence doesn't even permit writes there).
 
 **Design decision — three sinks, not one.** They differ in *lifecycle and
-trust*: telemetry is high-volume and opt-in (you may not want it); the run
+trust*: telemetry is high-volume and can be switched off (`metrics` is on by default since M599, `full` is opt-in); the run
 journal is per-run and exists exactly when a run is bounded; the privileged
 audit must **never go dark**, so it depends on nothing else — not on telemetry
 being enabled, not on an envelope being active. Merging them would couple the
-always-on record to opt-in machinery.
+always-on record to machinery a user can switch off.
 
 **Design decision — append-only JSONL, one event per line.** Crash-safe (a
 truncated last line loses one event, not the file), `tail -f`-able, `jq`-able,

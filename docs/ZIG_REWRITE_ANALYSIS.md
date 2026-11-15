@@ -21,8 +21,8 @@ the call can be revisited.
 - **~49.8k lines** of C/H under `src/` (largest: `tools/` ~6.4k, `util/` ~6.1k,
   `chat/` ~5.7k, `tui/` ~2.7k, `index/` ~2.7k, `convert/` ~2.6k, plus
   `scaffold/jc_scaffold.c` ~2.3k that is mostly compiled-in string data).
-- **Dependencies:** libcurl (optional, `JC_HAVE_CURL`) + a vendored
-  cJSON-compatible library (single file) + libm. Nothing else.
+- **Dependencies:** libcurl (optional, `JC_HAVE_CURL`) + jichi's own
+  cJSON-compatible implementation (single file, not vendored; M171) + libm. Nothing else.
 - **Portability model:** strict C89 with POSIX localized to ~15 translation
   units; one platform TU (`jc_platform_posix.c`) and one process chokepoint
   (`jc_proc.c`) concentrate most syscalls.

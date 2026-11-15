@@ -1,6 +1,6 @@
-.TH JICHI 1 "2026-08-22" "jichi 0.9.0" "User Commands"
+.TH JICHI 1 "2026-11-07" "jichi 0.14.1" "User Commands"
 .SH NAME
-jichi \- terminal AI coding agent (C89 reimplementation of the Continue CLI)
+jichi \- terminal AI coding agent, written in C89
 .SH SYNOPSIS
 .B jichi
 [\fIoptions\fR] [\fIprompt\fR]
@@ -815,6 +815,19 @@ FAULT=1 build only: when set, makes
 /tmp-fallback (the uid-scoped, pid-scoped and mkdtemp legs) can be exercised on
 a bench whose own uid has a passwd entry (C-16/M1134).
 Inert in a normal build: the variable is never read there.
+.TP
+.B JC_MAP_ARENA_PEAK
+Test\-only door, not a user\-facing knob: when set (any value),
+.B jichi map
+prints one extra line,
+.BR "map arena peak: <N>" ,
+to stderr after the repository map, where
+\fB<N>\fR
+is the map\-scan arena's high\-water mark in bytes (M1186). It exists for the
+smoke driver
+.IR tests/smoke/repomap_peak.sh ,
+which asserts the arena's bound on that number; with it unset, the output is
+byte\-identical to the documented behaviour.
 .SH EXIT STATUS
 The exit codes are a
 .B stable

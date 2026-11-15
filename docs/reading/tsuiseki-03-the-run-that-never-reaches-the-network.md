@@ -125,10 +125,11 @@ static int run_map(struct jc_app *app)
     char *map = jc_repomap_render(app);
     if (map == NULL) {
         printf("(no recognised source files in this workspace)\n");
-        return 0;
+    } else {
+        printf("%s", map);
+        free(map);
     }
-    printf("%s", map);
-    free(map);
+    ...
     return 0;
 }
 ```

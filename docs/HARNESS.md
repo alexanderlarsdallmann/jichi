@@ -17,9 +17,13 @@ cannot drive." For untrusted input, the modes that do hold are **a separate user
 `jichi-convert`. Its job is to drive an agent — jichi or any agent — unattended, with the operator deciding:
 lay out a drive, run the agent's turns, mirror the agent's clone, push under a fixed prefix, and
 stop when the drive's end is reached or the operator stops it. It is C89 for D4's reason: it reuses
-what jichi already has and tests — the spawn primitive, the environment scrub, the redactor, the
-memory protection — and passes the same gate and lints; a shell script would rebuild those by hand,
-and quoting a credential in `sh` is where such scripts go wrong.
+what jichi already has and tests — the spawn primitive, the environment scrub, the redactor —
+and passes the same gate and lints; a shell script would rebuild those by hand,
+and quoting a credential in `sh` is where such scripts go wrong. It also applies
+jichi's memory protection itself: `main()` calls the same protection call before any command,
+so a same-user process can no longer read the key the harness holds out of its
+`/proc/<pid>/environ` or readlink its executable while it runs (`doctor` reports the
+state; the opt-out `JICHI_KEEP_DUMPABLE=1` is honoured by the call itself).
 
 ## The threat model
 
@@ -45,15 +49,25 @@ The standing caveat: jichi's own protections stop at one boundary, and "A comman
 | `mirror` | P2 | `fetch` + `head` (batch H3b) read the team's clone into a harness-written mirror; `push` (batch H3c) writes it to the remote -- the sections below |
 | `run` | P2 | one lead run: the key from its file into the spawn's env, the prompt WITH the previous run's handoff, the records outside the workspace (built, M1057+M1058 H4) |
 | `drive` | P2 | the outer loop until the drive's end: fetch, run, push, the records snapshot; pause after three quick failures (built, M1059 H5) |
-| watchers | P3 | `status`, `watch`, `gate`, `review`, `verify`, `probe` — not yet phased in a batch |
+| `push` | P2 | the scheduled host push: `records` / `tick` / `backlog` / `units` / `run-drive` (built, M1147 H7) |
+| `notify` | P2 | deliver a gate verdict: the inbox note, the live-run inject, the digest line, the operator hook (built, M1152 H8) |
+| `watch` | P3 | the gate watcher: `gate` (one tick on a READY line) + `units` (the generated timer/service) (built, M1153 H9a; the section below) |
+| `gate run` | P3 | the gate RUN: five stage bodies (--stage ledger/verdict/sweep/ci/redfirst), the orchestrator (M1159) that runs them in order and says the verdict, gate units (M1159) |
+| watchers | P3 | `status`, `gate`, `review`, `verify`, `probe` — not yet phased in a batch |
 | landing | P5 | `pending`, `approve`, `land`, `integrate` — not yet phased in a batch |
 
 At this commit `init` (M1053, H2), `doctor` (M1052, H1b), `mirror fetch` + `head` (batch H3b),
 `mirror push` + the `credential-helper` subcommand (batch H3c), `run` (M1057+M1058, H4: the lead
-run and the handoff of the previous run's records) and `drive` (M1059, H5: the outer loop) are
-built — every P2 command; the port lands them batch by batch, H1 through H5, and this table is
-what a learner checks when one lands. `doctor` takes the global `--config <file>` option; it
-reports on the harness configuration in the same shape as `jichi doctor` (the
+run and the handoff of the previous run's records), `drive` (M1059, H5: the outer loop),
+`push` (M1147, H7: the scheduled host push — its five subcommands are in the section below)
+and `notify` (M1152, H8: the gate verdict delivered to its readers — the section below)
+and `watch` (M1153, H9a: the gate watcher — the section below)
+and `gate run` (M1154+M1157, H9b wave 1-3: the five stage bodies, each addressable on its own with
+`--stage`; the orchestrator that runs them in sequence is wave 4)
+are built — every P2 command plus `watch` and `gate run`'s stage bodies from P3; the port lands them
+batch by batch, H1 through H9b (wave 1-3), and this table is what a learner checks when one lands.
+`doctor` takes the global `--config <file>` option; it reports on the harness configuration in the
+same shape as `jichi doctor` (the
 `%d ok, %d warning(s), %d problem(s)` summary line, exit 1 on a problem, and a `--output json`
 form). `mirror fetch` takes the global `--config <file>` plus a `<mirror-dir>` and the
 `fetch`/`head` verbs (see its section below). `run` takes the global `--config <file>` plus a
@@ -191,8 +205,11 @@ never happens:
    the config knobs are def-342); a scan that resolves zero pushed tips is a refusal, not a pass;
 5. **the push** — `git -C <mirror> push -q <stored URL>` the refset `<br>/main` + `<br>/work/*`,
    through the M2 neutralisation + `core.hooksPath=/dev/null` (the guards are C logic, no hooks) +
-   the credential-helper. `--force` is never on the argv, and `refs/kept/*` is never pushed (the
-   reference's `PUSH_KEPT=0` default). A non-fast-forward refusal is a FAILURE (exit 1, git's
+   the credential-helper. `--force` is never on the argv, and `refs/kept/*` is pushed only when the
+   config sets `pushKept` (default off, the reference's `PUSH_KEPT=0`); then the key scan and the
+   size check read the kept refs too. Before 2026-11-13 they did not: the kept attempts were pushed
+   after a scan that never saw them. More pushed tips than the scan carries (24) is a refusal, never
+   a silent drop. A non-fast-forward refusal is a FAILURE (exit 1, git's
    `(fetch first)` captured), unlike the fetch's report line.
 
 **The credential-helper** is the push's only secret channel, and it is a subcommand git spawns, not
@@ -280,7 +297,9 @@ supervising session — the program D4 said it would build. In order, per the re
    tick is a refusal, not an "always"); and a `drive.end` that does not parse (exit 1, the line
    `the end time does not parse` logged BEFORE any `loop start` — a deadline that parses to the
    wrong instant is the class of cap that manufactures a plausible different answer, so it is
-   refused, not guessed).
+   refused, not guessed). It parses in exactly two forms, `YYYY-MM-DD HH:MM:SS +ZZZZ` and a bare
+   `YYYY-MM-DD HH:MM:SS` (UTC), with a real calendar day; since 2026-11-13 `+01:00`, a zone name, a
+   `Z` and `2099-02-31` are each refused (before, they were read as wrong instants).
 2. **the run counter** — read from `<dir>/runs/` ONCE at start: a name counts only when every byte
    is a digit, parsed in base 10 (a drive's counter is `0009`, and `0009` is not octal `9`), and
    the drive starts the next after the max (a plant of `runs/0008` yields run `0009`, not `0001`).
@@ -345,6 +364,195 @@ Driver: `tests/smoke/harness_drive` (red-first, 11 cells; the whole P2 port is n
 end against the real mockmodel, real git, and a local bare stand-in — no GitLab, no gateway, no
 real key or token).
 
+## `push`: the scheduled host push (M1147, H7)
+
+`jichi-harness push --config <file> <subcommand>` is a new top-level verb (alongside
+init/doctor/mirror/run/drive) and the C89 port of the drive's **host-side** push scripts
+(`push.sh`, `push-tick.sh`, `push-backlog.sh`, `run-drive.sh`, the systemd units): `mirror push`
+(M1056) is the team's half, these are the host's half — the schedule that drives the pushes from
+outside the container. Each subcommand takes the global `--config` (plus its own positionals);
+a bare `push` (no subcommand) and a subcommand without `--config` are usage refusals (exit 2);
+a config with no `host` block is refused naming it (exit 2) — the host commands are host-side by
+construction and a config that names no host dir must not guess one.
+
+- **`push records --config <f> <recs-dir>`** — pushes the records branch (the `recs/` repo
+  `init` built, its orphan `<prefix>/records` ref) by the STORED URL — the harness-written config
+  copy beside the recs dir is the reference, never the mutable `origin` name — and never with
+  `--force`. It carries the key scan and **no size check**: the records are large by design, and a
+  secret in a blob the push would add is refused (exit 1, the path named, the secret never
+  printed). This retires def-360 for the in-loop records push (the `drive` section).
+- **`push tick --config <f>`** — ONE locked host push: the team push (the built `mirror push`
+  machinery, in process) then the records push; the tick's rc is the OR of the two, passed
+  through (the oneshot service sees the failure). Under `<pushHome>/push.lock` it is a LOCK, not a
+  cap — a tick that starts while another holds it WAITS. On a failure it keeps a consecutive-
+  failure count and, on the FIRST failure and every SIXTH, appends a `PAGE:` line to the tick's
+  out file and runs the configured page command (a notification failure is logged, never fatal).
+- **`push backlog --config <f> TIP...`** — a STEPWISE FAST-FORWARD push of named tips, oldest
+  first, from the host-only `push.git`: each step is a team push with both checks on (key scan
+  and size), followed by a re-fetch; the command stops at the first refused step (exit 1, a log
+  line naming the step, no `done`). The over-limit case is SPLIT, not raised: an earlier valid
+  step lands, the over-limit step is refused, and the operator picks an earlier TIP.
+- **`push units --config <f> [-o <dir>]`** — GENERATES the two systemd user units
+  (`jhp-push.service`, the oneshot that runs the tick; `jhp-push.timer`) — printed to stdout, or
+  written to `-o <dir>` — not hand-written: the file carries a marker saying so, its `ExecStart`
+  names the tick COMMAND (not a script path), and the timer's schedule comes from the config
+  (`host.pushOnCalendar`, absent = refused naming it, NO fallback) so two drives' pushes never
+  share a minute on the same host. This container has no systemd: the generation is built and
+  tested; the supervisor installs the real units on the host.
+- **`push run-drive --config <f>`** — prints the podman argv the host WOULD build for the drive
+  as one shell-quoted line. DRY by default: it never execs podman from inside this drive's
+  container (the operator's rule — never run what may write to learn what it does; a host
+  install of the port would exec), and it keeps the reference's invariant — the git TOKEN file is
+  never mounted into the drive container.
+
+**Port differences from the reference, each named** (`notes/M1147.md` is the authoritative
+list; the driver holds each one):
+
+- the lock is POSIX `lockf` (a WAIT) not `flock(2)` — the two lock kinds are invisible to each
+  other on Linux, so the port's tick serialises with ITSELF (another `push tick`), NOT with a
+  still-running reference `push.sh`; the switch-over runs the port against its own pushHome;
+- the page command is a CONFIG FIELD (`host.pageCommand`); the reference's hard-coded desktop
+  notifier is gone — absent, the PAGE line is written and nothing runs; present and failing, the
+  PAGE line is still written and the failure is named on stderr (since 2026-11-13 also a non-zero
+  exit, `127` included: on the default fork backend a command that cannot be executed is the
+  child's exit 127, and that had been silent);
+- `run-drive` PRINTS the argv instead of execing podman;
+- the records push is a SEPARATE command (`push records`) from the team push (`mirror push`), so
+  the team push's five integrity prechecks, URL guard and size check keep their meaning there,
+  and the records push (no size check — large by design) does not borrow their name.
+
+Drivers: `tests/smoke/harness_push_records` (6 cells), `harness_push_tick` (9),
+`harness_push_backlog` (10), `harness_push_units` (6) and `harness_push_rundrive` (7), all
+red-first against a local bare stand-in with a canary secret (never a real key or token); the
+existing `harness_init` and `harness_third_program` drivers carry the batch's own cells.
+
+## `notify`: delivering a gate verdict (M1152, H8)
+
+`jichi-harness notify --config <file> [--inbox <dir>] <SHA8> <TEXT> [ATTACH]` delivers a gate
+verdict to its readers, and it is the C89 port of the drive's host-only `gate-note.sh`. It is a
+**printer and a messenger**: it carries no verdict logic of its own, so a new verdict word costs
+nothing here — the gate (H9) decides, and every verdict it writes, a withdrawal and an INVALID
+included, is delivered. Four channels:
+
+- **the note, for the lead** — the next run reads it. The file is
+  `<inbox>/<stamp>-gate-<SHA8>.md` (byte-identical to the reference: `<stamp>` is `date` at the
+  minute, the `<SHA8>` verbatim — the reference takes it as the full commit id, so a full 40-hex
+  id leaves an empty filename suffix, a quirk one driver cell pins), written atomically (`.tmp`
+  + `mv`, so a half-written note is never visible to the run's assembly list). `run` (M1057)
+  receives it: a note written near a run boundary stays in the `inbox/` for the next run's
+  prompt, moved into the run's records only after that run's first model call succeeds.
+- **the inject, for the live run** — the reference's three-half live test, verbatim: the newest
+  `runs/<4-digit>` by numeric sort is LIVE iff its `ctl/lead.sock` is a real socket, its
+  `meta.txt` carries no `end=` line, and no scratch inbox is set. The inject runs the drive's
+  PINNED `<dir>/bin/jichi` (`control <sock> inject <BODY>`, the note body including its prefix,
+  stdin `/dev/null` — the published-command rule, the ANECDOTES #64 class), applied at the live
+  run's next model call. "The next run" and "this run" are the two deliveries: the note reaches
+  every later run, the inject the one already live.
+- **the digest line, for the operator** — appended to `<gateHome>/digest.md` as
+  `<now> gate <s>: <REHEARSAL: ><TEXT>` (the reference's line, byte-identical; `<gateHome>` is
+  the config's `host.gateHome`, defaulting to `<dir>/gate`).
+- **the operator hook (CHANGED)** — the config names the command (`host.notifyCommand`), and it
+  receives the DIGEST PATH, not the text: mail, chat or a webhook is then a one-line operator
+  script, and the harness holds no extra secret. A hook's failure is logged, never fatal — its rc
+  never changes `notify`'s rc; an absent `host.notifyCommand` runs nothing and errors nothing
+  (the `push tick` page idiom, M1147). The reference hard-codes a desktop notification command;
+  the port never calls it.
+
+What it protects: a gate verdict is seen by its readers **at once, not at the next check-in**.
+The four false verdicts of the plan's section 3 are the incident this command is written
+against: one day, a withdrawal and a RED were written to a digest file nobody read, and a GREEN
+was read from a log the watcher had already closed — a verdict reached its readers, if at all,
+only at the next scheduled check-in.
+
+`--inbox <dir>` is the **scratch inbox**: a rehearsal's delivery. Its note carries the prefix
+`REHEARSAL (scratch inbox, nothing is delivered to the lead) -- ` and the inject is skipped —
+nothing reaches a live run, so a rehearsal cannot be mistaken for a verdict a real run must act
+on. A missing `<SHA8>` or `<TEXT>` is refused with usage (exit 2) BEFORE any write — no note, no
+digest line, no hook — so a malformed verdict leaves no artifact. An empty or missing `ATTACH`
+is skipped silently (the note, otherwise identical, gains no section).
+
+The port's records are the note, the digest line and the watch line on stdout (`<now> gate <s>:
+note <basename>; <inj>` — the reference's watch file becomes the caller's own log line, which
+H9's gate and the driver both read); a `gateHome` that cannot be created is named in the refusal
+(no digest, no note).
+
+The **switch-over is pending** (the supervisor's, per the plan's section 6): on this drive's
+host the port's `notify` will run **beside** `gate-note.sh` for real verdicts — same inputs, both
+outputs kept, the decisions diffed — and the hook the supervisor configures is the host's desktop
+notification wrapper, which closes the CHANGED loop: on the host the reference's own command is
+what the configuration names.
+
+Driver: `tests/smoke/harness_notify` (red-first, 7 cells; the live-inject cell runs once on a
+validated head by the lead and is recorded in the drive's LOG — the M1149 precedent).
+
+## `watch`: the gate watcher (M1153, H9a)
+
+`jichi-harness watch --config <file> gate [--log <file>] [--state <file>] [--out <file>] [--dry]
+[--unit-state <cmd>] [--unit-list <cmd>] [--unit-run <cmd>] [--pgrep <cmd>]` runs **one tick** of
+the gate watcher — the C89 port of the host's `gate-watch.sh` (the timer's oneshot, every ten
+minutes). `jichi-harness watch --config <file> units [-o <dir>]` prints the watcher's generated
+systemd timer and service (the `push units` idiom: print, do not install).
+
+What a tick does, in the reference's order: it reads the **LAST** `BATCH <n> READY at <commit>` line
+of the LOG, waits (exit 0, the next tick is the retry) until that commit is on the remote's team
+branch, checks the commit's state word (a dead `started` is re-gated, `regate` re-gates, any other
+word stands), and — the heart of the port — a **later SENTENCE** of the LOG withdraws the commit only
+if it says `WITHDRAWN`, names the commit, and names **no other** commit (a 7-or-more lowercase hex
+token bounded by non-alphanumerics, at most 40 long, containing a letter a-f, so a date like
+`20261105` is not one). A sentence never crosses a line break: each LOG line is read on its own, as the
+reference's awk did (since 2026-11-13; the port had read from each line to the end of the LOG, which joined lines
+into false withdrawals and missed a withdrawal with 64 KiB of LOG after it). The LOG is read whole at
+any size (since 2026-11-13; a LOG of 1 MiB or more had read as no LOG, a quiet tick). An ambiguous sentence does not withdraw: a missed withdrawal costs one gate
+run the lead can replace, a false one costs a drive that waits silently for a verdict that never
+comes. Then the master checks (a commit already on master stands; one that is not a fast-forward is a
+delivered `not-ff` RED), the busy gate (a gate or ci SERVICE named by a commit, **both** drives'
+prefixes — never two `make ci` at once, and the watcher's own unit filtered out; the unit is each
+`list-units` line's first field after its leading blanks, as awk's `$1` reads it: since 2026-11-13, the port had
+taken the empty token before systemctl's two leading spaces and seen no gate as busy), and a team smoke
+running in the team dir. Finally it starts the transient gate unit `jhp-gate-<sha8>` (refused by
+name when the config names no `host.gateRun`).
+
+What it protects: a READY is gated by **the machine's own clock, not by a session that happens to be
+awake**. On 2026-11-04 a green gate waited 16.5 hours because no session ran; the watcher is the
+standing fix. Its host plumbing (`systemctl`, `systemd-run`, `pgrep`) is shimmable, so this container
+tests it with stand-ins and the switch-over runs the real thing on the host beside `gate-watch.sh` —
+the supervisor's, per the plan's section 6, a day of ticks diffed on the same LOG. The model outage
+watcher (`watch model`) lands in a later batch (H12).
+
+Driver: `tests/smoke/harness_gate_watch` (red-first, 20 cells; the four false verdicts of the plan's
+section 3 — 07:55 the regate arm, 11:32 and 13:32 the two false withdrawals, 13:47 the settled rule
+— are named cells).
+
+## `gate run`: the gate RUN (M1154-M1159, H9b)
+
+The five stage bodies (ledger, verdict, sweep, ci, redfirst — the ports of the host gate's
+scripts, each addressable on its own with `--stage`) and the orchestrator that runs them in
+order and says the verdict (the table row above; the `watch` section is the watcher that
+starts the gate unit on a READY line).
+
+**The `<SHA8>` at the door (since 2026-11-13).** The orchestrator refuses a `<SHA8>` that is not 7-40
+lowercase hex (exit 2, `the <SHA8> must be 7-40 lowercase hex`) before it reads the config or
+writes anything: the value reaches the setup's `sh -c` command lines and names the record
+directory, and before that a `;` in it ran the rest as a command on the host. Every word of the
+setup's git commands is single-quoted, the push repo path included. The ledger stage without an
+accept list (no `--ledger-accept`, no `host.ledgerAccept`) works on an empty list; before 2026-11-13 it
+read and freed an uninitialised one (valgrind-measured; the verdict happened to be right).
+
+**The -O2 unit-stage witness (M1160, the H9b gate-RED).** The gate's sweep runs a fortified
+`-O2` unit stage in a FRESH clone (`make -j8 WERROR=1 CC=gcc OPT=-O2 test`); no container
+stage compiles at -O2 (the default build passes no -O, and the Makefile does not recompile
+on a flag change — a stale `.o` run reads as green). At e12d9876 the stage died on
+`stringop-truncation` at `tests/test_gateci.c:175` and reached the host gate as
+`unit o2 rc=2 NO SUMMARY (build failed or aborted)` — the gate ruled, and nowhere in the
+container had seen the error. Driver: `tests/smoke/o2_unit_stage` (plan 4, the 120 s wider
+tier) — it serially null-compiles that stage's 353-TU universe under the gate's EXACT
+expanded flags (the `make -n -B` extraction, re-pointed at `-o /dev/null`, one `sh -c` per
+line), results-counted (the count of compiles that RETURNED 0 must equal the universe — a
+line count proves nothing, SV:0837), and skip-by-effect where the class cannot fire (no
+gcc -O2 fortified; musl/BSD/old-gcc rows). What it protects: a fortified -O compile error
+can never again reach the host gate as a NO SUMMARY — it fails in the container first, as
+a named line.
+
 ## The settings (env, `JICHI_HARNESS_`)
 
 The harness's settings use the prefix `JICHI_HARNESS_`; each name says what its value holds, and a
@@ -370,6 +578,17 @@ One line each; section 7 of the plan is the full text.
 - **Mode B, a separate OS user** (plan §7.2) — the cheapest boundary that holds against the model's commands.
 - **Mode C, a daemon or service** (plan §7.3) — unit files as the record; the multi-tenant job service is deferred.
 - **Mode D, containers** (plan §7.4) — rootless podman first; the boundary for untrusted input.
+
+## Platform
+
+`jichi-harness` is a **Linux-with-systemd program for now** (the operator's decision of
+2026-11-12, `docs/DECISIONS.md` [`dec-2026-11-12-harness-linux`](DECISIONS.md)). Its units
+(`watch units`, `gate units`) and its protection's cost both assume systemd and the procfs
+routes it uses. A row on another platform is a defect detector, not compatibility work:
+the nine self-path sites that refuse when `/proc/self/exe` cannot be read stay as clear
+signals (the self-path option that would move them off Linux is the open deferral D-F8-4,
+`docs/DEFERRED.md` def-383). `docs/PLATFORMS.md` carries the one line this decision adds;
+no harness row is claimed there.
 
 ## The secret rule
 

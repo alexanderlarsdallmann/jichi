@@ -1,4 +1,7 @@
 <!-- tracks: ../../PROJECT_TIMELINE.md @ 34a65b7 -->
+<!-- 原始初稿：Claude（2026 年 7 月）。今日（M1147/batch H7）：
+     “参考实现”条目——Continue CLI 由“本项目所重写者”改为“第一阶段起点规格”——
+     由 jlu/qwen3-coder-next 修订。 -->
 <!-- figures-behind: 29 (that many numbers of three digits or more appear here and not
      in the English page). PROJECT_TIMELINE.md was re-counted at M579; this translation
      still carries the earlier figures. One went from the count at M587: the false
@@ -327,9 +330,9 @@ xychart-beta
   fork 池 + worktree 合并、裁定之下的安全关卡、fuzzing 装置）现实地说超出了一名
   初级在**没有导师**情况下把它做到这种质量的能力——真正的风险是*做不完*，
   而不只是*更慢*。
-- 存在一份**参考实现**（本项目所重写的 Continue CLI），它在*所有*场景中都
-  实质性地削减了需求/设计的不确定性——一个真正的规划杠杆（造一件已知之物 ≪
-  发明一件新东西）。P5 的能力带（自主、控制、机器人）**没有**这样的参考——
+- 存在一份**参考实现**（作为第一阶段起点规格的 Continue CLI），它在*所有*
+  场景中都实质性地削减了需求/设计的不确定性——一个真正的规划杠杆（造一件已知
+  之物 ≪ 发明一件新东西）。P5 的能力带（自主、控制、机器人）**没有**这样的参考——
   它们是在此从零设计的，这也是每个都先交付一份提案的原因。
 
 ### AI 辅助下人类的工时实际花在了哪里

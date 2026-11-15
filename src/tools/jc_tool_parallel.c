@@ -306,6 +306,14 @@ struct ptask {
     int                       fd;         /* pipe read end, -1 when closed   */
     int                       launched;
     int                       done;
+    /* M1149: the per-worker inject channel + supervisor stop. */
+    int                       stop_fd;    /* parent's inject write end, -1 closed */
+    struct jc_sb              injq;       /* per-task inject queue (text, "\n"-separated) */
+    jc_size                   injq_len;   /* total queued text bytes (the cap is on THIS) */
+    long                      last_ms;    /* set at fork; on every progress line (behaviour 12) */
+    int                       sup_stop;   /* a stop-task was accepted for this task */
+    char                      sup_stop_reason[160]; /* the stop-task's reason ("" if none) */
+
     long                      launch_ms;  /* monotonic stamp at fork (watchdog) */
     double                    tok_budget;  /* per-child token slice (0 => none) */
     int                       tool_budget; /* per-child tool-call slice (-1 none) */
@@ -759,7 +767,7 @@ int jc_parallel_pre_discard(struct jc_app *app, const char *args_json,
 }
 
 static void run_child(struct jc_app *app, struct ptask *t, int task_no, int wfd,
-                      const char *run_id)
+                      const char *run_id, int inject_rd)
 {
     struct jc_history h;
     struct jc_provider *prov;
@@ -776,6 +784,24 @@ static void run_child(struct jc_app *app, struct ptask *t, int task_no, int wfd,
     char *s;
     jc_status st;
     struct jc_eventlog transcript_sink;   /* M807: this child's reasoning record */
+
+    /* M1149 (behaviour 7): the inject pipe's READ end, passed in by the fork
+     * site, is dup2'd onto the fixed fd JC_CTL_INJECT_FD and the child-only
+     * drain flag is set, so jc_control_boundary (reached at this child's own
+     * tool-round boundaries) folds the parent's queued steering into `h` as
+     * one [operator] user message. The low read end is closed; the write end
+     * was already closed at the fork site. The flag is what the drain is
+     * guarded by -- the lead never sets it, so the lead's boundary (depth 0)
+     * is untouched. dup2 happens BEFORE the model loop, not inside it: the
+     * read point is the boundary, never mid-stream. */
+    if (inject_rd >= 0) {
+        if (dup2(inject_rd, JC_CTL_INJECT_FD) >= 0) {
+            (void)close(inject_rd);
+            app->pool_inject_fd_valid = 1;
+        } else {
+            (void)close(inject_rd);
+        }
+    }
 
     /* M860: this child's own id, the base of any batch it starts -- kept here,
      * not read back from telemetry, which may be off (`--log -`). M864: set first,
@@ -1302,12 +1328,17 @@ static void process_lines(struct jc_app *app, struct ptask *t, int idx)
 
         switch (jc_parallel_parse_msg(line, &m)) {
         case JC_PMSG_TOOL: {
+            /* M1149 (behaviour 12): every progress line refreshes the child's
+             * last-activity stamp, so the published idle_s is the seconds
+             * since the last one -- it grows for a child whose lines stop. */
+            t->last_ms = (long)jc_now_millis();
             jc_snprintf(t->cur_tool, sizeof(t->cur_tool), "%s", m.tool);
             board_line(app, idx, t->model_name, JC_BOARD_RUN, m.tool,
                        t->tokens);
             break;
         }
         case JC_PMSG_TOK:
+            t->last_ms = (long)jc_now_millis();
             t->tokens = m.tokens;
             break;
         case JC_PMSG_DONE: {
@@ -1394,6 +1425,13 @@ static void kill_one(struct ptask *t)
         close(t->fd);
         t->fd = -1;
     }
+    /* M1149: close the inject WRITE end too -- the child is going, so late
+     * injects into it are refused (behaviour 6/10) and its read end's EOF tells
+     * the child's drain there is nothing more. */
+    if (t->stop_fd >= 0) {
+        close(t->stop_fd);
+        t->stop_fd = -1;
+    }
     if (t->pid > 0) {
         kill(t->pid, SIGTERM);
         reap_grace(t->pid);
@@ -1417,10 +1455,230 @@ static void kill_live(struct ptask *tasks, int n)
                 close(tasks[i].fd);
                 tasks[i].fd = -1;
             }
+            if (tasks[i].stop_fd >= 0) {  /* M1149: the inject write end */
+                close(tasks[i].stop_fd);
+                tasks[i].stop_fd = -1;
+            }
             reap_grace(tasks[i].pid);
             tasks[i].done = 1;
         }
     }
+}
+
+/* --- M1149: the pool's hook, its stop/inject ops, and the published
+ * snapshot ----------------------------------------------------------------
+ * One live pool per parent process (a batch runs to completion before the
+ * next starts; a FORKED child's nested pool registers on the child's OWN COW
+ * copy of the control struct, which no one serves -- serve_pid). The ops and
+ * the snapshot live in file scope for its duration; the pool REGISTERS them on
+ * app->control at the start of run_pool and NULLs them at the end, so the
+ * handler sees "no batch is live" the moment the batch is not.
+ */
+static struct ptask *s_pool_tasks;
+static int s_pool_ntasks;
+static int s_pool_done;
+static long s_pool_now_ms;
+static struct jc_pool_snap s_pool_snap;
+static struct jc_pool_ops s_pool_ops;
+
+/* The M854 ending for a task, from the parent's fields ("" while live). */
+static const char *pool_task_ending(const struct ptask *t)
+{
+    if (t->ending != NULL) {
+        return t->ending;
+    }
+    if (!t->launched || t->done) {
+        return "";
+    }
+    return NULL;
+}
+
+/* Refresh the published snapshot from ptask (the pool owns ptask; the handler
+ * reads the copy -- behaviour 11). idle_s (behaviour 12) is computed HERE, at
+ * snapshot time, from last_ms: it grows for a child whose progress lines stop. */
+static void pool_refresh_snap(void)
+{
+    int i;
+    double now_s;
+    now_s = (double)s_pool_now_ms / 1000.0;
+    s_pool_snap.total = s_pool_ntasks;
+    s_pool_snap.done = s_pool_done;
+    for (i = 0; i < s_pool_ntasks && i < JC_POOL_MAX_TASKS; i++) {
+        const struct ptask *t = &s_pool_tasks[i];
+        struct jc_pool_task_snap *k = &s_pool_snap.tasks[i];
+        k->i = i;
+        k->live = (t->launched && !t->done) ? 1 : 0;
+        k->model = t->model_name;
+        k->pid = (long)t->pid;
+        k->tool = t->cur_tool;
+        k->tools = t->tool_calls;
+        k->tokens = t->tokens;
+        if (k->live && t->last_ms > 0) {
+            double idle = now_s - (double)t->last_ms / 1000.0;
+            k->idle_s = (idle > 0.0) ? idle : 0.0;
+        } else {
+            k->idle_s = 0.0;
+        }
+        k->wt = t->wt;
+        k->ending = pool_task_ending(t);
+    }
+}
+
+/* stop-task: the EXACT refusals, or queue the kill for the next wake. */
+static jc_status pool_op_stop(int task, const char *reason,
+                              char *why, jc_size whycap)
+{
+    struct ptask *t;
+    if (s_pool_tasks == NULL) {
+        jc_snprintf(why, whycap, "no batch is live");
+        return JC_ERR_INVALID;
+    }
+    if (task < 0 || task >= s_pool_ntasks) {
+        jc_snprintf(why, whycap,
+                    "task %d is not live (%d tasks)", task, s_pool_ntasks);
+        return JC_ERR_INVALID;
+    }
+    t = &s_pool_tasks[task];
+    if (t->done) {
+        jc_snprintf(why, whycap,
+                    "task %d is not live (%d tasks)", task, s_pool_ntasks);
+        return JC_ERR_INVALID;
+    }
+    t->sup_stop = 1;
+    if (reason != NULL) {
+        jc_snprintf(t->sup_stop_reason, sizeof(t->sup_stop_reason),
+                    "%s", reason);
+    } else {
+        t->sup_stop_reason[0] = '\0';
+    }
+    return JC_OK;
+}
+
+/* inject-task: the EXACT refusals, or append to the per-task queue. The cap
+ * is on the TOTAL queued text (injq_len + the new text + any joining newline),
+ * newline-joined, mirroring the lead's CONTROL_PENDING_MAX (behaviour 10):
+ * a short text into a queue that already holds text over the cap is the same
+ * "queue is full" refusal, and a refused note signals nothing -- the earlier
+ * queued text still lands. */
+static void pool_drain_inject(struct ptask *t);   /* forward decl (drain-now) */
+static jc_status pool_op_inject(int task, const char *text,
+                                char *why, jc_size whycap)
+{
+    struct ptask *t;
+    jc_size add;
+    if (s_pool_tasks == NULL) {
+        jc_snprintf(why, whycap, "no batch is live");
+        return JC_ERR_INVALID;
+    }
+    if (task < 0 || task >= s_pool_ntasks) {
+        jc_snprintf(why, whycap,
+                    "task %d is not live (%d tasks)", task, s_pool_ntasks);
+        return JC_ERR_INVALID;
+    }
+    t = &s_pool_tasks[task];
+    if (t->done) {
+        /* A done task's write end is closed; the driver does not distinguish
+         * done from full, so "queue is full" for both (behaviour 6/10). */
+        jc_snprintf(why, whycap, "task %d's queue is full", task);
+        return JC_ERR_INVALID;
+    }
+    if (text == NULL || text[0] == '\0') {
+        jc_snprintf(why, whycap, "task %d's queue is full", task);
+        return JC_ERR_INVALID;
+    }
+    /* The cap is on the text still QUEUED -- the unwritten tail, not yet
+     * handed to the child's pipe, which pool_drain_inject releases as bytes
+     * are written -- not the lifetime total: a task may accept far more than
+     * the cap across a batch, and a refusal signals nothing (the earlier
+     * queued text still lands; behaviour 10). Each note is newline-terminated,
+     * so the child's drain folds it as ONE [operator] message at its boundary. */
+    add = (jc_size)strlen(text) + 1;   /* the terminating newline */
+    if (t->injq_len + add > JC_CONTROL_QUEUE_MAX) {
+        jc_snprintf(why, whycap, "task %d's queue is full", task);
+        return JC_ERR_INVALID;
+    }
+    if (t->injq.data == NULL) {
+        jc_sb_init(&t->injq);
+    }
+    jc_sb_append(&t->injq, text);
+    jc_sb_append(&t->injq, "\n");
+    t->injq_len += add;
+    /* Drain NOW as well as at the next wake: this op runs inside the pool's
+     * own wake (serve_pending is called from run_pool's select slice), so the
+     * write is in the pool's thread context -- and handing the bytes to the
+     * child's pipe one wake earlier is the difference between the marker
+     * reaching the child's next boundary and missing it (driver cells 10/14).
+     * The wake drain still runs for the partial-write case. */
+    pool_drain_inject(t);
+    return JC_OK;
+}
+
+/* Write as much of a task's inject queue as the pipe buffer holds, at the
+ * wake (behaviour 7). Non-blocking; the rest is kept for the next wake. The
+ * note is newline-terminated so the child's drain folds it as one [operator]
+ * message. */
+static void pool_drain_inject(struct ptask *t)
+{
+    long fl;
+    if (t->stop_fd < 0 || t->injq.len == 0) {
+        return;
+    }
+    /* Write as much of the queue as the pipe buffer holds, at the wake
+     * (behaviour 7). The parent's write end (t->stop_fd) is set non-blocking:
+     * the queue is bounded at JC_CONTROL_QUEUE_MAX (65536, the pipe capacity),
+     * so a full queue can outpace the child -- which reads only at its own
+     * model-call boundaries -- and a blocking write would stall the pool loop.
+     * Non-blocking: write what fits (a short write or EAGAIN), keep the unsent
+     * tail for the next wake. The newline framing keeps a split note whole --
+     * the child's drain folds only newline-complete lines. stop_fd is closed
+     * (behaviour 6/10) when the child ends, so this is a no-op after then. */
+    fl = fcntl(t->stop_fd, F_GETFL);
+    if (fl >= 0) {
+        (void)fcntl(t->stop_fd, F_SETFL, fl | O_NONBLOCK);
+    }
+    {
+        ssize_t w = write(t->stop_fd, t->injq.data, t->injq.len);
+        if (w > 0) {
+            memmove(t->injq.data, t->injq.data + w, t->injq.len - (jc_size)w);
+            t->injq.len -= (jc_size)w;
+            t->injq.data[t->injq.len] = '\0';
+            t->injq_len -= (jc_size)w;
+        }
+    }
+    if (fl >= 0) {
+        (void)fcntl(t->stop_fd, F_SETFL, fl);
+    }
+}
+
+static void pool_drain_injects(void)
+{
+    int i;
+    for (i = 0; i < s_pool_ntasks; i++) {
+        struct ptask *t = &s_pool_tasks[i];
+        if (t->sup_stop) {
+            /* A pending supervisor stop outranks this task's injects: the
+             * child is about to be killed, so the queued text is not written
+             * (it would fold into a child that no longer model-calls). */
+            continue;
+        }
+        pool_drain_inject(t);
+    }
+}
+
+static void pool_register(struct jc_app *app)
+{
+    s_pool_ops.stop = pool_op_stop;
+    s_pool_ops.inject = pool_op_inject;
+    s_pool_ops.snap = &s_pool_snap;
+    app->control->pool_ops = &s_pool_ops;
+}
+
+static void pool_unregister(struct jc_app *app)
+{
+    if (app->control != NULL) {
+        app->control->pool_ops = NULL;
+    }
+    s_pool_tasks = NULL;
 }
 
 /* The fork pool: keep <= cap children live, gather each child's pipe with a
@@ -1434,6 +1692,16 @@ static void run_pool(struct jc_app *app, struct ptask *tasks, int ntasks,
     int i;
 
     *aborted = 0;
+    /* M1149: register the hook + published snapshot on the control struct for
+     * the batch's duration. Only when the channel is live (the pool runs
+     * without --control in most batches); the handler NULL-checks the hook
+     * either way. s_pool_* mirror the local state the snapshot reads. */
+    s_pool_tasks = tasks;
+    s_pool_ntasks = ntasks;
+    s_pool_done = 0;
+    if (app->control != NULL && app->control->listen_fd >= 0) {
+        pool_register(app);
+    }
     while (done < ntasks) {
         fd_set rf;
         struct timeval tv;
@@ -1453,7 +1721,9 @@ static void run_pool(struct jc_app *app, struct ptask *tasks, int ntasks,
                !(app->control != NULL && app->control->paused)) {
             struct ptask *t = &tasks[next];
             int fds[2];
+            int ifds[2];  /* M1149: the per-child inject pipe (parent->child) */
             pid_t pid;
+            t->stop_fd = -1;   /* the inject write end; -1 when none (below) */
 
             if (t->invalid) {
                 t->done = 1;
@@ -1462,6 +1732,24 @@ static void run_pool(struct jc_app *app, struct ptask *tasks, int ntasks,
                 continue;
             }
             if (jc_pipe_cloexec(fds) != 0) {
+                t->error = jc_strdup("pipe failed");
+                t->done = 1;
+                done++;
+                next++;
+                continue;
+            }
+            /* M1149 (behaviour 6, 7, 8): the SECOND pre-fork pipe, created next
+             * to the result pipe. The child keeps the READ end (dup2'd onto the
+             * fixed fd JC_CTL_INJECT_FD); the parent keeps the WRITE end and
+             * drains the task's inject queue into it at its ~200 ms wake. Made
+             * for EVERY task -- read-only children have no temp dir, so the
+             * file channel cannot serve them (behaviour 8). The pipe is cheap;
+             * it is CLOEXEC on both ends, so a sibling fork never inherits it.
+             * (A child's nested pool registers on its own COW control copy and
+             * forks its own inject pipes; nothing here reaches the lead.) */
+            if (jc_pipe_cloexec(ifds) != 0) {
+                close(fds[0]);
+                close(fds[1]);
                 t->error = jc_strdup("pipe failed");
                 t->done = 1;
                 done++;
@@ -1481,6 +1769,8 @@ static void run_pool(struct jc_app *app, struct ptask *tasks, int ntasks,
                 int e = errno;
                 close(fds[0]);
                 close(fds[1]);
+                close(ifds[0]);
+                close(ifds[1]);
                 jc_snprintf(forkerr, sizeof(forkerr),
                             "fork failed: %s%s", strerror(e),
                             e == EAGAIN
@@ -1495,16 +1785,28 @@ static void run_pool(struct jc_app *app, struct ptask *tasks, int ntasks,
                 continue;
             }
             if (pid == 0) {
+                /* M1149: the child keeps the inject pipe's READ end; run_child
+                 * dup2's it onto the fixed fd JC_CTL_INJECT_FD and sets
+                 * app->pool_inject_fd_valid (the child's boundary drain). Close
+                 * the write end here; the parent keeps it. */
                 close(fds[0]);
-                run_child(app, t, next + 1, fds[1], run_id);
+                close(ifds[1]);
+                run_child(app, t, next + 1, fds[1], run_id, ifds[0]);
                 close(fds[1]);
                 _exit(0);
             }
+            /* M1149: the parent closes the inject READ end and keeps the WRITE
+             * end (t->stop_fd); it drains the task's inject queue into it at
+             * the wake. run_child consumes ifds[0] in the child, so the parent
+             * closes it here. */
             close(fds[1]);
+            close(ifds[0]);
+            t->stop_fd = ifds[1];
             t->pid = pid;
             t->fd = fds[0];
             t->launched = 1;
             t->launch_ms = (long)jc_now_millis();
+            t->last_ms = t->launch_ms;  /* M1149: idle_s baseline (behaviour 12) */
             jc_sb_init(&t->out);
             /* Resolve the model name for the board and announce the launch. */
             {
@@ -1542,6 +1844,35 @@ static void run_pool(struct jc_app *app, struct ptask *tasks, int ntasks,
         jc_control_poll_during_call(app, 1);
         jc_control_apply_deferred_abort(app);
 
+        /* M1149: the pool answers the per-worker verbs AT THIS wake, the same
+         * wake that drains a deferred abort. Consume any supervisor stop-task
+         * (kill_one: SIGTERM, the 300 ms grace, SIGKILL, reap), then refresh
+         * the published snapshot and drain the inject queues. The stop lands
+         * here, not in serve_pending's context, exactly as the deferred abort
+         * is handled. */
+        for (i = 0; i < ntasks; i++) {
+            struct ptask *t = &tasks[i];
+            if (t->sup_stop && t->launched && !t->done) {
+                /* sup_stop is kept SET (kill_one marks t->done, so the guard
+                 * above cannot re-fire); the parent-side report render names
+                 * the supervisor stop from it. */
+                kill_one(t);
+                if (t->error == NULL && t->answer == NULL) {
+                    t->error = jc_strdup("stopped by the supervisor");
+                }
+                board_line(app, i, t->model_name, JC_BOARD_FAIL,
+                           "stopped by the supervisor", t->tokens);
+                done++;
+                live--;
+            }
+        }
+        if (app->control != NULL && app->control->listen_fd >= 0) {
+            s_pool_done = done;
+            s_pool_now_ms = (long)jc_now_millis();
+            pool_refresh_snap();
+            pool_drain_injects();
+        }
+
         /* M1047: liveness at every depth. While the children are alive and
          * streaming (the normal state for a multi-minute batch) the lead's jsonl
          * was SILENT: jc_app_batch_progress above fired only on a child's pipe
@@ -1557,6 +1888,7 @@ static void run_pool(struct jc_app *app, struct ptask *tasks, int ntasks,
         if (app->abort_flag) {
             kill_live(tasks, ntasks);
             *aborted = 1;
+            pool_unregister(app);   /* M1149: the batch is over */
             return;
         }
         /* Per-child watchdog (M62 #1): a child wedged in a tool or a stalled
@@ -1591,6 +1923,7 @@ static void run_pool(struct jc_app *app, struct ptask *tasks, int ntasks,
                 }
             }
             if (done >= ntasks) {
+                pool_unregister(app);   /* M1149: the batch is over */
                 return;
             }
         }
@@ -1599,6 +1932,7 @@ static void run_pool(struct jc_app *app, struct ptask *tasks, int ntasks,
                 continue;
             }
             kill_live(tasks, ntasks);
+            pool_unregister(app);   /* M1149: the batch is over */
             return;
         }
         if (rc == 0) {
@@ -1619,6 +1953,12 @@ static void run_pool(struct jc_app *app, struct ptask *tasks, int ntasks,
             } else {
                 close(t->fd);
                 t->fd = -1;
+                if (t->stop_fd >= 0) {  /* M1149: the child exited; its inject
+                                          * write end is closed (EOF) so late
+                                          * injects are refused (behaviour 6/10) */
+                    close(t->stop_fd);
+                    t->stop_fd = -1;
+                }
                 waitpid(t->pid, NULL, 0);
                 t->done = 1;
                 done++;
@@ -1637,6 +1977,7 @@ static void run_pool(struct jc_app *app, struct ptask *tasks, int ntasks,
             }
         }
     }
+    pool_unregister(app);   /* M1149: the batch is over (normal exit) */
 }
 
 static cJSON *parallel_schema(void)
@@ -2236,6 +2577,11 @@ static void ptask_free_members(struct ptask *tasks, int n)
         if (tasks[i].launched) {
             jc_sb_free(&tasks[i].out);
         }
+        /* M1149: the per-task inject queue (the write end is closed by
+         * run_pool/kill_one; only the sb is freed here). */
+        if (tasks[i].injq.data != NULL) {
+            jc_sb_free(&tasks[i].injq);
+        }
         if (tasks[i].answer != NULL) {
             free(tasks[i].answer);
         }
@@ -2525,7 +2871,11 @@ static jc_status parallel_run(const cJSON *args, struct jc_tool_result *out,
         s_batch_no++;
         jc_snprintf(run_id, sizeof run_id, "%s-b%d", rbase, s_batch_no);
     }
-    /* M860: this batch's children take the next seq bands, in task order. */
+    /* M860: this batch's children take the next seq bands, in task order.
+     * The pool launches tasks in ARGUMENT order (the JSON's "tasks" array);
+     * the per-worker verbs' index, the worktree number, and the report order
+     * are all that order (M1149-b2: the wave-2 write-first reorder, which
+     * renumbered mixed batches relative to the request, was removed). */
     for (i = 0; i < ntasks; i++) {
         tasks[i].band = s_next_band + (long)i;
     }
@@ -3486,6 +3836,18 @@ static jc_status parallel_run(const cJSON *args, struct jc_tool_result *out,
         } else {
             jc_sb_append_fmt(&agg, "(error: %s)\n",
                              t->error != NULL ? t->error : "unknown");
+        }
+        /* M1149 (behaviour 2, 3, 4, 9): a child the SUPERVISOR stopped via
+         * stop-task -- as distinct from M854's outside SIGTERM and the
+         * timeout/watchdog stop -- names the reason on the PARENT side of the
+         * report. The M854 child-side transcript ("was stopped from outside
+         * (SIGTERM)") and the M885 advice line are UNCHANGED; this line is what
+         * the driver greps ("stopped by the supervisor (SIGTERM): <reason>").
+         * A refused stop-task touched no child, so sup_stop is never set for it. */
+        if (t->sup_stop) {
+            jc_sb_append_fmt(&agg, "[jichi] stopped by the supervisor (SIGTERM)%s%s\n",
+                             t->sup_stop_reason[0] != '\0' ? ": " : "",
+                             t->sup_stop_reason[0] != '\0' ? t->sup_stop_reason : "");
         }
         /* M863 (N44 (a)): a child that ran work-discarding git commands, and
          * the states jichi kept before them, for the lead and the operator. */

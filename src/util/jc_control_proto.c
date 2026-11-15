@@ -22,8 +22,10 @@ const char *jc_control_type_name(enum jc_control_cmd_type t)
     case JC_CTL_PAUSE:  return "pause";
     case JC_CTL_RESUME: return "resume";
     case JC_CTL_ABORT:  return "abort";
-    case JC_CTL_MODE:   return "mode";
-    default:            return "unknown";
+    case JC_CTL_MODE:        return "mode";
+    case JC_CTL_STOP_TASK:   return "stop-task";    /* M1149 */
+    case JC_CTL_INJECT_TASK: return "inject-task";  /* M1149 */
+    default:                 return "unknown";
     }
 }
 
@@ -36,6 +38,8 @@ enum jc_control_cmd_type jc_control_type_parse(const char *s)
     if (strcmp(s, "resume") == 0) return JC_CTL_RESUME;
     if (strcmp(s, "abort") == 0)  return JC_CTL_ABORT;
     if (strcmp(s, "mode") == 0)   return JC_CTL_MODE;   /* M304 */
+    if (strcmp(s, "stop-task") == 0)   return JC_CTL_STOP_TASK;   /* M1149 */
+    if (strcmp(s, "inject-task") == 0) return JC_CTL_INJECT_TASK; /* M1149 */
     return JC_CTL_UNKNOWN;
 }
 
@@ -65,6 +69,7 @@ jc_status jc_control_parse_request(const char *line,
 {
     cJSON *o;
     const char *t;
+    cJSON *tk;   /* M1149: the `task` field (stop-task / inject-task) */
 
     if (out == NULL) {
         return JC_ERR_INVALID;
@@ -119,6 +124,55 @@ jc_status jc_control_parse_request(const char *line,
             }
         } else {
             out->from = NULL;
+        }
+    }
+    if (out->type == JC_CTL_STOP_TASK || out->type == JC_CTL_INJECT_TASK) {
+        /* M1149: the per-worker verbs. `task` is the 0-based pool index: a
+         * whole number >= 0. A missing, non-numeric or negative value is an
+         * INVALID request at the protocol edge (the "not live" refusal is for
+         * a VALID index past the batch's total -- the pool checks that). */
+        tk = cJSON_GetObjectItem(o, "task");
+        if (tk == NULL || !cJSON_IsNumber(tk) ||
+            tk->valuedouble < 0.0 ||
+            (double)jc_json_clamp_long(tk->valuedouble) != tk->valuedouble) {
+            cJSON_Delete(o);
+            return JC_ERR_INVALID;
+        }
+        out->task = jc_json_clamp_int(tk->valuedouble);
+    }
+    if (out->type == JC_CTL_STOP_TASK) {
+        /* M1149: the reason is optional; a present-but-empty one is omitted
+         * (the report line then carries no ": <reason>" tail). */
+        const char *r = jc_json_get_str(o, "reason", NULL);
+        if (r != NULL && r[0] != '\0') {
+            out->reason = jc_arena_strdup(a, r);
+            if (out->reason == NULL) {
+                cJSON_Delete(o);
+                return JC_ERR_OOM;
+            }
+        } else {
+            out->reason = NULL;
+        }
+    }
+    if (out->type == JC_CTL_INJECT_TASK) {
+        /* M1149: the text is required non-empty (as INJECT's), and must not
+         * ALONE exceed the per-task queue cap -- the handler maps that
+         * JC_ERR_TOOBIG to the "queue is full" refusal rather than the pool
+         * ever storing an over-cap line. (The pool's own join-and-check adds
+         * the already-queued text on top; this is the request-shape half.) */
+        const char *txt = jc_json_get_str(o, "text", NULL);
+        if (txt == NULL || txt[0] == '\0') {
+            cJSON_Delete(o);
+            return JC_ERR_INVALID;
+        }
+        if ((jc_size)strlen(txt) > JC_CONTROL_QUEUE_MAX) {
+            cJSON_Delete(o);
+            return JC_ERR_TOOBIG;
+        }
+        out->text = jc_arena_strdup(a, txt);
+        if (out->text == NULL) {
+            cJSON_Delete(o);
+            return JC_ERR_OOM;
         }
     }
     cJSON_Delete(o);
@@ -179,6 +233,29 @@ char *jc_control_build_request(const char *type, const char *text,
     }
     if (from != NULL && from[0] != '\0') {
         cJSON_AddStringToObject(o, "from", from);
+    }
+    return finish_line(o);
+}
+
+char *jc_control_build_task_request(const char *type, int task,
+                                    const char *reason_or_text)
+{
+    cJSON *o = cJSON_CreateObject();
+
+    if (o == NULL) {
+        return NULL;
+    }
+    cJSON_AddNumberToObject(o, "v", JC_CONTROL_PROTO_V);
+    cJSON_AddStringToObject(o, "type", type != NULL ? type : "unknown");
+    cJSON_AddNumberToObject(o, "task", (double)task);
+    if (reason_or_text != NULL && reason_or_text[0] != '\0') {
+        /* M1149: the stop's tail is "reason", the inject's body is "text" --
+         * the wire says what it means (the parse reads each by name). */
+        if (type != NULL && strcmp(type, "stop-task") == 0) {
+            cJSON_AddStringToObject(o, "reason", reason_or_text);
+        } else {
+            cJSON_AddStringToObject(o, "text", reason_or_text);
+        }
     }
     return finish_line(o);
 }
@@ -259,5 +336,47 @@ char *jc_control_build_status(const struct jc_control_status *s)
      * from cold must observe the 0/0 baseline. */
     cJSON_AddNumberToObject(o, "injected", (double)s->injected);
     cJSON_AddNumberToObject(o, "queued_injects", (double)s->queued_injects);
+    /* M1149: the live pool's snapshot. ONLY when a batch is live (the pool
+     * registered it); with none the reply is byte-identical to today -- no
+     * "batch" key at all, not an empty object (driver cell 12's idle half). */
+    if (s->batch != NULL) {
+        cJSON *b = cJSON_CreateObject();
+        int i;
+        if (b != NULL) {
+            cJSON_AddNumberToObject(b, "total", (double)s->batch->total);
+            cJSON_AddNumberToObject(b, "done", (double)s->batch->done);
+            {
+                cJSON *ts = cJSON_CreateArray();
+                for (i = 0; i < s->batch->total; i++) {
+                    const struct jc_pool_task_snap *k = &s->batch->tasks[i];
+                    cJSON *tk = cJSON_CreateObject();
+                    if (tk == NULL) {
+                        break;
+                    }
+                    cJSON_AddNumberToObject(tk, "i", (double)k->i);
+                    cJSON_AddNumberToObject(tk, "live", (double)k->live);
+                    if (k->model != NULL) {
+                        cJSON_AddStringToObject(tk, "model", k->model);
+                    }
+                    cJSON_AddNumberToObject(tk, "pid", (double)k->pid);
+                    if (k->tool != NULL) {
+                        cJSON_AddStringToObject(tk, "tool", k->tool);
+                    }
+                    cJSON_AddNumberToObject(tk, "tools", (double)k->tools);
+                    cJSON_AddNumberToObject(tk, "tokens", k->tokens);
+                    cJSON_AddNumberToObject(tk, "idle_s", k->idle_s);
+                    if (k->wt != NULL) {
+                        cJSON_AddStringToObject(tk, "wt", k->wt);
+                    }
+                    if (k->ending != NULL) {
+                        cJSON_AddStringToObject(tk, "ending", k->ending);
+                    }
+                    cJSON_AddItemToArray(ts, tk);
+                }
+                cJSON_AddItemToObject(b, "tasks", ts);
+                cJSON_AddItemToObject(o, "batch", b);
+            }
+        }
+    }
     return finish_line(o);
 }

@@ -92,6 +92,63 @@ DRIVE=0; LIVE_PORT="1234"; LIVE_MODEL="local"
 # g/gl: there is no guest to reach, so it calls the task functions directly.
 . "$(dirname "$0")/_rig_live.sh"
 
+# P6b (M1166): classify a run_tests log, as a function that takes the log FILE.
+# Echoes exactly one of: ok (a '<N> checks, 0 failures' marker), failed (a
+# '<N> checks, <M> failures' marker with M>0), ran-nosummary (the log is
+# non-empty -- the binary RAN -- but printed no marker), or empty (no content).
+# The call site turns that classification into the row's label.
+# FIX: the no-marker-but-non-empty case is ran-nosummary, not did-not-execute --
+# armeb and hexagon DID execute (SIGILL / an early stop), so "did not execute"
+# was a false claim about the emulator.
+arch_classify() {
+    _ac_m=$(grep -oE '[0-9]+ checks, [0-9]+ failures' "$1" 2>/dev/null | tail -1)
+    if [ -z "$_ac_m" ]; then
+        [ -s "$1" ] && echo "ran-nosummary" || echo "empty"
+    elif printf '%s' "$_ac_m" | grep -qE ', 0 failures$'; then
+        echo "ok"
+    else
+        echo "failed"
+    fi
+}
+
+# --selftest: plant run logs in $TMPDIR, assert what arch_classify echoes, and
+# exit non-zero iff any assertion failed. Runs before the arg-parse loop, any
+# build or qemu: the tooth fires in a container with no device at all.
+# The tooth (P6b): a run that printed output but no marker is ran-nosummary
+# (the row must label it "ran, no summary", not "did not execute"); a log with
+# a zero-failure marker is ok.
+if [ "${1:-}" = "--selftest" ]; then
+    selftest() {
+        d=${TMPDIR:-/tmp}/tier_selftest.$$ ; mkdir -p "$d"
+        N=0
+        echo "starting 21 target suites..." > "$d/test-ran.log"
+        echo "qemu: illegal instruction (SIGILL)" >> "$d/test-ran.log"
+        C=$(arch_classify "$d/test-ran.log")
+        [ "$C" = ran-nosummary ] \
+            && echo "ok 1 - no-marker but ran classifies ran-nosummary (label: ran, no summary -- NOT did not execute)" \
+            || { N=1; echo "not ok 1 - the classification is '$C', not ran-nosummary (the row would say: the binary did not execute)"; }
+        echo "37960 checks, 0 failures" > "$d/test-ok.log"
+        C=$(arch_classify "$d/test-ok.log")
+        [ "$C" = ok ] \
+            && echo "ok 2 - a 0-failures marker classifies ok" \
+            || { N=1; echo "not ok 2 - marker log classifies '$C', not ok"; }
+        echo "37960 checks, 3 failures" > "$d/test-fail.log"
+        C=$(arch_classify "$d/test-fail.log")
+        [ "$C" = failed ] \
+            && echo "ok 3 - a failing marker classifies failed" \
+            || { N=1; echo "not ok 3 - failing marker log classifies '$C', not failed"; }
+        : > "$d/test-empty.log"
+        C=$(arch_classify "$d/test-empty.log")
+        [ "$C" = empty ] \
+            && echo "ok 4 - an empty log classifies empty" \
+            || { N=1; echo "not ok 4 - empty log classifies '$C', not empty"; }
+        rm -rf "$d"
+        if [ $N -eq 0 ]; then echo "arch selftest: all assertions ok"; else echo "arch selftest: FAILED"; fi
+        exit $N
+    }
+    selftest
+fi
+
 while [ $# -gt 0 ]; do
     case "$1" in
         --list)    LIST=1 ;;
@@ -504,7 +561,17 @@ for line in $(printf '%s\n' "$TARGETS" | tr ' ' '@'); do
             fi
             (cd "$W" && grep -B2 -A2 -iE 'FAIL' test.log | head -20) | tee -a "$RESULTS"
         else
-            norun "$t: built, but the binary did not execute under $h ($( (cd "$W" && tail -2 test.log | tr '\n' ' ' | cut -c1-90) ))"
+            # P6b: classify, then label from the classification. A non-empty log
+            # with no marker is a run that RAN (SIGILL, an early stop, a driver
+            # that died before the summary) -- "did not execute" was a false
+            # claim about the emulator (M1166). An empty log is the genuine
+            # no-execution case and keeps its label.
+            _ac=$(arch_classify "$W/test.log")
+            case "$_ac" in
+                ok|failed)     : ;;  # unreachable: the marker branch above took both
+                ran-nosummary) norun "$t: ran, no summary -- test.log has no '<N> checks, <M> failures' marker under $h ($( (cd "$W" && tail -2 test.log | tr '\n' ' ' | cut -c1-90) ))" ;;
+                *)             norun "$t: built, but the binary did not execute under $h (test.log is empty)" ;;
+            esac
         fi
         [ "$KEEP" -eq 1 ] || rm -rf "$W"
         continue

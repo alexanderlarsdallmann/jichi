@@ -182,7 +182,10 @@ fi
 # `mode` (M304) never reached it. The second route is the codec's own parse table
 # (jc_control_type_parse in src/util/jc_control_proto.c), read from the source, so
 # a verb the socket accepts and the contract omits turns this red.
-want=$(sed -n 's/.*strcmp(s, "\([a-z]*\)") == 0) *return JC_CTL_.*/\1/p' \
+# M1149: the class is [a-z-] -- the two per-worker verbs are hyphenated (stop-task,
+# inject-task). Before, the second route silently read six verbs, and a mismatch
+# with the eight-verb socket went undetected -- the lint's own failure mode.
+want=$(sed -n 's/.*strcmp(s, "\([a-z-]*\)") == 0) *return JC_CTL_.*/\1/p' \
     "$SMOKE_ROOT/src/util/jc_control_proto.c" | sort | tr '\n' ' ')
 got=""
 i=0

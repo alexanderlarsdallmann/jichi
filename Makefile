@@ -1,4 +1,4 @@
-# Makefile for jichi - a C89 rewrite of the Continue CLI.
+# Makefile for jichi - an AI coding agent written in C89.
 #
 # First-party code is compiled strict ANSI C89 (-std=c89 -pedantic). The
 # src/json/cJSON.c is OURS (API-compatible name, not a vendored copy) and is
@@ -542,7 +542,8 @@ endif
 # libc and only the declarations are hidden, so a probe that merely links says
 # yes there and the build then fails -- measured, and M449's lesson in a new
 # place. On glibc, musl, the BSDs and illumos the first form succeeds and nothing
-# is added. portability_lint check 31 holds both probes to the flag.
+# is added -- except NetBSD 10.1, where the X/Open form is taken (measured in the
+# guest, 2026-11-13; M1173). portability_lint check 31 holds both probes to the flag.
 LSTAT_PROBE := \043include <sys/stat.h>\n\043include <unistd.h>\nint main(void){struct stat s;char b[2];return lstat(".",&s)+(int)readlink(".",b,1)+symlink(".",".");}\n
 HAVE_LSTAT := $(shell printf '$(LSTAT_PROBE)' \
   | $(CC) -std=c89 -D_POSIX_C_SOURCE=200112L $(POSIX_UNGATE) $(if $(filter yes,$(HAVE_WINSZ)),,-D__EXTENSIONS__) -Werror=implicit-function-declaration -xc - -o $(PROBE_OUT) >/dev/null 2>&1 && echo yes; rm -f $(PROBE_OUT) $(PROBE_OUT).exe)
@@ -582,6 +583,27 @@ HAVE_USE_LFN := $(shell printf '$(LFN_PROBE)' \
   | $(CC) -std=c89 -D_POSIX_C_SOURCE=200112L $(POSIX_UNGATE) -Werror=implicit-function-declaration -xc - -o $(PROBE_OUT) >/dev/null 2>&1 && echo yes; rm -f $(PROBE_OUT) $(PROBE_OUT).exe)
 ifeq ($(HAVE_USE_LFN),yes)
   STD += -DJC_HAVE_USE_LFN
+endif
+
+# JC_FCHDIR_DECLARED (M1173): the DECLARATION question the JC_HAVE_FCHDIR link probe
+# leaves open. glibc hides fchdir under jichi's flags, so jc_spawn.c declares it
+# itself. NetBSD 10.1 declares it in <unistd.h> once _XOPEN_SOURCE is defined -- and
+# this Makefile ADDS -D_XOPEN_SOURCE=600 there (the lstat probe above: NetBSD hides
+# lstat/readlink/symlink under the bare POSIX flags, measured in the guest) --
+# so gcc's -Wredundant-decls failed the WERROR=1 build at that extern (the NetBSD
+# row, 2026-11-13: "jc_spawn.c:43:12: error: redundant redeclaration of 'fchdir'").
+# clang does not implement -Wredundant-decls, so the FreeBSD and OpenBSD rows were
+# silent. The probe compiles with $(STD) $(POSIX) -- the feature macros the build
+# itself uses, accumulated by every probe above -- which is why it sits HERE, after
+# the last one that can add a feature macro: a first draft placed it beside the link
+# probe and asked with the bare POSIX flags, said "not declared" on NetBSD, and the
+# build failed exactly as before (measured in the guest).
+ifeq ($(JC_HAVE_FCHDIR),yes)
+JC_FCHDIR_DECLARED := $(shell printf '\043include <unistd.h>\nint main(void){return fchdir(0)==0;}\n' \
+  | $(CC) $(STD) $(POSIX) -Werror=implicit-function-declaration -xc - -o $(PROBE_OUT) >/dev/null 2>&1 && echo yes; rm -f $(PROBE_OUT) $(PROBE_OUT).exe)
+ifeq ($(JC_FCHDIR_DECLARED),yes)
+  STD += -DJC_FCHDIR_DECLARED
+endif
 endif
 
 # libm for floor() in the JSON number printer.
@@ -1231,6 +1253,99 @@ HARNESS_DRIVE = src/harness/jc_harness_drive.o
 # a prerequisite of the harness binary only, where `run` calls
 # jc_harness_build_handoff before the spawn.
 HARNESS_HANDOFF = src/harness/jc_harness_handoff.o
+# M1147 (H7): the push `records` body -- the records push (def-360 retired).
+# One file per push subcommand (the parallel pool merges per file, first
+# writer kept); it is deliberately NOT in LIB_OBJ/LIB_SRC, a prerequisite of
+# the harness binary only. The shared M1056 git/credential/secret/range-rule
+# helpers it codes against are exported from HARNESS_PUSH.
+HARNESS_PUSH_RECORDS = src/harness/jc_hp_records.o
+# M1147 (H7): the push `tick` body -- one host tick under the lock, with
+# paging (UC1). NOT in LIB_OBJ/LIB_SRC; harness binary only.
+HARNESS_PUSH_TICK = src/harness/jc_hp_tick.o
+# M1147 (H7): the push `backlog` body -- a refused backlog in fast-forward
+# steps (UC2). NOT in LIB_OBJ/LIB_SRC; harness binary only.
+HARNESS_PUSH_BACKLOG = src/harness/jc_hp_backlog.o
+# M1147 (H7): the push `units` body -- the systemd jhp-push.{service,timer}
+# files, generated not hand-written. NOT in LIB_OBJ/LIB_SRC; harness binary
+# only.
+HARNESS_PUSH_UNITS = src/harness/jc_hp_units.o
+# M1147 (H7): the push `run-drive` body -- the podman argv it would build,
+# printed (dry-by-default). NOT in LIB_OBJ/LIB_SRC; harness binary only.
+HARNESS_PUSH_RUNDRIVE = src/harness/jc_hp_rundrive.o
+# M1152 (H8): the `notify` command, deliver a host-gate verdict, the C89 port
+# of the hardening drive's gate-note.sh. Like HARNESS_RUN it is deliberately
+# NOT in LIB_OBJ/LIB_SRC; it is a prerequisite of the harness binary only,
+# where `notify` is wired into the dispatch (it runs the pinned jichi control
+# inject through jc_spawn when a run is LIVE, and the config-named hook, a
+# failing one logged, never fatal).
+HARNESS_NOTIFY = src/harness/jc_harness_notify.o
+# M1153 (H9a): the `watch gate` tick (the gate watcher, the C89 port of
+# gate-watch.sh) and the `watch units` (the watcher's generated systemd
+# units). The withdrawal engine (behaviour 7) is a pure function inside
+# jc_hp_watchgate.c, unit-tested by tests/test_watchgate.c. NOT in
+# LIB_OBJ/LIB_SRC; harness binary only (jc_hp_watchgate.o is also linked
+# into run_tests for the pure withdrawal unit).
+HARNESS_WATCH_GATE = src/harness/jc_hp_watchgate.o
+HARNESS_WATCH_UNITS = src/harness/jc_hp_watchunits.o
+HARNESS_WATCH = $(HARNESS_WATCH_GATE) $(HARNESS_WATCH_UNITS)
+
+# M1154 (H9b T2): the `gate run --stage ledger` body (the gate ledger, the
+# C89 port of ledger.sh + the DD11 accept list). The pure classification
+# core is unit-tested by tests/test_gateledger.c, so jc_hp_gateledger.o is
+# also linked into run_tests (like HARNESS_WATCH_GATE above). NOT in
+# LIB_OBJ/LIB_SRC; harness binary only.
+HARNESS_GATE_LEDGER = src/harness/jc_hp_gateledger.o
+
+# M1154 (H9b T3): the `gate run --stage verdict` body (the sweep verdict, the
+# C89 port of sweep-verdict.sh + the 14:47 uses_bin second count). The pure
+# classification core is unit-tested by tests/test_gateverdict.c, so
+# jc_hp_gateverdict.o is also linked into run_tests (like the ledger above).
+# NOT in LIB_OBJ/LIB_SRC; harness binary only.
+HARNESS_GATE_VERDICT = src/harness/jc_hp_gateverdict.o
+
+# M1154 (H9b T5, wave 2): the `gate run --stage sweep` body (the pre-gate sweep,
+# the C89 port of sweep.sh: the keyless driver loop, the smoke-mutant, the two
+# unit suites, the two-userns container drivers, the records line). The PURE
+# line-assembly is unit-tested by tests/test_gatesweep.c, so
+# jc_hp_gatesweep.o is also linked into run_tests (like the ledger/verdict
+# above). NOT in LIB_OBJ/LIB_SRC; harness binary only.
+HARNESS_GATE_SWEEP = src/harness/jc_hp_gatesweep.o
+
+# M1154 (H9b T8, wave 3): the `gate run --stage ci` body (the ci gate, the
+# C89 port of ci-gate.sh: the fresh clone at exactly SHA8, the keyless
+# uncapped make ci (or the shimmable --ci-run), the log + meta files, the
+# b6 rc / RED lines with the SV:1238 excerpt). The PURE line-assembly is
+# unit-tested by tests/test_gateci.c, so jc_hp_gateci.o is also linked
+# into run_tests (like the sweep above). NOT in LIB_OBJ/LIB_SRC; harness
+# binary only.
+HARNESS_GATE_CI = src/harness/jc_hp_gateci.o
+
+# M1157 (H9b T9, wave 3): the `gate run --stage redfirst` body (the red-first
+# replay, the C89 port of redfirst.sh: the UNSTUBBED selection, the shimmed
+# --redfirst-run / --redfirst-unit-run, the verdict words, the summary, the
+# records line). The PURE line-assembly + selection + verdicts are
+# unit-tested by tests/test_gateref.c, so jc_hp_gateref.o is also linked
+# into run_tests (like the ci above). NOT in LIB_OBJ/LIB_SRC; harness
+# binary only.
+HARNESS_GATE_REF = src/harness/jc_hp_gateref.o
+
+# M1159 (H9b wave 4): the `gate run <SHA8> [BATCH]` orchestrator (the full
+# run: the D8 keyless setup, the D9 gated word, the D6 say/state/note
+# machinery, the five D1/D2 stage children, the RED/INVALID arms, the
+# green-land-refused terminal; the HOLD/land/repin arms are Task C's). The
+# core is thin string work the driver's G-cells pin byte-for-byte end to
+# end (M1159 D7: no run_tests link). NOT in LIB_OBJ/LIB_SRC; harness
+# binary only.
+HARNESS_GATE = src/harness/jc_hp_gate.o
+
+# M1159 (H9b wave 4, task D): the `gate units` body -- the generated transient
+# gate service template (jhp-gate@.service), the generated-file twin of the
+# watcher's systemd-run start (D13). Minimal per the note: the refusal (no
+# host.gateRun -> exit 2) and the template carrying the gateRun argv verbatim,
+# pinned by the driver's G30a / G30b. Thin string work the driver pins
+# byte-for-byte (no run_tests link, like the gate orchestrator above). NOT in
+# LIB_OBJ/LIB_SRC; harness binary only.
+HARNESS_GATE_UNITS = src/harness/jc_hp_gateunits.o
 
 TEST_SRC = $(wildcard tests/test_*.c)
 TEST_OBJ = $(TEST_SRC:.c=.o)
@@ -1244,9 +1359,10 @@ TEST_OBJ = $(TEST_SRC:.c=.o)
 TT_CFLAGS  = $(STD) $(WARN) -D_XOPEN_SOURCE=600 $(INCLUDE)
 TT_BIN     = tests/tools/mockmodel tests/tools/ptydrive tests/tools/jsonq \
              tests/tools/sockq tests/tools/mocklsp tests/tools/lo_up \
-             tests/tools/udpblack tests/tools/rsshwm tests/tools/keyprobe
+             tests/tools/udpblack tests/tools/rsshwm tests/tools/keyprobe \
+             tests/tools/sockbind
 TT_CORE_OBJ = tests/tools/mm_core.o tests/tools/pd_core.o tests/tools/jq_core.o \
-              tests/tools/tt_mult.o
+              tests/tools/tt_mult.o tests/tools/tt_wait.o
 
 # Fuzzing (M123): the in-tree deterministic driver + the target set. The
 # libFuzzer shim (tests/fuzz/jc_fuzz_libfuzzer.c, M269) is NOT linked here -- it
@@ -1318,7 +1434,15 @@ CXX ?= g++
 # price of one translation unit. A full three-front-end sweep is 6 s + 8 s + 41 s;
 # nothing that costs 55 s runs in the smoke tier, and a tier that is too slow to
 # run is the failure mode this milestone is about.
-CPPCHECK_SRC ?= $(LIB_SRC) $(MAIN_OBJ:.o=.c) $(TEST_SRC)
+#
+# SV:0039 (M1152-h): the universe now includes the harness -- $(wildcard
+# src/harness/*.c) was missing, so make cpp-check parsed 330 files while
+# at least the 16 src/harness/*.c at the commit that widened the list
+# (6e5468fa); $(wildcard ...) keeps every future one in without an edit.
+# The gate's own C++ stage (line 1761) compiles and links them, and died
+# at jc_harness_notify.c:767 on an implicit void*->char*. A wildcard is
+# self-maintaining; tests/smoke/cppcheck_src_lint.sh holds the universe.
+CPPCHECK_SRC ?= $(LIB_SRC) $(MAIN_OBJ:.o=.c) $(TEST_SRC) $(wildcard src/harness/*.c)
 cpp-check: $(STAMP)
 	@command -v $(firstword $(CXX)) >/dev/null || { echo "cpp-check: $(CXX) not found"; exit 1; }
 	@d=$$(mktemp -d); printf 'int main(){return 0;}\n' > $$d/probe.cc; \
@@ -1474,8 +1598,8 @@ $(BIN): $(MAIN_OBJ) $(LIB_OBJ) $(CONVERT_CORE)
 $(CONVERT_BIN): $(CONVERT_MAIN) $(CONVERT_CORE) $(LIB_OBJ)
 	$(CC) $(JC_LDFLAGS) $(LDFLAGS) $(CONVERT_MAIN) $(CONVERT_CORE) $(LIB_OBJ) $(LDLIBS) -o $@
 
-$(HARNESS_BIN): $(HARNESS_MAIN) $(HARNESS_CONFIG) $(HARNESS_DOCTOR) $(HARNESS_INIT) $(HARNESS_MIRROR) $(HARNESS_PUSH) $(HARNESS_CRED) $(HARNESS_RUN) $(HARNESS_HANDOFF) $(HARNESS_DRIVE) $(CONVERT_CORE) $(LIB_OBJ)
-	$(CC) $(JC_LDFLAGS) $(LDFLAGS) $(HARNESS_MAIN) $(HARNESS_CONFIG) $(HARNESS_DOCTOR) $(HARNESS_INIT) $(HARNESS_MIRROR) $(HARNESS_PUSH) $(HARNESS_CRED) $(HARNESS_RUN) $(HARNESS_HANDOFF) $(HARNESS_DRIVE) $(CONVERT_CORE) $(LIB_OBJ) $(LDLIBS) -o $@
+$(HARNESS_BIN): $(HARNESS_MAIN) $(HARNESS_CONFIG) $(HARNESS_DOCTOR) $(HARNESS_INIT) $(HARNESS_MIRROR) $(HARNESS_PUSH) $(HARNESS_PUSH_RECORDS) $(HARNESS_PUSH_TICK) $(HARNESS_PUSH_BACKLOG) $(HARNESS_PUSH_UNITS) $(HARNESS_PUSH_RUNDRIVE) $(HARNESS_CRED) $(HARNESS_RUN) $(HARNESS_HANDOFF) $(HARNESS_DRIVE) $(HARNESS_NOTIFY) $(HARNESS_WATCH) $(HARNESS_GATE_LEDGER) $(HARNESS_GATE_VERDICT) $(HARNESS_GATE_SWEEP) $(HARNESS_GATE_CI) $(HARNESS_GATE_REF) $(HARNESS_GATE) $(HARNESS_GATE_UNITS) $(CONVERT_CORE) $(LIB_OBJ)
+	$(CC) $(JC_LDFLAGS) $(LDFLAGS) $(HARNESS_MAIN) $(HARNESS_CONFIG) $(HARNESS_DOCTOR) $(HARNESS_INIT) $(HARNESS_MIRROR) $(HARNESS_PUSH) $(HARNESS_PUSH_RECORDS) $(HARNESS_PUSH_TICK) $(HARNESS_PUSH_BACKLOG) $(HARNESS_PUSH_UNITS) $(HARNESS_PUSH_RUNDRIVE) $(HARNESS_CRED) $(HARNESS_RUN) $(HARNESS_HANDOFF) $(HARNESS_DRIVE) $(HARNESS_NOTIFY) $(HARNESS_WATCH) $(HARNESS_GATE_LEDGER) $(HARNESS_GATE_VERDICT) $(HARNESS_GATE_SWEEP) $(HARNESS_GATE_CI) $(HARNESS_GATE_REF) $(HARNESS_GATE) $(HARNESS_GATE_UNITS) $(CONVERT_CORE) $(LIB_OBJ) $(LDLIBS) -o $@
 
 # First-party objects.
 %.o: %.c
@@ -1485,9 +1609,9 @@ $(HARNESS_BIN): $(HARNESS_MAIN) $(HARNESS_CONFIG) $(HARNESS_DOCTOR) $(HARNESS_IN
 test: $(TEST)
 	$(SAN_RUN_ENV) ./$(TEST)
 
-$(TEST): $(TEST_OBJ) $(LIB_OBJ) $(CONVERT_CORE) $(TT_CORE_OBJ) $(HARNESS_CONFIG)
+$(TEST): $(TEST_OBJ) $(LIB_OBJ) $(CONVERT_CORE) $(TT_CORE_OBJ) $(HARNESS_CONFIG) $(HARNESS_PUSH) $(HARNESS_WATCH_GATE) $(HARNESS_GATE_LEDGER) $(HARNESS_GATE_VERDICT) $(HARNESS_GATE_SWEEP) $(HARNESS_GATE_CI) $(HARNESS_GATE_REF)
 	$(CC) $(JC_LDFLAGS) $(LDFLAGS) $(TEST_OBJ) $(LIB_OBJ) $(CONVERT_CORE) $(TT_CORE_OBJ) \
-	      $(HARNESS_CONFIG) $(LDLIBS) -o $@
+	      $(HARNESS_CONFIG) $(HARNESS_PUSH) $(HARNESS_WATCH_GATE) $(HARNESS_GATE_LEDGER) $(HARNESS_GATE_VERDICT) $(HARNESS_GATE_SWEEP) $(HARNESS_GATE_CI) $(HARNESS_GATE_REF) $(LDLIBS) -o $@
 
 # The helper binaries: whole-program compiles (no shared .o with the product
 # link; jc_snprintf.c is recompiled standalone so a SAN/SIZE build of the
@@ -1526,6 +1650,21 @@ tests/tools/mocklsp: tests/tools/mocklsp.c tests/tools/tt_mult.c
 # flag hack, the define is the group's own TT_CFLAGS plus one GNU source macro).
 tests/tools/lo_up: tests/tools/lo_up.c
 	$(CC) $(TT_CFLAGS) -D_GNU_SOURCE tests/tools/lo_up.c -o $@
+
+# sockbind (M1152-a, batch H8): a one-shot AF_UNIX binder for the
+# harness_notify driver's cell 3. A run is LIVE iff its ctl/lead.sock is a
+# REAL socket (the reference's `-S` test); POSIX sh cannot create a socket
+# file, and `touch` leaves a REGULAR file (so `-S` is false and the inject
+# would not fire -- the lead's run-0024 confirmation). sockbind [--deadline
+# SECS] <path> opens AF_UNIX/SOCK_STREAM, binds to the path and exits,
+# leaving the socket file behind so the driver's `[ -S ... ]`-equivalent (the
+# port's own `-S` test) sees it. Same -D_GNU_SOURCE escape as lo_up for
+# struct sockaddr_un / AF_UNIX under the group's strict -D_XOPEN_SOURCE=600.
+# It carries a --deadline backstop (a stall must not hang the run) that scales
+# by the tier's knob, so -- like sockq -- it links tt_mult.c (smoke_lint check
+# 10 requires every --deadline tool to scale).
+tests/tools/sockbind: tests/tools/sockbind.c tests/tools/tt_mult.c
+	$(CC) $(TT_CFLAGS) -D_GNU_SOURCE tests/tools/sockbind.c tests/tools/tt_mult.c -o $@
 
 # udpblack (M1062-c): a UDP black hole (bind 127.0.0.1:PORT, recvfrom-loop,
 # never answer) for the same cell's DNS resolver. select()/recvfrom() are
@@ -1600,7 +1739,23 @@ smoke-push-boundary:
 # in the install target on that platform and is nothing of the kind. Measured on
 # the Pi 400 (M658) and reproduced on the host by moving one file aside (M661).
 # A documented target should provide what its own tier tests.
-check-target: all test smoke
+#
+# M1164 (change 4, SV:1750): a failing `test` prerequisite used to STOP make
+# BEFORE `smoke` ran, so a unit red hid the entire smoke tier -- the Athlon II
+# X3's `37960 checks, 1 failure` (one fixed-window false FAIL, the instrument
+# not the product) lost its 554 smoke drivers. `all` must stay a hard
+# prerequisite (no binary: stop). But `test` and `smoke` now run with FAILURE
+# CONTINUATION: a failing test no longer hides smoke, and the target still
+# exits non-zero if EITHER did. The recipe is plain POSIX sh; rc lives in the
+# MAIN shell (not a subshell -- `( rc=1; )` would not propagate), so
+# `exit $$rc` reflects both. Until the rigs stop needing it, they may keep
+# passing `-k` (tier-b-device.sh:430 runs check-target with
+# JC_SMOKE_KEEP_GOING=1, its `-k` equivalent) -- M1164 does not touch rigs.
+check-target: all
+	@rc=0; \
+	$(MAKE) test || { rc=1; echo "check-target: test failed (continuing to smoke)"; }; \
+	$(MAKE) smoke || rc=1; \
+	exit $$rc
 
 # Tier V row V6 (docs/plans/2026-07-hardware-testing.md): the X11 keystroke
 # injector behind scripts/tier-v-terminals.sh, which drives jichi inside REAL
@@ -1819,18 +1974,12 @@ ci:
 # M1129 (SV:1057, red-first): the 32-bit stage -- jichi and the unit
 # suite at -m32, curl-free (HAVE_CURL=: the 32-bit libcurl is not
 # present, matching SV:1053's measured `gcc -m32 HAVE_CURL=`). Guarded
-# by a multilib probe: where gcc -m32 compiles a trivial main the stage
-# runs; where it does not it prints a SKIP line naming why and does not
-# fail. -k is deliberate: on the unfixed tree this stage is red on the
-# two -Wlong-long test literals and -k surfaces both; the defect-B fix
-# lands in a later commit. It runs at the END of the gate (M1129-S-b):
-# its 32-bit residue cannot reach the smoke/e2e stages, which reuse the
-# tree's binary through up-to-date prerequisites.
-	if echo 'int main(void){return 0;}' | gcc -m32 -x c - -o /dev/null 2>/dev/null; then \
+# by a multilib probe (M1184, SV:2307): where gcc -m32 compiles a program that includes <errno.h> the stage runs; where it does not it prints a SKIP line naming why and does not fail. The 2026-11-13 22:01 host incident proved a trivial-main probe false-RUNS a half-installed multilib: the stage's own <errno.h> pulls the kernel <asm/errno.h>, which the m68k cross-compiler removal left dangling while a header-free main still compiled. -k is deliberate: on the unfixed tree this stage is red on the two -Wlong-long test literals and -k surfaces both; the defect-B fix lands in a later commit. It runs at the END of the gate (M1129-S-b): its 32-bit residue cannot reach the smoke/e2e stages, which reuse the tree's binary through up-to-date prerequisites.
+	if printf '#include <errno.h>\nint main(void){return 0;}\n' | gcc -m32 -x c - -o /dev/null 2>/dev/null; then \
 	  echo 'ci: 32-bit stage (gcc -m32, HAVE_CURL=, WERROR=1)' && \
 	  $(MAKE) clean && $(MAKE) -k CC='gcc -m32' HAVE_CURL= WERROR=1 jichi test; \
 	else \
-	  echo 'ci: SKIP 32-bit stage: no gcc -m32 multilib (a trivial main does not compile)'; \
+	  echo 'ci: SKIP 32-bit stage: no gcc -m32 multilib (a program that includes <errno.h> does not compile)'; \
 	fi
 # The gate's ordinary binary, restored after the two M1129 stages above
 # self-cleaned the tree: ci still ends with an ordinary build (M723's
@@ -2069,9 +2218,13 @@ clean:
 	rm -f $(BIN) $(CONVERT_BIN) $(HARNESS_BIN) $(TEST) $(MAIN_OBJ) $(LIB_OBJ) \
 	      $(TEST_OBJ) $(CONVERT_CORE) $(CONVERT_MAIN) $(HARNESS_MAIN) \
 	      $(HARNESS_CONFIG) $(HARNESS_DOCTOR) $(HARNESS_INIT) $(HARNESS_MIRROR) \
-	      $(HARNESS_PUSH) $(HARNESS_CRED) $(HARNESS_RUN) $(HARNESS_HANDOFF) \
-	      $(HARNESS_DRIVE) \
-	      editors/emacs/jichi.elc \
+	      $(HARNESS_PUSH) $(HARNESS_PUSH_RECORDS) $(HARNESS_PUSH_TICK) \
+	      $(HARNESS_PUSH_BACKLOG) $(HARNESS_PUSH_UNITS) $(HARNESS_PUSH_RUNDRIVE) \
+	      $(HARNESS_CRED) $(HARNESS_RUN) $(HARNESS_HANDOFF) \
+	     $(HARNESS_DRIVE) $(HARNESS_NOTIFY) $(HARNESS_WATCH) \
+	     $(HARNESS_GATE_LEDGER) $(HARNESS_GATE_VERDICT) $(HARNESS_GATE_SWEEP) $(HARNESS_GATE_CI) $(HARNESS_GATE_REF) $(HARNESS_GATE) \
+	     $(HARNESS_GATE_UNITS) \
+	     editors/emacs/jichi.elc \
 	      $(FUZZ_BIN) $(FUZZ_OBJ) $(LF_BIN) $(LF_OBJ) \
 	      $(TT_BIN) $(TT_CORE_OBJ) tests/tools/xdrive \
 	      jlu_continue jlu-convert
@@ -2085,4 +2238,5 @@ clean:
 # Header-dependency files emitted by -MMD (regenerated on every compile).
 -include $(LIB_OBJ:.o=.d) $(MAIN_OBJ:.o=.d) $(TEST_OBJ:.o=.d) \
          $(CONVERT_MAIN:.o=.d) $(CONVERT_CORE:.o=.d) $(TT_CORE_OBJ:.o=.d) \
-         $(HARNESS_MAIN:.o=.d)
+         $(HARNESS_MAIN:.o=.d) \
+         $(HARNESS_GATE_LEDGER:.o=.d) $(HARNESS_GATE_VERDICT:.o=.d) $(HARNESS_GATE_SWEEP:.o=.d) $(HARNESS_GATE_CI:.o=.d) $(HARNESS_GATE_REF:.o=.d) $(HARNESS_GATE:.o=.d) $(HARNESS_GATE_UNITS:.o=.d)

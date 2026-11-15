@@ -27,8 +27,8 @@ boundary is the difference between a comparison and a rumour.
 
 **Continue is archived.** Its README states: *"The `continuedev/continue`
 repository is no longer actively maintained and is read-only for all users."*
-Read at HEAD 2026-07-20. jichi is therefore a from-scratch reimplementation of a
-tool that has since stopped, which is worth knowing before treating any Continue
+Read at HEAD 2026-07-20. jichi therefore began as a from-scratch reimplementation of
+a tool that has since stopped, which is worth knowing before treating any Continue
 row here as a live comparison.
 
 **Dates matter and are given.** A comparison of moving software is a photograph.
@@ -40,10 +40,11 @@ and Continue did not move at all. Re-read before trusting a year-old row.
 
 Stated plainly, because a comparison that hides its debts is advocacy.
 
-- **jichi is a from-scratch reimplementation of the Continue CLI** (`CLAUDE.md`).
+- **jichi began as a from-scratch reimplementation of the Continue CLI** (`CREDITS.md`).
   Not a fork and not a port — no Continue code is present — but the shape of the
-  thing, the config vocabulary, and the initial feature list came from it. That is
-  why `jichi-convert` reads Continue configs first-class.
+  thing, the config vocabulary, and the initial feature list came from it, for the
+  first phase (June 2026); the design since is its author's. That is why
+  `jichi-convert` reads Continue configs first-class.
 - **The slash-command shape is opencode's.** `docs/COMMANDS.md` credits it in its
   opening paragraph: markdown prompt templates invoked as `/name`, "inspired by
   opencode's custom commands".

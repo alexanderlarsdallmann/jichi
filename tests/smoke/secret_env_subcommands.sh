@@ -20,7 +20,7 @@
 # file the driver reads; a control shows the scrub working where it always did.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 3
+t_plan 4
 smoke_home
 tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
@@ -94,5 +94,41 @@ if [ "$n3" = "0" ]; then
     t_ok "control: the configured key variable is scrubbed from the shell tool's child"
 else
     t_fail "control failed: the configured MOCK_KEY reached the child (count=$n3)"
+fi
+
+# --- 4: a stray export of the three HARNESS TOKEN-FILE names is dropped -------
+# M1170 (batch H9c, SV:0818): the reference's push/land/backlog scripts
+# `export` ZD_TOKEN_FILE and their gate children (sweep.sh, redfirst.sh,
+# repin.sh, ci-gate.sh) `unset` it BY HAND because the child scrub cannot;
+# the port's D13 twins are JICHI_HARNESS_GIT_TOKEN_FILE and
+# JICHI_HARNESS_MODEL_KEY_FILE (include/jc_harness_config.h). Like cell 2,
+# the config names a THIRD variable (MOCK_KEY) as apiKeyEnv, so none of the
+# three is registered from config: only the built-in list can drop them. The
+# three canaries differ per name, and the one `grep -c` with three `-e`
+# patterns counts each inherited name as exactly one env line: 0 means
+# dropped, 3 means all three inherited. (One grep -c per name, summed, is
+# the same count; the single form mirrors cell 2.) On the unfixed tree all
+# three reach the child (none is a configured key and the built-in list
+# lacked them).
+cat > "$tmp/m4.mm" <<MM
+wire openai
+rule
+  count 1
+  tool run_terminal_command {"command":"env | grep -c -e '^ZD_TOKEN_FILE=' -e '^JICHI_HARNESS_GIT_TOKEN_FILE=' -e '^JICHI_HARNESS_MODEL_KEY_FILE=' > '$tmp/n4'; exit 0"}
+rule
+  text SCRUB_DONE
+MM
+mm_start "$tmp/m4.mm" "$tmp/cap4" 2
+sed "s|127.0.0.1:[0-9]*/v1|127.0.0.1:$MM_PORT/v1|" "$tmp/c2.json" > "$tmp/c4.json"
+out4=$(cd "$ws" && with_deadline 60 env MOCK_KEY=x ZD_TOKEN_FILE=canary-zd \
+    JICHI_HARNESS_GIT_TOKEN_FILE=canary-gitfile JICHI_HARNESS_MODEL_KEY_FILE=canary-keyfile \
+    "$BIN" --config "$tmp/c4.json" -q --no-session --auto \
+    -p "check the env" < /dev/null 2>/dev/null); rc4=$?
+mm_stop
+n4=$(cat "$tmp/n4" 2>/dev/null || echo unread)
+if [ "$n4" = "0" ]; then
+    t_ok "a stray export of the three harness token-file names is dropped from the shell tool's child"
+else
+    t_fail "the shell tool's child saw the harness token-file names (count=$n4, rc=$rc4) -- inherited: none of the three is a configured key (the config names MOCK_KEY) and the built-in list lacked them"
 fi
 t_done

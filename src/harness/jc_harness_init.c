@@ -71,13 +71,11 @@
 /* Paths hang off the absolute dir; give the joins room (JC_PATH_MAX + 256). */
 #define PATH_CAP 4352
 
-/* The records README, the reference's step-7 text (setup-dir.sh line 113). */
-static const char recs_readme[] =
-    "# Records of the jichi-harness drive of 2026-10-23\n"
-    "\n"
-    "One directory per run under runs/, written by the harness (loop.sh); supervision-log.md\n"
-    "and harness.log beside them. The plan and the documentation: branch drive/2026-10-23-harness/plan,\n"
-    "docs/internal/drive/2026-10-23-harness/.\n";
+/* (M1147 B1.1 / SV:2303.2): the records README is no longer a hard-coded
+ * literal -- its text is built from the config's drive.branchPrefix and dir
+ * (the reference's step-7 text, setup-dir.sh line 113, is the template; the
+ * hard-coded "drive of 2026-10-23" was the defect the fix removes). See the
+ * build in the recs layout below and prefix_date_part(). */
 
 static void
 say(const char *mode, const char *fmt, ...)
@@ -102,6 +100,50 @@ refuse(const char *fmt, ...)
     vfprintf(stderr, fmt, ap);
     fputc('\n', stderr);
     va_end(ap);
+}
+
+/* (M1147 B1.1 / SV:2303.2): the DATE part of a drive.branchPrefix, for the
+ * records README's title and docs line. A dated prefix like
+ * 'drive/2026-10-23-harness' names the drive's date as a YYYY-MM-DD run; this
+ * extracts that 10-character run. Where the prefix carries no such date run
+ * (a rehearsal's 'drive/x-test', or any undated name), the fallback is the
+ * prefix as-is -- the README still names the drive. Writes a NUL-terminated
+ * string into out[cap]; returns 0 on success, -1 when the result cannot fit. */
+static int
+prefix_date_part(const char *prefix, char *out, jc_size cap)
+{
+    const char *p;
+    size_t n;
+
+    if (prefix == NULL || cap == 0) {
+        return -1;
+    }
+    for (p = prefix; *p != '\0'; p++) {
+        /* Stop before p[9] would read past the string. */
+        if ((size_t)(p - prefix) + 10 > strlen(prefix)) {
+            break;
+        }
+        if (p[0] >= '0' && p[0] <= '9' && p[1] >= '0' && p[1] <= '9' &&
+            p[2] >= '0' && p[2] <= '9' && p[3] >= '0' && p[3] <= '9' &&
+            p[4] == '-' &&
+            p[5] >= '0' && p[5] <= '9' && p[6] >= '0' && p[6] <= '9' &&
+            p[7] == '-' &&
+            p[8] >= '0' && p[8] <= '9' && p[9] >= '0' && p[9] <= '9') {
+            if (11 > cap) {
+                return -1;
+            }
+            memcpy(out, p, 10);
+            out[10] = '\0';
+            return 0;
+        }
+    }
+    /* No date run: the fallback is the whole prefix. */
+    n = strlen(prefix);
+    if (n + 1 > cap) {
+        return -1;
+    }
+    memcpy(out, prefix, n + 1);
+    return 0;
 }
 
 /* The M2-neutral git child (src/tools/jc_tool_git.c): `git` + the four -c
@@ -993,6 +1035,8 @@ jc_harness_init_run(const char *config_path, const char *mode,
     } else {
         {
             char recbr[160];
+            char dpart[PATH_CAP];
+            char recs_readme_buf[PATH_CAP];
             char idn1[384];
             char idn2[384];
             char ide1[384];
@@ -1032,14 +1076,41 @@ jc_harness_init_run(const char *config_path, const char *mode,
                 jc_sb_free(&out);
                 return 1;
             }
+            /* (M1147 B1.1 / SV:2303.2): the records README is BUILT from the
+             * config's drive.branchPrefix and dir -- the reference's step-7
+             * text with its hard-coded "2026-10-23" removed. <DATE> is the
+             * prefix's date part (YYYY-MM-DD; the prefix as-is when it carries
+             * no such run). Same four-line structure as the reference: a title,
+             * the runs/ line, and a plan/docs line naming <branchPrefix> and
+             * <dir>/docs/internal/drive/<DATE>/. Built into a PATH_CAP buffer,
+             * never a longer literal. */
+            if (prefix_date_part(prefix, dpart, sizeof dpart) != 0) {
+                refuse("the records README could not be built: drive.branchPrefix "
+                       "is too long to name its date part");
+                jc_sb_free(&out);
+                return 1;
+            }
+            if (jc_snprintf(recs_readme_buf, sizeof recs_readme_buf,
+                            "# Records of the jichi-harness drive of %s\n"
+                            "\n"
+                            "One directory per run under runs/, written by the harness (loop.sh); supervision-log.md\n"
+                            "and harness.log beside them. The plan and the documentation: branch %s/plan,\n"
+                            "%s/docs/internal/drive/%s/.\n",
+                            dpart, prefix, absdir, dpart)
+                >= (int)sizeof recs_readme_buf) {
+                refuse("the records README could not be built: drive.branchPrefix "
+                       "and dir together are too long to fit the README buffer");
+                jc_sb_free(&out);
+                return 1;
+            }
             if (jc_snprintf(path2, sizeof path2, "%s/README.md", recs_dir)
                 >= (int)sizeof path2) {
                 refuse("DIR %s is too long to lay out", absdir);
                 jc_sb_free(&out);
                 return 1;
             }
-            if (jc_write_file(path2, recs_readme,
-                              (jc_size)strlen(recs_readme)) != JC_OK) {
+            if (jc_write_file(path2, recs_readme_buf,
+                              (jc_size)strlen(recs_readme_buf)) != JC_OK) {
                 refuse("could not write %s", path2);
                 jc_sb_free(&out);
                 return 1;
@@ -1133,8 +1204,111 @@ jc_harness_init_run(const char *config_path, const char *mode,
                 jc_sb_free(&out);
                 return 1;
             }
+            /* (M1147 B1.1): store the EXACT bytes of the records' config, as
+             * init just wrote them (the core block + the origin remote), so
+             * `push records`' URL guard has the same stored reference the
+             * mirror's integrity check uses (the mirror's M1055
+             * mirror.git-config.harness-copy, written above at mirror
+             * creation; the recs copy is the records half of that same class
+             * -- run-drive.sh mounts mirror.git-config.harness-copy ro, and
+             * recs.git-config.harness-copy stands beside it). Written HERE, at
+             * creation, not re-read later -- a later re-read would bless a
+             * plant. init is idempotent, so on a re-run where recs/ already
+             * exists this is skipped ("left as it is"). */
+            {
+                char cfgsrc[PATH_CAP];
+                char cfgdst[PATH_CAP];
+                char *cfgbytes = NULL;
+                jc_size cfglen = 0;
+                jc_status cfs;
+                /* recs/ is a NON-bare repo: its config is at recs/.git/config
+                 * (the mirror's is at mirror/config, bare). */
+                jc_snprintf(cfgsrc, sizeof cfgsrc, "%s/.git/config", recs_dir);
+                jc_snprintf(cfgdst, sizeof cfgdst,
+                            "%s/recs.git-config.harness-copy", absdir);
+                cfs = jc_read_file(cfgsrc, &cfgbytes, &cfglen, a);
+                if (cfs != JC_OK) {
+                    say(mode, "recs.git: the stored config copy FAILED "
+                        "(could not read %s)", cfgsrc);
+                } else {
+                    cfs = jc_write_file(cfgdst, cfgbytes, cfglen);
+                    if (cfs != JC_OK) {
+                        say(mode, "recs.git: the stored config copy FAILED "
+                            "(could not write %s)", cfgdst);
+                    } else {
+                        say(mode, "recs.git: the config bytes are stored at "
+                            "recs.git-config.harness-copy (the records push's "
+                            "URL guard reference)");
+                    }
+                }
+            }
             say(mode, "recs/ on %s (orphan), origin %s", recbr, remote);
         }
+    }
+
+    /* --- (M1147 B1.1): the host push home -----------------------------------
+     * With a host block (host_dir_present && host_push_home set), create the
+     * host's push home: the two bare repos the reference's setup-dir.sh made
+     * (push.git, the team push's remote, and recs-push.git, the records
+     * push's). The first `push tick` on a MISSING home refuses with a named
+     * reason rather than guessing, so init lays it out here. Without a host
+     * block (a container config names none) nothing is created -- unchanged. */
+    if (cfg.host_dir_present && cfg.host_push_home != NULL
+        && cfg.host_push_home[0] != '\0') {
+        char push_home[PATH_CAP];
+        char push_git[PATH_CAP];
+        char recs_push_git[PATH_CAP];
+        (void)jc_snprintf(push_home, sizeof push_home, "%s",
+                          cfg.host_push_home);
+        if (jc_mkdir_p(push_home) != JC_OK) {
+            refuse("could not create the host push home %s (mkdir -p "
+                   "failed)", push_home);
+            jc_sb_free(&out);
+            return 1;
+        }
+        if (jc_snprintf(push_git, sizeof push_git, "%s/push.git", push_home)
+            >= (int)sizeof push_git) {
+            refuse("the host push home %s is too long to lay out", push_home);
+            jc_sb_free(&out);
+            return 1;
+        }
+        if (jc_snprintf(recs_push_git, sizeof recs_push_git,
+                        "%s/recs-push.git", push_home)
+            >= (int)sizeof recs_push_git) {
+            refuse("the host push home %s is too long to lay out", push_home);
+            jc_sb_free(&out);
+            return 1;
+        }
+        if (!jc_is_dir(push_git)) {
+            const char *a0[5];
+            a0[0] = (char *)"init";
+            a0[1] = (char *)"-q";
+            a0[2] = (char *)"--bare";
+            a0[3] = (char *)push_git;
+            a0[4] = NULL;
+            jc_sb_clear(&out);
+            if (git_must(&out, git_run(&out, NULL, 0, a0, 4),
+                         "init --bare push.git") != 0) {
+                jc_sb_free(&out);
+                return 1;
+            }
+        }
+        if (!jc_is_dir(recs_push_git)) {
+            const char *a0[5];
+            a0[0] = (char *)"init";
+            a0[1] = (char *)"-q";
+            a0[2] = (char *)"--bare";
+            a0[3] = (char *)recs_push_git;
+            a0[4] = NULL;
+            jc_sb_clear(&out);
+            if (git_must(&out, git_run(&out, NULL, 0, a0, 4),
+                         "init --bare recs-push.git") != 0) {
+                jc_sb_free(&out);
+                return 1;
+            }
+        }
+        say(mode, "host push home: %s (push.git + recs-push.git, bare, "
+            "for the scheduled host push)", push_home);
     }
 
     say(mode, "done: %s", absdir);

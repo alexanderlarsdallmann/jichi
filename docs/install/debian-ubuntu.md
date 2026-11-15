@@ -118,7 +118,7 @@ make info | grep HAVE_CURL
 ./jichi --version
 ```
 
-- **You should see** a line like `jichi 0.13.0 ...`. That is the program running.
+- **You should see** a line like `jichi 0.14.1 ...`. That is the program running.
 
 Now the built-in health check:
 

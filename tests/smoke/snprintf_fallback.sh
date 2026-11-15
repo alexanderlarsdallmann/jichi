@@ -95,7 +95,8 @@ cat > "$s/fb.c" <<EOF
  * where va_arg advances by sizeof(type)) in a hand-aligned buffer:
  *   slot0 (offset 0) = an int* value  (the %n operand)
  *   slot1 (offset 8) = a char* value  (the %s that follows)
- * The helper mirrors consume_class's %n branch: it CONSUMES slot0 at a width
+ * The helper mirrors JC_CONSUME_CLASS's %n branch (the consume_class helper
+ * until M1172): it CONSUMES slot0 at a width
  * (the fixed branch consumes a pointer, sizeof(int *); a width regression
  * consumes an int, sizeof(int)) and then reads the following %s as a char*.
  * If the consume is the RIGHT width, the following read lands on the clean,
@@ -114,7 +115,7 @@ cat > "$s/fb.c" <<EOF
  *
  * Returns the following %s as read (void *), so the caller can compare it
  * against the clean slot1 pointer. */
-#define N_WIDTH (sizeof(int *))  /* the FIXED consume_class %n width: int * */
+#define N_WIDTH (sizeof(int *))  /* the FIXED JC_CONSUME_CLASS %n width: int * */
 static void *legb_next_after_n(const void *region, unsigned width)
 {
     const unsigned char *ap = (const unsigned char *)region;

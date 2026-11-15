@@ -68,6 +68,16 @@ reports its documented "built without libcurl" error. For a static jichi
 ([LOW_MEMORY.md](LOW_MEMORY.md)'s recipe): zig bundles *libcs*, not your
 dependency tree — that half of the lesson stands.
 
+> **Host-arch toolchain note (zig 0.17.1, measured 2026-11-12).** On zig ≥
+> 0.17.1, a host with two GCC installs (e.g. GCC 13 and 14) makes clang warn
+> `-Wgcc-install-dir-libstdcxx` for the host's own arch; `WERROR=1` turns it
+> into an error. zig 0.16.0 does not warn. Measured by run 0043 on the x86-64
+> Linux bench (345 such lines on the M1162 musl build); the cross-build
+> targets (aarch64, armhf) are clean. A documented
+> `-Wno-gcc-install-dir-libstdcxx` is the operator's alternative for that
+> recipe — recorded here, not applied (the default build is gcc/clang, not
+> zig).
+
 ## Re-verified 2026-09-16 (zig 0.16.0, same bench)
 
 The claim was re-run from clean as part of M636's whole-toolchain sweep, because

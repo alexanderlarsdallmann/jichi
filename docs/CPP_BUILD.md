@@ -66,9 +66,9 @@ interop win below.
   templates, no exceptions. Compiling *as* C++ does not add them, and
   rewriting *into* them would be a different project (the arena/status
   discipline is the design, not an accident of language).
-- **Not a supported build.** `make CC=g++` works today and `cpp-check`
-  keeps the property cheap to maintain, but the shipped, tested, CI-gated
-  build is `-std=c89 -pedantic` with gcc/clang. C++ compilation is a
+- **Gated, not shipped.** Since M871 `make ci` builds the tree and runs the unit
+  suite with `CC=g++`, and `cpp-check` keeps the property cheap to maintain. The
+  shipped build is `-std=c89 -pedantic` with gcc/clang. C++ compilation is a
   *property* of the codebase, not a target of it.
 
 ## M636 — the tier had rotted, and three published commands did not work

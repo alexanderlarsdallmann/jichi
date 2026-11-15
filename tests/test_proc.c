@@ -35,7 +35,6 @@ static void test_capture_closes_then_lives(void);
 static void test_waitpid_helper(void)
 {
     int st;
-    int dummy;
     int rc;
 
     /* (a) the helper on a normal child: fork a child that exits 1;
@@ -62,11 +61,13 @@ static void test_waitpid_helper(void)
      * gone the disposition is RESTORED to SIG_DFL, so every subsequent
      * blocking waitpid on that pid fails ECHILD by contract, not by timing:
      * the teeth below hold on any conforming system. */
+#ifdef SIGCHLD   /* DJGPP: no SIGCHLD, nothing to reap asynchronously (M1177) */
     {
         void (*old)(int);
         pid_t pid;
         int i;
         int st0;
+        int dummy;   /* only this block uses it (M1177) */
 
         old = signal(SIGCHLD, SIG_IGN);
         pid = fork();
@@ -103,6 +104,7 @@ static void test_waitpid_helper(void)
             JC_CHECK(dummy == 999);
         }
     }
+#endif
 }
 
 /* M989 (B-01, B-06): test_reap_bounded_passthrough -- normal exit passes
@@ -118,7 +120,9 @@ static void test_reap_bounded_passthrough(void)
     int rc;
 
     /* Ensure SIGCHLD is SIG_DFL. */
+#ifdef SIGCHLD
     signal(SIGCHLD, SIG_DFL);
+#endif
 
     /* Fork a child using exec like the M987 test to exercise the helper. */
     pid = fork();
@@ -180,6 +184,7 @@ static void test_reap_bounded_deadline(void)
 /* M989 (M987): test_reap_bounded_echild_unknown -- SIGCHLD=SIG_IGN -> ECHILD -> -1. */
 static void test_reap_bounded_echild_unknown(void)
 {
+#ifdef SIGCHLD   /* the cell IS an ignored SIGCHLD; DJGPP has none (M1177) */
     pid_t pid;
     int st;
     int rc;
@@ -222,6 +227,7 @@ static void test_reap_bounded_echild_unknown(void)
         /* ECHILD -> -1 (UNKNOWN), NOT 0 and NOT a decodable exit. */
         JC_CHECK(rc == -1);
     }
+#endif
 }
 
 /* M989 (B-06): test_reap_bounded_abort -- abort flag stops the child. */

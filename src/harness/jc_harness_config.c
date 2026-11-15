@@ -625,6 +625,134 @@ jc_harness_config_load(const char *path, struct jc_harness_config *out,
         }
     }
 
+    /* The host push block (M1147, batch H7): a top-level "host" object with
+     * string keys pushHome / image / pageCommand / pushOnCalendar (all
+     * optional) and dir (optional -- when absent the config's own top-level
+     * dir is reused as host_dir, the note's "the config's own dir field is
+     * reused when absent"). Parsed leniently: strings as-is, no bools in this
+     * block. An absent block leaves every field NULL and host_dir_present 0
+     * (no error: the push commands refuse a missing host block with the named
+     * reason, the loader does not). The loader still refuses a "host" that is
+     * not an object, the way it does "drive". */
+    {
+        const cJSON *host = cJSON_GetObjectItem(root, "host");
+        if (host != NULL) {
+            if (!cJSON_IsObject(host)) {
+                cJSON_Delete(root);
+                refuse(out, a, JC_ERR_INVALID, "\"host\" is not an object");
+                return JC_ERR_INVALID;
+            }
+            out->host_dir_present = 1;
+            out->host_push_home = dup_in_arena(a, opt_str(host, "pushHome"));
+            out->host_image = dup_in_arena(a, opt_str(host, "image"));
+            out->host_page_command = dup_in_arena(a, opt_str(host, "pageCommand"));
+            /* host.pushOnCalendar (SV:1639): the generated jhp-push.timer's
+             * OnCalendar value, taken from the config. Parsed exactly like
+             * host_pageCommand above (opt_str, as-is, NULL when absent).
+             * A config without it must NOT fall back to a schedule that may
+             * collide with another drive's push on the same host, so the
+             * `push units` body refuses when it is absent -- the loader does
+             * not refuse, mirroring the other host fields (the COMMANDS
+             * decide). */
+            out->host_push_oncalendar = dup_in_arena(a,
+                                                     opt_str(host,
+                                                             "pushOnCalendar"));
+            /* The gate's notifier fields (M1152, batch H8, `notify`): both
+             * optional, opt_str as-is, NULL when absent -- the other host
+             * fields' idiom. The loader does NOT refuse them: `notify` decides
+             * (a gateHome default <dir>/gate, named in the code; an absent
+             * notifyCommand runs nothing, the pageCommand idiom). */
+            out->host_gate_home = dup_in_arena(a, opt_str(host, "gateHome"));
+            out->host_notify_command =
+                dup_in_arena(a, opt_str(host, "notifyCommand"));
+            /* The gate watcher's fields (M1153, batch H9a, `watch gate` /
+             * `watch units`): both optional, opt_str as-is, NULL when absent --
+             * the gateHome / notifyCommand idiom. The loader does NOT refuse
+             * them: the command decides (`watch units` refuses an absent
+             * gateOnCalendar naming it, SV:1639's idiom; the start refuses an
+             * absent gateRun naming it, exit 1). */
+            out->host_gate_oncalendar =
+                dup_in_arena(a, opt_str(host, "gateOnCalendar"));
+            out->host_gate_run = dup_in_arena(a, opt_str(host, "gateRun"));
+            /* The gate watcher's shimmable host plumbing (M1153, H9a): the
+             * container cannot run systemctl / systemd-run, so the tick's
+             * three external host commands and its push.git are named by the
+             * config, each optional (the unit-state/unit-list/unit-run defaults
+             * are the reference's argv; pushRepo defaults to
+             * <host.pushHome>/push.git, the decision in jc_hp_watchgate.c). */
+            out->host_unit_state = dup_in_arena(a, opt_str(host, "unitState"));
+            out->host_unit_list = dup_in_arena(a, opt_str(host, "unitList"));
+            out->host_unit_run = dup_in_arena(a, opt_str(host, "unitRun"));
+            out->host_push_repo = dup_in_arena(a, opt_str(host, "pushRepo"));
+            /* The gate RUN's ledger fields (M1154, batch H9b, `gate run --stage
+             * ledger`): both optional, opt_str as-is, NULL when absent -- the
+             * other host fields' idiom. The loader does NOT refuse them: the
+             * command decides (the required --ledger-address refusal is the
+             * ledger stage's, T2; the absent accept list means no DD11
+             * exemption). */
+            out->host_ledger_address = dup_in_arena(a,
+                                                    opt_str(host, "ledgerAddress"));
+            out->host_ledger_accept = dup_in_arena(a,
+                                                   opt_str(host, "ledgerAccept"));
+            /* The sweep stage's shimmable surfaces (M1154 T5, wave 2): the
+             * ledgerAddress/ledgerAccept idiom -- opt_str as-is, NULL when
+             * absent. The loader does NOT refuse them: the command decides
+             * (an absent host.bin means the sweep's own stub binary; an
+             * absent host.buildRun / mutantRun / unitRunSan / unitRunO2 /
+             * containerRun means the reference's system make/podman command
+             * in the clone). */
+            out->host_bin = dup_in_arena(a, opt_str(host, "bin"));
+            out->host_build_run = dup_in_arena(a, opt_str(host, "buildRun"));
+            out->host_mutant_run = dup_in_arena(a, opt_str(host, "mutantRun"));
+            out->host_unit_run_san =
+                dup_in_arena(a, opt_str(host, "unitRunSan"));
+            out->host_unit_run_o2 = dup_in_arena(a, opt_str(host, "unitRunO2"));
+            out->host_container_run =
+                dup_in_arena(a, opt_str(host, "containerRun"));
+            /* The ci stage's shimmable surfaces (M1154 T8, wave 3): the
+             * containerRun idiom -- opt_str as-is, NULL when absent. The
+             * loader does NOT refuse them: the command decides (an absent
+             * ciRun means the reference's `make ci`; an absent ciLogDir
+             * means <work>/ci; an absent ciSmokeKeepGoing means "0", and a
+             * NON-NUMERIC value is the stage's usage refusal exit 2, the
+             * sweep idiom). */
+            out->host_ci_run =
+                dup_in_arena(a, opt_str(host, "ciRun"));
+            out->host_ci_log_dir =
+                dup_in_arena(a, opt_str(host, "ciLogDir"));
+            out->host_ci_smoke_keep_going =
+                dup_in_arena(a, opt_str(host, "ciSmokeKeepGoing"));
+            /* The redfirst stage's shimmable surfaces (M1157 T9, wave 3): the
+             * ciSmokeKeepGoing idiom -- opt_str as-is, NULL when absent. The
+             * loader does NOT refuse them: the command decides (an absent
+             * redfirstRun means the reference's driver form; an absent
+             * redfirstUnitRun means the reference's `make -j8 WERROR=1
+             * test`). */
+            out->host_redfirst_run =
+                dup_in_arena(a, opt_str(host, "redfirstRun"));
+            out->host_redfirst_unit_run =
+                dup_in_arena(a, opt_str(host, "redfirstUnitRun"));
+            /* The orchestrator's land / repin steps (M1159 wave 4): the
+             * redfirstUnitRun idiom -- opt_str as-is, NULL when absent.
+             * host.gateHome REUSES the existing host_gate_home (the
+             * notify's digest home is the same <dir>/gate). The loader
+             * does NOT refuse them: the command decides (an absent
+             * landRun = the green-land-refused terminal, an absent
+             * repinRun = the NOT re-pinned half -- Task C's arms; this
+             * wave reads them). */
+            out->host_land_run = dup_in_arena(a, opt_str(host, "landRun"));
+            out->host_repin_run =
+                dup_in_arena(a, opt_str(host, "repinRun"));
+            out->host_dir = dup_in_arena(a, opt_str(host, "dir"));
+            if (out->host_dir == NULL) {
+                /* host.dir absent: reuse the config's own top-level dir (the
+                 * env-resolved one, which is the dir the run would actually
+                 * use) as the host dir for the run-drive argv. */
+                out->host_dir = dup_in_arena(a, out->dir);
+            }
+        }
+    }
+
     cJSON_Delete(root);
     out->status = JC_OK;
     return JC_OK;

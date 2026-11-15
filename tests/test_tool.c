@@ -1821,6 +1821,7 @@ static void test_tool_nul_edit_refused(void)
  * [exit status: 0], is_error 0). */
 static void test_run_tool_sigchld_site(void)
 {
+#ifdef SIGCHLD   /* the cell IS an ignored SIGCHLD; DJGPP has none (M1177) */
     struct jc_arena *a = jc_arena_new(0);
     struct jc_app app;
     struct jc_tool_registry reg;
@@ -1872,6 +1873,7 @@ static void test_run_tool_sigchld_site(void)
     jc_vec_free(&app.read_files);
     jc_vec_free(&app.read_recs);
     jc_arena_free(a);
+#endif
 }
 
 /* D-01/M978: read_file should show a NUL bytes marker for files with NUL bytes.

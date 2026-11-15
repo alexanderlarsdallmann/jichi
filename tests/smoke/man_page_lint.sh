@@ -44,7 +44,7 @@
 # hide, so the floor is simply "all of them".
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 8
+t_plan 9
 smoke_home
 tmp=$(smoke_tmp)
 G=/usr/bin/grep
@@ -229,6 +229,29 @@ if [ -z "$envmiss" ] && [ "$nenv" -ge 9 ]; then
 else
     t_fail "project env vars the code reads and the man page does not document: \
 ${envmiss:- (none) }-- and only $nenv were extracted (floor 9)"
+fi
+
+# ---- 9: the .TH version equals JC_VERSION (SV:1217) -------------------------
+# THE DEFECT. Every release since 0.10.0 shipped a man page that called itself
+# 0.9.0: line 1 read `.TH JICHI 1 "2026-08-22" "jichi 0.9.0" "User Commands"`
+# while include/jc_version.h had said JC_VERSION "0.13.0". Check 7 above proved
+# a dated .TH EXISTS but never that its version was the one the binary reports --
+# a page the reader would cite as current while describing a release three years
+# old. This is a LINT, not a pinned string: it reads JC_VERSION from the header
+# and compares it to the .TH's version field, so a future bump reds it the day
+# the page is forgotten, and a header edit reds nothing (there is no literal).
+# Both versions are printed in the message so the check cannot silently read an
+# empty value (the same empty-extraction trap that floors checks 1 and 8).
+thv=$("$G" -o '^\.TH JICHI 1 "[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}" "jichi [^"]*"' "$MAN" \
+    | sed -n 's/.*"jichi \([^"]*\)".*/\1/p')
+cv=$("$G" -o '#define JC_VERSION "[^"]*"' "$SMOKE_ROOT/include/jc_version.h" \
+    | sed -n 's/^#define JC_VERSION "\([^"]*\)"/\1/p' | head -1)
+if [ -n "$thv" ] && [ -n "$cv" ] && [ "$thv" = "$cv" ]; then
+    t_ok "the man page's .TH version ($thv) equals JC_VERSION from include/jc_version.h ($cv)"
+else
+    t_fail "the man page's .TH version ($thv) differs from JC_VERSION ($cv) \
+-- a release since the page was last revised; update the .TH line (and add \
+man/jichi.1 to the version-bump list) so the page stops calling itself an old version"
 fi
 
 t_done

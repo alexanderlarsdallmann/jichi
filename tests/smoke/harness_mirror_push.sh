@@ -279,7 +279,7 @@
 
 command -v git >/dev/null 2>&1 || t_skip "git not available"
 
-t_plan 32
+t_plan 35
 smoke_home
 tmp=$(smoke_tmp)
 
@@ -309,7 +309,7 @@ TOKEN_CANARY="CANARY-TOKEN-DO-NOT-PRINT"
 # A fixture failure emits one t_fail per cell so the plan stays honest.
 fixture_fail() {
     _ff_n=0
-    while [ "$_ff_n" -lt 32 ]; do
+    while [ "$_ff_n" -lt 33 ]; do
         _ff_n=$((_ff_n + 1))
         t_fail "$_ff_n: fixture failed: $1"
     done
@@ -1565,6 +1565,113 @@ if [ -n "$_leaked" ]; then
     t_fail "30: P17 the canary LEAKED into a driver-produced file (a secret must never appear in a log, an argument list, or a child's environment):$_leaked"
 else
     t_ok "30: P17 the token canary and the key canary appear in NO output/err file and NO argv/env dump the driver produced (the secret rule holds across all cells; the helper's stdout is the designed channel)"
+fi
+
+# --- 33: P4z -- an EMPTY (0-byte) file version in the pushed range is CLEAN
+# (SV:2239, M1147/H7) ------------------------------------------------------
+# A FRESH clean rehearsal (dirZB) whose team adds ONE empty file on $BR/main:
+# the push's key-scan range (list_pushed) then carries a 0-byte BLOB version.
+# M1056's key scan read each pushed file version with the same
+# `cat-file blob` idiom as the records scan and refused fail-closed on the
+# condition `brc != 0 || blob.data == NULL || blob.len == 0`. A 0-byte object
+# (git's EMPTY blob e69de29...) is read with rc 0 and NO bytes, so the capture
+# stays `data==NULL, len==0` (jc_sb_init's untouched state) -- the LEGITIMATE
+# empty read was mistaken for a read failure, and EVERY push whose range adds
+# an empty file was refused. A 0-byte object cannot hold a secret, so it is
+# CLEAN. RED on the current (unfixed) tree: the push exits 1 with the
+# key-scan read-refusal `could not be read (cat-file rc=0: )` (rc 0, empty
+# detail -- the fingerprint) and the stand-in is UNCHANGED. GREEN after the
+# fix: the push LANDS (exit 0) and the key scan reports the empty file version
+# checked and clean (`0 with a secret`). Fresh fixture so dir's canary / big
+# blob history never crosses this range; the empty file is the ONLY thing the
+# key scan must get right here.
+mkrehearsal "ZB" || fixture_fail "init (dirZB) failed: $(tr '\n' ' ' < "$tmp/iZB" | head_bytes 160)"
+hfetch "ZB" || fixture_fail "mirror fetch (dirZB) failed: $(tr '\n' ' ' < "$tmp/fZB" | head_bytes 160)"
+: > "$tmp/dirZB/team/emptyfile"
+git -C "$tmp/dirZB/team" add emptyfile
+git -C "$tmp/dirZB/team" -c user.name="Harness Smoke" -c user.email="harness-smoke@example.com" \
+    commit -q -m "teamZB: add emptyfile (0 bytes, git's EMPTY blob e69de29)"
+hfetch "ZB"
+# Fixture guard: the empty file committed is a real 0-byte BLOB (not an
+# empty commit, not a tree) -- the key scan's range must carry it.
+_eb_sha=$(git -C "$tmp/dirZB/team" rev-parse "HEAD:emptyfile" 2>/dev/null)
+[ -n "$_eb_sha" ] || fixture_fail "the 0-byte emptyfile did not commit as a blob"
+_s_beforeZB=$(git -C "$tmp/dirZB/standin.git" rev-parse "refs/heads/$BR/main" 2>/dev/null)
+_m_beforeZB=$(git -C "$tmp/dirZB/mirror.git" rev-parse "refs/heads/$BR/main" 2>/dev/null)
+"$HBIN" mirror push --config "$tmp/cfgZB.json" "$tmp/dirZB/mirror.git" \
+    < /dev/null > "$tmp/p33" 2> "$tmp/p33.err"
+rc33=$?
+if [ "$rc33" -ne 0 ]; then
+    t_fail "33: P4z an EMPTY (0-byte) file version in the pushed range REFUSED the push (exit $rc33, want 0) -- the 0-byte object is read CLEAN (cat-file rc=0, no bytes), not a read failure; a 0-byte blob cannot hold a secret (SV:2239): $(tr '\n' ' ' < "$tmp/p33.err" | head_bytes 200)"
+elif [ "$(git -C "$tmp/dirZB/standin.git" rev-parse "refs/heads/$BR/main" 2>/dev/null)" != "$_m_beforeZB" ]; then
+    t_fail "33: P4z the empty-file push exited 0 but did not LAND (stand-in $BR/main '$(git -C "$tmp/dirZB/standin.git" rev-parse "refs/heads/$BR/main" 2>/dev/null)' vs mirror '$_m_beforeZB')"
+elif ! grep -qF "the key scan:" "$tmp/p33" || ! grep -qF "0 with a secret" "$tmp/p33"; then
+    t_fail "33: P4z the key scan did not report the pushed range checked and CLEAN (no 'the key scan: ... 0 with a secret' line) -- the empty file version must be scanned, not refused: $(tr '\n' ' ' < "$tmp/p33" | head_bytes 200)"
+else
+    t_ok "33: P4z an EMPTY (0-byte) file version in the pushed range is read CLEAN by the key scan -- the push LANDS (exit 0, the stand-in's $BR/main advances) and the key scan reports the range checked with 0 with a secret (SV:2239: a 0-byte object cannot hold a secret; pre-fix this refused fail-closed on 'could not be read (cat-file rc=0: )')"
+fi
+
+# --- 34 (M1179): with pushKept on, a kept attempt is SCANNED ---------------
+# The kept refspec (cell 28) pushed refs/kept/* to $BR/kept/*, but the key scan
+# and the size check took their tips from a list of $BR/main and $BR/work only,
+# so a kept attempt carrying a secret went out after a clean scan. Here a kept
+# ref points at a commit (on top of main) whose one file holds the git token's
+# value: the push must be refused (exit 1), naming the PATH and never the
+# value, and the stand-in must not receive the kept ref. Red on the pre-M1179
+# binary: the push exits 0 and the stand-in holds the ref.
+_base34=$(git -C "$tmp/dir11/mirror.git" rev-parse "refs/heads/$BR/main" 2>/dev/null)
+_tok34=$(cat "$tmp/tokfile" 2>/dev/null)
+_blob34=$(printf '%s\n' "$_tok34" | git -C "$tmp/dir11/mirror.git" hash-object -w --stdin 2>/dev/null)
+_tree34=$(printf '100644 blob %s\tkept-secret.txt\n' "$_blob34" | git -C "$tmp/dir11/mirror.git" mktree 2>/dev/null)
+_c34=$(git -C "$tmp/dir11/mirror.git" -c user.name="Harness Smoke" -c user.email="harness-smoke@example.com" \
+    commit-tree "$_tree34" -p "$_base34" -m "a kept attempt carrying the token" 2>/dev/null)
+if [ -z "$_base34" ] || [ -z "$_tok34" ] || [ -z "$_c34" ]; then
+    t_fail "34: fixture: could not build the kept commit (base=$_base34 token-read=$( [ -n "$_tok34" ] && echo yes || echo no ) commit=$_c34)"
+else
+    git -C "$tmp/dir11/standin.git" update-ref -d "refs/heads/$BR/kept/k34" 2>/dev/null
+    git -C "$tmp/dir11/mirror.git" update-ref "refs/kept/k34" "$_c34"
+    "$HBIN" mirror push --config "$tmp/cfg11b.json" "$tmp/dir11/mirror.git" \
+        < /dev/null > "$tmp/p34" 2> "$tmp/p34.err"
+    rc34=$?
+    _kept34=$(git -C "$tmp/dir11/standin.git" for-each-ref --format='%(objectname)' "refs/heads/$BR/kept/k34" 2>/dev/null)
+    git -C "$tmp/dir11/mirror.git" update-ref -d "refs/kept/k34" 2>/dev/null
+    if [ "$rc34" -ne 1 ]; then
+        t_fail "34: pushKept=true with a secret in a kept attempt: the push exited $rc34 (want 1, the key scan's refusal): $(tr '\n' ' ' < "$tmp/p34" | head_bytes 200)"
+    elif [ -n "$_kept34" ]; then
+        t_fail "34: the refused push still LANDED refs/heads/$BR/kept/k34 ($_kept34)"
+    elif ! grep -qF "kept-secret.txt" "$tmp/p34.err"; then
+        t_fail "34: the refusal does not name the kept file's path: $(tr '\n' ' ' < "$tmp/p34.err" | head_bytes 200)"
+    elif grep -qF "$_tok34" "$tmp/p34" "$tmp/p34.err"; then
+        t_fail "34: the refusal PRINTED the token's value"
+    else
+        t_ok "34: pushKept=true and a kept attempt holding the git token: the key scan reads the kept ref and refuses (exit 1), naming kept-secret.txt and not the value; the stand-in gets no kept ref (M1179)"
+    fi
+fi
+
+# --- 35 (M1179): more tips than the scan carries is a refusal, not a drop ----
+# The scan holds at most PUSH_MAX_TIPS (24) tips; past that the tips were
+# DROPPED in silence, and a dropped tip is pushed unscanned. 25 kept refs (on
+# main's commit, no secret) plus main must now be refused, naming the limit.
+# Red on the pre-M1179 binary: the kept refs were not tips at all; it exits 0.
+_i35=1
+while [ "$_i35" -le 25 ]; do
+    git -C "$tmp/dir11/mirror.git" update-ref "refs/kept/c35/r$_i35" "$_base34" 2>/dev/null
+    _i35=$((_i35 + 1))
+done
+"$HBIN" mirror push --config "$tmp/cfg11b.json" "$tmp/dir11/mirror.git" \
+    < /dev/null > "$tmp/p35" 2> "$tmp/p35.err"
+rc35=$?
+_i35=1
+while [ "$_i35" -le 25 ]; do
+    git -C "$tmp/dir11/mirror.git" update-ref -d "refs/kept/c35/r$_i35" 2>/dev/null
+    _i35=$((_i35 + 1))
+done
+if [ "$rc35" -ne 1 ]; then
+    t_fail "35: 25 kept refs + main with pushKept=true: the push exited $rc35 (want 1: more tips than the scan carries): $(tr '\n' ' ' < "$tmp/p35.err" | head_bytes 200)"
+elif ! grep -qF "more than 24 tips" "$tmp/p35.err"; then
+    t_fail "35: the refusal does not name the tip limit: $(tr '\n' ' ' < "$tmp/p35.err" | head_bytes 200)"
+else
+    t_ok "35: more pushed tips than the key scan carries (25 kept refs + main, limit 24) is a refusal naming the limit, exit 1 -- never a silent drop (M1179)"
 fi
 
 t_done

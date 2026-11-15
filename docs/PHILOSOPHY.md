@@ -157,7 +157,7 @@ API design, which `src/json/` reimplements rather than copies; git, whose plumbi
 machinery; the Language Server Protocol, the Model Context Protocol, and the
 Agent Client Protocol, each an act of generosity that traded a private
 advantage for a public standard; [Continue](https://continue.dev), whose CLI
-this reimplements and whose design proved the shape worth building; and the
+was jichi's starting specification and whose design proved the shape worth building; and the
 model providers whose APIs give the loop something to talk to.
 
 The dwarves are harder to name, which is the point: the man-page authors, the

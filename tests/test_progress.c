@@ -3,6 +3,21 @@
  * Author: Alexander-Lars Dallmann */
 /* test_progress.c - the learner's progress record: scan / row (C5, M174). */
 
+/* SIGXFSZ is XSI, not base POSIX; FreeBSD's <signal.h> hides it under
+ * the build's -D_POSIX_C_SOURCE=200112L. _XOPEN_SOURCE 600 sets
+ * __XSI_VISIBLE, which pulls it in (SV:1802 P3b, measured in the FreeBSD
+ * guest at 40c83e47 by SV:0240: _DEFAULT_SOURCE is absent from FreeBSD's
+ * <signal.h> and was ignored; _XOPEN_SOURCE 600 compiles clean at -Werror,
+ * unit 37945 checks). The define must precede the first system include
+ * below, or <signal.h> is already processed with its guard set and the
+ * define is inert (the M1163 follow-up moved it up from after the
+ * includes). glibc already exposes SIGXFSZ, so on glibc this is a no-op. */
+#if defined(__FreeBSD__)
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 600
+#endif
+#endif
+
 #include "jc_test.h"
 #include "jc_progress.h"
 #include "jc_snprintf.h"
@@ -430,7 +445,9 @@ static void test_write_failure_regular(void)
         (void)close(pipefd[0]); /* close read end in child */
 
         /* Ignore SIGXFSZ BEFORE setting the limit so the write doesn't kill us. */
+#ifdef SIGXFSZ   /* DJGPP has none, and nothing can raise it there (M1177) */
         signal(SIGXFSZ, SIG_IGN);
+#endif
 
         rlim.rlim_cur = 0;
         rlim.rlim_max = 0;
@@ -519,7 +536,9 @@ static void test_write_failure_hints_regular(void)
     if (pid == 0) {
         (void)close(pipefd[0]);
 
+#ifdef SIGXFSZ   /* DJGPP has none, and nothing can raise it there (M1177) */
         signal(SIGXFSZ, SIG_IGN);
+#endif
 
         rlim.rlim_cur = 0;
         rlim.rlim_max = 0;
@@ -596,7 +615,9 @@ static void test_write_failure_predict_regular(void)
     if (pid == 0) {
         (void)close(pipefd[0]);
 
+#ifdef SIGXFSZ   /* DJGPP has none, and nothing can raise it there (M1177) */
         signal(SIGXFSZ, SIG_IGN);
+#endif
 
         rlim.rlim_cur = 0;
         rlim.rlim_max = 0;

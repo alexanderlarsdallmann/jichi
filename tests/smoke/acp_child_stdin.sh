@@ -131,21 +131,32 @@ if [ -n "$inh" ]; then
     t_fail "a spawn site hands its child jichi's own stdin -- over ACP that is the
  client's protocol stream (ACP-1). Use JC_SPAWN_DEVNULL, or a pipe:
 $inh"
-elif [ "$nset" -ne 12 ]; then
-    t_fail "src/ has $nset fd_stdin assignments; expected exactly 12 (nine
- /dev/null, three pipes). A spawn site was added or removed: decide what its
- child's stdin is, then change this count and say why.
+elif [ "$nset" -ne 16 ]; then
+    t_fail "src/ has $nset fd_stdin assignments; expected exactly 16 (twelve
+ /dev/null, three pipes, one source fd). A spawn site was added or removed:
+ decide what its child's stdin is, then change this count and say why.
 $(grep -rn -E 'fd_stdin[[:space:]]*=' "$SMOKE_ROOT/src" | sed "s|^$SMOKE_ROOT/||")"
 else
     # The eleventh site is the jichi-harness drive's gzip child (M1059, H5,
-    # behaviour 11: it reads its OWN source file, not stdin) and the twelfth
+    # behaviour 11: it reads its OWN source file, not stdin), the twelfth
     # /dev/null site is the jichi-harness DRIVE spawn (M1059, H5, behaviour 6:
     # the loop's run child, like the run's own jichi child, never reads the
-    # operator's stdin). Each is a C89 spawn site like the others, not an ACP
-    # client, so the census counts them but the ACP-1 rule (never inherit) is
-    # what this lint actually pins: all twelve are /dev/null or a pipe, none
-    # JC_SPAWN_INHERIT.
-    t_ok "no spawn site inherits jichi's stdin (12 fd_stdin assignments, none JC_SPAWN_INHERIT)"
+    # operator's stdin), and the thirteenth /dev/null site is the
+    # jichi-harness NOTIFY hook child (M1152, H8: the operator's
+    # config-named command reads its args, never the gate's stdin), and the
+    # fourteenth /dev/null site is the jichi-harness WATCH gate-unit child
+    # (M1153, H9a: the shimmable unit-run stand-in's stdin is /dev/null like
+    # the drive's own children -- never the operator's). The fifteenth and
+    # sixteenth /dev/null sites are the H9b stage children (M1158, H9b:
+    # jc_hp_gateci.c:922, the ci stage's sh -c run child, and
+    # jc_hp_gateref.c:827, the reference's per-check sh -c child; both port
+    # the reference's `< /dev/null` and read their args, never the
+    # operator's stdin). Each is a C89
+    # spawn site like the others, not an ACP client, so the census counts
+    # them but the ACP-1 rule (never inherit) is what this lint actually
+    # pins: all sixteen are /dev/null, a pipe, or the drive's own source
+    # fd, none JC_SPAWN_INHERIT.
+    t_ok "no spawn site inherits jichi's stdin (16 fd_stdin assignments, none JC_SPAWN_INHERIT)"
 fi
 
 t_done

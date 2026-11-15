@@ -110,12 +110,15 @@ else
 combination from ANECDOTES #63"
 fi
 
-# ---- 4: the legitimate uses stay exactly four files -------------------
-# A fence around the exemptions rather than a fix. These four are converter
-# fixtures and a pure predicate (see the header); a FIFTH file acquiring a priced
+# ---- 4: the legitimate uses stay exactly five files -------------------
+# A fence around the exemptions rather than a fix. These five are converter
+# fixtures and pure predicates (see the header); a SIXTH file acquiring a priced
 # id is a thing to look at, not to wave through. Fix the file or extend this list
 # with a reason -- never silently.
-known='tests/test_convert.c tests/test_jsonc.c tests/test_promptcache.c examples/opencode.jsonc'
+# tests/test_gateledger.c (M1158, H9b) names anthropic/claude-x and the like only
+# as input to the pure predicate jc_hp_gateledger_is_priced, which returns a
+# number and never calls a model (SV:0339) -- the same class as test_promptcache.c.
+known='tests/test_convert.c tests/test_jsonc.c tests/test_promptcache.c tests/test_gateledger.c examples/opencode.jsonc'
 # NOT `--include`: a BSD grep ignores it and widens the scan to the whole tree.
 # This is the lint that enforces the no-priced-model rule, so a filter that only
 # works on Linux is the last place to leave one.
@@ -123,7 +126,7 @@ found=$({ smoke_srcfiles tests c h jsonc; smoke_srcfiles examples c h jsonc; } \
         | xargs "$G" -lE "$PRICED" /dev/null 2>/dev/null | sort | tr '\n' ' ')
 want=$(printf '%s\n' $known | sort | tr '\n' ' ')
 if [ "$found" = "$want" ]; then
-    t_ok "the 4 fixture/predicate files naming priced models are unchanged"
+    t_ok "the 5 fixture/predicate files naming priced models are unchanged"
 else
     t_fail "the set of C/jsonc files naming a priced model changed.
   found: ${found:-none}

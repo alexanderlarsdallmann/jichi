@@ -67,6 +67,7 @@
 #include "jc_harness_mirror.h"  /* save_team's fetch (in-process) */
 #include "jc_harness_push.h"    /* save_team's push (in-process) */
 #include "jc_harness_drive.h"
+#include "jc_buildrev.h"        /* the loop's build stamp (M1190/D-F8-2) */
 
 /* Paths hang off the absolute dir; give the joins room (the run's and the
  * mirror's bound). */
@@ -545,6 +546,47 @@ utc_from_tm(const struct tm *tmv)
                     + tmv->tm_min * 60L + tmv->tm_sec);
 }
 
+/* Read exactly `n` decimal digits at *pp into *out and advance past them.
+ * 1 on success, 0 when any of the n is not a digit (a NUL included). */
+static int
+dl_digits(const char **pp, int n, int *out)
+{
+    const char *p = *pp;
+    int v = 0;
+    int i;
+
+    for (i = 0; i < n; i++) {
+        if (p[i] < '0' || p[i] > '9') {
+            return 0;
+        }
+        v = v * 10 + (p[i] - '0');
+    }
+    *out = v;
+    *pp = p + n;
+    return 1;
+}
+
+/* The days in month m (1-12) of year y, the Gregorian leap rule. */
+static int
+dl_days_in_month(int y, int m)
+{
+    static const int dim[12] = { 31, 28, 31, 30, 31, 30,
+                                 31, 31, 30, 31, 30, 31 };
+    if (m == 2 && ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0)) {
+        return 29;
+    }
+    return dim[m - 1];
+}
+
+/* The drive's end time, in exactly one of the two forms HARNESS.md names:
+ * `YYYY-MM-DD HH:MM:SS +ZZZZ` (the `date '+%F %T %z'` stamp) or a bare
+ * `YYYY-MM-DD HH:MM:SS`, read as UTC. Leading blanks and trailing white
+ * space are allowed; nothing else is. 1 with *end_out set, 0 on a refusal.
+ * M1179: this was two sscanf calls that checked only how many fields
+ * converted, so `+01:00` was read as the offset +0001 (a deadline 59
+ * minutes off), a trailing zone name or `Z` was ignored and the time read
+ * as UTC, and 2099-02-31 rolled over into March. A wrong instant is worse
+ * than a refusal: the loop would stop, or not stop, at a time nobody chose. */
 static int
 parse_deadline(const char *s, time_t *end_out)
 {
@@ -552,25 +594,41 @@ parse_deadline(const char *s, time_t *end_out)
     int off = 0;
     time_t utc;
     struct tm tmv;
-    int matched;
+    const char *p;
 
     if (s == NULL || s[0] == '\0') {
         return 0;
     }
-    matched = sscanf(s, " %d-%d-%d %d:%d:%d %d", &Y, &M, &D, &h, &m, &sec,
-                     &off);
-    if (matched != 7) {
-        /* Retry without the offset: a bare YYYY-MM-DD HH:MM:SS (= UTC). A
-         * string that matched 7 above is kept (the offset form); a string
-         * that matched 6 here is the UTC form. Anything else refuses. */
-        Y = M = D = h = m = sec = off = 0;
-        matched = sscanf(s, " %d-%d-%d %d:%d:%d", &Y, &M, &D, &h, &m, &sec);
-        if (matched != 6) {
-            return 0;   /* CHANGED 4: any other form is the refusal */
-        }
-        off = 0;
+    p = s;
+    while (*p == ' ' || *p == '\t') {
+        p++;
     }
-    if (Y < 1970 || Y > 2999 || M < 1 || M > 12 || D < 1 || D > 31 ||
+    if (!dl_digits(&p, 4, &Y) || *p++ != '-' ||
+        !dl_digits(&p, 2, &M) || *p++ != '-' ||
+        !dl_digits(&p, 2, &D) || *p++ != ' ' ||
+        !dl_digits(&p, 2, &h) || *p++ != ':' ||
+        !dl_digits(&p, 2, &m) || *p++ != ':' ||
+        !dl_digits(&p, 2, &sec)) {
+        return 0;   /* CHANGED 4: any other form is the refusal */
+    }
+    if (p[0] == ' ' && (p[1] == '+' || p[1] == '-')) {
+        int neg = (p[1] == '-');
+        p += 2;
+        if (!dl_digits(&p, 4, &off)) {
+            return 0;   /* +01:00, +1, +01 ...: not a +ZZZZ offset */
+        }
+        if (neg) {
+            off = -off;
+        }
+    }
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') {
+        p++;
+    }
+    if (*p != '\0') {
+        return 0;   /* a zone name, a `Z`, anything after the time */
+    }
+    if (Y < 1970 || Y > 2999 || M < 1 || M > 12 || D < 1 ||
+        D > dl_days_in_month(Y, M) ||
         h < 0 || h > 23 || m < 0 || m > 59 || sec < 0 || sec > 59 ||
         off < -9900 || off > 9900) {
         return 0;
@@ -799,9 +857,15 @@ copy_file_p(const char *src, const char *dst)
  * the atime/mtime preserved afterwards. The child's stdout is the opened dst
  * fd, so the compressed bytes go straight to the file (no capture, no
  * copy-through). Returns 1 on success; a spawn failure or a non-zero child
- * removes dst (the stale-twin removal is the caller's, the XOR). */
+ * removes dst (the stale-twin removal is the caller's, the XOR). On a
+ * failure (return 0) *fail_rc carries the child's effective rc when
+ * non-NULL (M1165, SV:1802 P5, lesson 9: a silent drop is a defect) so the
+ * caller can log ONE line naming the file and the rc: the child's exit
+ * status, 128+signal when it was signalled, or -1 when the child never ran
+ * (the spawn failed -- no wait status to decode) or the setup (a dst/src
+ * that will not open) failed before any child existed. */
 static int
-gzip_file_p(const char *src, const char *dst, mode_t mode)
+gzip_file_p(const char *src, const char *dst, mode_t mode, int *fail_rc)
 {
     char *argv[4];
     char src_arg[PATH_CAP];
@@ -813,26 +877,37 @@ gzip_file_p(const char *src, const char *dst, mode_t mode)
     struct stat st;
     struct timeval tv[2];
     int rc;
+    int child_rc;
 
     if (jc_snprintf(src_arg, sizeof src_arg, "%s", src)
         >= (int)sizeof src_arg) {
+        if (fail_rc != NULL) {
+            *fail_rc = -1;
+        }
         return 0;
     }
     dfd = open(dst, O_WRONLY | O_CREAT | O_TRUNC | JC_O_BINARY,
                (mode != 0) ? mode : 0644);
     if (dfd < 0) {
+        if (fail_rc != NULL) {
+            *fail_rc = -1;
+        }
         return 0;
     }
     srfd = open(src, O_RDONLY | JC_O_BINARY);
     if (srfd < 0) {
         close(dfd);
         (void)unlink(dst);
+        if (fail_rc != NULL) {
+            *fail_rc = -1;
+        }
         return 0;
     }
     memset(&req, 0, sizeof req);
     argv[0] = (char *)"gzip";
     argv[1] = (char *)"-c";
     argv[2] = src_arg;
+    argv[3] = NULL;
     req.argv = argv;
     req.fd_stdin = srfd;            /* the child reads its own source */
     req.fd_stdout = dfd;            /* the compressed bytes go to the file */
@@ -841,12 +916,29 @@ gzip_file_p(const char *src, const char *dst, mode_t mode)
     close(dfd);
     close(srfd);
     if (rc != 0) {
+        if (fail_rc != NULL) {
+            *fail_rc = rc;          /* -1: no child, no wait status */
+        }
         (void)unlink(dst);
         return 0;
     }
-    /* The child's stdout went straight to the file; no drain, no copy. */
-    if (jc_proc_waitpid(pid, &status) != 0 || !WIFEXITED(status) ||
-        WEXITSTATUS(status) != 0) {
+    /* The child's stdout went straight to the file; no drain, no copy. The
+     * effective rc is the child's exit status (128+signal when signalled),
+     * or -1 when waitpid itself failed (no status to decode). It is carried
+     * out to the caller's failure line (M1165). A non-zero child_rc is
+     * EXACTLY the old failure condition (waitpid failed / not-exited /
+     * non-zero exit), so the success path is unchanged. */
+    if (jc_proc_waitpid(pid, &status) != 0) {
+        child_rc = -1;
+    } else if (!WIFEXITED(status)) {
+        child_rc = 128 + WTERMSIG(status);
+    } else {
+        child_rc = WEXITSTATUS(status);
+    }
+    if (child_rc != 0) {
+        if (fail_rc != NULL) {
+            *fail_rc = child_rc;
+        }
         (void)unlink(dst);
         return 0;
     }
@@ -961,9 +1053,10 @@ first_line(struct jc_sb *out, struct jc_arena *a)
  * stays in dir/recs, nothing is pushed (def-360), never --force, never to
  * master. `kind` is the log's (partial|final). */
 static void
-snapshot(const char *dir, const char *log_path, const char *run,
-         const char *kind, const char *git_name, const char *git_email,
-         const char *e_global, const char *e_system, struct jc_arena *a)
+snapshot(const char *dir, const char *config_path, const char *log_path,
+         const char *run, const char *kind, const char *git_name,
+         const char *git_email, const char *e_global, const char *e_system,
+         int team_push, const char *token_file, struct jc_arena *a)
 {
     char src[PATH_CAP];
     char dst[PATH_CAP];
@@ -1045,8 +1138,20 @@ snapshot(const char *dir, const char *log_path, const char *run,
         }
         sz = (long)st.st_size;
         if (sz > SNAP_GZ_THRESHOLD) {
-            if (gzip_file_p(sp, gz, (mode_t)(st.st_mode & 07777))) {
+            int gfail = -1;
+            if (gzip_file_p(sp, gz, (mode_t)(st.st_mode & 07777), &gfail)) {
                 (void)unlink(dp);   /* the XOR: remove the plain twin */
+            } else {
+                /* M1165 (SV:1802 P5, lesson 9): a dropped record logs a line
+                 * naming the file and the child's rc. The plain twin (dp) is
+                 * NOT removed on failure (the caller's XOR keeps it) -- this
+                 * is the witness that the compression itself failed. */
+                char ln[512];
+                if (jc_snprintf(ln, sizeof ln,
+                                "snapshot %s (%s): gzip failed for %s (rc=%d)",
+                                run, kind, nm, gfail) < (int)sizeof ln) {
+                    log_line(log_path, ln);
+                }
             }
         } else {
             if (copy_file_p(sp, dp)) {
@@ -1107,7 +1212,23 @@ snapshot(const char *dir, const char *log_path, const char *run,
                 >= (int)sizeof gz) {
                 continue;
             }
-            (void)gzip_file_p(sp, gz, (mode_t)(st.st_mode & 07777));
+            {
+                int gfail = -1;
+                if (!gzip_file_p(sp, gz, (mode_t)(st.st_mode & 07777),
+                                 &gfail)) {
+                    /* M1165 (SV:1802 P5, lesson 9): the subdirs ALWAYS gzip
+                     * (no threshold, no plain twin in dst), so a file that
+                     * fails gzip vanishes from the snapshot with nothing else
+                     * to say why -- the log line is the only witness. */
+                    if (jc_snprintf(ln, sizeof ln,
+                                    "snapshot %s (%s): gzip failed for %s/%s "
+                                    "(rc=%d)",
+                                    run, kind, subdirs[si], nm, gfail)
+                        < (int)sizeof ln) {
+                        log_line(log_path, ln);
+                    }
+                }
+            }
         }
         closedir(sd);
     }
@@ -1223,6 +1344,71 @@ snapshot(const char *dir, const char *log_path, const char *run,
             }
             jc_sb_free(&out);
         }
+    }
+    /* The records push (M1147, the def-360 NO-OP retired): the gate is
+     * `drive.teamPush` TRUE AND the config's gitTokenFile exists and is
+     * readable (a STAT only -- this branch holds the token's PATH, NEVER its
+     * bytes; the record's own body reads it at push time). When met, the
+     * in-process records push runs (save_team's idiom: a fresh arena owns the
+     * config the function loads, a redirect window sends its report lines to
+     * the harness log per CHANGED 9). A failure is a SOFT failure (the
+     * reference push.sh contract): it is logged, the loop CONTINUES -- the
+     * snapshot already committed, the next tick re-attempts. When the gate is
+     * not met (teamPush FALSE -- THIS drive, the container holds no token --
+     * or the token file missing), the def-360 NO-OP block below stands
+     * byte-for-byte (no token, no push). */
+    if (team_push && token_file != NULL && access(token_file, R_OK) == 0) {
+        struct jc_arena *ra;
+        int so = -1, se = -1, lf = -1, ok = 0, prc;
+        char ln[512];
+        ra = jc_arena_new(0);
+        if (ra == NULL) {
+            return;
+        }
+        if (log_path != NULL && log_path[0] != '\0') {
+            lf = open(log_path, O_WRONLY | O_APPEND | O_CREAT | JC_O_BINARY,
+                      0644);
+        }
+        if (lf >= 0) {
+            so = dup(1);
+            se = dup(2);
+            ok = (so >= 0 && se >= 0);
+            if (ok) {
+                (void)dup2(lf, 1);
+                (void)dup2(lf, 2);
+            }
+        }
+        prc = jc_harness_push_records_run(config_path, recs, ra, NULL, 0);
+        jc_arena_free(ra);
+        if (ok) {
+            (void)dup2(so, 1);
+            (void)dup2(se, 2);
+        }
+        if (so >= 0) {
+            close(so);
+        }
+        if (se >= 0) {
+            close(se);
+        }
+        if (lf >= 0) {
+            close(lf);
+        }
+        if (prc == 0) {
+            if (jc_snprintf(ln, sizeof ln,
+                            "snapshot %s (%s): the records push landed "
+                            "(def-360 retired, M1147)", run, kind)
+                < (int)sizeof ln) {
+                log_line(log_path, ln);
+            }
+        } else {
+            if (jc_snprintf(ln, sizeof ln,
+                            "snapshot %s (%s): the records push failed "
+                            "(rc=%d)", run, kind, prc) < (int)sizeof ln) {
+                log_line(log_path, ln);
+            }
+        }
+        return;   /* the push ran (soft failure or success); the NO-OP block
+                   * stands only in the gate-not-met branch below. */
     }
     /* The CHANGED 2 NO-OP: the records push is not built (def-360). The
      * commit is in dir/recs; nothing is pushed, never --force, never master. */
@@ -1492,14 +1678,25 @@ jc_harness_drive(const char *config_path, const char *tenant,
         return 2;
     }
     /* The start line + the counter, read ONCE (behaviours 1/2). Both are
-     * AFTER the deadline parse, so an unparseable end never logs a start. */
+     * AFTER the deadline parse, so an unparseable end never logs a start.
+     * M1190/D-F8-2: the start line names the build and the resolved path --
+     * the SECOND route to the loop's build, replacing the supervisor's
+     * /proc/<loop pid>/exe read that F8(a)'s protection breaks (12.9 step 0).
+     * rev is jc_build_rev() (NULL in a tarball -> the literal (none), the
+     * print_version idiom); self is the PATH_CAP buffer already resolved above
+     * (do NOT re-resolve /proc/self/exe). ln is PATH_CAP + 256 so a long
+     * resolved path fits; the drop-guard below silently DROPS the line (never
+     * truncates it) if it still cannot fit. */
     {
-        char ln[512];
+        char ln[PATH_CAP + 256];
         char end_iso[40];
+        const char *rev;
         stamp_of(end_iso, sizeof end_iso, end);   /* loop.sh:102's shape */
+        rev = jc_build_rev();
         if (jc_snprintf(ln, sizeof ln,
-                        "loop start (pid %ld), deadline %s",
-                        (long)getpid(), end_iso) < (int)sizeof ln) {
+                        "loop start (pid %ld), deadline %s, build %s, path %s",
+                        (long)getpid(), end_iso,
+                        (rev != NULL) ? rev : "(none)", self) < (int)sizeof ln) {
             log_line(log_path, ln);
         }
     }
@@ -1644,8 +1841,9 @@ jc_harness_drive(const char *config_path, const char *tenant,
                 i = 0;
                 save_team(config_path, cfg.dir, log_path,
                           cfg.drive_team_push);
-                snapshot(cfg.dir, log_path, run_str, "partial",
-                         git_name, git_email, e_global, e_system, a);
+                snapshot(cfg.dir, config_path, log_path, run_str, "partial",
+                         git_name, git_email, e_global, e_system,
+                         cfg.drive_team_push, cfg.git_token_file, a);
                 if (jc_snprintf(ln, sizeof ln,
                                 "run %s: periodic push done", run_str)
                     < (int)sizeof ln) {
@@ -1692,9 +1890,10 @@ jc_harness_drive(const char *config_path, const char *tenant,
             char *ge = NULL;
             int ct;
             read_drive_extras(config_path, &ct, &gn, &ge, a);
-            snapshot(cfg.dir, log_path, run_str, "final",
+            snapshot(cfg.dir, config_path, log_path, run_str, "final",
                      (gn != NULL) ? gn : NULL, (ge != NULL) ? ge : NULL,
-                     e_global, e_system, a);
+                     e_global, e_system,
+                     cfg.drive_team_push, cfg.git_token_file, a);
         }
         /* behaviour 12 (CHANGED 8): the quick-failure count + pause. */
         if (child_rc != 0 && (t1 - t0) < QUICK_LIMIT_S) {

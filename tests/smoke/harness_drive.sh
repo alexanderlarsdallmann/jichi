@@ -40,8 +40,9 @@
 # weakened to pass now: the log lines are the note's verbatim, the counts are
 # the note's counts, the file shapes are the note's shapes.
 #
-# WHAT IS CHECKED (the twelve cells, M1059's label convention -- D1-D8 plus
-# D6d, D6e, D3f and D1f):
+# WHAT IS CHECKED (fourteen cells, M1059's label convention -- D1-D8 plus
+# D6d, D6e, D3f, D1f, D3r (M1147, the in-loop records push) and D6f
+# (M1165, the snapshot's gzip-failure line)):
 #   1. D1 the counter and the two runs: planted runs/0008/ read as EIGHT in
 #      base 10 (the note's own incident: 0008 is octal), the drive's one run
 #      is 0009; exit 0; the log's start/end/loop lines; the start line's
@@ -129,6 +130,37 @@
 #      for the capture approach itself: the loop's OWN fd 1/fd 2 must never
 #      be dup2'd (attempt 1's dup2-the-loop-stdout poisoned the snapshot's
 #      gzip child's execvp, EFAULT -- run 0085's root cause).
+#   13. D3r the in-loop records push landed on the fixture origin (M1147, the
+#      def-360 NO-OP retired): a FRESH layout whose config carries
+#      "teamPush":true (the reference's default) AND keeps the gitTokenFile
+#      canary the layout wrote -- the gate is met (the token file exists and
+#      is readable; the loop NEVER reads its bytes, only stats it). One
+#      --once happy drive. After the loop the FIXTURE's local bare origin
+#      (standin.git, where init re-pointed recs/) holds
+#      refs/heads/harness-plan/records (init pushes only the .../plan branch,
+#      so the records ref is the IN-LOOP push's teeth, not a layout gap), and
+#      the log carries the records push's landing line. The cell is the
+#      teamPush-false/NO-OP's twin: it witnesses the gate-met branch by the
+#      REF on the origin. (In this worktree the records body is W2's not-
+#      wired stub, so the push runs and logs its rc -- the branch does not
+#      land; the cell goes green when W2's body lands in the assembled
+#      batch. It is committed RED in this worktree, per red-first.)
+#   14. D6f the snapshot's gzip failure logs a line (M1165, SV:1802 P5,
+#      lesson 9: silent loss is a defect): a PATH fixture holding a
+#      stand-in `gzip` (writes nothing, exit 1) is prepended to PATH for
+#      ONE run (the 12-s delay mock keeps the run alive; NO --tick
+#      override, so the config's default tick=1200 fires NO partial
+#      snapshot during the run -- only the FINAL snapshot, ~+12 s, hits
+#      the stand-in: exactly one compress attempt, one line). D6's
+#      subdirs arm extended -- the subdirs are ALWAYS gzipped, no
+#      threshold; a background plant (D6's idiom) lands
+#      runs/0009/notes/n.txt ~+2 s, after the run child created
+#      runs/0009 but before the final snapshot. On the fixed tree the
+#      record is dropped from recs/ (no .gz, no plain twin -- the subdirs
+#      have no XOR twin) and the log carries EXACTLY ONE line
+#      'gzip failed for notes/n.txt (rc=1)' naming the file and the
+#      child's rc; on the unfixed tree the drop is SILENT (no such line,
+#      the note simply absent from the snapshot) and the cell is RED.
 #
 # SECRETS: the model key is a RANDOM canary the driver draws (od -An -N12
 # -tx1 /dev/urandom, the M1053 idiom) -- never a real secret; the git token
@@ -152,7 +184,7 @@ G=/usr/bin/grep
 # would defeat the fixtures below, so clear all three.
 unset JICHI_HARNESS_DIR JICHI_HARNESS_MODEL_KEY_FILE JICHI_HARNESS_GIT_TOKEN_FILE
 
-t_plan 12
+t_plan 15
 smoke_home
 tmp=$(smoke_tmp)
 
@@ -248,6 +280,14 @@ EOF
     cp "$_mcd/mirror.git/config" "$_mcd/mirror.git-config.harness-copy" || return 1
     git -C "$_mcd/team" remote set-url origin "$_mcd/standin.git" || return 1
     git -C "$_mcd/recs" remote set-url origin "$_mcd/standin.git" || return 1
+    # The recs' stored config copy (M1147 B1.1, the in-loop records push's URL
+    # guard reference) must carry the SAME bytes as the live recs/.git/config
+    # AFTER the re-point, exactly like the mirror's stored copy above. init's
+    # own re-pointed copy is overwritten here; W2's `push records` body (and
+    # the init extension that writes this file at creation) is the assembled
+    # batch's. The copy is a no-op for the 12 pre-existing cells (none runs
+    # the records push); cell 13 (D3r) needs it for the URL guard to pass.
+    cp "$_mcd/recs/.git/config" "$_mcd/recs.git-config.harness-copy" || return 1
     return 0
 }
 
@@ -302,16 +342,42 @@ rc_d1=$?
 mm_stop
 _d1log="$D1/harness.log"
 _d1meta="$D1/runs/0009/meta.txt"
-# The two LOG-SHAPE teeth (SV:0317.2), extracted into _d1cls (0=ok,
-# 1=the start line lacks ', deadline <ISO>' -- loop.sh:102's shape; a port
-# that logs a bare 'loop start (pid N)' is red here, 2=no log line carries
-# the stamp's [+-][0-9][0-9][0-9][0-9] offset -- loop.sh:45's date '+%F %T %z'; a port
-# that drops the offset to a bare %F %T is red here) so the fail message
-# can name which shape was dropped.
+# The LOG-SHAPE teeth, extracted into _d1cls (0=ok, 1=the start line lacks
+# ', deadline <ISO>' -- loop.sh:102's shape; a port that logs a bare
+# 'loop start (pid N)' is red here, 2=no log line carries the stamp's
+# [+-][0-9][0-9][0-9][0-9] offset -- loop.sh:45's date '+%F %T %z'; a port
+# that drops the offset to a bare %F %T is red here, 3=the start line lacks
+# ', build <rev>, path $HBIN' -- the M1190/D-F8-2 second route to the loop's
+# build: the rev is 4+ hex (git rev-parse --short sizes the abbreviation by the
+# repository's object count, so a public/small checkout prints 7 while private
+# clones print 8 or 9; M1190's cell was written against the private tree's
+# stamp, and the 7-char public red is SV:0510, 2026-11-15, which no private
+# gate can see) or '(none)' (a tarball, the jc_build_rev stamp; the driver
+# knows its own binary, so path is asserted as $HBIN exactly), a port
+# that logs the start line WITHOUT the build/path is red here) so the fail
+# message can name which shape was dropped.
 _d1start=$($G -F "loop start (pid" "$_d1log" 2>/dev/null | sed -n 1p)
 _d1cls=0
 { [ -n "$_d1start" ] && printf '%s\n' "$_d1start" | $G -qF ", deadline " 2>/dev/null; } || _d1cls=1
 $G -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} [+-][0-9]{4} ' "$_d1log" 2>/dev/null || _d1cls=2
+# class 3 (M1190): the start line carries ', build <rev>, path $HBIN'. The
+# rev is 4+ hex (jc_build_rev's stamp; git rev-parse --short sizes the
+# abbreviation by the repository's object count, so a public/small checkout
+# prints 7 while private clones print 8 or 9 -- M1190's cell was written
+# against the private tree's stamp, and the 7-char public red is SV:0510,
+# 2026-11-15, which no private gate can see) or the literal '(none)' (a
+# tarball); the stamp MAY carry the Makefile's '-dirty' suffix (an uncommitted
+# tree at build time) -- build_rev.sh matches only the leading hex run for
+# exactly
+# this reason, so the optional (-dirty)? keeps D1 green whether the fixture
+# build is clean or dirty. Two greps, because ERE has no paren escape (an
+# unescaped '(none)' in an alternative would be a capture group): the hex
+# form is ERE, the literal '(none)' is -F. $HBIN is expanded (the driver
+# knows its own binary), so the path is asserted byte-exact in both.
+{ [ -n "$_d1start" ] && printf '%s\n' "$_d1start" \
+    | $G -qE ", build [0-9a-fA-F]{4,}(-dirty)?, path ${HBIN}" 2>/dev/null; } \
+  || { [ -n "$_d1start" ] && printf '%s\n' "$_d1start" \
+    | $G -qF ", build (none), path ${HBIN}" 2>/dev/null; } || _d1cls=3
 if [ "$rc_d1" -ne 0 ] || [ ! -d "$D1/runs/0008" ] || [ ! -d "$D1/runs/0009" ] || \
    [ ! -f "$_d1log" ] || ! $G -qF "loop start (pid" "$_d1log" || \
    ! $G -qF "run 0009: start" "$_d1log" || \
@@ -325,9 +391,9 @@ if [ "$rc_d1" -ne 0 ] || [ ! -d "$D1/runs/0008" ] || [ ! -d "$D1/runs/0009" ] ||
     # '--tenant'`; the note's words are the dispatch catch-all `jichi-harness:
     # drive: not built yet (see docs/HARNESS.md)` -- the port's parser hunk
     # moves D1's red onto that line).
-    t_fail "1: D1 the counter and the two runs (log-shape class $_d1cls: 1=the start line lacks ', deadline <ISO>' (loop.sh:102's shape) 2=no log line carries the stamp's [+-][0-9][0-9][0-9][0-9] offset (loop.sh:45's date '+%F %T %z')) -- the first drive invocation did not run the happy loop (rc=$rc_d1; its refusal: $(head -n 1 "$tmp/d1.err" 2>/dev/null)); the note's red for this cell is the not-built refusal \`jichi-harness: drive: not built yet (see docs/HARNESS.md)\`; want exit 0, runs/ holding 0008 AND 0009 (the counter read 8 in base 10), the log's 'loop start (pid'/'run 0009: start'/'run 0009: end rc=0 after'/'loop end', the start line's ', deadline <ISO>' and a stamped line with the [+-][0-9][0-9][0-9][0-9] offset (SV:0317.2), meta rc=0 + team_head_after=, a non-empty stream (log present: $([ -f "$_d1log" ] && echo yes || echo no); log head: $(head -n 2 "$_d1log" 2>/dev/null))"
+    t_fail "1: D1 the counter and the two runs (log-shape class $_d1cls: 1=the start line lacks ', deadline <ISO>' (loop.sh:102's shape) 2=no log line carries the stamp's [+-][0-9][0-9][0-9][0-9] offset (loop.sh:45's date '+%F %T %z') 3=the start line lacks ', build <rev>, path $HBIN' (M1190/D-F8-2: the second route to the loop's build; the rev is 8+ hex or '(none)')) -- the first drive invocation did not run the happy loop (rc=$rc_d1; its refusal: $(head -n 1 "$tmp/d1.err" 2>/dev/null)); the note's red for this cell is the not-built refusal \`jichi-harness: drive: not built yet (see docs/HARNESS.md)\`; want exit 0, runs/ holding 0008 AND 0009 (the counter read 8 in base 10), the log's 'loop start (pid'/'run 0009: start'/'run 0009: end rc=0 after'/'loop end', the start line's ', deadline <ISO>', a stamped line with the [+-][0-9][0-9][0-9][0-9] offset (SV:0317.2), and the start line's ', build <rev>, path $HBIN' (M1190), meta rc=0 + team_head_after=, a non-empty stream (log present: $([ -f "$_d1log" ] && echo yes || echo no); log head: $(head -n 2 "$_d1log" 2>/dev/null))"
 else
-    t_ok "1: D1 the planted runs/0008 is read as EIGHT (base 10, not octal) and the drive's one run is 0009: exit 0, the log's start/end/loop lines -- including the start line's ', deadline <ISO>' (loop.sh:102) and at least one line stamped with the [+-][0-9]{4} offset (loop.sh:45; SV:0317.2) -- meta rc=0 + team_head_after=, the stream non-empty (the mock answered)"
+    t_ok "1: D1 the planted runs/0008 is read as EIGHT (base 10, not octal) and the drive's one run is 0009: exit 0, the log's start/end/loop lines -- including the start line's ', deadline <ISO>' (loop.sh:102), at least one line stamped with the [+-][0-9][0-9][0-9][0-9] offset (loop.sh:45; SV:0317.2), and the start line's ', build <rev>, path $HBIN' (M1190/D-F8-2: the second route to the loop's build, the supervisor's /proc/<loop pid>/exe read's replacement) -- meta rc=0 + team_head_after=, the stream non-empty (the mock answered)"
 fi
 
 # ============================================================================
@@ -771,6 +837,183 @@ if [ "$_m12" -ne 0 ]; then
     t_fail "12: D1f the mirror-fetch report (M1064) is not stamped in harness.log and off the loop's stdout (class $_m12: 1=a 'mirror fetch:' line is STILL on the loop's stdout (site A's pre-run fetch must be captured by the fork-child, not printed) 2=NO stamped 'mirror fetch:' line in harness.log (the behaviour-14 'YYYY-MM-DD HH:MM:SS +-HHMM' stamp at column 0 must precede it) 3=FEWER than 2 stamped 'mirror fetch:' lines (the single --once run fires site A pre-run AND site B in save_team); stdout-mirror-fetch=$_m12out log-stamped=${_m12stamped:-0}; d1.out mirror-fetch lines: $( { $G -F 'mirror fetch:' "$tmp/d1.out" 2>/dev/null; } | head -n 2 | tr '\n' ';'); harness.log stamped mirror-fetch lines: $( { [ -f "$D1/harness.log" ] && $G -E '^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9] [+-][0-9][0-9][0-9][0-9] mirror fetch:' "$D1/harness.log" 2>/dev/null; } | head -n 3 | tr '\n' ';'))"
 else
     t_ok "12: D1f the drive loop's two in-process mirror FETCH reports (site A pre-run, site B save_team) land in harness.log STAMPED ('YYYY-MM-DD HH:MM:SS +-HHMM mirror fetch: ...', the behaviour-14 log_line prefix, at least two lines) and the loop's stdout carries NO 'mirror fetch:' line (M1064, the fork-child capture -- the loop's own fd 1/fd 2 are never dup2'd, so D6 check 7's snapshot children stay unpoisoned)"
+fi
+
+# ============================================================================
+# 13: D3r the in-loop records push landed on the fixture origin (M1147, the
+#     def-360 NO-OP retired)
+# ============================================================================
+# A FRESH layout with the DEFAULT teamPush (absent = true, the reference's
+# push-on default) and the gitTokenFile canary the layout wrote: the gate is
+# met (the token file exists and is readable -- the loop stats it, NEVER reads
+# its bytes). One --once happy drive. After the loop the FIXTURE's local bare
+# origin (standin.git, where mklayout re-pointed recs/) holds
+# refs/heads/harness-plan/records: init pushes ONLY the .../plan branch (D3f's
+# comment), so the records ref is the IN-LOOP push's teeth, not a layout gap.
+# The snapshot's 'records: run 0009 (final)' commit still lands in recs (the
+# push is a soft step on a committed snapshot -- the reference push.sh
+# contract). In THIS worktree the records body is W2's not-wired stub, so the
+# push runs (and logs its rc) but the branch does not land: the cell is
+# committed RED here and goes green when W2's body lands in the assembled
+# batch. The 12 pre-existing cells above are the green-run regression proof.
+mklayout d3r || { t_fail "13: D3r the layout init failed: $(head -n 3 "$tmp/d3r.init")"; t_done; }
+D3r="$tmp/d3r"
+mkdir -p "$D3r/runs/0008"
+pin_real "$D3r"
+# The gate's inputs, confirmed so the cell is not vacuous: the layout's config
+# carries the gitTokenFile canary (absent = the gate not met = no push, the
+# cell would be red for the wrong reason) and does NOT spell teamPush (the
+# default true is what the cell witnesses; a spelled false would skip the push).
+$G -qF '"gitTokenFile":"'"$D3r"'.tok"' "$D3r.cfg" 2>/dev/null \
+    || { t_fail "13: D3r the config lacks the gitTokenFile canary (the gate's teeth; the cell is vacuous)"; t_done; }
+$G -qF '"teamPush":' "$D3r.cfg" 2>/dev/null \
+    && { t_fail "13: D3r the config spells teamPush (this cell needs the DEFAULT true; a spelled false would skip the push)"; t_done; }
+mm_start "$tmp/fast.mm" "$tmp/mm_d3r" 8 || { t_fail "13: D3r the mockmodel did not start"; t_done; }
+setjicfg "$D3r"
+with_deadline 60 "$HBIN" --config "$D3r.cfg" drive --tenant lead --once \
+    < /dev/null > "$tmp/d3r.out" 2> "$tmp/d3r.err"
+rc_d3r=$?
+mm_stop
+_d3rlog="$D3r/harness.log"
+_d3rrecsbr=$(git -C "$D3r/standin.git" rev-parse --short "refs/heads/harness-plan/records" 2>/dev/null)
+_d3rplan=$(git -C "$D3r/standin.git" rev-parse --short "refs/heads/harness-plan/plan" 2>/dev/null)
+_d3rmain=$(git -C "$D3r/standin.git" rev-parse --short "refs/heads/harness-plan/main" 2>/dev/null)
+_d3rbad=0
+[ -z "$_d3rrecsbr" ] && _d3rbad=1   # the teeth: the records branch did not land on the fixture origin
+[ -z "$_d3rplan" ] && _d3rbad=2     # layout gap (init's plan push), the cell is not witnessable
+! $G -qF "run 0009: end rc=0 after" "$_d3rlog" 2>/dev/null && _d3rbad=3   # a broken run would make the cell pass vacuously
+git -C "$D3r/recs" log --oneline 2>/dev/null | $G -qF "records: run 0009 (final)" || _d3rbad=4   # the snapshot commit still landed (the push is a soft step)
+# class 5 (a refinement of 1, last-wins): no records branch on origin AND the
+# log shows the KEY SCAN's fail-closed READ refusal with the empty-detail
+# fingerprint "could not be read (cat-file rc=0: )" -- the 0-byte-blob case
+# (git's EMPTY blob e69de29, runs/<N>/.started): the read SUCCEEDED (rc 0) but
+# the empty result was mistaken for a failure, so every in-loop push died.
+# The in-process push's stderr is dup2'd to the log (jc_harness_drive.c), so
+# the rrefuse line lands here. After the fix the branch lands, so 1 (and 5)
+# never fire; class 5 exists to name this exact mechanism if it regresses.
+[ -z "$_d3rrecsbr" ] && $G -qF "could not be read (cat-file rc=0: )" "$_d3rlog" 2>/dev/null && _d3rbad=5
+if [ "$rc_d3r" -ne 0 ] || [ "$_d3rbad" -ne 0 ]; then
+    t_fail "13: D3r the in-loop records push (M1147) did not land refs/heads/harness-plan/records on the fixture origin (class $_d3rbad: 1=no records branch on origin -- the def-360 NO-OP / not-wired stub pushes nothing (the gate is met, the branch should have landed) 2=init's refs/heads/harness-plan/plan missing (a layout gap, the cell is not witnessable) 3=no 'run 0009: end rc=0 after' (the run did not complete, the cell is not witnessable) 4=the snapshot's 'records: run 0009 (final)' commit did not land in recs (the push is a soft step on a committed snapshot) 5=no records branch AND the log shows the key scan's fail-closed READ refusal with the empty-detail fingerprint 'could not be read (cat-file rc=0: )' -- the 0-byte blob (git's EMPTY blob e69de29, runs/<N>/.started) was treated as a read failure, not a clean read (a 0-byte object cannot hold a secret); rc=$rc_d3r; records=[$_d3rrecsbr] plan=[$_d3rplan] main=[$_d3rmain]; log tail: $(tail -n 4 "$_d3rlog" 2>/dev/null | tr '\n' ';'))"
+else
+    t_ok "13: D3r with the gate met (teamPush default true, the gitTokenFile canary present and readable -- the loop stats it, never reads its bytes) the in-loop records push lands refs/heads/harness-plan/records on the fixture's local bare origin after the --once loop (init pushes only .../plan, so the records ref is the push's teeth); the loop still exits 0 and the snapshot's 'records: run 0009 (final)' commit still lands in recs (the push is a soft step on the committed snapshot -- the reference push.sh contract) (M1147, the def-360 NO-OP retired)"
+fi
+
+# ============================================================================
+# 14: D6f the snapshot's gzip failure logs a line (M1165, SV:1802 P5)
+# ============================================================================
+# The subdirs arm (no threshold): a FRESH layout, the stand-in `gzip`
+# (writes nothing, exit 1) in a PATH fixture prepended to PATH for this ONE
+# drive invocation, and runs/0009/notes/n.txt planted BEFORE the run so the
+# run child sees notes/ already present (it recreates it; mkdir -p is
+# idempotent) and the final snapshot's ALWAYS-gzipped subdir pass hits the
+# stand-in. The fast mock + --once fire only the FINAL snapshot (no
+# 10-s poll), so there is exactly one compress attempt and the line count is
+# deterministic. On the FIXED tree: notes/n.txt is ABSENT from recs/ (no
+# .gz, no plain twin -- the subdirs have no XOR twin, the drop is real) and
+# harness.log carries EXACTLY ONE 'gzip failed for notes/n.txt (rc=1)'.
+# On the UNFIXED tree the drop is SILENT (class 1: no such line) -- the red.
+# Measured, do not guess: the gzip child reaches the stand-in through PATH
+# inheritance -- jc_spawn's fork backend fork/execvp's without touching the
+# env (no scrub, no env vec), and the posix backend builds its envp from
+# environ (which carries PATH), so the prepend wins on both backends.
+mklayout d6f || { t_fail "14: D6f the layout init failed: $(head -n 3 "$tmp/d6f.init")"; t_done; }
+D6f="$tmp/d6f"
+mkdir -p "$D6f/runs/0008"
+pin_real "$D6f"
+# The PATH fixture: a stand-in `gzip` that writes nothing and exits 1 (the
+# subdirs arm's failure; rc=1 is the child's exit status, WEXITSTATUS).
+mkdir -p "$tmp/d6f.bin"
+printf '#!/bin/sh\nexit 1\n' > "$tmp/d6f.bin/gzip"
+chmod 755 "$tmp/d6f.bin/gzip"
+# A PLANT ~+2 s, driven by the log (D6's background-chain idiom): wait for
+# 'run 0009: start' (the counter has ALREADY been read -- pre-planting
+# runs/0009/ before the drive would make it read NINE and run 0010, the
+# measured first attempt), then plant notes/n.txt. The 12-s mock keeps the
+# run ALIVE past the plant, and NO --tick override means the config's
+# default tick=1200 never fires a partial during the run: the ONLY
+# snapshot that sees the plant is the FINAL one, ~+12 s -- exactly one
+# compress attempt, exactly one line. The planted file remains in
+# runs/0009 afterwards (the snapshot's `git add -A runs/0009` stages it as
+# an extra entry -- the record the real snapshot would have gzipped; its
+# ABSENCE from recs/ is class 3's teeth).
+sh -c '
+    _i=0
+    while ! grep -qF "run 0009: start" "$1/harness.log" 2>/dev/null; do
+        _i=$((_i + 1)); [ "$_i" -gt 30 ] && break
+        sleep 1
+    done
+    sleep 2
+    mkdir -p "$1/runs/0009/notes"
+    printf "n plant x\n" > "$1/runs/0009/notes/n.txt"
+' _ "$D6f" &
+_d6fplant=$!
+mm_start "$tmp/delay12.mm" "$tmp/mm_d6f" 8 || { t_fail "14: D6f the mockmodel did not start"; t_done; }
+setjicfg "$D6f"
+with_deadline 60 env PATH="$tmp/d6f.bin:$PATH" "$HBIN" --config "$D6f.cfg" drive --tenant lead --once \
+    < /dev/null > "$tmp/d6f.out" 2> "$tmp/d6f.err"
+rc_d6f=$?
+wait "$_d6fplant" 2>/dev/null
+mm_stop
+_d6flog="$D6f/harness.log"
+_d6frecs="$D6f/recs/runs/0009"
+_d6fbad=0
+# Class 1 (the PRIMARY red, the unfixed tree): NO line at all -- the silent
+# drop. Class 2 (a line that is not EXACTLY once, a double- or triple-
+# logging): only discriminated when a line IS present, so the unfixed tree's
+# zero-occurrence red reports as class 1, not 2.
+$G -qF "gzip failed for notes/n.txt (rc=1)" "$_d6flog" 2>/dev/null || _d6fbad=1
+_d6fcount=$($G -cF "gzip failed for notes/n.txt (rc=1)" "$_d6flog" 2>/dev/null || true)
+case "$_d6fcount" in ''|*[!0-9]*) _d6fcount=0 ;; esac
+[ "$_d6fcount" -eq 0 ] || { [ "$_d6fcount" = 1 ] || _d6fbad=2; }
+[ -e "$_d6frecs/notes/n.txt.gz" ] && _d6fbad=3   # the drop is real: no .gz twin
+[ -e "$_d6frecs/notes/n.txt" ] && _d6fbad=3      # no plain twin either (the subdirs have no XOR)
+! $G -qF "run 0009: end rc=0 after" "$_d6flog" 2>/dev/null && _d6fbad=4   # the run completed (not vacuous)
+if [ "$rc_d6f" -ne 0 ] || [ "$_d6fbad" -ne 0 ]; then
+    t_fail "14: D6f the snapshot's gzip failure (M1165, SV:1802 P5) (class $_d6fbad: 1=NO 'gzip failed for notes/n.txt (rc=1)' log line -- the UNFIXED tree's silent drop, the red 2=the line is not EXACTLY once (got ${_d6fcount:-0}) 3=notes/n.txt or notes/n.txt.gz PRESENT in recs/ (the gzip did not actually fail -- the stand-in did not run, or the drop is not real) 4=no 'run 0009: end rc=0 after' (the run did not complete, the cell is vacuous); rc=$rc_d6f; recs/runs/0009 tree: $(find "$_d6frecs" -type f 2>/dev/null | head -n 8 | tr '\n' ' '); log tail: $(tail -n 3 "$_d6flog" 2>/dev/null | tr '\n' ';'))"
+else
+    t_ok "14: D6f a stand-in gzip (exit 1) on PATH makes the snapshot's ALWAYS-gzipped subdir pass drop runs/0009/notes/n.txt with a NAMED witness: harness.log carries EXACTLY ONE 'gzip failed for notes/n.txt (rc=1)' (the file and the child's rc), and notes/n.txt is ABSENT from recs/ (no .gz, no plain twin -- the subdirs have no XOR twin, the log line is the only witness) (M1165, SV:1802 P5, lesson 9: silent loss is a defect)"
+fi
+
+# --- 15 (M1179): the end time is read in exactly the two documented forms ----
+# parse_deadline used to check only how many sscanf fields converted, so
+# "+01:00" became the offset +0001 (59 minutes off), a trailing zone name or a
+# Z was ignored and the time read as UTC, and 2099-02-31 rolled into March --
+# each a WRONG INSTANT, accepted in silence. Each bad form must now be the
+# refusal (exit 1, "the end time does not parse"); each good one must give the
+# deadline it names. STOP is present, so an accepted end logs `loop start ...,
+# deadline <time>` and the loop ends at once. TZ=UTC0 makes the logged
+# deadline the same on every host. Red on the pre-M1179 binary: the bad forms
+# exit 0.
+_d15="$tmp/d15"
+mkdir -p "$_d15" && : > "$_d15/STOP"
+_d15_msg=""
+for _e in "2099-01-01 00:00:00 +01:00" "2099-01-01 00:00:00 Europe/Berlin" \
+          "2099-01-01 00:00:00Z" "2099-02-31 00:00:00" "2099-1-1 0:0:0"; do
+    printf '{"dir":"%s","drive":{"end":"%s"},"tenants":[{"name":"lead","workdir":"%s"}]}\n' \
+        "$_d15" "$_e" "$_d15" > "$_d15/h.json"
+    TZ=UTC0 "$HBIN" --config "$_d15/h.json" drive --tenant lead < /dev/null > "$_d15/out" 2> "$_d15/err"
+    _r=$?
+    if [ "$_r" -ne 1 ] || ! $G -qF "the end time does not parse" "$_d15/err"; then
+        _d15_msg="$_d15_msg [bad '$_e' accepted: rc=$_r]"
+    fi
+done
+for _pair in "2099-01-01 00:00:00 +0100|2098-12-31 23:00:00 +0000" \
+             "2099-01-01 00:00:00|2099-01-01 00:00:00 +0000" \
+             "2096-02-29 12:00:00 -0230|2096-02-29 14:30:00 +0000"; do
+    _e=${_pair%%|*}; _want=${_pair#*|}
+    rm -f "$_d15/harness.log"
+    printf '{"dir":"%s","drive":{"end":"%s"},"tenants":[{"name":"lead","workdir":"%s"}]}\n' \
+        "$_d15" "$_e" "$_d15" > "$_d15/h.json"
+    TZ=UTC0 "$HBIN" --config "$_d15/h.json" drive --tenant lead < /dev/null > "$_d15/out" 2> "$_d15/err"
+    _r=$?
+    if [ "$_r" -ne 0 ] || ! $G -qF "deadline $_want" "$_d15/harness.log" 2>/dev/null; then
+        _d15_msg="$_d15_msg [good '$_e': rc=$_r, want 'deadline $_want': $(tr '\n' '|' < "$_d15/harness.log" 2>/dev/null | head_bytes 120)]"
+    fi
+done
+if [ -z "$_d15_msg" ]; then
+    t_ok "15: the end time reads only YYYY-MM-DD HH:MM:SS [+-ZZZZ]: +01:00, a zone name, a Z, Feb 31 and unpadded fields are each refused (exit 1); +0100, the bare UTC form and -0230 on a leap day give the instants they name (M1179)"
+else
+    t_fail "15: the end time misread --$_d15_msg"
 fi
 
 t_done

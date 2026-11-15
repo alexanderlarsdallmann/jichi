@@ -507,6 +507,34 @@ cat > "$tmp/foreign" <<'EOF'
 # (docs/DEFERRED.md): the gateway-park probe's option, an external script's
 # flag, not jichi's. The probe is H5's loop concern, deferred.
 --wait
+# systemd-analyze's, named in DEFERRED.md's def-381 register line (SV:0539,
+# written at M1160, this run): the line quotes its measurement
+# `systemd-analyze --user verify` verbatim. The register line is evidence and
+# is not reworded -- the allowlist is where a foreign flag belongs.
+--user
+# The Tazuna course (docs/reading/tazuna-*, 2026-11-13). Chapter 7 shows
+# `systemctl --user list-units --no-legend` because the bytes that flag leaves,
+# two blanks before every unit, ARE the busy-filter defect M1178 fixed; and
+# chapter 5 runs `valgrind -q --log-file=<dir>/vg.%p` so each child of the
+# drive driver writes its own report, which is what the exercise counts.
+# systemctl's and valgrind's flags, not jichi's.
+--no-legend
+--log-file
+# the workstation GPU pages under docs/internal/ (2026-11-07, landed from the docs branch on 2026-11-14): the plan
+# quotes `journalctl --list-boots` (which boot crashed) and LM Studio's `lms load --estimate-only` (its memory
+# estimate, measured against the real load); the reset-recovery runbook starts tmux with `systemd-run --user
+# --scope --unit ...`, so the server outlives the desktop (`--user` is listed above). Foreign tools' flags, not jichi's.
+--list-boots
+--estimate-only
+--scope
+--unit
+# systemd-run's and systemctl's, in the design review's measurement script
+# docs/internal/2026-11-11-design-review/systemd-run-shapes.sh (2026-11-11, F3): the
+# script runs the real tool in five argument shapes to show which it accepts, so the
+# options are the measurement and cannot be reworded away (`--user`, `--unit` and
+# `--no-legend` are listed above). systemd's flags, not jichi's.
+--collect
+--nice
 EOF
 
 # jichi flags DESIGNED but not built (HARDENING/SELF_IMPROVEMENT/
@@ -515,6 +543,7 @@ cat > "$tmp/future" <<'EOF'
 --loop
 --fix
 --resume-run
+--adopt
 EOF
 
 # --- the scan targets --------------------------------------------------------

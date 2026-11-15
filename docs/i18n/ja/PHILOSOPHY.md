@@ -1,6 +1,11 @@
 <!-- tracks: ../../PHILOSOPHY.md @ 8ad8468 -->
+<!-- Original draft: Claude (July 2026). On 2026-11-07 (M1147, batch H7): the Continue sentence
+     in the "Giants" paragraph — whose CLI was jichi's starting specification, not that this
+     project re-implements it — was drafted by llm-jp-4-8b-thinking (Q4_K_M, context 16384,
+     1 slot; LM Studio 127.0.0.1:1234), reviewed by jlu/qwen3-coder-next. -->
 <!-- 注意: この翻訳は機械下訳です。ネイティブによるレビューを歓迎します。 -->
 > ⚠️ この翻訳は下訳です。ニュアンスについては英語版（`../../PHILOSOPHY.md`）を優先してください。
+> 変更箇所は [llm-jp](https://llm-jp.nii.ac.jp/)（llm-jp-4-8b-thinking）で下訳し、jlu/qwen3-coder-next がレビューしました。
 
 # jichi の哲学
 
@@ -107,9 +112,10 @@ C89 なのか、だろう。答えは懐古趣味ではない。C89 は、現存
 バイトを運んできた libcurl。ベンダリングされた cJSON の API 設計。スナップショット
 とワークツリーの機構を静かに支える git の配管（plumbing）。Language Server
 Protocol、Model Context Protocol、Agent Client Protocol——いずれも、私的な優位を
-公的な標準と引き換えにした寛容の行為である。この CLI が再実装する
-[Continue](https://continue.dev)。その設計は、このかたちが作るに値することを
-証明した。そして、ループに話し相手を与える API を提供するモデルプロバイダたち。
+公的な標準と引き換えにした寛容の行為である。
+[Continue](https://continue.dev) の CLI は jichi の出発点の仕様だった。その
+設計は、このかたちが作るに値することを証明した。そして、ループに話し相手
+を与える API を提供するモデルプロバイダたち。
 
 小人たちの名を挙げるのは難しい——そして、そこが肝心なところだ。man ページの
 著者たち。`tcsetattr` にまつわる一つの晦渋な質問に答えた Stack Overflow の回答者。

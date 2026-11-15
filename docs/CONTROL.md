@@ -33,6 +33,8 @@ jichi control <sock> pause            # deadline keeps running
 jichi control <sock> pause --extend   # deadline clock stopped (M162)
 jichi control <sock> resume
 jichi control <sock> abort
+jichi control <sock> stop-task 1 "its work is kept; stop the batch"
+jichi control <sock> inject-task 0 "skip the tests; report now"
 ```
 
 `--control` takes an optional explicit path (`--control /run/jichi/task.sock`);
@@ -40,11 +42,12 @@ config `control: true` (or a path string) does the same per project (`1`, `"on"`
 mean true and `"off"` false since M843; before, an `"on"` or `"off"` was taken as a socket path). The
 socket is unlinked at teardown.
 
-## The six verbs
+## The six verbs, and the two that steer a batch worker
 
 A program can read the same six, with their fields, from `jichi describe --output json`
 under `control` (M752). That list is generated from the codec's own verb table, so it cannot
-fall behind this one.
+fall behind this one. The two per-worker verbs (M1149) join the same table: eight verbs
+total, and they are refused by value when no `spawn_parallel` batch is live.
 
 | Verb | Effect | Answered |
 |---|---|---|
@@ -55,6 +58,8 @@ fall behind this one.
 | `resume` | wakes a paused loop (an `--extend` pause settles its credit here, journaled as `credited`) | immediately (served by the pause-wait) |
 | `abort` | graceful stop — identical to Ctrl-C/SIGTERM (M80 keep-or-rollback semantics, exit 130) | at the boundary |
 | `mode <chat\|plan>` | **narrows** the operating posture (M304) and persists past the turn | at the boundary |
+| `stop-task <n> [reason]` | SIGTERMs worker `n` of a live batch (argument order); the reason is journaled and the report names it; the work is kept (M854) (M1149) | at the pool's 200 ms wake |
+| `inject-task <n> <text>` | queues text that lands as **one `[operator]` user message** in worker `n`'s next model request (M1149) | at the worker's next tool boundary |
 
 ```mermaid
 sequenceDiagram
@@ -90,7 +95,19 @@ sequenceDiagram
   The client waits up to 300 s (override with `JC_CONTROL_CLIENT_SECS`) and, if
   the reply does not come, exits **3** (delivered, queued) rather than 1 (not
   delivered), so the command's fate is scriptable; it is queued on the listen
-  backlog either way. See the exit-code list below.
+  backlog either way. See the exit-code list below. `status`, while a
+  `spawn_parallel` batch is live, also carries a **`batch` object** (M1149):
+  `total`/`done` and per task its index, live flag, `pid`, current tool, token
+  and tool-call counts, worktree, and `idle_s` (seconds since the task's last
+  progress line) — the wedge detector a supervisor polls. When no batch is
+  live the reply is byte-identical to before: the object is simply absent, so
+  an existing consumer sees nothing new.
+- **The per-worker verbs are refusals by value.** `stop-task` and
+  `inject-task` name a worker by its argument index; a refused one (no live
+  batch, an index past the end, an over-cap queue) signals nothing and returns
+  the refusal as the error (M159's convention). `stop-task` reuses the M854
+  ending — SIGTERM, the work is kept, the parent's report names the reason —
+  and never touches the M885 advice line.
 - **Injection is history, not prompt.** Steering lands as a normal
   **user-role message** with an explicit `[operator] ` prefix — visible to the
   model, preserved in the session transcript, compacted like any turn, and

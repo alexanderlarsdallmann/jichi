@@ -28,7 +28,17 @@
 
 #ifndef _XOPEN_SOURCE
 #define _XOPEN_SOURCE 700
+#elif _XOPEN_SOURCE < 700
+#undef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 700
 #endif
+/* M1177: <time.h> FIRST, before any header that can pull in <sys/stat.h>
+ * (<fcntl.h> does, on glibc 2.11). With _XOPEN_SOURCE 700, glibc 2.11-2.24's
+ * <sys/stat.h> declares struct timespec fields (st_atim, ...) but includes
+ * <time.h> only for time_t, so timespec stays incomplete and the build failed on
+ * Debian 6-9 and CentOS 6-7 (the userland ladder, 2026-11-13). A full <time.h>
+ * first defines it; newer glibcs, musl and the BSDs define it either way. */
+#include <time.h>
 /* C-16 (M1134): mkdtemp is POSIX-2008, and the build-wide
  * -D_POSIX_C_SOURCE=200112L does NOT declare it -- a 3-line TU compiled
  * -std=c89 -pedantic -Wall -Wextra -D_POSIX_C_SOURCE=200112L warns "implicit
@@ -370,7 +380,9 @@ jc_status jc_signal_install(int sig, void (*handler)(int))
 
 void jc_signal_reset_inherited(void)
 {
-    struct sigaction sa;
+#ifdef SIGCHLD
+    struct sigaction sa;   /* used only where SIGCHLD exists (not DJGPP; M1177) */
+#endif
     sigset_t set;
 
     /* Reset SIGCHLD to default (so waitpid reaps its children). */
@@ -536,25 +548,31 @@ jc_status jc_read_file(const char *path, char **out, jc_size *len,
     if (f == NULL) {
         return JC_ERR_NOTFOUND;
     }
-    if (fseek(f, 0L, SEEK_END) != 0) {
-        fclose(f);
-        return JC_ERR_IO;
-    }
-    size = ftell(f);
-    if (size < 0) {
-        fclose(f);
-        return JC_ERR_IO;
-    }
-    if (size == 0) {
-        /* M1138 (D-05): procfs reports ftell 0 for a file that HAS bytes, and
-         * the seek to end succeeds -- so 0 means the size is UNKNOWN, and it is
-         * stat-identical to a genuine empty regular file. The helper probe-reads
-         * and takes the genuine-empty shape (JC_OK, len 0, 1-byte buffer) or
-         * the bounded loop (at most JC_READ_FILE_MAX bytes) -- see it. */
-        jc_status s;
-        s = jc_read_unknown_size(f, out, len, a, (jc_size)JC_READ_FILE_MAX);
-        fclose(f);
-        return s;
+    {
+        int known = 0;
+        size = -1;
+        if (fseek(f, 0L, SEEK_END) == 0) {
+            size = ftell(f);
+            if (size >= 0) {
+                known = 1;
+            }
+        }
+        /* M1138 (D-05) / M1162: a failed seek to end, and a size of 0, both
+         * mean the size is UNKNOWN, not an error. procfs reports ftell 0 for
+         * a file that HAS bytes, and M1138 recorded the seek to end
+         * succeeding -- true for glibc ONLY. POSIX: seeking to end is
+         * implementation-defined on procfs; glibc succeeds, musl returns
+         * EINVAL -- a failure means size unknown, not unreadable. Either case
+         * is stat-identical to a genuine empty regular file. The helper
+         * rewinds (SEEK_SET) and probe-reads, taking the genuine-empty shape
+         * (JC_OK, len 0, 1-byte buffer) or the bounded loop (at most
+         * JC_READ_FILE_MAX bytes) -- see it. */
+        if (!known || size == 0) {
+            jc_status s;
+            s = jc_read_unknown_size(f, out, len, a, (jc_size)JC_READ_FILE_MAX);
+            fclose(f);
+            return s;
+        }
     }
     /* Hard cap: refuse to slurp a pathological file into the arena (a 2GB file
      * would otherwise OOM the process). 64 MB is far above any source file. */
@@ -622,25 +640,31 @@ jc_status jc_read_file_bounded(const char *path, char **out, jc_size *len,
     if (f == NULL) {
         return JC_ERR_NOTFOUND;
     }
-    if (fseek(f, 0L, SEEK_END) != 0) {
-        fclose(f);
-        return JC_ERR_IO;
-    }
-    size = ftell(f);
-    if (size < 0) {
-        fclose(f);
-        return JC_ERR_IO;
-    }
-    if (size == 0) {
-        /* M1138 (D-05): UNKNOWN size, not zero (procfs); stat-identical to a
-         * genuine empty file, so the helper probe-reads. The bound is `max`
-         * (the caller's cut), not JC_READ_FILE_MAX. The pre-existing
-         * head/tail fseek below is a no-op at size 0 either way, so it is
-         * skipped here. */
-        jc_status s;
-        s = jc_read_unknown_size(f, out, len, a, max);
-        fclose(f);
-        return s;
+    {
+        int known = 0;
+        size = -1;
+        if (fseek(f, 0L, SEEK_END) == 0) {
+            size = ftell(f);
+            if (size >= 0) {
+                known = 1;
+            }
+        }
+        /* M1138 (D-05) / M1162: a failed seek to end, and a size of 0, both
+         * mean the size is UNKNOWN, not an error. procfs reports ftell 0 for
+         * a file that HAS bytes, and M1138 recorded the seek to end
+         * succeeding -- true for glibc ONLY. POSIX: seeking to end is
+         * implementation-defined on procfs; glibc succeeds, musl returns
+         * EINVAL -- a failure means size unknown, not unreadable. Either case
+         * is stat-identical to a genuine empty regular file, so the helper
+         * rewinds (SEEK_SET) and probe-reads. The bound is `max` (the
+         * caller's cut), not JC_READ_FILE_MAX. The pre-existing head/tail
+         * fseek below is a no-op at size 0 either way, so it is skipped here. */
+        if (!known || size == 0) {
+            jc_status s;
+            s = jc_read_unknown_size(f, out, len, a, max);
+            fclose(f);
+            return s;
+        }
     }
     /* size >= 0 here, so casting to jc_size keeps the comparison unsigned
      * on both sides (no -Wsign-compare) and min(size, max) is unchanged. */

@@ -152,6 +152,102 @@ struct jc_harness_config {
      * lint reads exactly the three JC_HARNESS_ENV_* names). */
     int drive_team_push;
 
+    /* The host push block (M1147, batch H7): a top-level "host" object the
+     * five `push` subcommands consume (the scheduled host push, the records
+     * push, the backlog, the unit files, the run-drive argv). Every field is a
+     * STRING read as-is (no bools in this block); each is NULL when the key is
+     * absent. The whole block is optional -- a container config names no host
+     * block at all, and an absent block leaves every field NULL (no error):
+     * the COMMANDS refuse a missing host block with the named reason, not the
+     * loader. `host_dir` is the host's drive dir, used for the run-drive argv:
+     * when `host.dir` is absent the loader reuses the config's own top-level
+     * `dir` (the note's "the config's own dir field is reused when absent"),
+     * so `host_dir` falls back to `dir`. */
+    int host_dir_present;         /* 1 when a "host" object was in the config */
+    char *host_dir;               /* host.dir, else cfg->dir when the key is absent */
+    char *host_push_home;         /* host.pushHome */
+    char *host_image;             /* host.image */
+    char *host_page_command;      /* host.pageCommand (optional; absent = line only) */
+    char *host_push_oncalendar;   /* host.pushOnCalendar (SV:1639; absent = refuse) */
+    /* The gate's notifier fields (M1152, batch H8, `notify`): both optional
+     * strings read as-is, NULL when absent (the host block's opt_str idiom) --
+     * the loader does NOT refuse them: the command decides (a gateHome default
+     * <dir>/gate, the notifyCommand absent-runs-nothing, the pageCommand
+     * idiom). `host_gate_home` is the digest home (digest.md lives there);
+     * `host_notify_command` is the CHANGED operator hook (it receives the
+     * digest path, not a message; a failure is logged, never fatal). */
+    char *host_gate_home;         /* host.gateHome (optional; absent = <dir>/gate) */
+    char *host_notify_command;    /* host.notifyCommand (optional; absent = none) */
+    /* The gate watcher's fields (M1153, batch H9a, `watch gate` / `watch
+     * units`): both optional, opt_str as-is, NULL when absent -- the other
+     * host fields' idiom. The loader does NOT refuse them: the command decides.
+     * `host_gate_ondcalendar` is the watcher timer's OnCalendar (SV:1639's
+     * idiom: the schedule comes from the config, never a copy; absent ->
+     * `watch units` refuses naming it). `host_gate_run` is the exec the
+     * transient gate unit runs (`host.gateRun`; absent -> the start refuses
+     * naming it, exit 1). */
+    char *host_gate_oncalendar;   /* host.gateOnCalendar (optional; absent = refuse) */
+    char *host_gate_run;          /* host.gateRun (optional; absent = refuse the start) */
+    /* The gate watcher's shimmable host plumbing (M1153, batch H9a, `watch
+     * gate`): all optional, opt_str as-is, NULL when absent -- the other host
+     * fields' idiom. The container cannot run systemctl / systemd-run, so the
+     * tick's three external host commands (is-active / list-units / systemd-run)
+     * and its push.git are named by the config, each falling back to a
+     * system default the code names (the pageCommand idiom: absent = the
+     * default, never a refusal). `host_push_repo` names the host mirror
+     * (default <host.pushHome>/push.git). */
+    char *host_unit_state;        /* host.unitState (optional; absent = systemctl --user is-active -q) */
+    char *host_unit_list;         /* host.unitList (optional; absent = systemctl --user list-units ...) */
+    char *host_unit_run;          /* host.unitRun (optional; absent = systemd-run --user --collect --nice=19) */
+    char *host_push_repo;         /* host.pushRepo (optional; absent = <host.pushHome>/push.git) */
+    /* The gate RUN's ledger fields (M1154, batch H9b, `gate run --stage ledger`):
+     * both optional, opt_str as-is, NULL when absent -- the other host fields'
+     * idiom. The loader does NOT refuse them: the command decides (the required
+     * --ledger-address refusal is the ledger stage's, T2). `host_ledger_address`
+     * is the operator's address the ledger accepts (author/committer and every
+     * Co-Authored-By); `host_ledger_accept` is the accept list (one full 40-hex
+     * commit id per line, the DD11 missing-trailer exemption). */
+    char *host_ledger_address;    /* host.ledgerAddress (optional; absent = refuse, T2) */
+    char *host_land_run;          /* host.landRun (M1159; optional; the land step) --
+                                    absent = the green-land-refused arm */
+    char *host_repin_run;         /* host.repinRun (M1159; optional; the re-pin step) --
+                                    absent = the NOT re-pinned half */
+    char *host_ledger_accept;     /* host.ledgerAccept (optional; absent = no accept list) */
+    /* The sweep stage's shimmable surfaces (M1154 T5, wave 2): all optional,
+     * opt_str as-is, NULL when absent -- the other host fields' idiom. The
+     * loader does NOT refuse them: the command decides (an absent host.bin
+     * means the sweep writes its own stub binary; an absent host.buildRun /
+     * mutantRun / unitRunSan / unitRunO2 / containerRun means the reference's
+     * system make/podman command in the clone -- the host's at the
+     * switch-over). The driver's sweep cells pass the flags, which win over
+     * these config values. */
+    char *host_bin;               /* host.bin (optional; absent = the sweep's stub binary) */
+    char *host_build_run;         /* host.buildRun (optional; absent = system make in the clone) */
+    char *host_mutant_run;        /* host.mutantRun (optional; absent = system make smoke-mutant) */
+    char *host_unit_run_san;      /* host.unitRunSan (optional; absent = system make SAN=1 test) */
+    char *host_unit_run_o2;       /* host.unitRunO2 (optional; absent = system make OPT=-O2 test) */
+    char *host_container_run;     /* host.containerRun (optional; absent = system podman) */
+    /* The ci stage's shimmable surfaces (M1154 T8, wave 3): all optional,
+     * opt_str as-is, NULL when absent -- the other host fields' idiom. The
+     * loader does NOT refuse them: the command decides (an absent
+     * host.ciRun means the reference's `make ci`; an absent host.ciLogDir
+     * means <work>/ci; an absent host.ciSmokeKeepGoing means "0" -- a
+     * non-numeric value is the stage's usage refusal, exit 2, the sweep
+     * idiom). The driver's ci cells pass the flags, which win over these
+     * config values. */
+    char *host_ci_run;            /* host.ciRun (optional; absent = make ci) */
+    char *host_ci_log_dir;        /* host.ciLogDir (optional; absent = <work>/ci) */
+    char *host_ci_smoke_keep_going; /* host.ciSmokeKeepGoing (optional; absent = "0") */
+    /* The redfirst stage's shimmable surfaces (M1157 T9, wave 3): all
+     * optional, opt_str as-is, NULL when absent -- the other host fields'
+     * idiom. The loader does NOT refuse them: the command decides (an absent
+     * host.redfirstRun means the reference's `TMPDIR=$W/tmp sh "$d"` driver
+     * form; an absent host.redfirstUnitRun means the reference's
+     * `make -j8 WERROR=1 test`). The driver's redfirst cells pass the flags,
+     * which win over these config values. */
+    char *host_redfirst_run;      /* host.redfirstRun (optional; absent = the reference's driver form) */
+    char *host_redfirst_unit_run; /* host.redfirstUnitRun (optional; absent = make -j8 WERROR=1 test) */
+
     /* The refusal's message, naming the problem (behaviours 3,4,6,7,10).
      * NULL on JC_OK. Carries no secret (a reference path is not a secret). */
     char *message;
@@ -180,6 +276,22 @@ jc_status jc_harness_config_load(const char *path,
 
 /* The refusal's message, or NULL on a successful load. */
 const char *jc_harness_config_error(const struct jc_harness_config *cfg);
+
+/* The gate watcher's entry points (M1153, batch H9a): declared here because
+ * the two bodies live in harness-binary-only files (src/harness/jc_hp_
+ * watchgate.c / jc_hp_watchunits.c) that the dispatch (jc_harness_main.c)
+ * calls, and a dedicated header is not part of this batch's file set. Each
+ * takes the --config path and its subcommand's flags (NULL = absent); the
+ * shimmable host-command flags fall back to the config's host block and then
+ * to the reference's argv. `a` owns every string read; the caller frees it.
+ * The rc is the oneshot's journal: gate 0/1 (behaviour 16), units 0/2. */
+int jc_hp_watchgate_run(const char *config_path, const char *log,
+                        const char *state, const char *out, int dry,
+                        const char *unit_state, const char *unit_list,
+                        const char *unit_run, const char *pgrep,
+                        struct jc_arena *a);
+int jc_hp_watchunits_run(const char *config_path, const char *out_dir,
+                         struct jc_arena *a);
 
 /* The user-name rule a kind fixes (behaviour 5). Pure. */
 jc_harness_user_name_rule

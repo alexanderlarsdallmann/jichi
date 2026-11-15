@@ -23,7 +23,228 @@ The version lives in one place — `include/jc_version.h` — and is printed by
 `jichi --version`, `jichi-convert --version`, the top of `jichi doctor`, and
 the `describe` interface contract.
 
+## [Unreleased]
+
+## [0.14.1] — 2026-11-14 — the first public 0.14 release, on top of the dead-clone fix (def-396)
+
+0.14.0 was tagged privately on `7f5ff7eb` and never published: its hosted CI
+went RED on the dead-clone name collision in `gate run --stage ci` (def-396,
+the 0.14.0 candidate's smoke tier, GitHub run 43579196433, the red driver
+`tests/smoke/harness_gate_run.sh` cells G13-G22). 0.14.1 is the first public
+0.14 release. It carries what landed on `master` after `7f5ff7eb` — the REL3
+batch (M1184/M1185, the ci 32-bit guard's question and the DEFERRED rows for
+the eight unclassified 2026-11-13 platform failures), the REL4 batch
+(M1186/M1187, the gate sweep-verdict's
+EXCLUDE-blindness and the repo-map arena high-water mark), the DOCS batch
+(the documentation handover; def-381 and def-382, M1188/M1189), def-383
+(M1190, the harness's own memory protection); REL8
+(M1191-e, the harness_drive build-rev check: the stamp is `git rev-parse
+--short`, which prints 7 in the public repository and 8-9 in private clones;
+the cell now accepts git's 4-char floor); and the
+dead-clone fix (def-396) — plus the 0.14.1 release records.
+
+- **`gate run --stage ci` no longer nests one dead clone inside another on a
+  name collision** (def-396). The 0.14.0 hosted trial's red came from the
+  gate's dead-clone aside: two moves in the same second picked the SAME
+  `.dead-<UTC %Y%m%d-%H%M%S>` name, the second `mv` silently NESTED the second
+  clone inside the first, and a third move in the same second failed with rc 1
+  and no record line — which the orchestrator read as `invalid-ci`. The fix
+  names the defect and removes each of its three arms:
+  - the move is `rename()` (ISO C), not the `mv` shell child, so it fails on
+    an existing non-empty directory instead of nesting (B2; POSIX `mv` has no
+    portable `-T`, so the `mv` child was dropped, not patched);
+  - each move takes the first FREE `.dead-<S>[-N]` target — the stamp plus `-1`,
+    `-2`, … until the name does not exist — so two moves in the same second can
+    no longer pick the same name (B1), and the record line names the target
+    ACTUALLY used, not the stamp it started from;
+  - a failed move writes a record line naming both paths and the `rename()`
+    error (`strerror`) before returning rc 1, so there is no silent failure
+    (B3). Nothing is removed (B4).
+  - Deterministic red-first in `tests/smoke/harness_gate_run.sh` (cells D1-D5,
+    100-104): the cell pre-creates ONE `.dead-<S0>` name (S0 is the run's own
+    second), runs FOUR moves, D1 requires all four at rc 0, D5 checks the
+    same-second precondition and fails with its named message rather than
+    skipping; red on the unfixed tree, green with the fix. The 601-name window
+    form (pre-creating the names for the seconds around the run so every move
+    collides) is def-397, after 0.14.1.
+
+- **The hosted CI gate now allows 90 minutes instead of 60**
+  (`.github/workflows/ci.yml`, `timeout-minutes` 60 → 90, operator-confirmed).
+  The 0.13.0 hosted runs measured 48.4, 45.7 and 57.4 min (the tag run was
+  2.6 min from the old limit) and the local `make ci` took 55m19s at `10174de1`;
+  a timeout would have stopped the cut the same way a red does, so the limit
+  moves to give the gate its measured headroom. The comment's reason ("a hang
+  costs an hour and a half rather than six") carries the updated numbers.
+
+- **The version, where the tree states the CURRENT version, now reads 0.14.1**:
+  `include/jc_version.h` (0.14.0 → 0.14.1, the tenth release), the man page's
+  `.TH`, `docs/DAEMON.md`'s `hello.ok` sample, `docs/INTERFACE_TUTORIAL.md`'s
+  contract header, `docs/install/debian-ubuntu.md`'s sample output, the README's
+  present-tense release sentences, and the `docs/PROJECT_TIMELINE.md` re-count
+  with its i18n mirrors. The historical 0.14.0 mentions (the RC tag, the
+  platform re-measure rows, the trial record, this section's own account of
+  what stopped it) stay as written.
+
+---
+
+## [0.14.0] — 2026-11-13 — jichi's third program (jichi-harness), the drive's outer loop, and the platform batch, on top of the 0.13.0 hardening wave
+
+Everything since 0.13.0 (9ada7cd7): the drive's outer loop (jichi-harness) and its gate
+hardening, the doctor's slow-handshake fix, and the platform batch's musl/FreeBSD
+corrections.
+
+- **Tazuna, the reading course for `jichi-harness`: ten chapters, every claim checked against the code by a review** (M1180, `docs/reading/TAZUNA.md`, `tazuna-01`..`tazuna-10`).
+- **jichi-harness, the drive's outer loop** — the third C89 program built beside `jichi`
+  and `jichi-convert` (M1147-M1160, the 2026-11-05 harness-port drive's push and gate
+  waves). Its verbs, by what they do for you: `drive` (the outer loop, Mode A — starts the
+  lead run as a child and restarts it until the operator stops the drive); `run` (one lead
+  run — the model key is read from the named file and handed to jichi through env, never
+  argv, and the run's records land outside the workspace); `init` (lays out the drive's
+  directories, the pinned `bin/jichi`, and the key-file reference — a credential is a
+  reference, never a value); `doctor` (the offline report on the drive's own
+  configuration, in jichi's doctor shape); `mirror fetch`/`mirror head`/`mirror push`
+  (the team clone's refs into a bare mirror, the guarded push with the C credential-helper
+  that answers real git's identity for the configured remote); `push records`/`push
+  tick`/`push backlog`/`push units`/`push run-drive` (the scheduled host push — the tick
+  that lands the PAGE, the backlog steps); `watch gate` (the gate watcher's tick, on the
+  machine's own clock — a READY batch is gated by the clock, not by a session that
+  happens to be awake); `gate run` (the orchestrator — runs the five gate stage bodies,
+  ledger/verdict/sweep/ci/redfirst, in the reference's order and SAYS the verdict, with
+  the HOLD hand-brake, the land and repin steps, and `gate units` printing the transient
+  `jhp-gate@.service`); and `notify` (the verdict to its readers at once — the inbox note
+  the lead's next run reads, the digest line, the operator hook, and the inject into the
+  live run). **M1160-d** is named in this band: the `gate run` orchestrator's ci step
+  reports the RUN's rc, not the stage child's (a completed-but-failing `make ci` used to
+  read as a green stage and LAND; red 4b291eee, green e45fdb7d).
+- **The gate's own hardening** (M1150-M1159) — one band for the gate's corrections and
+  the waves that closed it: the -O2 fortified build guard (M1151, `jc_hp_git_run`'s
+  exported `args` bound came off — the RELEASE-stage `-Wstringop-overflow` false
+  positive — and the total argv is bounded before any write); the redfirst stage
+  (M1157, the port of `redfirst.sh`, whose three storm bugs the driver's R-cells caught);
+  the lint-closure wave (M1158, the seven red lint drivers turned green); and the `gate
+  run` orchestrator (M1159, the five stage bodies run in sequence and the verdict said).
+- **doctor's slow-handshake false "unreachable" fixed** (M1144) — the liveness probe's
+  total cap, which fired mid-connect under the connect fence, is raised to its connect
+  fence (the caller's argument is now a floor), so a slow TLS handshake no longer reads
+  as a dead server.
+- **jichi-harness, the drive's outer loop (continued)** — M1170's user-visible half: the
+  two harness token-file names (`ZD_TOKEN_FILE` and `JICHI_HARNESS_GIT_TOKEN_FILE`) and
+  the key-file name (`JICHI_HARNESS_MODEL_KEY_FILE`) join the built-in secret-env scrub
+  list (`g_secret_env_builtin`, `jc_proc.c`), so those names no longer reach a jichi
+  child inherited from the drive's environment (red 8e89e8d, green d09e773).
+- jichi-harness mirror push: a dangling pointer in the credential flag (undefined
+  behaviour) and a secret scan that refused empty files, both fixed.
+- **Fixed this milestone:** the harness port's gate watcher sees a running gate again (systemctl's leading blanks), reads each LOG line on its own when looking for a withdrawal, and reads a LOG of any size; the gate ledger no longer reads an uninitialised accept list; `gate run` refuses a `<SHA8>` that is not a commit id and quotes every word of its git commands (M1178).
+- **Fixed this milestone:** the harness push scans the kept attempts it sends when `pushKept` is on, and refuses more tips than its scan carries instead of dropping them; `drive.end` is read in exactly its two documented forms; a page command that fails or cannot be executed is reported (M1179).
+- **Fixed this milestone:** the C89 `snprintf` fallback (used only where libc has no
+  `vsnprintf`) handed its argument list to a helper by value, so on aarch64, riscv64,
+  32-bit ARM, i386 and other ABIs the conversion after an unrendered one (`%n`, `%a`,
+  an unknown letter) read the wrong argument -- on riscv64 it could crash. x86-64
+  hid it. Fixed (M1172), with a unit test the architecture sweep runs and a
+  portability lint.
+- **NetBSD 10.1 and illumos build again** (SV:1021, SV:1122): two declarations jichi
+  makes itself (`fchdir`, `environ`) were duplicates there, which gcc's
+  `-Wredundant-decls` rejects and clang never reports (M1173).
+- Two unit tests no longer assume Linux and glibc: the procfs status check accepts the
+  BSD text format and illumos's binary one, `/proc/cpuinfo` is read only where it
+  exists, and the IPv4 differential tolerates a libc more lenient than POSIX on
+  trailing whitespace (NetBSD) or a leading-zero octet (illumos) (M1174, M1175).
+- **FreeMiNT cross-builds again:** files that need `_XOPEN_SOURCE 700` (for `mkdtemp`)
+  now raise the 600 the Makefile passes there instead of deferring to it (M1176).
+- The old-userland rows build again: on glibc 2.11-2.24 `<time.h>` now comes first in
+  the files that set `_XOPEN_SOURCE 700`, libcurl below 7.19.0 no longer needs
+  `CURLINFO_APPCONNECT_TIME`, and the FreeDOS (DJGPP) cross-build guards `SIGCHLD`
+  and `SIGXFSZ` (M1177).
+
+Platform and build fixes found by the 2026-11-12 platform retest at master 7b23e620,
+where every gate (all on Ubuntu glibc x86-64) read green:
+
+- **musl** — `jc_read_file` and `jc_read_file_bounded` no longer report a procfs file
+  as empty-with-success when `fseek(SEEK_END)` fails (musl): a failed seek is now
+  size-UNKNOWN and takes the bounded probe-read (M1162; the native x86-64 musl unit
+  row went 37960 checks, 7 failures -> 0).
+- **FreeBSD** — four portability fixes (M1163): the gate's redfirst loop drops a
+  dead local; the SIGXFSZ test guard uses `_XOPEN_SOURCE 600` (FreeBSD's `<signal.h>`
+  hides SIGXFSZ under `__XSI_VISIBLE`; SV:0240 measured it in the guest); the
+  `landlock_pack_u64` helper and its `<string.h>` move to the platform-unconditional
+  region (the header declares it for every platform); the `lo_up` smoke tool stubs
+  its `main` off Linux (its only driver skips there).
+- **The unit suite's timing windows** (M1164, the Athlon row): a wait that measured
+  the machine instead of the code (the L-20 spool cap and the two 2 s background-exit
+  windows) now waits for its CONDITION under a scaled deadline via `tt_wait_for`;
+  a deadline is the suite's own outcome (one named TIMEOUT, counted once), never a
+  false FAIL. `make check-target` runs the smoke tier even when the unit suite
+  fails (a unit red no longer hides the smoke row).
+- **The rig extraction defects** (M1166): tier-v-bsd's diagnostic filter no longer
+  matches its own `-Werror` command lines; tier-v-arch no longer labels a run that
+  executed (SIGILL, no summary) as "did not execute"; tier-b-device no longer takes
+  a smoke driver's own count as the unit-suite count. Each carries a `--selftest`
+  planted-log tooth that runs in-container, before any ssh.
+- **The setup wizard** (M1168, the Athlon row): the `setup_keyfile` smoke driver
+  scrubs the caller's exported key variable, so an exported key no longer masks a
+  missing key file (the wizard's six PTY cells; ANECDOTES #95, the same failure on
+  Cygwin/MSYS2).
+- **jichi-harness** (M1165, M1165-b, the Pi 500 row): the drive snapshot's gzip
+  child no longer drops a notes file silently (the failure logs one line naming the
+  file and the child's rc), and its argv is NULL-terminated (SV:0255: the
+  unassigned `argv[3]` was UB since M1059 and failed the child's execve on the
+  Pi 500).
+- **Docs** (M1167, M1169): the README's first line and routing table carry the
+  operator's patch, and the static-build table is re-measured at 7b23e620 (zig
+  0.17.1, 2026-11-12); ZIG_BUILD.md notes that zig >= 0.17.1 warns
+  `-Wgcc-install-dir-libstdcxx` for the host's own arch on a two-GCC install
+  (WERROR=1 makes it an error; 0.16.0 did not); the present-tense driver count is
+  555 (was 554), in English and Japanese.
+
+### Known issues
+
+- (RESOLVED BY M1172, listed in the Fixed section above) The `snprintf_fallback`
+  cell 15 ("case n nowrite resync") failed on every non-x86-64 board measured —
+  Pi 500, Pi Zero and Pi 400 (aarch64) and the VisionFive 2 (riscv64) — and
+  passed on x86-64 (SV:0140).
+- **Assignments 25/26 (`zig cc`) under zig >= 0.17.1 on a two-GCC install**
+  (SV:0647): the e2e curriculum's `25-extend-in-zig` and `26-refactor-to-zig`
+  graders build the reference solutions with `zig cc -Werror`; zig 0.17.1
+  warns `-Wgcc-install-dir-libstdcxx` for the host's own arch, so the
+  solutions are rejected under 0.17.1 while the same sources pass under
+  0.16.0. A host-toolchain fact, not a solution defect: the host's zig was
+  switched 0.16.0 -> 0.17.1 after the green 7b23e620 gate, which is why the
+  PLAT gate's re-run at 86b52f09 went RED in the e2e stage. Resolved on the
+  host by installing libstdc++-14-dev (SV:0721, 2026-11-13): assignment 25
+  then passes under zig 0.17.1 AND 0.16.0, and the gate re-ran on the same
+  head. ZIG_BUILD.md records the `-Wno-gcc-install-dir-libstdcxx`
+  alternative.
+- **FreeBSD 15.1: the dangling-symlink pair** (SV:0542): the
+  `tests/test_tool.c:1265/1267` teeth (the search_code dangling-symlink unit
+  pair) fail on the FreeBSD guest.
+- **FreeBSD 15.1: the `bg_spool` 14,862-byte overshoot** (SV:0542):
+  `bg_spool_cap`/`bg_spool_path_truncation` overshoot the spool cap by
+  14,862 bytes (539150 > 524288); predates the batch, unclassified.
+- **FreeBSD 15.1: the `docs_counts_lint` 60 s deadline** (SV:0542): the
+  driver is killed at its 60 s deadline in the guest.
+- **armeb-linux-musleabihf: the JSON double round-trip** (SV:0542): 37966
+  checks, 75 failures, a known toolchain class.
+- **hexagon: stops after `test_harness`** (SV:0542).
+- **LicheeRV Nano: three unclassified smoke failures** (SV:0542):
+  `restore_clean_before_reset`, `parallel_abnormal_endings`,
+  `memory_over_cap`, as recorded.
+
+The platform matrix is re-pinned at the cut and re-measured on 2026-11-13
+at the commits PLATFORMS.md names (SV:1524); the unclassified failure
+counts are known issues: FreeBSD 2 unit + 25 smoke drivers, OpenBSD 16
+unit + 24 smoke drivers, NetBSD 19 smoke drivers, illumos smoke, v2e's
+release_mode stop, v2f's platform_retest_lint check 6 stop, FreeMiNT 42
+unit, FreeDOS 154 unit -- each a platform-widening item, not a 0.14.0
+blocker (docs/plans/2026-11-13-platform-widening.md)
+
+---
+
 ## [0.13.0] — 2026-11-05 — the hardening wave: redirect and multipart fences, validated session ids, and 32-bit large files
+M1159 (batch H9b wave 4 of the 2026-11-05 harness-port drive): `jichi-harness gate run <SHA8> [BATCH]` now runs the five gate stage bodies (ledger/verdict/sweep/ci/redfirst) in the reference's order and SAYS the verdict -- the HOLD hand-brake (a pre-existing `HOLD` file holds the GREEN, master not moved), the land step and the repin step (their rc never fails the run; the operator is told), the CHANGED say-on-stdout, and the per-sha record home; `jichi-harness gate units` prints the transient `jhp-gate@.service` template the gate watcher's start fills with the sha8 (refusing rc 2 when the config names no `host.gateRun`). The host gate's scripts are ported; a drive no longer needs a supervising session for the gate. Driver `tests/smoke/harness_gate_run` (93 cells; the four false verdicts of the gate's own scripts on 2026-11-05 are named cells). `make WERROR=1 test` 37960 checks 0 failures; the keep-going smoke is 553/553 on the final head.
+M1156 (the H9a follow-up of the 2026-11-05 harness-port drive, the independent review's M1153 WRONG row): the `jichi-harness watch gate` tick's `--log` now DEFAULTS to `<cfg.dir>/LOG.md` (the drive dir) when absent and is NAMED (its leaf, e.g. `LOG.md:1`) in every say line it produces -- the port used to refuse a no-`--log` tick rc 1 with the false comment "the dispatch always supplies one", which deaded the generated `watch units` oneshot's ExecStart (`watch gate --config <cfg>`, no `--log`) on every tick of a fresh host. The generated unit shape and the dispatch are unchanged; an explicit `--log <path>` is honoured and names that path's leaf. Red-first cell 21 (no-`--log` tick reads `<dir>/LOG.md` and names `LOG.md:1`; explicit-path half) plus five say-line assertions strengthened from the hard-coded `(LOG:1)` to the named leaf; green 21/21 in the container and under a stripped git identity (card 23 Form 1); `make WERROR=1 test` 37546 checks 0 failures.
+M1155 (the H7 follow-up of the 2026-11-05 harness-port drive, SV:0438): the `jichi-harness push records` key scan now counts the file versions it READ — its `records_key_scan` iterated the export's named-OID list (the range's blobs PLUS its interior trees; the bare commit line is dropped by the OID parser) and skipped every non-blob, but printed the named count as "file version(s) checked", a false number in the durable log that made the switch-over comparison (the push port beside `push.sh`) read DIFF on every records push by exactly the range's trees (5 vs 8, 4 vs 7, and 11 vs 15 on a tick that added a new subdirectory). The count is a `read` counter incremented where a blob is actually read, printed at both the clean and the secret lines; it matches `push.sh`'s pre-push key scan and the mirror push's own blob count. Red-first: `harness_push_records` cell 7, a nested-tree commit (3 blob + 3 tree + 1 commit) whose unfixed port printed `6 file version(s) checked` instead of the 3 blobs read. Also in this record: the H9a gate's ci RED (SV:1238) — `harness_gate_watch.sh`'s fixture made its merge commit without a git identity (the only such call in the fixture), so under the gate's identity-less smoke environment the merge failed and cells 1 and 13 went red while the in-container passes stayed green (this container supplies an identity via env vars and `/etc/gitconfig`); the one-line fix was reproduced red-first with the supervisor's exact command, and card 23 records the design for the smoke runner's HOME isolation to drop the identity.
+M1153 (batch H9a of the 2026-11-05 harness-port drive, the port of the host-only `gate-watch.sh`): `jichi-harness watch --config <f> gate [--log <f>] [--state <f>] [--out <f>] [--dry] [--unit-state <cmd>] [--unit-list <cmd>] [--unit-run <cmd>] [--pgrep <cmd>]` runs one tick of the gate watcher — the machine's own clock gates a READY batch, not a session that happens to be awake (the 2026-11-04 incident: a green gate waited 16.5 hours). The tick reads the LAST `BATCH <n> READY at <commit>` line of the LOG and, in the reference's order: waits for the commit to be on the remote's team branch, checks the state word (a dead `started` re-gates, `regate` re-gates, any other word stands), and — the heart of the port — a later SENTENCE of the LOG withdraws the commit only if it says WITHDRAWN, names the commit, and names NO OTHER commit (a 7-40 lowercase-hex token bounded by non-alphanumerics, containing at least one letter a-f, so a date is not one); an ambiguous sentence does not withdraw (a missed withdrawal costs one gate run the lead can replace, a false one costs a drive that waits silently for a verdict that never comes). Then the master checks (a commit already on master stands; one that is not a fast-forward is a delivered `not-ff` RED), the busy filter (a gate or ci SERVICE named by a commit, BOTH drives' prefixes, never two `make ci` at once, and the watcher's own units excluded — the 01:58 self-match's teeth), a team smoke running in the team dir, and the start of the transient gate unit `jhp-gate-<sha8>` (refused by name when the config names no `host.gateRun`). `watch --config <f> units` prints the watcher's generated systemd timer (the config's `host.gateOnCalendar`, `Persistent=true`, `AccuracySec=30s`) and service (the push-units idiom: generate, do not install). The host commands are shimmable (the container runs the stand-ins; the switch-over runs the real thing on the host beside `gate-watch.sh`, a day of ticks diffed on the same LOG). Driver `tests/smoke/harness_gate_watch` (20 cells, red-first, the four false verdicts of the plan's section 3 are named cells); the withdrawal engine is a pure function unit-tested in `tests/test_watchgate` (15 cases; teeth: inverting its return fires 12 of the 15). Also in this batch: the M1152 `notify` driver's three teeth the gate's independent review found WEAK — the cell-1 shape test's POSIX `&&`/`||` precedence (the title half was masked: `!A || !B && !C || !D` parsed as `((!A||!B)&&!C)||!D`), the S_ISSOCK half (a plain file at the lead.sock path does not inject), and the flatten's trailing byte (the reference's `$(...)` strips the reply's trailing newline, the port kept it as a space). The smoke-tier count is 551 -> 552.
+M1152 (batch H8 of the 2026-11-05 harness-port drive, the port of the host-only `gate-note.sh`): `jichi-harness notify --config <f> [--inbox <dir>] <SHA8> <TEXT> [ATTACH]` delivers a gate verdict to its readers — the inbox note the lead's next run reads (byte-identical to the reference, atomic, moved into the run's records after its first model call), the inject into the LIVE run through the drive's pinned `jichi` (the reference's three-half live test: newest run, a real `ctl/lead.sock`, no `end=` in its meta, no scratch inbox), the digest line for the operator (appended to `<gateHome>/digest.md`, `host.gateHome` defaulting to `<dir>/gate`), and the operator hook (CHANGED: the configuration names the command, `host.notifyCommand`, and it receives the DIGEST PATH, not the text — a failing hook never changes the command's rc, an absent hook runs nothing; the reference's hard-coded desktop notifier is gone, the port never calls it). What it protects: a gate verdict is seen by its readers at once, not at the next check-in — the four false verdicts of the plan's section 3 are the incident (a withdrawal and a RED written to a digest nobody read, a GREEN read from a log the watcher had already closed). The scratch inbox (`--inbox`) delivers nothing to the lead, so a rehearsal cannot be mistaken for a verdict a real run must act on; a missing `<SHA8>` or `<TEXT>` is refused before any write, so a malformed verdict leaves no artifact. Driver `tests/smoke/harness_notify` (7 cells, red-first, with a real unix-socket fixture); the live-inject cell runs once on the validated head by the lead (recorded in the drive's LOG). The switch-over is pending: the port's `notify` runs beside `gate-note.sh` on the host for real verdicts, same inputs, both outputs kept, the decisions diffed.
 M1143 (SV:0850, run 0186; corrected SV:0947 + SV:0954, run 0188; SV:1147, run 0193): the release record is corrected before the 0.13.0 cut -- the four public pages that stated a present-tense release claim (README's version line and `make ci` stamp, CHATBOT's 'latest release' clause, the install page's sample `--version` output) now state the version this tree reads, 0.13.0, true in both trees; the unit-suite build list in the README's `make ci` stamp is corrected to the nine the gate runs, and gateway attributions are removed per the operator's rule of 2026-11-02 (eight places, plus four more sites of the same class in the gateway-findings header, the GATEWAY_ADMIN introduction, a snapshot_lint comment and the public-snapshot plan's not-shipped table); docs only, no code, no user-visible behaviour change. The 0.13.0 snapshot is cut from the commit carrying this record.
 M1142 (SV:0419, run 0167): the retry gate no longer retries an in-stream context-overflow error -- M1125's transient arm (a provider error arriving inside an HTTP 200 stream) also matched M909's in-stream over-context shape: the LM Studio message is known only to `jc_text_is_context_overflow`, not to `jc_http_body_ctx_overflow`, so `ctx_overflow` stayed 0 and the deterministic error was re-sent (measured with `maxRetries` 3: 4 model calls, 3 retries). The in-stream M909 reclassification now marks overflow when either classifier matches, and the retry gate checks the flag (stale-flag safe: reset in the run preamble; a call that sets it ends the run). Red-first `stream_error` leg 7 (4 requests / 3 retry rows before, 1 request after); M1142-b leg 8 pins the jc_http-only arm of the OR (teeth probed red). `stream_error` 8/8, `stream_cut_retry` 7/7 (the M1125 engine-error cut still retries), gate 37482/0; the independent review's M1125 WRONG verdict is resolved and the 0.13.0 cut waits on the BATCH 12b landing.
 M1140 (D-10, run 0158): 32-bit builds get large-file support and a failed directory listing says so -- the build now carries `-D_FILE_OFFSET_BITS=64` behind a capability probe, so a file over 2 GiB is no longer reported as missing (`stat`/`fopen` used to fail `EOVERFLOW`), and `jc_list_dir` now reports a mid-listing `readdir` failure as an error instead of returning a short listing with success. The 64-bit `time_t` and the `long`-typed size interface remain the separate E-09 card; gate 37482/0, the 32-bit stage 37482/0.

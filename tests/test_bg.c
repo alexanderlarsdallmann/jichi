@@ -8,6 +8,7 @@
 #include "jc_str.h"
 #include "jc_platform.h"
 #include "jc_snprintf.h"
+#include "tools/tt_wait.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -16,8 +17,8 @@
 #include <fcntl.h>
 #include "jc_fcntl.h"
 
-/* Poll+read up to ~2s, waiting for `id` to exit; ACCUMULATES every read in
- * `sb` (cleared once, at entry).
+/* Poll+read until `id` exits (base 2 s, see the M1164-b note below);
+ * ACCUMULATES every read in `sb` (cleared once, at entry).
  *
  * It must accumulate rather than overwrite, because jc_bg_read is an
  * INCREMENTAL reader by design: it advances read_off and returns only the
@@ -33,54 +34,84 @@
  * between runs, where "background_hello" arrived one poll before "exited"
  * (M459). The two adjacent assertions are what identified it -- "exited,
  * status 0" passed, so the shell had run and echo had succeeded, which left
- * only the reader. */
-static void wait_exit(struct jc_bg_mgr *m, int id, struct jc_sb *sb)
-{
-    struct jc_sb chunk;
-    int i;
+ * only the reader.
+ *
+ * M1164-b (SV:0140.1): the loop shape above was also a DURATION -- a FIXED
+ * 100 x 20 ms = 2 s window, so on the LicheeRV Nano (whose 30000-line def-326
+ * loop and the L-20 cap writes are slower) the "exited" marker had not
+ * arrived when the window closed, and the caller's downstream checks (the
+ * :241/:263/:264/:267 L-20 cells) went RED reading like spool-cap defects,
+ * when the product was fine and the instrument was. Now, same as the M1164
+ * :318 fix, the caller owns the CONDITION (the predicate below) and the
+ * helper (tt_wait_for) owns the CLOCK and the VERDICT: a slow machine makes
+ * the wait LONGER (the 2x retry), never a false FAIL; a marker that never
+ * arrives is a NAMED red (one TIMEOUT line + jc_test_fails++), not a silent
+ * give-up that fails three checks downstream. */
 
-    jc_sb_init(&chunk);
-    jc_sb_clear(sb);
-    for (i = 0; i < 100; i++) {
-        jc_sb_clear(&chunk);
-        jc_bg_read(m, id, &chunk);
-        if (chunk.data != NULL) {
-            jc_sb_append_n(sb, chunk.data, chunk.len);
-        }
-        if (chunk.data != NULL && strstr(chunk.data, "exited") != NULL) {
-            break;
-        }
-        jc_sleep_ms(20, NULL);
+/* One poll iteration of the old loop body: read what `id` has delivered
+ * since the last call, ACCUMULATE it in `sb` (jc_bg_read is incremental, so
+ * the accumulation contract the :38 comment documents is unchanged), and
+ * report whether the accumulated output now contains "exited". The chunk
+ * buffer the old loop cleared each iteration lives in the ctx. */
+struct wait_exit_ctx {
+    struct jc_bg_mgr *m;
+    int id;
+    struct jc_sb *sb; /* the CALLER's accumulator (a pointer: jc_sb_reserve
+                        may realloc sb->data, so a value copy would diverge
+                        from it and the caller would see nothing) */
+    struct jc_sb chunk;
+};
+
+static int wait_exit_pred(void *ctx_)
+{
+    struct wait_exit_ctx *ctx = (struct wait_exit_ctx *)ctx_;
+
+    jc_sb_clear(&ctx->chunk);
+    jc_bg_read(ctx->m, ctx->id, &ctx->chunk);
+    if (ctx->chunk.data != NULL) {
+        jc_sb_append_n(ctx->sb, ctx->chunk.data, ctx->chunk.len);
     }
-    jc_sb_free(&chunk);
+    return strstr(ctx->sb->data, "exited") != 0;
 }
 
-/* Same as wait_exit, but with a caller-specified poll count bound, so the
- * def-326 block can pass a generous bound (e.g. 1000 polls x 20 ms = 20 s)
- * to avoid a load-induced flake: on a busy host, the 30000-line shell loop
- * can run longer than the default 2 s, and the "exited" marker would arrive
- * only after the loop finishes, so the caller's check for the final line
- * bgspool_line_29999 would fail before the "exited" marker is seen. */
+static void wait_exit(struct jc_bg_mgr *m, int id, struct jc_sb *sb)
+{
+    struct wait_exit_ctx ctx;
+
+    jc_sb_clear(sb);
+    ctx.m = m;
+    ctx.id = id;
+    ctx.sb = sb;
+    jc_sb_init(&ctx.chunk);
+    JC_CHECK(tt_wait_for(2000, wait_exit_pred, &ctx, "bg exit marker",
+                         __FILE__, __LINE__) == 1);
+    jc_sb_free(&ctx.chunk);
+}
+
+/* Same as wait_exit, but with a caller-specified base deadline derived from a
+ * poll count bound, so the def-326 block can pass a generous bound (1000 ->
+ * 1000 x 20 = 20000 ms base) to avoid a load-induced flake: on a busy host,
+ * the 30000-line shell loop can run longer than the default 2 s, and the
+ * "exited" marker would arrive only after the loop finishes, so the caller's
+ * check for the final line bgspool_line_29999 would fail before the
+ * "exited" marker is seen. It is still CONDITION-based now: the old bound was
+ * a hard stop, this one is a base the 2x retry extends, so the wait is
+ * strictly MORE generous than the old 20 s -- the flake the original
+ * comment describes cannot happen. */
 static void wait_exit_long(struct jc_bg_mgr *m, int id, struct jc_sb *sb,
                            int max_polls)
 {
-    struct jc_sb chunk;
-    int i;
+    struct wait_exit_ctx ctx;
 
-    jc_sb_init(&chunk);
     jc_sb_clear(sb);
-    for (i = 0; i < max_polls; i++) {
-        jc_sb_clear(&chunk);
-        jc_bg_read(m, id, &chunk);
-        if (chunk.data != NULL) {
-            jc_sb_append_n(sb, chunk.data, chunk.len);
-        }
-        if (chunk.data != NULL && strstr(chunk.data, "exited") != NULL) {
-            break;
-        }
-        jc_sleep_ms(20, NULL);
-    }
-    jc_sb_free(&chunk);
+    ctx.m = m;
+    ctx.id = id;
+    ctx.sb = sb;
+    jc_sb_init(&ctx.chunk);
+    JC_CHECK(tt_wait_for((long)max_polls * 20, wait_exit_pred, &ctx,
+                         "bg exit marker (long)",
+                         __FILE__, __LINE__) == 1);
+    jc_sb_free(&ctx.chunk);
 }
 
 /* Read `id` to exit, ACCUMULATING every read in `sb` as wait_exit does, then
@@ -117,6 +148,23 @@ static long wait_exit_count(struct jc_bg_mgr *m, int id, struct jc_sb *sb,
     return count_in_sb(sb, marker);
 }
 
+/* Predicate for the cap_exceeded_while_running wait (M1164, change 1): is the
+ * on-disk spool file (its path is the `ctx`) already past JC_BG_SPOOL_MAX?
+ * The CALLER owns this condition; tt_wait_for owns the clock, so the verdict
+ * is "did the writer exceed the cap while the child is alive" -- never
+ * "did it happen within a fixed 4 s" -- and a slow machine makes the wait
+ * LONGER, never a false FAIL (SV:1750). */
+static int spool_past_cap(void *ctx)
+{
+    const char *path = (const char *)ctx;
+    struct stat st;
+
+    if (stat(path, &st) == 0 && (long)st.st_size > JC_BG_SPOOL_MAX) {
+        return 1;
+    }
+    return 0;
+}
+
 void test_bg(void)
 {
     struct jc_bg_mgr m;
@@ -124,9 +172,7 @@ void test_bg(void)
     int id;
     int i;
     struct stat st;
-    long file_size;
     char spool_path[700];
-    long iter;
     /* M940: the registry now spools child output to ~/.jichi.d/bgspool --
      * a side effect of init AND of every start. This suite must not touch the
      * operator's real home, so redirect HOME to a temp tree for its whole
@@ -283,7 +329,6 @@ void test_bg(void)
      * needed: nothing is read before the child exits, so the exit read is the
      * first and sees the head (MARKHEAD) intact. */
     {
-        int cap_exceeded_while_running = 0;
         int spool_capped_or_gone = 0;
 
         jc_sb_clear(&sb);
@@ -298,24 +343,27 @@ void test_bg(void)
                          "sleep 5");
         JC_CHECK(id > 0);
         if (id > 0) {
-            /* Poll the on-disk size while the child is still alive (stat only,
-             * no jc_bg_read, so the head is undelivered and the exit read is
-             * the first). The writer emits ~532 KiB in ~0.65 s, past the
-             * 512 KiB cap, while it sleeps. */
-            for (iter = 0; iter < 40 && !cap_exceeded_while_running; iter++) {
-                jc_snprintf(spool_path, sizeof(spool_path), "%s/bg-%d-%ld.out",
-                            spool_dir, id, (long)getpid());
-                if (stat(spool_path, &st) == 0) {
-                    file_size = (long)st.st_size;
-                    if (file_size > JC_BG_SPOOL_MAX) {
-                        cap_exceeded_while_running = 1;
-                    }
-                }
-                jc_sleep_ms(100, NULL);
-            }
+            /* M1164 (change 1): wait for the CONDITION, not a duration.
+             * The old shape polled stat(spool).st_size > JC_BG_SPOOL_MAX a
+             * FIXED 40 x 100 ms = 4 s, so on the Athlon -- where the writer's
+             * `yes|head` takes 4.85-6.43 s, past the window -- the check went
+             * RED and read like a spool-cap defect, when the product was fine
+             * and the INSTRUMENT was (SV:1750). Now the caller owns the
+             * condition (spool_past_cap) and the helper owns the clock: a slow
+             * machine makes this LONGER, never a false FAIL. base_ms 8000 is
+             * generous: the writer emits ~532 KiB in ~0.65 s here, well under
+             * it; the trailing `sleep 5` keeps the child alive through the
+             * wait. If it is false at both windows it is a GENUINE red (a
+             * hang), counted by the helper and named by its TIMEOUT line.
+             * spool_path holds the predicate's ctx -- the command was COPIED
+             * into the registry by jc_bg_start, so reusing this buffer is safe. */
+            jc_snprintf(spool_path, sizeof(spool_path), "%s/bg-%d-%ld.out",
+                        spool_dir, id, (long)getpid());
             /* L-27: with the gate, nothing rewrites the file while the child
              * runs, so it may and does exceed the cap before reap. */
-            JC_CHECK(cap_exceeded_while_running);
+            JC_CHECK(tt_wait_for(8000, spool_past_cap, spool_path,
+                                 "cap_exceeded_while_running",
+                                 __FILE__, __LINE__) == 1);
 
             /* Reap (kill: the writer would keep sleeping). The final drain
              * then caps the file to JC_BG_SPOOL_MAX and reap unlinks it, so
@@ -395,6 +443,7 @@ void test_bg(void)
         int orphan_after = 0;
         char orphan_path[800];
         int st_spool;
+        long iter;   /* this block's poll loop only (the normal build has none) */
 
         jc_sb_clear(&sb);
         id = jc_bg_start(&m,

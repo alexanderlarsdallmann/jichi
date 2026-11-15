@@ -20,7 +20,7 @@
 # Compiles nothing and runs no jichi (hence *_lint.sh).
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 39
+t_plan 44
 
 mk="$SMOKE_ROOT/Makefile"
 plat="$SMOKE_ROOT/src/platform/jc_platform_posix.c"
@@ -1639,11 +1639,11 @@ _bin_files=$(cd "$ROOT" && ls src/*.c src/*/*.c include/*.h tests/*.c 2>/dev/nul
 _bf=$(cd "$ROOT" && awk -v WANT='(^|[^A-Za-z0-9_>.])(fopen|fdopen|freopen)[ \t]*[(]' "$_bin_awk" $_bin_files </dev/null)
 _bf_n=$(printf '%s\n' "$_bf" | grep -c .)
 _bf_bad=$(printf '%s\n' "$_bf" | awk -F'\t' 'NF >= 3 && $3 !~ /b/ { print $1 " " $2 "(\"" $3 "\")" }')
-if [ -z "$_bf_bad" ] && [ "$_bf_n" -ge 78 ]; then
+if [ -z "$_bf_bad" ] && [ "$_bf_n" -ge 81 ]; then
     t_ok "every fopen/fdopen/freopen mode is binary ($_bf_n calls in src/, include/ and tests/)"
 else
     t_fail "text-mode stream opens -- on DOS (DJGPP) a text-mode write turns \\n into \\r\\n; add \"b\" \
-(found $_bf_n calls, floor 78):
+(found $_bf_n calls, floor 81):
 $_bf_bad"
 fi
 
@@ -1686,6 +1686,258 @@ if [ "$_g39dec" = "7.59.0 7.59.0" ] && [ "$_g39mal" = "073" ]; then
     t_ok "check 5's extraction decodes both 6-digit guards (upper and lower case) to 7.59.0 and flags the truncated one (073) as unknown"
 else
     t_fail "guard extraction wrong (want decoded='7.59.0 7.59.0' malformed='073'; got decoded='$_g39dec' malformed='$_g39mal') -- an uppercase guard was read as a shorter token, or a truncated guard was decoded instead of refused"
+fi
+
+
+# ---------------------------------------------------------------- check 40
+# A va_list handed BY VALUE to a helper that calls va_arg on it (M1172).
+#
+# THE DEFECT THIS EXISTS FOR. src/platform/jc_snprintf.c's C89 fallback had a
+# helper, `static void consume_class(va_list ap, char conv, int flags)`, that
+# consumed the argument of a conversion the fallback does not render. C89 4.8
+# (C99 7.15p3): when a function that received a va_list calls va_arg on it, the
+# CALLER's list is indeterminate afterwards. x86-64 SysV, 32-bit powerpc and
+# s390x hide it -- their va_list is an array type, so the parameter is a pointer
+# and the helper advanced the caller's list by luck. aarch64, riscv64, 32-bit
+# arm, i386, powerpc64le, loongarch64 and mips pass a COPY: the caller's list
+# never moved, and the conversion after %n / %a / an unknown letter read the
+# wrong argument (`out=[%nM]` on the Pi 500; a SIGSEGV on riscv64). Every gate
+# ran on x86-64, so every gate was green from M1079 (2026-10-29) to 2026-11-13.
+# docs/analysis/2026-11-13-a-va-list-passed-by-value.md tells it in full.
+#
+# THE RULE. A function that takes a va_list PARAMETER may call va_arg on it only
+# if it is a documented entry point whose caller does va_start, calls it ONCE and
+# then only va_end -- today that is jc_vsnprintf (both of its branches). Any
+# other consumer runs in the caller's frame (a macro, or inline code).
+#
+# THE UNIVERSE. Every C file under src/, include/ and tests/. A definition is a
+# column-0 line naming a parameter `va_list <name>` and not ending in `;` (this
+# tree writes a definition's whole signature on one line -- the floor below
+# fails if that ever stops being true, because the count would drop). Its body
+# runs to the next column-0 `}`. Floor: EXACTLY 2 definitions today (the two
+# jc_vsnprintf), so an extraction that reads nothing cannot pass.
+_vl_out=$(find "$SMOKE_ROOT/src" "$SMOKE_ROOT/include" "$SMOKE_ROOT/tests" \
+              -name '*.[ch]' 2>/dev/null | LC_ALL=C sort | xargs awk '
+    FNR == 1 { fn = ""; param = "" }
+    /^[A-Za-z_].*\(/ && $0 !~ /;[ \t]*$/ {
+        fn = ""; param = ""
+        if (match($0, /va_list[ \t]+[A-Za-z_][A-Za-z_0-9]*[ \t]*[,)]/)) {
+            p = substr($0, RSTART, RLENGTH)
+            sub(/^va_list[ \t]+/, "", p); sub(/[ \t]*[,)]$/, "", p)
+            name = $0; sub(/\(.*/, "", name)
+            n = split(name, w, /[ \t*]+/)
+            fn = w[n]; param = p
+            print "DEF " fn
+        }
+        next
+    }
+    /^}/ { fn = ""; param = "" }
+    fn != "" && $0 ~ ("va_arg[ \t]*\\([ \t]*" param "[ \t]*,") {
+        if (fn != "jc_vsnprintf") print "BAD " fn " " FILENAME ":" FNR
+    }' /dev/null)
+_vl_defs=$(printf '%s\n' "$_vl_out" | awk '$1 == "DEF"' | wc -l | tr -d ' ')
+_vl_bad=$(printf '%s\n' "$_vl_out" | awk '$1 == "BAD" { sub(/^.*\//, "", $3); print $2 " (" $3 ")" }' \
+          | LC_ALL=C sort -u | tr '\n' ' ')
+_vl_names=$(printf '%s\n' "$_vl_out" | awk '$1 == "DEF" { print $2 }' | LC_ALL=C sort | tr '\n' ' ')
+if [ "$_vl_defs" -lt 2 ]; then
+    t_fail "the va_list extraction read $_vl_defs definition(s), floor 2 (the two jc_vsnprintf) -- it is not reading the tree"
+elif [ -z "$_vl_bad" ]; then
+    t_ok "no helper calls va_arg on a va_list it was handed by value ($_vl_defs va_list-parameter definitions read: $_vl_names)"
+else
+    t_fail "va_arg on a va_list PARAMETER outside jc_vsnprintf: $_vl_bad-- the caller's list is indeterminate after it (C89 4.8); x86-64 hides it, aarch64/riscv64/i386 do not. Consume in the caller's frame (a macro or inline code); see docs/analysis/2026-11-13-a-va-list-passed-by-value.md"
+fi
+
+
+# ---------------------------------------------------------------- check 41
+# The same identifier declared `extern` twice in one file (M1173).
+#
+# THE DEFECT THIS EXISTS FOR. src/util/jc_proc.c declared `extern char **environ;`
+# twice: once hoisted to file scope for doctor's environment scan (M1043-a,
+# 2026-10-22), and again inside the JC_HAVE_ENVIRON_SCRUB section (M796). gcc's
+# -Wredundant-decls fails the -Werror build ONLY where both are compiled -- a
+# platform with the environ scrub and gcc: NetBSD 10.1, the 2026-11-13 row,
+# "jc_proc.c:314:15: error: redundant redeclaration of 'environ'". Linux compiles
+# one of the two; OpenBSD compiles both but builds with clang, which does not
+# implement the warning. So no gate machine could see it: the compiler that
+# checks it and the configuration that triggers it never met before NetBSD.
+#
+# THE RULE. A file declares each file-scope `extern` at most once. A lint reads the
+# text, so it sees both declarations on every machine, whichever #if is taken.
+#
+# THE UNIVERSE. Every C file under src/, include/ and tests/; a declaration is a
+# column-0 line starting with `extern` and ending in `;`, compared with its
+# whitespace normalised. Floor: EXACTLY 14 such lines today, so an extraction that
+# reads nothing cannot pass.
+_ex_out=$(find "$SMOKE_ROOT/src" "$SMOKE_ROOT/include" "$SMOKE_ROOT/tests" \
+              -name '*.[ch]' 2>/dev/null | LC_ALL=C sort | xargs awk '
+    /^extern[ \t]/ && /;[ \t]*$/ {
+        l = $0; sub(/[ \t]*;[ \t]*$/, "", l); gsub(/[ \t]+/, " ", l)
+        n++; k = FILENAME "|" l; c[k]++
+    }
+    END {
+        print "N " n + 0
+        for (k in c) if (c[k] > 1) { f = k; sub(/\|.*/, "", f); sub(/^.*\//, "", f); d = k; sub(/^[^|]*\|/, "", d); print "DUP " f ": " d " (" c[k] "x)" }
+    }' /dev/null)
+_ex_n=$(printf '%s\n' "$_ex_out" | awk '$1 == "N" { print $2 }')
+_ex_dup=$(printf '%s\n' "$_ex_out" | awk '$1 == "DUP" { $1 = ""; sub(/^ /, ""); print }' | LC_ALL=C sort | tr '\n' ';')
+if [ "${_ex_n:-0}" -lt 14 ]; then
+    t_fail "the extern extraction read ${_ex_n:-0} file-scope declaration(s), floor 14 -- it is not reading the tree"
+elif [ -z "$_ex_dup" ]; then
+    t_ok "no file declares the same extern twice ($_ex_n file-scope extern declarations read)"
+else
+    t_fail "the same extern declared twice in one file: $_ex_dup -- gcc's -Wredundant-decls fails -Werror wherever both are compiled (NetBSD's environ, M1173); declare it once at file scope"
+fi
+
+
+# ---------------------------------------------------------------- check 42
+# A per-file _XOPEN_SOURCE guard must RAISE a lower command-line level (M1176).
+#
+# THE DEFECT THIS EXISTS FOR. src/platform/jc_platform_posix.c (M1134, 2026-11-04)
+# needs mkdtemp, which glibc and MiNTLib declare only at _XOPEN_SOURCE >= 700, and
+# raised the level with `#ifndef _XOPEN_SOURCE / #define _XOPEN_SOURCE 700`. But the
+# Makefile's lstat probe passes -D_XOPEN_SOURCE=600 on the command line on FreeMiNT
+# and NetBSD, so on those systems the #ifndef saw it defined and left 600: MiNTLib
+# hid mkdtemp, and the FreeMiNT cross-build failed ("implicit declaration of function
+# 'mkdtemp'", 2026-11-13; three harness files the same way). Linux never passes
+# _XOPEN_SOURCE on the command line, so every gate there was green.
+#
+# THE RULE. A guard that defines _XOPEN_SOURCE above 600 -- the level the Makefile can
+# pass -- carries the raise arm on the very next line:
+#     #ifndef _XOPEN_SOURCE
+#     #define _XOPEN_SOURCE 700
+#     #elif _XOPEN_SOURCE < 700
+#     #undef _XOPEN_SOURCE
+#     #define _XOPEN_SOURCE 700
+#     #endif
+#
+# THE UNIVERSE. Every C file under src/, include/ and tests/; a guard is a line
+# `#ifndef _XOPEN_SOURCE` whose next line defines it. Floor: EXACTLY 5 guards at 700
+# today (jc_platform_posix.c, jc_hp_gateci.c, jc_hp_gateref.c, jc_hp_gatesweep.c,
+# test_gateci.c), so an extraction that reads nothing cannot pass.
+_xo_out=$(find "$SMOKE_ROOT/src" "$SMOKE_ROOT/include" "$SMOKE_ROOT/tests" \
+              -name '*.[ch]' 2>/dev/null | LC_ALL=C sort | xargs awk '
+    FNR == 1 { st = 0 }
+    st == 2 {
+        if ($0 !~ ("^#[ \t]*elif[ \t]+_XOPEN_SOURCE[ \t]*<[ \t]*" v "([ \t]|$)")) {
+            f = FILENAME; sub(/^.*\//, "", f); print "BAD " f
+        }
+        st = 0; next
+    }
+    st == 1 {
+        if (match($0, /^#[ \t]*define[ \t]+_XOPEN_SOURCE[ \t]+[0-9]+/)) {
+            v = $0; sub(/^#[ \t]*define[ \t]+_XOPEN_SOURCE[ \t]+/, "", v); sub(/[^0-9].*$/, "", v)
+            if (v + 0 > 600) { print "G700"; st = 2; next }
+        }
+        st = 0; next
+    }
+    /^#[ \t]*ifndef[ \t]+_XOPEN_SOURCE[ \t]*$/ { st = 1 }
+    ' /dev/null)
+_xo_n=$(printf '%s\n' "$_xo_out" | awk '$1 == "G700"' | wc -l | tr -d ' ')
+_xo_bad=$(printf '%s\n' "$_xo_out" | awk '$1 == "BAD" { print $2 }' | LC_ALL=C sort | tr '\n' ' ')
+if [ "$_xo_n" -lt 5 ]; then
+    t_fail "the _XOPEN_SOURCE extraction read $_xo_n guard(s) above 600, floor 5 -- it is not reading the tree"
+elif [ -z "$_xo_bad" ]; then
+    t_ok "every _XOPEN_SOURCE guard above 600 raises a lower command-line level ($_xo_n guards read)"
+else
+    t_fail "_XOPEN_SOURCE guard(s) that defer to a lower command-line level: $_xo_bad-- the Makefile passes -D_XOPEN_SOURCE=600 on FreeMiNT and NetBSD, so #ifndef alone leaves 600 there; add '#elif _XOPEN_SOURCE < 700 / #undef / #define' (M1176)"
+fi
+
+
+# ---------------------------------------------------------------- check 43
+# SIGCHLD and SIGXFSZ are used only where they exist (M1177).
+#
+# THE DEFECT THIS EXISTS FOR. DJGPP (the FreeDOS row) has neither signal: no
+# asynchronous children, no file-size limit signal. The tree's convention is
+# `#ifdef SIGCHLD` (src/platform/jc_platform_posix.c, src/main.c, tests/test_proc.c).
+# From M987 (2026-10-19) four test files used them bare, and the FreeDOS
+# cross-build failed until 2026-11-13. Every gate is Linux, where both exist.
+#
+# THE RULE. Every CODE line naming SIGCHLD or SIGXFSZ sits inside a preprocessor
+# conditional that names the same signal (#ifdef SIGCHLD, #if defined(SIGXFSZ) ...).
+# Comments do not count; they are stripped, including multi-line ones.
+#
+# THE UNIVERSE. Every C file under src/, include/ and tests/. Floor: EXACTLY 26 code
+# uses today (23 SIGCHLD, 3 SIGXFSZ), so an extraction that reads nothing cannot pass.
+_sg_out=$(find "$SMOKE_ROOT/src" "$SMOKE_ROOT/include" "$SMOKE_ROOT/tests" \
+              -name '*.[ch]' 2>/dev/null | LC_ALL=C sort | xargs awk '
+    FNR == 1 { depth = 0; incom = 0; for (k in guard) delete guard[k] }
+    {
+        line = $0; out = ""
+        while (length(line) > 0) {
+            if (incom) {
+                e = index(line, "*/")
+                if (e == 0) { line = ""; break }
+                line = substr(line, e + 2); incom = 0
+            } else {
+                b = index(line, "/*")
+                if (b == 0) { out = out line; line = ""; break }
+                out = out substr(line, 1, b - 1); line = substr(line, b + 2); incom = 1
+            }
+        }
+        code = out
+        if (code ~ /^[ \t]*#[ \t]*if/) {
+            depth++; g = ""
+            if (code ~ /SIGCHLD/) g = g " SIGCHLD"
+            if (code ~ /SIGXFSZ/) g = g " SIGXFSZ"
+            guard[depth] = g; next
+        }
+        if (code ~ /^[ \t]*#[ \t]*elif/) {
+            g = ""
+            if (code ~ /SIGCHLD/) g = g " SIGCHLD"
+            if (code ~ /SIGXFSZ/) g = g " SIGXFSZ"
+            guard[depth] = g; next
+        }
+        if (code ~ /^[ \t]*#[ \t]*else/) { guard[depth] = ""; next }
+        if (code ~ /^[ \t]*#[ \t]*endif/) { if (depth > 0) depth--; next }
+        for (s = 1; s <= 2; s++) {
+            sig = (s == 1) ? "SIGCHLD" : "SIGXFSZ"
+            if (code ~ sig) {
+                ok = 0
+                for (d = 1; d <= depth; d++) if (index(guard[d], sig)) ok = 1
+                f = FILENAME; sub(/^.*\//, "", f)
+                print (ok ? "OK " : "BARE ") sig " " f ":" FNR
+            }
+        }
+    }' /dev/null)
+_sg_n=$(printf '%s\n' "$_sg_out" | awk '$1 == "OK" || $1 == "BARE"' | wc -l | tr -d ' ')
+_sg_bare=$(printf '%s\n' "$_sg_out" | awk '$1 == "BARE" { print $3 }' | tr '\n' ' ')
+if [ "$_sg_n" -lt 26 ]; then
+    t_fail "the SIGCHLD/SIGXFSZ extraction read $_sg_n code use(s), floor 26 -- it is not reading the tree"
+elif [ -z "$_sg_bare" ]; then
+    t_ok "every SIGCHLD/SIGXFSZ code use is guarded by its own #ifdef ($_sg_n uses read)"
+else
+    t_fail "SIGCHLD/SIGXFSZ used outside an #ifdef of that signal: $_sg_bare-- DJGPP (FreeDOS) has neither; guard it the tree's way (#ifdef SIGCHLD), M1177"
+fi
+
+# ---------------------------------------------------------------- check 44
+# A file that sets _XOPEN_SOURCE 700 includes <time.h> FIRST (M1177).
+#
+# THE DEFECT THIS EXISTS FOR. glibc 2.11-2.24 (Debian 6-9, CentOS 6-7) declare struct
+# timespec fields in <sys/stat.h> under _XOPEN_SOURCE 700 but include <time.h> only for
+# time_t there, so timespec stayed incomplete in jc_platform_posix.c, jc_hp_gateref.c and
+# jc_hp_gatesweep.c, and the whole userland ladder failed to build (2026-11-13). <time.h>
+# just before <sys/stat.h> was not enough: <fcntl.h> includes <sys/stat.h> on glibc 2.11.
+#
+# THE RULE. In every file with the 700-level guard (check 42's universe), the first
+# #include after the guard is <time.h>. Floor: EXACTLY 5 such files today.
+_tm_out=$(find "$SMOKE_ROOT/src" "$SMOKE_ROOT/include" "$SMOKE_ROOT/tests" \
+              -name '*.[ch]' 2>/dev/null | LC_ALL=C sort | xargs awk '
+    FNR == 1 { st = 0 }
+    st == 0 && /^#[ \t]*elif[ \t]+_XOPEN_SOURCE[ \t]*<[ \t]*700/ { st = 1; next }
+    st == 1 && /^#[ \t]*endif/ { st = 2; next }
+    st == 2 && /^#[ \t]*include/ {
+        f = FILENAME; sub(/^.*\//, "", f)
+        print ($0 ~ /^#[ \t]*include[ \t]*<time\.h>/ ? "FIRST " : "LATE ") f
+        st = 3; next
+    }' /dev/null)
+_tm_n=$(printf '%s\n' "$_tm_out" | awk '$1 == "FIRST" || $1 == "LATE"' | wc -l | tr -d ' ')
+_tm_late=$(printf '%s\n' "$_tm_out" | awk '$1 == "LATE" { print $2 }' | tr '\n' ' ')
+if [ "$_tm_n" -lt 5 ]; then
+    t_fail "the _XOPEN_SOURCE-700 file extraction read $_tm_n file(s), floor 5 -- it is not reading the tree"
+elif [ -z "$_tm_late" ]; then
+    t_ok "every _XOPEN_SOURCE-700 file includes <time.h> first ($_tm_n files read)"
+else
+    t_fail "_XOPEN_SOURCE-700 file(s) whose first #include is not <time.h>: $_tm_late-- old glibc leaves struct timespec incomplete in <sys/stat.h> (M1177)"
 fi
 
 t_done

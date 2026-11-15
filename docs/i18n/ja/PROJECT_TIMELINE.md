@@ -99,8 +99,13 @@
      a true one does, so the row is gone and owed. See DEFERRED.md.
 
      The count above is checked, so this declaration cannot be left behind silently. -->
+<!-- Original draft: Claude (July 2026). On 2026-11-07 (M1147, batch H7): the reference-implementation
+     bullet — Continue CLI rephrased from "the one this project re-implements" to the
+     first-phase starting specification — was drafted by llm-jp-4-8b-thinking (Q4_K_M,
+     context 16384, 1 slot; LM Studio 127.0.0.1:1234), reviewed by jlu/qwen3-coder-next. -->
 <!-- 注意: この翻訳は機械下訳です。ネイティブによるレビューを歓迎します。 -->
 > ⚠️ この翻訳は下訳です。ニュアンスについては英語版（../../PROJECT_TIMELINE.md）を優先してください。
+> 変更箇所は [llm-jp](https://llm-jp.nii.ac.jp/)（llm-jp-4-8b-thinking）で下訳し、jlu/qwen3-coder-next がレビューしました。
 
 # jichi — プロジェクトタイムライン、開発とテストの振り返り
 
@@ -126,17 +131,17 @@
 
 | 指標 | 値 |
 |---|---|
-| カレンダー期間 | 2026-06-18 → 2026-11-04（**139日**、**うち101日稼働**） |
-| コミット | **3,194** |
-| マイルストーン | **M1 – M1129**（`docs/ROADMAP.md` に1,106件を記録、all-`###` は1,115 -- ピン注記を参照） |
-| 自作ソース（`src` + `include`） | **約153,500行**（367個の `.c`/`.h` ファイル） |
-| テスト | **約162,000行**（ユニット143ファイル + smoke ドライバ538 + e2e 10モジュール + fuzz ターゲット24）、**15,343ユニットチェック**、smoke **2,651チェック** |
-| ドキュメント | **約225,300行**、673個の英語markdownページ（設計提案50件）。翻訳分は含めず、別途**約8,300行**。 |
+| カレンダー期間 | 2026-06-18 → 2026-11-14（**149日**、**うち101日稼働**） |
+| コミット | **3,701** |
+| マイルストーン | **M1 – M1190**（`docs/ROADMAP.md` に1,165件を記録、all-`###` は1,174 -- ピン注記を参照） |
+| 自作ソース（`src` + `include`） | **約174,900行**（391個の `.c`/`.h` ファイル） |
+| テスト | **約176,500行**（ユニット154ファイル + smoke ドライバ558 + e2e 10モジュール + fuzz ターゲット24）、**15,343ユニットチェック**、smoke **2,651チェック** |
+| ドキュメント | **約243,000行**、708個の英語markdownページ（設計提案52件）。翻訳分は含めず、別途**約8,300行**。 |
 | サブシステム | **20**（`src/*`） |
 | 言語 / ターゲット | C89 / ANSI C、Linux-POSIX。依存は **libcurl のみ**（`src/json/cJSON.c` は本プロジェクトのオリジナルコードであり、第三者ソースではない——M171） |
 | 品質ゲート | `-Wall -Wextra -Werror`（gcc + clang）、ASan/UBSan、valgrind、fuzz、smoke、e2e |
 
-**自作**行数の合計（コード + テスト + 英語ドキュメント）：**約541,000**、
+**自作**行数の合計（コード + テスト + 英語ドキュメント）：**約587,800**、
 これに加えて `docs/i18n/` の翻訳**約8,300行**。両者は重複しない。
 
 ---
@@ -429,7 +434,7 @@ xychart-beta
   安全ゲート、ファジングハーネス）は、**メンターシップなしに**この品質で提供するのは
   現実的に初級者の手に余る——真のリスクは*終わらないこと*であり、単に*遅い*ことでは
   ない。
-- **参照実装が存在した**（本プロジェクトが再実装する Continue CLI）ことで、*すべての*
+- **参照実装が存在した**（Continue の CLI が jichi の第一フェーズの出発点の仕様だった）ことで、*すべての*
   シナリオにわたって要件/設計の不確実性が実質的に減った——真の計画上のてこである
   （既知のものを作る ≪ 新しいものを発明する）。P5 のバンド（自律性、制御、ロボ
   ティクス）にはそのような参照が**なかった**——ここでゼロから設計されたため、各

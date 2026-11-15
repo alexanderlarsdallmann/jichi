@@ -31,6 +31,12 @@ export https_proxy HTTPS_PROXY http_proxy no_proxy NO_PROXY
 
 t_plan 28
 smoke_home
+# SV:1802 P8: scrub the caller's key var (name only, never a value) so a key
+# exported in the caller's shell cannot reach a jichi child and flip the wizard
+# to "in this shell -- nothing to store"; the driver assumes no key in env.
+# The wizard reads JICHI_API_KEY (src/main.c setup_offer_key_file/getenv); it
+# never reads JLU_API_KEY, so only JICHI_API_KEY is scrubbed.
+unset JICHI_API_KEY
 tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
 

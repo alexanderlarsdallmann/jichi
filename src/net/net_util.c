@@ -199,6 +199,7 @@ int jc_net_reachable(const char *api_base, const char *api_key,
     struct jc_http_headers headers;
     struct jc_http_request req;
     long http_status = 0;
+    long total;
     char *resp = NULL;
     jc_status st;
 
@@ -217,10 +218,23 @@ int jc_net_reachable(const char *api_base, const char *api_key,
     req.method = "GET";
     req.url = url;
     req.headers = &headers;
-    req.timeout_secs = (timeout_secs > 0) ? timeout_secs
-                                          : JC_NET_REACHABLE_TIMEOUT_SECS;
     req.abort_flag = abort;
     jc_net_side_fences(&req, NULL); /* M1093: no jc_config in scope: built-in */
+
+    /* M1144 (H6): the caller's argument is a FLOOR, never a cap that undercuts
+     * the fence. Per M877 the TLS handshake counts against the CONNECT bound,
+     * so a total shorter than the connect fence fires mid-connect (rc 28, no
+     * HTTP status) and a slow-but-answering server is reported unreachable --
+     * doctor's false FAIL on 2026-11-05 (9.9/11.7/10.7 s handshakes vs a 3 s
+     * total). Raise the total to the fence before the request is built: a
+     * server that answers within the connect budget is reachable; a dead
+     * endpoint still fails instant on refusal (rc 7), so this only costs a
+     * black-hole the 30 s the fence already allows. One assignment, so the
+     * side_call_fences universe keeps counting this probe as one site. */
+    total = (timeout_secs > 0) ? timeout_secs : JC_NET_REACHABLE_TIMEOUT_SECS;
+    if (total < req.connect_timeout_secs)
+        total = req.connect_timeout_secs;
+    req.timeout_secs = total;
 
     /* A connect failure here is the expected "unreachable" signal, not an
      * error worth printing -- mute logging just for the probe. */

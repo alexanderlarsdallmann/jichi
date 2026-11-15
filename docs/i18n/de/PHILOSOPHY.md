@@ -1,4 +1,7 @@
 <!-- tracks: ../../PHILOSOPHY.md @ 8ad8468 -->
+<!-- Original draft: Claude (July 2026). On 2026-11-07 (M1147, batch H7): the Continue sentence
+     in the "Giants" paragraph — whose CLI was jichi's starting specification, not that this
+     project re-implements it — was revised by jlu/qwen3-coder-next. -->
 # Die Philosophie von jichi
 
 Der größte Teil der Dokumentation dieses Repositories sagt, *wie*. Diese Seite
@@ -121,8 +124,8 @@ das API-Design des mitgelieferten cJSON; git, dessen Plumbing im Stillen die
 Snapshot- und Worktree-Maschinerie antreibt; das Language Server Protocol, das
 Model Context Protocol und das Agent Client Protocol, jedes ein Akt der
 Großzügigkeit, der einen privaten Vorteil gegen einen öffentlichen Standard
-tauschte; [Continue](https://continue.dev), dessen CLI dieses Projekt
-reimplementiert und dessen Design bewies, dass die Form es wert ist, gebaut zu
+tauschte; [Continue](https://continue.dev), deren CLI jichis Ausgangs-
+spezifikation war und deren Design bewies, dass die Form es wert ist, gebaut zu
 werden; und die Modellanbieter, deren APIs der Schleife ein Gegenüber geben.
 
 Die Zwerge sind schwerer zu nennen — und genau das ist der Punkt: die Autoren

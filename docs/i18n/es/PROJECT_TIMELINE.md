@@ -1,4 +1,7 @@
 <!-- tracks: ../../PROJECT_TIMELINE.md @ 34a65b7 -->
+<!-- Original draft: Claude (July 2026). Today (M1147/batch H7): the reference-implementation
+     bullet — Continue CLI rephrased from "the one this project reimplements" to "the first-phase
+     starting specification" — was revised by jlu/qwen3-coder-next. -->
 <!-- figures-behind: 29 (that many numbers of three digits or more appear here and not
      in the English page). PROJECT_TIMELINE.md was re-counted at M579; this translation
      still carries the earlier figures. One went from the count at M587: the false
@@ -363,10 +366,10 @@ Notas:
   worktrees, las puertas de seguridad bajo el veredicto, el arnés de fuzzing) son
   realistamente inalcanzables para un júnior con esta calidad **sin mentoría** —
   el riesgo real es *no terminar*, no solo *ir más lento*.
-- Existía una **implementación de referencia** (la CLI de Continue que esto
-  reimplementa), lo que recortó materialmente la incertidumbre de
-  requisitos/diseño en *todos* los escenarios — una palanca genuina de
-  planificación (construir-algo-conocido ≪ inventar-algo-nuevo). Las bandas de P5
+- Existía una **implementación de referencia** (la CLI de Continue, que fue la
+  especificación inicial de la primera fase), lo que recortó materialmente la
+  incertidumbre de requisitos/diseño en *todos* los escenarios — una palanca
+  genuina de planificación (construir-algo-conocido ≪ inventar-algo-nuevo). Las bandas de P5
   (autonomía, control, robótica) **no** tenían tal referencia — se diseñaron
   desde cero aquí, por eso cada una entregó primero una propuesta.
 

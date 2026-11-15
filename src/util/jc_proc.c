@@ -74,7 +74,17 @@ static const char *const g_secret_env_builtin[] = {
     "GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY",
     "DEEPSEEK_API_KEY", "TOGETHER_API_KEY", "FIREWORKS_API_KEY",
     "TAVILY_API_KEY", "COHERE_API_KEY", "XAI_API_KEY",
-    "CI_JOB_TOKEN", "GITLAB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", NULL
+    "CI_JOB_TOKEN", "GITLAB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN",
+    /* M1170 (H9c, SV:0818): the three harness token-file names. The reference's
+     * push/land/backlog scripts export ZD_TOKEN_FILE and its gate children unset
+     * it by hand; JICHI_HARNESS_GIT_TOKEN_FILE is the port's D13 twin, and
+     * JICHI_HARNESS_MODEL_KEY_FILE was added by measurement -- its only reader is
+     * the harness's own resolve_ref (jc_harness_config.c:517), before any spawn,
+     * so no child ever needs it. The scrub removes only the INHERITED copy:
+     * jc_spawn scrubs in the child, THEN re-applies the request's explicit env. */
+    "ZD_TOKEN_FILE",
+    "JICHI_HARNESS_GIT_TOKEN_FILE",
+    "JICHI_HARNESS_MODEL_KEY_FILE", NULL
 };
 
 int jc_proc_secret_env_add(const char *name)
@@ -148,10 +158,14 @@ int jc_proc_env_name_is_secret(const char *name, jc_size name_len)
 }
 
 /* M1043-a: doctor's suffix scan walks the whole process environment, so it
- * needs `environ` on every platform, not just where JC_HAVE_ENVIRON_SCRUB
- * re-declares it (line below). The Makefile builds with -D_POSIX_C_SOURCE,
- * under which environ is declared by <unistd.h>; this extern is the same
- * declaration the scrub section makes, hoisted to cover the scan. */
+ * needs `environ` on every platform. POSIX defines the variable but no header
+ * is required to declare it under the build's flags (glibc's <unistd.h> does so
+ * only for _GNU_SOURCE; NetBSD 10.1's headers not at all), so this file declares
+ * it itself, ONCE, here. M1173: the JC_HAVE_ENVIRON_SCRUB section further down
+ * used to repeat the declaration, which gcc's -Wredundant-decls fails under
+ * -Werror wherever that section is compiled (the NetBSD 10.1 row, 2026-11-13:
+ * "jc_proc.c:314:15: error: redundant redeclaration of 'environ'"); clang does
+ * not implement the warning, so the OpenBSD row was silent. */
 extern char **environ;
 
 /* M1043-a: doctor's suffix scan. The case-sensitive credential-ish suffixes,
@@ -301,7 +315,7 @@ int jc_proc_harden_state(void)
 /* --- OpenBSD's partial guard: scrub the secret env strings in place (M796) --- */
 
 #if defined(JC_HAVE_ENVIRON_SCRUB)
-extern char **environ;
+/* `environ` is declared once, near the top of this file (M1173). */
 
 /* Zero the whole "NAME=value" string for `name`, so `ps -e` -- which reads the
  * live user stack on OpenBSD -- shows nothing for the slot. getenv then skips

@@ -43,6 +43,34 @@ extern "C" {
 #define JC_CONTROL_PROTO_V 1
 /* One request is one line; longer input is refused (resource bound). */
 #define JC_CONTROL_LINE_MAX 16384
+/* M1149: the still-bounded max for an inject-task REQUEST LINE. read_request
+ * reads up to this, because a supervisor's steering text for one pool task may
+ * legitimately exceed JC_CONTROL_LINE_MAX (driver cell 14 sends a ~70000-byte
+ * request line). The other verbs' input stays under the old cap. This only
+ * sizes the socket's line buffer; the parsed inject-task TEXT is a separate
+ * bound (the per-task queue cap, JC_CONTROL_QUEUE_MAX, below). */
+#define JC_CONTROL_LINE_MAX_INJECT (8 * JC_CONTROL_LINE_MAX)
+/* M1149: the per-task inject queue cap -- the lead's M1045 cap (4 *
+ * JC_CONTROL_LINE_MAX) applied to the TOTAL queued text per pool task,
+ * newline-joined, mirroring the lead's CONTROL_PENDING_MAX. The codec knows it
+ * only to distinguish an over-cap request text (JC_ERR_TOOBIG) from a valid
+ * one; the pool applies the join-and-check against its own per-task queue. */
+#define JC_CONTROL_QUEUE_MAX (4 * JC_CONTROL_LINE_MAX)
+/* M1149: the pool's per-batch task ceiling, shared by the published snapshot
+ * (this header) and the pool itself (jc_tool_parallel.c's JC_PAR_MAX_TASKS,
+ * which must equal it). 32. */
+#define JC_POOL_MAX_TASKS 32
+/* M1149: the fixed fd the POOL's children inherit the per-child inject pipe
+ * on (the parent keeps the write end and writes the task's queued text there
+ * at its ~200 ms wake; the child reads it non-blocking at the boundary).
+ * Chosen 912: far from 0/1/2 and the small-fd range the agent loop, the
+ * eventlog/transcript FILE*s, the shell and jichi's own sockets open; the
+ * child's only other inherited fds at the dup2 are the two pipe ends made next
+ * to the fork (low numbers, one closed by the child before the loop). In the
+ * LEAD the fd is never opened, so the number is a dead constant there. The
+ * M831 Landlock fence binds open/bind, not the read of an inherited fd, so
+ * nothing widens for the steer (behaviour 6). */
+#define JC_CTL_INJECT_FD 912
 
 enum jc_control_cmd_type {
     JC_CTL_STATUS,
@@ -51,12 +79,17 @@ enum jc_control_cmd_type {
     JC_CTL_RESUME,
     JC_CTL_ABORT,
     JC_CTL_MODE,      /* M304: NARROW the operating posture (never widen) */
+    /* M1149: the per-worker verbs, BETWEEN mode and UNKNOWN so the codec's
+     * verb list (and the server's unknown-command reply, M752) gains both in
+     * enum order: "stop-task", "inject-task". */
+    JC_CTL_STOP_TASK,
+    JC_CTL_INJECT_TASK,
     JC_CTL_UNKNOWN
 };
 
 struct jc_control_cmd {
     enum jc_control_cmd_type type;
-    const char *text; /* INJECT: the steering text (arena-owned) */
+    const char *text; /* INJECT / INJECT_TASK: the steering text (arena-owned) */
     const char *from; /* INJECT: the sender (arena-owned, optional) */
     int extend;       /* PAUSE (M162): credit the paused time back to the
                        * deadline ("stop the clock"); default 0 = the
@@ -64,13 +97,61 @@ struct jc_control_cmd {
     int mode;         /* MODE (M304): the requested enum jc_agent_mode. Applied
                        * only when it NARROWS the current posture; a widening is
                        * refused, because the control channel never widens. */
+    int task;         /* M1149: STOP_TASK/INJECT_TASK -- the 0-based pool index
+                       * (the target child). Validity is pool-checked. */
+    const char *reason; /* M1149: STOP_TASK -- the optional reason (arena-owned) */
+};
+
+/* --- M1149: the pool hook (the shared interface) --------------------------
+ * The spawn_parallel pool REGISTERS these ops on app->control (and a snapshot
+ * pointer) while a batch is live, and NULLs them when it ends. The handler
+ * (serve_pending) calls them for the two per-worker verbs and reads the
+ * snapshot for `status`; when the hook is NULL (no live batch) the verbs are
+ * refused with the EXACT string "no batch is live". The pool owns ptask; the
+ * snapshot is the copy the handler reads (behaviour 11). */
+
+/* One published task of the live batch (the fields `status`'s "batch" object
+ * carries). Strings may be NULL (omitted from the wire). */
+struct jc_pool_task_snap {
+    int    i;          /* the 0-based pool index */
+    int    live;       /* 1 = a child is running, 0 = ended (or never launched) */
+    const char *model;/* resolved model name, or NULL */
+    long   pid;
+    const char *tool;  /* cur_tool, "" if none yet */
+    int    tools;      /* tool calls so far */
+    double tokens;
+    double idle_s;     /* seconds since the child's last progress line (behaviour 12) */
+    const char *wt;    /* worktree path, "" if none */
+    const char *ending;/* how the task ended, or NULL while live */
+};
+
+/* The published batch snapshot, refreshed by the pool every loop iteration. */
+struct jc_pool_snap {
+    int total;
+    int done;
+    struct jc_pool_task_snap tasks[JC_POOL_MAX_TASKS];
+};
+
+/* M1149: the pool's ops. stop/inject return JC_OK when the action is accepted
+ * (the pool acts on stop at its next wake) or JC_ERR_INVALID with the refusal
+ * string in *why (the handler replies with it verbatim). The pool owns the
+ * per-task state; the handler only calls and reads. */
+struct jc_pool_ops {
+    jc_status (*stop)(int task, const char *reason, char *why, jc_size whycap);
+    jc_status (*inject)(int task, const char *text, char *why, jc_size whycap);
+    const struct jc_pool_snap *snap; /* the published snapshot, or NULL */
 };
 
 /* --- pure codec (src/util/jc_control_proto.c) --------------------------- */
 
-/* Parse one request line into *out (text and from arena-copied). JC_ERR_PARSE
- * if not a JSON object; an unknown/missing "type" yields JC_CTL_UNKNOWN (still
- * JC_OK); JC_ERR_INVALID if an INJECT carries no/empty "text". */
+/* Parse one request line into *out (text, from and reason arena-copied).
+ * JC_ERR_PARSE if not a JSON object; an unknown/missing "type" yields
+ * JC_CTL_UNKNOWN (still JC_OK); JC_ERR_INVALID if an INJECT carries no/empty
+ * "text", or a STOP_TASK/INJECT_TASK carries a missing/negative/non-integer
+ * "task" (or INJECT_TASK a missing/empty "text"); JC_ERR_TOOBIG if an
+ * INJECT_TASK's "text" ALONE exceeds the per-task queue cap
+ * (JC_CONTROL_QUEUE_MAX) -- the handler maps that to the "queue is full"
+ * refusal rather than the pool storing an over-cap line. */
 jc_status jc_control_parse_request(const char *line,
                                    struct jc_control_cmd *out,
                                    struct jc_arena *a);
@@ -80,6 +161,13 @@ jc_status jc_control_parse_request(const char *line,
  * `from` is optional (inject only), defaulting to [operator]. */
 char *jc_control_build_request(const char *type, const char *text,
                                int extend, const char *from);
+
+/* M1149: build a per-worker request line (client side; malloc'd, trailing
+ * newline included). `type` is "stop-task" or "inject-task";
+ * `reason_or_text` is the stop's optional reason (""/NULL omitted) or the
+ * inject's required text. */
+char *jc_control_build_task_request(const char *type, int task,
+                                    const char *reason_or_text);
 
 /* Build response lines (server side; malloc'd, trailing newline included). */
 char *jc_control_build_ok(const char *note);   /* {"v":1,"ok":true[,note]}   */
@@ -113,6 +201,10 @@ struct jc_control_status {
                             * accepted inject that has not folded yet -- a note's
                             * own newlines are not notes. ALWAYS emitted, zero
                             * included.                                   */
+    const struct jc_pool_snap *batch; /* M1149: the live pool's snapshot, or
+                            * NULL. Emitted as the "batch" object ONLY when
+                            * non-NULL (a batch is live); with no live batch the
+                            * reply is byte-identical to today (no "batch" key). */
 };
 char *jc_control_build_status(const struct jc_control_status *s);
 
@@ -160,6 +252,15 @@ struct jc_control {
                                * owner and keeps the right pid. This is what the
                                * old agent_depth guard got wrong (SV:1848): it
                                * darkened the whole in-process child run. */
+    struct jc_pool_ops *pool_ops; /* M1149: the live spawn_parallel pool's hook
+                               * (its stop/inject ops + published snapshot), or
+                               * NULL when no batch is live. The pool registers
+                               * it while it runs and NULLs it at the end; the
+                               * handler reads it for the two per-worker verbs
+                               * and `status`'s "batch" object. The ops struct
+                               * lives in the POOL, owned by the parent process;
+                               * a forked child inherits a COW copy but never
+                               * serves (serve_pid), so its copy is dead. */
 };
 
 /* Bind + listen on `path` (parent dir created 0700; a stale socket file is

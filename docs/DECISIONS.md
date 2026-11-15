@@ -16,6 +16,12 @@
 > *not* back-filled here — inventing a tidy history for decisions I did not witness
 > would defeat the purpose. Add a row when a decision is one a future reader could
 > reasonably disagree with.
+>
+> **One exception, and one correction (2026-11-11).** The roadmap has no entries for
+> milestones M0 to M6; its first is M7. So the decisions made at the very start are
+> recorded in no milestone entry at all. The last section of this page,
+> [Foundations](#dec-2026-11-11-foundations), records seven of them as they stand
+> today. It does not reconstruct what was weighed at the time.
 
 ## How to add a row
 
@@ -3592,6 +3598,8 @@ Scan the one-liners; each links to its full reasoning — the rejected alternati
 | **A background command's output is spooled to a file, not a pipe: a chatty child never blocks on a reader** (M940) | [M940](#dec-m940) |
 | **Topology B is the operators one-line config switch, off by default (M952)** | [M952](#dec-m952) |
 | **A chatbot runs in chat mode with `--readonly`, one process per message, never plan mode** (M841) | [M841](#dec-m841) |
+| **jichi-harness protects its keys as jichi does, in every command** (2026-11-12) | [harness protection](#dec-2026-11-12-harness-protection) |
+| **jichi-harness is a Linux-with-systemd program for now** (2026-11-12) | [harness on Linux](#dec-2026-11-12-harness-linux) |
 
 <a id="dec-m835"></a>
 #### M835 — A build without sockets is decided by the header, and it refuses…
@@ -3671,3 +3679,99 @@ The operator decided (2026-11-03 10:57, SV:1057, superseding SV:1053's "design o
 **Why the stages, and why at the end:** SV:1053 measured two build defects that no existing stage could see, because no existing stage built in those modes: (A) the jichi-harness is not warning-clean in optimised builds (a redundant `realpath` declaration -- fortify's `bits/stdlib.h` declares `realpath` itself at `-O`, so the local decl that exists only for the `-O0` builds becomes a redeclaration -- and an ignored `write` return in the drain loop, where the `(void)` cast does not silence glibc's `warn_unused_result`); (B) the unit suite is not 32-bit clean (two test literals overflow a 32-bit `long`, one of them a `-Wlong-long` compile error even in a runtime ternary's unselected arm, the other a runtime failure because the clamp correctly returns LONG_MAX). A text lint cannot see a `-Werror` diagnostic; only the build can, which is why these are stages, not checks. The placement at the end is forced by the gate's own structure: the `smoke` and `e2e` stages take the tree's `jichi`/`jichi-harness` as up-to-date prerequisites, so a self-cleaning optimised or 32-bit rebuild anywhere before them would destroy the binary they test (on a multilib host, the smoke tier could not even relink its tools against the 32-bit residue) -- the qwen27b review that caught this rejected the mid-gate landing, and the gate now closes by restoring the ordinary build.
 **Rejected alternatives:** (1) a separate opt-in target (`make ci-release`, `make ci-32`) -- an opt-in target means the harness is again never built optimised by the gate, exactly defect A's class; the operator's SV:1057 names `make ci` explicitly and supersedes SV:1053's "do not add". (2) the status quo, with a lint in place of a build stage -- a lint cannot see a warning or a `-Wlong-long` error; SV:1053's own defect A is that nothing builds the harness optimised at all. (3) suppressing the warnings (`-Wno-redundant-decls`, `-Wno-unused-result`, a pragma, `-Wno-long-long`) -- silences the symptom; the fixes remove the cause, and each mirrors an existing in-tree precedent: the `_XOPEN_SOURCE 600` guard is what `src/util/jc_path.c` already uses (glibc declares `realpath` in every build mode, so no local decl is ever needed or redundant), the write-return capture is what `src/tui/jc_term.c`'s `ed_write_n` already does, and the width-aware preprocessor test constants mirror the file's own existing `sizeof`-based dispatches with the 64-bit arms byte-identical to the original checks. (4) changing `jc_json_clamp_long`'s contract to make the 32-bit test constant hold -- the clamp is correct (it returns LONG_MAX on 32-bit); the test constant was the bug.
 **Where:** the M1129 ROADMAP entry, the two stage comments in the Makefile's `ci:` target, the drive's LOG-3 (run 0142: the design, the red-first legs, the S-b placement correction, the gates), and the worker reports 2026-11-03-M1129-{S,S-b,A,B}.md.
+
+<a id="dec-2026-11-12-harness-protection"></a>
+#### 2026-11-12 — jichi-harness protects the keys it holds, in every command
+The operator decided on 2026-11-12, about 00:10: "D-F8-1 to D-F8-3 as you recommend". The recommendations are in the design review of 2026-11-11, finding F8 (`docs/internal/2026-11-11-design-review.md`, section 12). The harness makes jichi's own protection call (`jc_proc_harden_environ`, M770 and M771) first thing in its `main`, for every command. It honours the same opt-out, `JICHI_KEEP_DUMPABLE`, and `doctor` reports the state.
+**Why:** `run` holds the model key for a whole agent run, and the push commands hold the model key and the git token. `docs/HARNESS.md` already said that the harness reuses "the memory protection", but the code never called it. On Linux the call closes two routes to those keys: a core dump, and other processes opening the harness's descriptors. Where Yama does not already guard memory, it closes that route too (the review's 12.4).
+**Rejected alternatives:**
+(1) No protection, because the harness runs as the operator's own user. That is exactly the case jichi protects itself against (M770): the threat is other processes of the same user.
+(2) Only the commands that hold a secret (`run`, `push`, the credential helper), so that a supervisor could still read the loop's `/proc` entries. That needs a list of which commands hold secrets, and the list goes stale the day another command starts holding one. One rule for every command is also easier to test.
+**The cost accepted:** a supervisor can no longer read the loop's `/proc/<pid>/exe`. The drive's host scripts were changed first, on 2026-11-12: they name the loop's build from its start time against the pinned binary's change time.
+**Where:** the review's sections 12.4, 12.8 and 12.9, and `docs/DEFERRED.md` def-378. The harness-port drive builds it with its F3 batch, before the gate watcher is switched to the port.
+
+<a id="dec-2026-11-12-harness-linux"></a>
+#### 2026-11-12 — jichi-harness is a Linux-with-systemd program for now
+**The decision** is part of the same answer (D-F8-3). The harness is documented as a program for Linux with systemd, and it keeps needing `/proc/self/exe`. When the first non-Linux harness host is wanted (D-F8-4, still open), three things change together:
+- the self-path becomes one configured absolute path, checked against `/proc/self/exe` where that exists;
+- it lives in one function instead of the nine copies on the drive's main;
+- the gate watcher's team-smoke wait stops counting an unreadable process as "no smoke".
+
+**Rejected alternatives:**
+(1) `argv[0]` as a fallback, as jichi itself uses it for `JICHI_BIN`. The harness hands its own path to git as the credential helper, so `argv[0]` would let whoever starts the harness choose which program is given the token.
+(2) One call per system, behind probes, now. Each needs a probe, a test and a driven platform row, for systems where nobody runs the harness.
+(3) Lifting the nine refusals alone. A clear "cannot start" would become a gate watcher that starts a gate beside a running team smoke.
+**Where:** the review's sections 12.5, 12.6, 12.8 and 12.9.
+
+<a id="dec-2026-11-11-foundations"></a>
+## Foundations — recorded after the fact on 2026-11-11
+
+These seven decisions shape the whole tree, and none of them had a row here.
+
+- **When they were made:** C89, libcurl and the Makefile's first probe are in the first commit (e03285a4,
+  2026-06-18). The fork pool came a day later (6357831b). This register was first committed on
+  2026-08-06.
+- **The roadmap** has no entry for the milestones of those first days.
+
+**What these rows are.** A design review on 2026-11-11 found that they had no row
+([`analysis/2026-11-11-reviewing-our-own-decisions.md`](analysis/2026-11-11-reviewing-our-own-decisions.md)).
+Each row below states the decision as the tree keeps it at 53a1ef4e. It names the page that argues it
+today, the alternatives that page weighs, and the alternatives it does **not** weigh.
+
+**What these rows are not.** They are not a record of the original deliberation. Nobody wrote that
+down, and it is not invented here. Every argument cited was written after the choice.
+
+**How to use them.** A row here can be superseded like any other, by the marker described at the top of
+this page. Until now these decisions could not be reopened through the register, because they had no row.
+
+<a id="dec-2026-11-11-c89"></a>
+#### 2026-11-11 (after the fact) — the language is strict C89
+Every translation unit compiles as C89 with `-pedantic` at zero warnings. The case is argued in [`reading/fukabori-01-why-c89.md`](reading/fukabori-01-why-c89.md) and [`C_STANDARDS.md`](C_STANDARDS.md): reach to old and small machines, discipline that a compiler flag can hold, and a language small enough to teach from. The first page states its own falsifier: without the low-memory tiers and the teaching mission, "C89 would then be nostalgia carrying real costs".
+**Rejected alternatives, as the pages argue them:** C++ from the start and Zig from the start (`fukabori-01`); a Zig rewrite ([`ZIG_REWRITE_ANALYSIS.md`](ZIG_REWRITE_ANALYSIS.md)); Ada, on the platform matrix ([`ADA_AND_C.md`](ADA_AND_C.md)); Rust as a gradual migration ([`RUST_INTEROP.md`](RUST_INTEROP.md)).
+**Not weighed anywhere:** C99 and C11. `C_STANDARDS.md` describes them and does not compare them.
+**Measured on 2026-11-11:** the tree builds with zero warnings and passes its unit suite unchanged as C99 and as C11 (37,546 checks, 0 failures, the same as the C89 build). Every compiler in [`PLATFORMS.md`](PLATFORMS.md) is a gcc, a clang or zig. No row was asked to build the tree as C99, so "reach" is untested against C99 in both directions.
+**What it costs, as found the same day:** C89 has no 64-bit integer. Five findings of the review come from carrying a 64-bit quantity in a `long`, a `double` or hand-packed bytes.
+**Where:** the pages above; [`analysis/2026-11-11-reviewing-our-own-decisions.md`](analysis/2026-11-11-reviewing-our-own-decisions.md) §6.1 and §6.2.
+
+<a id="dec-2026-11-11-posix"></a>
+#### 2026-11-11 (after the fact) — POSIX systems only; no native Windows port
+jichi targets POSIX systems. Windows is served through WSL.
+**Rejected alternatives, as the page argues them:** a native Win32 port, Cygwin, MSYS2 and a Zig build for Windows, each with a measured cost ([`PORTING_WINDOWS.md`](PORTING_WINDOWS.md), "Layer 3 — what a native port would require (and why not)").
+**Not recorded:** the widening of the scope to FreeDOS and FreeMiNT. [M835](#dec-m835) to [M839](#dec-m839) decide mechanisms for those systems, and no row decides that they are in scope.
+**An open contradiction:** `BUILD.md` calls a `jc_platform` layer "the clean seam" for a port; `PORTING_WINDOWS.md` measures that the platform file "is **not the seam for a non-POSIX target**".
+**Where:** [`PORTING_WINDOWS.md`](PORTING_WINDOWS.md), [`BUILD.md`](BUILD.md).
+
+<a id="dec-2026-11-11-deps"></a>
+#### 2026-11-11 (after the fact) — libcurl is the only dependency, and no third-party source is vendored
+jichi links libcurl and nothing else. Its JSON code is original and implements the cJSON API, so the upstream library could replace it as a pair; its YAML reader is a subset of its own.
+**Rejected alternatives:** an in-house HTTP client and vendoring libcurl, both in [M648](#dec-m648-2), which defends the choice with a measurement long after it was made.
+**Not weighed anywhere:** using the upstream JSON library or another one; a YAML library. Why jichi wrote its own is stated only as a property ("can replace this file"), in `src/json/cJSON.c`.
+**Where:** [M648](#dec-m648-2); [M587](#dec-m587) on the "original code" claim; `src/json/cJSON.c` (the provenance comment).
+
+<a id="dec-2026-11-11-processes"></a>
+#### 2026-11-11 (after the fact) — no threads; parallel work runs in forked processes
+The agent loop is single-threaded. `spawn_parallel` forks a pool of child processes.
+**Rejected alternative, as the page argues it:** threads, because the arenas, the signal handlers and the HTTP layer assume a single thread, and a forked child cannot corrupt its parent ([`reading/fukabori-07-fork-based-parallelism.md`](reading/fukabori-07-fork-based-parallelism.md)).
+**What follows from it:** a lead waits inside `spawn_parallel` until every child has ended, and cannot watch or stop a worker meanwhile ([`analysis/2026-11-11-the-worker-that-went-in-circles.md`](analysis/2026-11-11-the-worker-that-went-in-circles.md)).
+**Where:** the reading guide; [`PARALLEL.md`](PARALLEL.md).
+
+<a id="dec-2026-11-11-build"></a>
+#### 2026-11-11 (after the fact) — a plain Makefile that probes the toolchain
+The build is one Makefile. It asks the compiler and the C library what they can do, one small test program per question, and never asks for the system's name.
+**Rejected alternatives:** keying on `uname` and source-level `#if` tests on a platform's name, both in [M658](#dec-m658-2).
+**Not weighed anywhere:** autoconf, CMake or meson. [`BUILD.md`](BUILD.md) says only "no CMake, no autoconf".
+**Where:** [M658](#dec-m658-2), [`BUILD.md`](BUILD.md).
+
+<a id="dec-2026-11-11-files"></a>
+#### 2026-11-11 (after the fact) — state is kept in files outside the workspace, with no database
+Telemetry, run journals and the audit record are append-only files of one JSON object per line, under the user's home. A session is one JSON file, rewritten whole.
+**Rejected alternative, as the page argues it:** keeping them inside the workspace, where a rollback would take them along ([`OBSERVABILITY.md`](OBSERVABILITY.md), "Design decision — all three live *outside* the workspace").
+**Not weighed anywhere:** a database for jichi's own state; the XDG directories; an append-only journal for sessions.
+**Where:** [`OBSERVABILITY.md`](OBSERVABILITY.md).
+
+<a id="dec-2026-11-11-tui"></a>
+#### 2026-11-11 (after the fact) — an own terminal interface, with no curses and no terminfo
+The terminal interface writes a small fixed set of ANSI sequences itself.
+**Rejected alternative, as the page argues it:** asking `terminfo` what the terminal can do, or using ncurses ([`INTERFACE_TUTORIAL.md`](INTERFACE_TUTORIAL.md) §5.1, "The advice this project did not take").
+**Where:** [`INTERFACE_TUTORIAL.md`](INTERFACE_TUTORIAL.md).
+

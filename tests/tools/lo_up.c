@@ -16,6 +16,7 @@
  * Exits 0 on success, 1 on any ioctl failure. Its own printf/perror are kept:
  * it is a standalone test instrument, not a product file.
  */
+#if defined(__linux__)
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -60,3 +61,11 @@ done:
     close(fd);
     return rc;
 }
+#else
+/* Off-Linux the userns drivers that call this skip, so a clean exit-1
+ * (not a build failure) keeps the smoke tools compiling on FreeBSD where
+ * <net/if.h> needs __BSD_VISIBLE (SV:1802 P3d). */
+#include <stdio.h>
+int main(void) { printf("lo_up: Linux-only (userns drivers) -- nothing to do\n");
+  return 1; }
+#endif

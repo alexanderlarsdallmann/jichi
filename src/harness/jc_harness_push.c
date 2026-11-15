@@ -52,6 +52,14 @@
 #include <unistd.h>   /* getuid, readlink */
 #include <dirent.h>
 #include <sys/stat.h>
+#include <time.h>       /* the tick's `date '+%F %T %z'` timestamp (B2) */
+
+/* The `push tick` body (B2) needs the process clock for the consecutive-
+ * failure polling (jc_sleep_ms) and the page command's spawn (jc_proc.h is
+ * already included); no new system header beyond time.h -- the lock itself is
+ * the platform's jc_lock_take (the reference's flock, POSIX fcntl under the
+ * hood), and its log/state writes go through the same fopen-with-JC_O_BINARY
+ * discipline as the rest of the tree (portability_lint 38). */
 
 /* Paths hang off the config's dir / the mirror dir; give the joins room, the
  * same bound the fetch (jc_harness_mirror.c) and init use. */
@@ -518,6 +526,58 @@ git_m2(struct jc_sb *out, const char *mirror, const char *e_global,
                      args, nargs, stdin_data, cap);
 }
 
+/* Read ONE blob by its object SHA into a fresh jc_sb, exported -- the
+ * per-blob cat-file the TWO key scans share (M1147, H7; SV:2239). Both the
+ * M1056 `mirror push` key scan (key_scan :1434) and the records key scan
+ * (jc_hp_records.c records_key_scan) read every pushed file version with the
+ * SAME idiom -- `git cat-file blob <sha>` (the five M2 -c flags, no
+ * credential flags on a read child, M1056's 120 s cap, the capture into a
+ * jc_sb) -- and both were refusing a 0-byte blob fail-closed on the
+ * `blob.data == NULL || blob.len == 0` clause: git cat-file of an EMPTY
+ * object (e69de29..., the drive's runs/<N>/.started) SUCCEEDS (rc 0) and
+ * writes no bytes, so the capture stays jc_sb_init's untouched state
+ * (data==NULL, len==0) -- the legitimate empty read was mistaken for a read
+ * failure. ONE helper so the two copies cannot drift apart again (the
+ * records side was fixed in edb2d992; the M1056 side -- the SHIPPED 0.13.0
+ * defect, jc_harness_push.c:1506 -- had not been).
+ *
+ * THE READING CONTRACT:
+ *   0 = the blob was read (the bytes, whatever their length, are in *out).
+ *       An EMPTY blob (len 0, data NULL) IS a valid read -- that is the fix:
+ *       a 0-byte object cannot hold a secret, so the caller's secret check
+ *       sees 0 bytes and is clean.
+ *   1 = a genuine read failure (cat-file rc != 0, a spawn failure, or a
+ *       timeout): the caller's existing fail-closed refusal, its message
+ *       unchanged, prints the path and the child's output, never a secret.
+ *       `*raw_rc` receives the child's rc (e.g. 128 for a missing object)
+ *       so the caller's `(cat-file rc=%d: %s)` clause keeps its ORIGINAL
+ *       number, byte-identical to the per-loop idiom; the cap is
+ *       PUSH_BLOB_CAP (64 MiB); the read child carries no credential flags
+ *       (git_m2 :520 -- a blob read never consults the helper).
+ * `*out` is always a usable (possibly 0-byte) jc_sb the caller frees; on
+ * refusal it holds the child's stderr for the caller's `cut_copy` detail.
+ * `e_global` / `e_system` are the two GIT_CONFIG_* clearing slots
+ * (behaviour 8's isolation). `raw_rc` may be NULL when the caller does not
+ * print the number. */
+int
+jc_hp_blob_read(struct jc_sb *out, const char *mirror,
+                const char *e_global, const char *e_system,
+                const char *sha, int *raw_rc)
+{
+    const char *cargv[3];
+    int brc;
+    jc_sb_init(out);
+    cargv[0] = (char *)"cat-file";
+    cargv[1] = (char *)"blob";
+    cargv[2] = (char *)sha;
+    brc = git_m2(out, mirror, e_global, e_system, cargv, 3, NULL,
+                 PUSH_BLOB_CAP);
+    if (raw_rc != NULL) {
+        *raw_rc = brc;
+    }
+    return (brc != 0) ? 1 : 0;
+}
+
 /* The credential -c flags, ONE helper for BOTH git children (the P1 fix: the
  * ls-remote of the key-scan exclusion and the push must carry the IDENTICAL
  * credential flags, or the ls-remote against GitLab over HTTPS has no helper
@@ -527,17 +587,38 @@ git_m2(struct jc_sb *out, const char *mirror, const char *e_global,
  * SET, which git runs as `<harness> credential-helper <action>`), and -c
  * credential.useHttpPath=true (the helper's path identity, behaviour 11's
  * host guard). Returns the flag count (3), or -1 when the buffers are too
- * small. */
+ * small.
+ *
+ * LIFETIME (the M1147 setflag fix, SV:1939): `argv_out[1]` points into a
+ * buffer ALLOCATED IN THE ARENA `a` (not this function's stack frame). The
+ * SET flag is the one caller string the git children read at spawn time
+ * (`git_child` / `jc_hp_git_run` copy the pointer into their own argv and exec
+ * git, which reads the bytes); a caller that builds more strings or runs more
+ * children between building the flags and spawning the child reuses its own
+ * stack, so the pre-fix local `setflag` (PATH_CAP + 32 on THIS frame) dangled
+ * (M1056's shipped UB since 551017e6). The arena must therefore outlive the
+ * last git child that uses `argv_out[1]` (both M1056 callers pass the
+ * command's own arena, freed at the run's end). The three -c VALUES stay
+ * byte-identical to the pre-fix local form:
+ *   [0] "credential.helper="
+ *   [1] "credential.helper=<harness> credential-helper"
+ *   [2] "credential.useHttpPath=true"
+ * and the overflow refusal (harness too long -> -1) is unchanged. */
 static int
-credential_args(char *argv_out[], int cap, const char *harness)
+credential_args(struct jc_arena *a, char *argv_out[], int cap,
+                const char *harness)
 {
-    char setflag[PATH_CAP + 32];
-    if (cap < 3 || harness == NULL || harness[0] == '\0') {
+    char *setflag;
+    if (a == NULL || cap < 3 || harness == NULL || harness[0] == '\0') {
         return -1;
     }
-    if (jc_snprintf(setflag, sizeof setflag,
+    setflag = (char *)jc_arena_calloc(a, PATH_CAP + 32);
+    if (setflag == NULL) {
+        return -1;
+    }
+    if (jc_snprintf(setflag, PATH_CAP + 32,
                     "credential.helper=%s credential-helper", harness)
-        >= (int)sizeof setflag) {
+        >= (int)(PATH_CAP + 32)) {
         return -1;
     }
     argv_out[0] = (char *)"credential.helper=";
@@ -738,18 +819,12 @@ bytes_contains(const char *hay, jc_size haylen, const char *needle)
 
 /* A growing list of (sha, path, size) blob versions, parsed from a
  * `cat-file --batch-check='%(objectname) %(objecttype) %(objectsize)
- * %(rest)'` capture. */
-struct blob_list {
-    char **shas;
-    char **paths;
-    unsigned long *sizes;
-    int n;
-    int cap;
-    struct jc_arena *a;
-};
+ * %(rest)'` capture: the exported `struct jc_hp_blob_list` (jc_harness_push.h
+ * (c), M1147; SV:0038 -- the ONE list type both key scans share, so the
+ * records scan no longer keeps its own copy). */
 
 static int
-blob_push(struct blob_list *bl, const char *sha, const char *path,
+blob_push(struct jc_hp_blob_list *bl, const char *sha, const char *path,
           unsigned long size)
 {
     char *s;
@@ -793,12 +868,14 @@ blob_push(struct blob_list *bl, const char *sha, const char *path,
     return 0;
 }
 
-/* Parse the batch-check capture into `bl`. Returns 0 on success, -1 on an
- * arena failure. `text` is NUL-terminated; each line is
- * `<sha> <type> <size> <path...>` (the path is everything after the third
- * field, and may itself hold spaces). */
-static int
-parse_blobs(const char *text, struct blob_list *bl)
+/* Parse the batch-check capture into `bl` (the exported `struct
+ * jc_hp_blob_list`). Returns 0 on success, -1 on an arena failure. `text` is
+ * NUL-terminated; each line is `<sha> <type> <size> <path...>` (the path is
+ * everything after the third field, and may itself hold spaces). The records
+ * key scan (jc_hp_records.c) calls this SAME parser (SV:0038) instead of its
+ * own duplicate. */
+int
+jc_hp_parse_blobs(const char *text, struct jc_hp_blob_list *bl)
 {
     const char *p;
     int rc = 0;
@@ -1060,30 +1137,42 @@ fmt_mb(unsigned long b, char *out, size_t cap)
     jc_snprintf(out, cap, "%.1f", v);
 }
 
-/* Resolve the pushed tips ($BR/main + the $BR/work wildcard). Returns the
- * tip count in *ntips (up to PUSH_MAX_TIPS), 0 on none, -1 on a git
- * failure. */
+/* Resolve the pushed tips: $BR/main, the $BR/work wildcard and, when
+ * `push_kept` is set, every refs/kept/ ref -- the SAME refs build_refspecs
+ * pushes (M1179: the kept refs were pushed but never resolved here, so the
+ * key scan and the size check never read them, and a kept attempt carrying
+ * a secret went out after a clean scan). Returns 0 with the tip count in
+ * *ntips, -1 on a git failure, and -2 when the refs outnumber
+ * PUSH_MAX_TIPS: a tip the scan cannot carry would be pushed unscanned, so
+ * the callers refuse instead of dropping it (the cap used to drop them
+ * silently). */
 static int
 resolve_tips(char **tips, int *ntips, const char *mirror, const char *br,
-             const char *e_global, const char *e_system, struct jc_arena *a)
+             int push_kept, const char *e_global, const char *e_system,
+             struct jc_arena *a)
 {
     char pat_main[512];
     char pat_work[512];
-    const char *argv[5];
+    const char *argv[6];
     struct jc_sb out;
     const char *p;
     int rc;
+    int n = 0;
+    int over = 0;
 
     *ntips = 0;
     jc_snprintf(pat_main, sizeof pat_main, "refs/heads/%s/main", br);
     jc_snprintf(pat_work, sizeof pat_work, "refs/heads/%s/work", br);
     jc_sb_init(&out);
-    argv[0] = (char *)"for-each-ref";
-    argv[1] = (char *)pat_main;
-    argv[2] = (char *)pat_work;
-    argv[3] = (char *)"--format=%(objectname)";
-    argv[4] = NULL;
-    rc = git_m2(&out, mirror, e_global, e_system, argv, 4, NULL,
+    argv[n++] = (char *)"for-each-ref";
+    argv[n++] = (char *)pat_main;
+    argv[n++] = (char *)pat_work;
+    if (push_kept) {
+        argv[n++] = (char *)"refs/kept";
+    }
+    argv[n++] = (char *)"--format=%(objectname)";
+    argv[n] = NULL;
+    rc = git_m2(&out, mirror, e_global, e_system, argv, n, NULL,
                 PUSH_SMALL_CAP);
     if (rc != 0) {
         jc_sb_free(&out);
@@ -1097,14 +1186,20 @@ resolve_tips(char **tips, int *ntips, const char *mirror, const char *br,
             char sha[41];
             nl = strchr(p, '\n');
             ll = (nl != NULL) ? (jc_size)(nl - p) : (jc_size)strlen(p);
-            if (ll == 40 && *ntips < PUSH_MAX_TIPS) {
+            if (ll == 40 && *ntips >= PUSH_MAX_TIPS) {
+                over = 1;
+            } else if (ll == 40) {
                 memcpy(sha, p, 40);
                 sha[40] = '\0';
                 tips[*ntips] = (char *)jc_arena_calloc(a, 41);
-                if (tips[*ntips] != NULL) {
-                    memcpy(tips[*ntips], sha, 41);
-                    (*ntips)++;
+                if (tips[*ntips] == NULL) {
+                    /* A tip that cannot be kept is a tip the scan would
+                     * not read: fail, never skip it (M1179). */
+                    jc_sb_free(&out);
+                    return -1;
                 }
+                memcpy(tips[*ntips], sha, 41);
+                (*ntips)++;
             }
             if (nl == NULL) {
                 break;
@@ -1113,7 +1208,7 @@ resolve_tips(char **tips, int *ntips, const char *mirror, const char *br,
         }
     }
     jc_sb_free(&out);
-    return 0;
+    return over ? -2 : 0;
 }
 
 /* Fill `excl` with the remote's current tips (by ls-remote of the stored
@@ -1156,7 +1251,7 @@ build_exclusion(struct sha_set *excl, const char *mirror,
         is_file = (stored_url != NULL && strstr(stored_url, "://") == NULL)
                   || (stored_url != NULL &&
                       strncmp(stored_url, "file://", 7) == 0);
-        nx = credential_args(xflags, 3, harness_path);
+        nx = credential_args(a, xflags, 3, harness_path);
         if (nx < 0) {
             return -1;
         }
@@ -1237,13 +1332,22 @@ build_exclusion(struct sha_set *excl, const char *mirror,
                 cargv[3] = NULL;
                 jc_sb_free(&out);
                 jc_sb_init(&out);
-                if (git_m2(&out, mirror, e_global, e_system, cargv, 3, NULL,
-                           PUSH_SMALL_CAP) == 0) {
+                /* The caller owns the cat-file -e capture: jc_sb_free after the
+                 * git_m2 returns, on EVERY path. The old form freed only inside
+                 * the `== 0` branch and then jc_sb_init'd unconditionally -- on
+                 * the non-zero path (a tip absent from the mirror, the expected
+                 * case) the allocated buffer was abandoned and the loop-end
+                 * re-init dropped its pointer. That is the H7 gate's 384-byte-in-
+                 * 3-objects leak: a per-tip capture the loop-end re-init never
+                 * freed. lscopy (the arena listing) is parsed before the loop,
+                 * so freeing `out` here touches nothing it holds. */
+                rc = git_m2(&out, mirror, e_global, e_system, cargv, 3, NULL,
+                            PUSH_SMALL_CAP);
+                jc_sb_free(&out);
+                if (rc == 0) {
                     if (set_add(excl, sha) != 0) {
-                        jc_sb_free(&out);
                         return -1;
                     }
-                    jc_sb_free(&out);
                 }
                 jc_sb_init(&out);
             }
@@ -1403,7 +1507,7 @@ list_pushed_bc(char **tips, int ntips, const struct sha_set *excl,
  * refuses (fail-closed). Returns 0 when clean, 1 when refused. */
 static int
 key_scan(const char *mirror, const char *stored_url, const char *br,
-         const char *model_key, const char *git_token,
+         int push_kept, const char *model_key, const char *git_token,
          const char *e_global, const char *e_system, struct jc_arena *a,
          const char *git_token_file, const char *harness_path)
 {
@@ -1413,17 +1517,28 @@ key_scan(const char *mirror, const char *stored_url, const char *br,
     struct sha_set cseen;
     struct jc_sb out;
     char env_url[512];
-    struct blob_list bl;
+    struct jc_hp_blob_list bl;
     int key_ok;
     int commits;
     int n;
     int i;
     int bad = 0;
 
-    if (resolve_tips(tips, &ntips, mirror, br, e_global, e_system, a) != 0) {
+    n = resolve_tips(tips, &ntips, mirror, br, push_kept, e_global,
+                     e_system, a);
+    if (n == -2) {
+        refuse("the key scan: the push would send more than %d tips "
+               "(%s/main, %s/work%s), more than the scan can carry; the push "
+               "is refused (fail-closed: a tip the scan cannot read would go "
+               "out unscanned)", PUSH_MAX_TIPS, br, br,
+               push_kept ? " and the kept refs" : "");
+        return 1;
+    }
+    if (n != 0) {
         refuse("the key scan could not list the pushed tips in the mirror "
-               "(`git for-each-ref` of %s/main and %s/work failed); the push "
-               "is refused (fail-closed)", br, br);
+               "(`git for-each-ref` of %s/main and %s/work%s failed); the "
+               "push is refused (fail-closed)", br, br,
+               push_kept ? " and refs/kept" : "");
         return 1;
     }
     if (ntips == 0) {
@@ -1456,7 +1571,7 @@ key_scan(const char *mirror, const char *stored_url, const char *br,
     memset(&cseen, 0, sizeof cseen);
     cseen.a = a;
     commits = count_commit_oids(out.data, &cseen);
-    if (parse_blobs(out.data, &bl) != 0) {
+    if (jc_hp_parse_blobs(out.data, &bl) != 0) {
         refuse("the key scan could not read the pushed file versions; the "
                "push is refused (fail-closed)");
         jc_sb_free(&out);
@@ -1465,16 +1580,17 @@ key_scan(const char *mirror, const char *stored_url, const char *br,
     n = bl.n;
     for (i = 0; i < n; i++) {
         struct jc_sb blob;
-        const char *cargv[4];
         int brc;
-        jc_sb_init(&blob);
-        cargv[0] = (char *)"cat-file";
-        cargv[1] = (char *)"blob";
-        cargv[2] = bl.shas[i];
-        cargv[3] = NULL;
-        brc = git_m2(&blob, mirror, e_global, e_system, cargv, 3, NULL,
-                     PUSH_BLOB_CAP);
-        if (brc != 0 || blob.data == NULL || blob.len == 0) {
+        /* ONE per-blob read (jc_hp_blob_read :543, the records scan's
+         * shared helper, SV:2239): 0 = read (the bytes may be EMPTY -- a
+         * 0-byte blob is a valid, CLEAN read, not a failure), 1 = a genuine
+         * cat-file failure (brc != 0), brc = the child's rc for the
+         * refusal's `(cat-file rc=%d: %s)` clause (byte-identical wording).
+         * The pre-fix condition here ALSO refused on `blob.data == NULL ||
+         * blob.len == 0`, which mistook the legitimate empty read (rc 0, no
+         * bytes) for a failure -- the shipped 0.13.0 defect (was :1506). */
+        if (jc_hp_blob_read(&blob, mirror, e_global, e_system, bl.shas[i],
+                            &brc) != 0) {
             char cut[224];
             cut_copy(cut, sizeof cut, blob.data);
             refuse("the key scan: the pushed file version %s (%s) could not "
@@ -1513,15 +1629,16 @@ key_scan(const char *mirror, const char *stored_url, const char *br,
  * within the limits, 1 when refused. */
 static int
 size_check(const char *mirror, const char *stored_url, const char *br,
-           const char *e_global, const char *e_system, struct jc_arena *a,
-           const char *git_token_file, const char *harness_path)
+           int push_kept, const char *e_global, const char *e_system,
+           struct jc_arena *a, const char *git_token_file,
+           const char *harness_path)
 {
     char *tips[PUSH_MAX_TIPS];
     int ntips = 0;
     struct sha_set excl;
     struct jc_sb out;
     char env_url[512];
-    struct blob_list bl;
+    struct jc_hp_blob_list bl;
     int size_ok;
     int n;
     int i;
@@ -1531,7 +1648,15 @@ size_check(const char *mirror, const char *stored_url, const char *br,
     struct dir_bytes dirs[32];
     int ndirs = 0;
 
-    if (resolve_tips(tips, &ntips, mirror, br, e_global, e_system, a) != 0) {
+    n = resolve_tips(tips, &ntips, mirror, br, push_kept, e_global,
+                     e_system, a);
+    if (n == -2) {
+        refuse("the size check: the push would send more than %d tips, more "
+               "than the check can carry; the push is refused (fail-closed)",
+               PUSH_MAX_TIPS);
+        return 1;
+    }
+    if (n != 0) {
         refuse("the size check could not list the pushed tips; the "
                "push is refused (fail-closed)");
         return 1;
@@ -1559,7 +1684,7 @@ size_check(const char *mirror, const char *stored_url, const char *br,
     }
     memset(&bl, 0, sizeof bl);
     bl.a = a;
-    if (parse_blobs(out.data, &bl) != 0) {
+    if (jc_hp_parse_blobs(out.data, &bl) != 0) {
         refuse("the size check could not read the pushed file versions; the "
                "push is refused (fail-closed)");
         jc_sb_free(&out);
@@ -1795,13 +1920,14 @@ jc_harness_mirror_push_run(const char *config_path,
     }
     /* The C key scan, then the C size check, over the same range (the port
      * runs them as pre-push gates, not hooks the agent could edit). */
-    if (key_scan(mirror_dir, stored_url, cfg.drive_branch_prefix, model_key,
-                 git_token, e_global, e_system, a, cfg.git_token_file,
-                 harness_path) != 0) {
+    if (key_scan(mirror_dir, stored_url, cfg.drive_branch_prefix, push_kept,
+                 model_key, git_token, e_global, e_system, a,
+                 cfg.git_token_file, harness_path) != 0) {
         return 1;
     }
-    if (size_check(mirror_dir, stored_url, cfg.drive_branch_prefix, e_global,
-                   e_system, a, cfg.git_token_file, harness_path) != 0) {
+    if (size_check(mirror_dir, stored_url, cfg.drive_branch_prefix, push_kept,
+                   e_global, e_system, a, cfg.git_token_file,
+                   harness_path) != 0) {
         return 1;
     }
     /* Step 4: the push, by the stored absolute URL (never the `origin`
@@ -1834,7 +1960,7 @@ jc_harness_mirror_push_run(const char *config_path,
             is_file = (stored_url != NULL && strstr(stored_url, "://") == NULL)
                       || (stored_url != NULL &&
                           strncmp(stored_url, "file://", 7) == 0);
-            nc = credential_args(cflags, 6, harness_path);
+            nc = credential_args(a, cflags, 6, harness_path);
             if (nc < 0) {
                 refuse("the credential -c flags could not be built (the "
                        "harness path is too long); the push is refused");
@@ -1883,9 +2009,9 @@ jc_harness_mirror_push_run(const char *config_path,
         rc = git_child(&out, mirror_dir, e_global, e_system, cflags, nc,
                        penv, ne, args, an, NULL, PUSH_SMALL_CAP);
         if (rc == 0) {
-            say("pushed %s/main and the %s/work refset to %s",
+            say("pushed %s/main and the %s/work refset%s to %s",
                 cfg.drive_branch_prefix, cfg.drive_branch_prefix,
-                stored_url);
+                push_kept ? " and the kept refs" : "", stored_url);
             jc_sb_free(&out);
             return 0;
         }
@@ -1964,4 +2090,619 @@ jc_harness_mirror_push_run(const char *config_path,
     }
     /* Unreachable: every git_child rc path above returns. */
     return 1;
+}
+
+/* =====================================================================
+ * M1147 (H7): shared helpers for the push subcommand files.
+ *
+ * The `push` verb's five subcommand BODIES live in their OWN files (one
+ * file per owner, so the parallel pool's per-file merge can land all of
+ * them: jc_hp_records.c / jc_hp_tick.c / jc_hp_backlog.c / jc_hp_units.c
+ * / jc_hp_rundrive.c). They code against the primitives below, which are
+ * the M1056 `mirror push` git-child / credential / secret / range-rule
+ * locals EXPORTED so the host push does not re-derive them. M1056's own
+ * code above (including its static `credential_args`, `credential_env`,
+ * `load_secret`, `bytes_contains`, `resolve_tips`, `build_exclusion`,
+ * `list_pushed`, `list_pushed_bc`) is called by these, not copied -- EXCEPT
+ * `credential_args`, which the M1147 setflag fix (SV:1939) reshaped to take
+ * an arena so its SET flag survives the caller's later stack use (it now
+ * allocates `argv_out[1]` in the caller's arena rather than returning a
+ * pointer into its own dead stack frame; the three -c VALUES are unchanged).
+ * The range-rule / secret / git-child exports are thin wrappers that CALL it.
+ * See jc_harness_push.h for the full contract.
+ * ===================================================================== */
+
+/* One git child, exported. Mirrors M1056's static `git_child` (:466) in
+ * flags/env/timeout, reshaped to the body workers' argv:
+ *   git -c core.fsmonitor= -c log.showSignature=false
+ *       -c commit.gpgsign=false -c core.hooksPath=/dev/null
+ *       -c core.alternateRefsCommand= [-C <workdir>]
+ *       [-c <cred_flags[i]>...] <args[0]..args[n_args-1]>
+ * i.e. the five M2 -c flags come FIRST (the M2 neutralisation, M1056's),
+ * then -C workdir (omitted when workdir is NULL), then the credential
+ * -c flags (each is a full `key=value` string; the -c prefix is added
+ * here, exactly as M1056's git_child adds -c to its extra_c entries),
+ * then the caller's args (args[0] is `git`'s own subcommand, e.g.
+ * "push" / "fetch" / "ls-remote").
+ *
+ * env: the two GIT_CONFIG_ clearing slots + the n_env credential env
+ * slots (in order). M1056 points GIT_CONFIG_GLOBAL/SYSTEM at two empty
+ * files it creates under cfg.dir; this export has no base-dir parameter,
+ * so it points them at /dev/null (the file-free idiom for the same
+ * isolation: an empty, always-readable config). CHOOSE, documented:
+ * the -c M2 flags are the real neutralisation and match M1056 byte-for-
+ * byte; only the GIT_CONFIG_ target differs (empty file -> /dev/null),
+ * and only because the fixed signature carries no dir to create them in.
+ *
+ * timeout: M1056 caps every git child at PUSH_TIMEOUT (120 s). The
+ * reference host scripts (push.sh) run git with NO cap; per the task I
+ * KEEP M1056's cap (jc_proc_capture timeout 120L, abort NULL) rather
+ * than drop it, so a hung git child cannot wedge a host tick. Documented.
+ *
+ * out: the child's combined stdout+stderr, truncated to max_out bytes
+ * (the caller's buffer is at least max_out, NUL-terminated). err_line:
+ * the FIRST non-empty line of that output (for refusals -- git's own
+ * `! [rejected] ...` / `error:` line), truncated to 512 bytes (the
+ * caller's buffer is at least 512, NUL-terminated). Returns
+ * jc_proc_capture's code: the child's exit status, -1 on spawn failure,
+ * -2 on timeout/abort. */
+int
+jc_hp_git_run(struct jc_arena *a, const char *workdir,
+              char *cred_flags[4], int n_cred,
+              const char *cred_env[4], int n_env,
+              const char *args[], int n_args,
+              int max_out, char *out, char *err_line)
+{
+    char *argv[64];
+    struct jc_vec envv;
+    struct jc_sb cap;
+    char *env_global = (char *)"GIT_CONFIG_GLOBAL=/dev/null";
+    char *env_system = (char *)"GIT_CONFIG_SYSTEM=/dev/null";
+    int k = 0;
+    int i;
+    int rc;
+    int copyn;
+
+    (void)a;
+    if (n_args > 48 || n_cred > 4 || n_env > 4 || max_out < 1) {
+        if (out != NULL) { out[0] = '\0'; }
+        if (err_line != NULL) { err_line[0] = '\0'; }
+        return -1;
+    }
+    /* M1151c (SV:1339): the per-input bounds above can all pass while the
+     * SUM still overruns the array: at the guard's own limits (workdir set,
+     * n_cred 4, n_args 48) the build below would write
+     * 11 (git + five -c pairs) + 2 (-C workdir) + 8 (the credential -c
+     * pairs) + 48 (args) + 1 (NULL) = 70 entries into argv[64]. Bound the
+     * total, and let IT refuse -- before any argv write. */
+    {
+        int total = 11; /* git + the five -c pairs */
+        if (workdir != NULL && workdir[0] != '\0') {
+            total += 2; /* -C workdir */
+        }
+        total += 2 * n_cred;
+        total += n_args;
+        total += 1;     /* the terminating NULL */
+        if (total > 64) {
+            if (out != NULL) { out[0] = '\0'; }
+            if (err_line != NULL) { err_line[0] = '\0'; }
+            return -1;
+        }
+    }
+    argv[k++] = (char *)"git";
+    argv[k++] = (char *)"-c"; argv[k++] = (char *)"core.fsmonitor=";
+    argv[k++] = (char *)"-c"; argv[k++] = (char *)"log.showSignature=false";
+    argv[k++] = (char *)"-c"; argv[k++] = (char *)"commit.gpgsign=false";
+    argv[k++] = (char *)"-c"; argv[k++] = (char *)"core.hooksPath=/dev/null";
+    argv[k++] = (char *)"-c"; argv[k++] = (char *)"core.alternateRefsCommand=";
+    if (workdir != NULL && workdir[0] != '\0') {
+        argv[k++] = (char *)"-C";
+        argv[k++] = (char *)workdir;
+    }
+    for (i = 0; i < n_cred; i++) {
+        argv[k++] = (char *)"-c";
+        argv[k++] = (char *)cred_flags[i];
+    }
+    for (i = 0; i < n_args; i++) {
+        argv[k++] = (char *)args[i];
+    }
+    argv[k] = NULL;
+
+    {
+        /* jc_vec stores elements BY VALUE (sizeof(char*) bytes), so the
+         * argument to jc_vec_push must be the ADDRESS of a char* holding the
+         * string -- NOT the address of the literal's first character (which
+         * would copy the raw string bytes into the pointer slot, and
+         * child_apply_env's *(char**) would dereference garbage, failing
+         * every spawn). */
+        jc_vec_init(&envv, sizeof(char *));
+        if (jc_vec_push(&envv, &env_global) != JC_OK ||
+            jc_vec_push(&envv, &env_system) != JC_OK) {
+            jc_vec_free(&envv);
+            if (out != NULL) { out[0] = '\0'; }
+            if (err_line != NULL) { err_line[0] = '\0'; }
+            return -1;
+        }
+    }
+    for (i = 0; i < n_env; i++) {
+        if (jc_vec_push(&envv, &cred_env[i]) != JC_OK) {
+            jc_vec_free(&envv);
+            if (out != NULL) { out[0] = '\0'; }
+            if (err_line != NULL) { err_line[0] = '\0'; }
+            return -1;
+        }
+    }
+    jc_sb_init(&cap);
+    rc = (int)jc_proc_capture(argv, &envv, NULL, &cap, (jc_size)max_out,
+                              PUSH_TIMEOUT, NULL);
+    jc_vec_free(&envv);
+    /* out: combined stdout+stderr truncated to max_out. */
+    if (out != NULL) {
+        copyn = (int)cap.len;
+        if (copyn > max_out - 1) {
+            copyn = max_out - 1;
+        }
+        if (cap.data != NULL && copyn > 0) {
+            memcpy(out, cap.data, (jc_size)copyn);
+        }
+        out[copyn] = '\0';
+    }
+    /* err_line: first non-empty line, truncated to 512. */
+    if (err_line != NULL) {
+        const char *p = cap.data;
+        int line_start = 0;
+        int found = 0;
+        err_line[0] = '\0';
+        p = p != NULL ? p : "";
+        while (*p != '\0' && !found) {
+            const char *nl = strchr(p, '\n');
+            int llen = (nl != NULL) ? (int)(nl - p) : (int)strlen(p);
+            int e = line_start + llen;
+            int s = line_start;
+            while (s < e && (p[s] == ' ' || p[s] == '\t')) {
+                s++;
+            }
+            if (s < e) {
+                int n = e - s;
+                if (n > 511) {
+                    n = 511;
+                }
+                memcpy(err_line, p + s, (jc_size)n);
+                err_line[n] = '\0';
+                found = 1;
+            }
+            if (nl == NULL) {
+                break;
+            }
+            line_start = (int)(nl - cap.data) + 1;
+            p = nl + 1;
+        }
+    }
+    jc_sb_free(&cap);
+    return rc;
+}
+
+/* The credential -c flags, exported: ONE THIN wrapper over M1056's fixed
+ * static `credential_args` (the M1147 setflag fix, SV:1939 -- the ONE
+ * helper, not a second copy). Fills `flags` with the three -c VALUES, in
+ * order:
+ *   [0] "credential.helper="                            (the RESET)
+ *   [1] "credential.helper=<harness_path> credential-helper" (the SET,
+ *       the two-word helper spec git runs as `<harness> credential-helper
+ *       <action>`)
+ *   [2] "credential.useHttpPath=true"                   (the path identity)
+ * and returns the count (3), or -1 on a NULL / too-short argument (the
+ * overflow refusal is credential_args' own). LIFETIME: `flags[1]` is the
+ * SET-flag string ALLOCATED IN THE ARENA `a`, so it survives every git child
+ * the caller runs with it -- a1's earlier export re-implemented the flag on
+ * its own 512-byte buffer AND guessed credential params (token_file /
+ * user_rule / url) the real three flags never needed; that broken second
+ * copy is gone, and this wrapper calls the fixed helper instead. The caller
+ * passes `a` (an arena that outlives the last child) and frees it. */
+int
+jc_hp_cred_flags(struct jc_arena *a, const char *harness_path,
+                 char *flags[4])
+{
+    int n;
+    n = credential_args(a, flags, 4, harness_path);
+    if (n >= 0) {
+        flags[3] = NULL;
+    }
+    return n;
+}
+
+/* The three credential identity env vars, exported. Mirrors M1056's static
+ * `credential_env` (:565) and the three NAME=value strings M1056 builds in
+ * build_exclusion (:1171-1187) / the push child (:1851-1868):
+ *   [0] "JICHI_HARNESS_GIT_TOKEN_FILE=<token_file>"   (the token FILE path)
+ *   [1] "JICHI_HARNESS_CRED_RULE=<none|oauth2>"       (derived from url)
+ *   [2] "JICHI_HARNESS_CRED_URL=<url>"                (the stored remote URL)
+ * The rule is `none` for a file/local URL (no scheme, or file://) and
+ * `oauth2` for a scheme URL -- the same test M1056 uses (:1163, :1842).
+ *
+ * SIGNATURE / LIFETIME CONTRACT (CHOOSE, documented): `env_out` is `char **`
+ * (the declared `char *env_out[4]` decays to it). This export is void and has
+ * no arena parameter, so it CANNOT allocate the three strings; the CALLER
+ * provides the storage. The caller declares three 512-byte buffers and passes
+ * `env_out = &bufs`, where `bufs` is a 4-element array of char* each pointing
+ * at one 512-byte buffer (or env_out[i] = a 512-byte array address). This
+ * function formats the three NAME=value strings into env_out[0], env_out[1],
+ * env_out[2] (checking they fit each 512-byte buffer; on overflow it leaves
+ * that buffer empty and the caller must refuse). The strings live in the
+ * CALLER's buffers, so they survive every git child the caller runs with
+ * them -- the same lifetime the dangling-setflag fix gives the credential
+ * flags. M1056's local credential_env (a pure ordering of caller-prebuilt
+ * strings) is UNCHANGED.
+ *
+ * `user_rule` is reserved (NULL when the caller has none) and ignored: the
+ * rule string is always derived from `url` as above, exactly M1056's test. */
+void
+jc_hp_cred_env(const char *token_file, const char *user_rule,
+               const char *url, char *env_out[4])
+{
+    (void)user_rule;   /* reserved; the rule is derived from url (M1056) */
+    if (env_out == NULL || env_out[0] == NULL || env_out[1] == NULL ||
+        env_out[2] == NULL) {
+        return;
+    }
+    env_out[0][0] = '\0';
+    env_out[1][0] = '\0';
+    env_out[2][0] = '\0';
+    if (token_file == NULL || url == NULL) {
+        return;
+    }
+    {
+        int is_file;
+        const char *rule;
+        is_file = (strstr(url, "://") == NULL) ||
+                  (strncmp(url, "file://", 7) == 0);
+        rule = is_file ? "none" : "oauth2";
+        if (jc_snprintf(env_out[0], 512, "JICHI_HARNESS_GIT_TOKEN_FILE=%s",
+                        token_file) < 0) {
+            env_out[0][0] = '\0';
+        }
+        if (jc_snprintf(env_out[1], 512, "JICHI_HARNESS_CRED_RULE=%s", rule)
+            < 0) {
+            env_out[1][0] = '\0';
+        }
+        if (jc_snprintf(env_out[2], 512, "JICHI_HARNESS_CRED_URL=%s", url)
+            < 0) {
+            env_out[2][0] = '\0';
+        }
+    }
+}
+
+/* Load one secret by reference (the model key or the git token), exported.
+ * Mirrors M1056's static `load_secret` (:680) + SECRET_MIN_LEN (12) + the
+ * `tr -d ' \t\r\n'` whitespace trim: it reads the file the config names,
+ * trims leading/trailing/embedded space/tab/CR/LF, and requires the trimmed
+ * value to be at least SECRET_MIN_LEN (12) bytes (a real secret, not a
+ * placeholder). Returns 0 on success (*out = the arena-allocated trimmed
+ * secret, NUL-terminated; *out_len = the trimmed byte length, excluding the
+ * terminator), or 1 on refusal (*out = the path, or "" when no path was
+ * given, so the caller's path-named refusal line is never NULL; *out_len =
+ * 0). The refusal cases are: the file is missing / unreadable, or the
+ * trimmed value is shorter than the minimum. THIS EXPORT PRINTS NOTHING --
+ * the caller prints the path-named refusal line (the bytes are never used).
+ * M1056's local load_secret (which prints its own label-named line and
+ * returns -1/-2) is UNCHANGED. */
+int
+jc_hp_load_secret(struct jc_arena *a, const char *path, char **out, int *out_len)
+{
+    char *raw = NULL;
+    jc_size rlen = 0;
+    char *trim;
+    jc_size i;
+    jc_size k = 0;
+    jc_status st;
+    if (out == NULL || out_len == NULL) {
+        return 1;
+    }
+    *out_len = 0;
+    if (path == NULL || path[0] == '\0') {
+        *out = (char *)"";
+        return 1;
+    }
+    *out = (char *)path;
+    st = jc_read_file(path, &raw, &rlen, a);
+    if (st != JC_OK) {
+        return 1;
+    }
+    trim = (char *)jc_arena_calloc(a, rlen + 1);
+    if (trim == NULL) {
+        return 1;
+    }
+    for (i = 0; i < rlen; i++) {
+        char c = raw[i];
+        if (c != ' ' && c != '\t' && c != '\r' && c != '\n') {
+            trim[k++] = c;
+        }
+    }
+    trim[k] = '\0';
+    if (k < (jc_size)SECRET_MIN_LEN) {
+        return 1;
+    }
+    *out = trim;
+    *out_len = (int)k;
+    return 0;
+}
+
+/* A NUL-safe substring search over raw bytes, exported. Mirrors M1056's
+ * static `bytes_contains` (:727): the secrets contain no NUL, so the needle
+ * is NUL-terminated; a blob may hold NULs. `needle_len` is the needle's byte
+ * length (a 0-length needle is always found, M1056's behaviour). Returns 1
+ * when the needle occurs in the hay, 0 otherwise. M1056's local
+ * bytes_contains is UNCHANGED. */
+int
+jc_hp_bytes_contains(const char *hay, int hay_len, const char *needle,
+                     int needle_len)
+{
+    int i;
+    if (needle_len == 0) {
+        return 1;
+    }
+    if (hay == NULL || needle == NULL || hay_len < needle_len) {
+        return 0;
+    }
+    for (i = 0; i + needle_len <= hay_len; i++) {
+        if (memcmp(hay + i, needle, (jc_size)needle_len) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * The range-rule exports (the "objects the push adds" computation), the two
+ * shapes the subcommand bodies need. Both CALL M1056's static scan machinery
+ * (build_exclusion :1135, set_add :907, list_pushed :1311, git_child :466)
+ * rather than re-implementing it, so they stay in behaviour with the
+ * `mirror push` key-scan / size-check range. The output is the pushed-object
+ * list (the unique object OIDs reachable from the tip(s) and from NONE of the
+ * exclusion set), arena-allocated as `char ***out_shas` + `int *out_count`.
+ *
+ * The rev-list form M1056 uses (list_pushed :1311):
+ *   git rev-list --objects <tips> ^<excl...> --not --remotes=origin
+ * i.e. reachable from the tip(s) minus the exclusion set minus the remote's
+ * tracking refs. That IS the "delta the push adds" -- the range both the
+ * records key scan (B1) and the backlog step's key scan + size check (B3,
+ * "both checks on") need.
+ * ------------------------------------------------------------------------- */
+
+/* Resolve one ref (an explicit branch tip or a commit-ish) to its 40-char
+ * object SHA, or NULL on a git failure. Reuses M1056's git_child via the
+ * same `rev-parse` read-child idiom (git_m2 :520, no credential flags on the
+ * read children). `a` owns the returned string. */
+static char *
+hp_resolve_ref_sha(const char *mirror, const char *ref,
+                   const char *e_global, const char *e_system,
+                   struct jc_arena *a)
+{
+    const char *cargv[2];
+    struct jc_sb out;
+    char *first;
+    int rc;
+    cargv[0] = (char *)"rev-parse";
+    cargv[1] = (char *)ref;
+    jc_sb_init(&out);
+    rc = git_m2(&out, mirror, e_global, e_system, cargv, 2, NULL,
+                PUSH_SMALL_CAP);
+    if (rc != 0) {
+        jc_sb_free(&out);
+        return NULL;
+    }
+    first = first_line(&out, a);
+    jc_sb_free(&out);
+    return first;
+}
+
+/* Parse a `git rev-list --objects` capture into the unique object OIDs,
+ * arena-allocated. Each line is `<40-hex-sha> [<path>]`; only the first 40
+ * chars (the object SHA) are kept, deduplicated. Sets *out_count / *out_shas.
+ * Returns 0 on success (the list may be empty), -1 on an arena failure. */
+static int
+hp_range_shas(const struct jc_sb *rev, struct jc_arena *a,
+              char ***out_shas, int *out_count)
+{
+    char **shas;
+    int cap = 64;
+    int n = 0;
+    const char *p;
+    *out_shas = NULL;
+    *out_count = 0;
+    shas = (char **)jc_arena_calloc(a, (jc_size)cap * sizeof(char *));
+    if (shas == NULL) {
+        return -1;
+    }
+    p = rev->data;
+    if (p == NULL) {
+        *out_shas = shas;
+        return 0;
+    }
+    while (*p != '\0') {
+        const char *nl = strchr(p, '\n');
+        int ll = (nl != NULL) ? (int)(nl - p) : (int)strlen(p);
+        int i;
+        int is_sha = 1;
+        if (ll >= 40) {
+            for (i = 0; i < 40; i++) {
+                char c = p[i];
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+                      (c >= 'A' && c <= 'F'))) {
+                    is_sha = 0;
+                    break;
+                }
+            }
+        } else {
+            is_sha = 0;
+        }
+        if (is_sha && (p[40] == ' ' || p[40] == '\0')) {
+            int dup = 0;
+            char *s = (char *)jc_arena_calloc(a, 41);
+            if (s == NULL) {
+                return -1;
+            }
+            memcpy(s, p, 40);
+            s[40] = '\0';
+            for (i = 0; i < n; i++) {
+                if (strcmp(shas[i], s) == 0) {
+                    dup = 1;
+                    break;
+                }
+            }
+            if (!dup) {
+                if (n == cap) {
+                    cap *= 2;
+                    {
+                        char **grown =
+                            (char **)jc_arena_calloc(a, (jc_size)cap *
+                                                     sizeof(char *));
+                        if (grown == NULL) {
+                            return -1;
+                        }
+                        memcpy(grown, shas, (jc_size)n * sizeof(char *));
+                        shas = grown;
+                    }
+                }
+                shas[n++] = s;
+            }
+        }
+        if (nl == NULL) {
+            break;
+        }
+        p = nl + 1;
+    }
+    *out_shas = shas;
+    *out_count = n;
+    return 0;
+}
+
+/* (a) records (B1): the objects reachable from the explicit tip ref
+ * `refs/heads/<prefix>/records` in the recs repo, minus the remote's current
+ * tips (ls-remote of the stored recs URL) and minus the recs repo's tracking
+ * refs -- M1056's exact range rule (notes/M1147.md B1.2: "a ref new to the
+ * remote counts everything"). Parameters:
+ *   a            -- the arena owning the returned shas.
+ *   mirror       -- the recs repo (a plain non-bare repo, B1.1).
+ *   tip_ref      -- the explicit tip, e.g. "refs/heads/<prefix>/records".
+ *   stored_url   -- the recs stored origin URL (parsed from
+ *                   recs.git-config.harness-copy) -- the ls-remote target.
+ *   e_global     -- the "GIT_CONFIG_GLOBAL=<path>" env-slot string (M1056's
+ *                   make_empty_env_files output; behaviour 8's isolation).
+ *   e_system     -- the "GIT_CONFIG_SYSTEM=<path>" env-slot string.
+ *   git_token_file -- the git-token file PATH (the credential helper reads
+ *                     it; the ls-remote child's identity env).
+ *   harness_path -- the harness's own path (readlink /proc/self/exe), for
+ *                     the credential.helper=<path> credential-helper flag.
+ *   out_shas     -- receives the arena-allocated pushed-object OID array.
+ *   out_count    -- receives its length (0 when nothing is new).
+ * Returns 0 on success (the list may be empty), -1 on a git / arena failure
+ * (fail-closed: the caller refuses -- a scan that cannot run is never a
+ * pass, M1056 behaviour 14). */
+int
+jc_hp_records_scan(struct jc_arena *a, const char *mirror,
+                   const char *tip_ref, const char *stored_url,
+                   const char *e_global, const char *e_system,
+                   const char *git_token_file, const char *harness_path,
+                   char ***out_shas, int *out_count)
+{
+    char *tip;
+    char *env_url;
+    struct sha_set excl;
+    struct jc_sb rev;
+    int ok;
+    int rc;
+
+    *out_shas = NULL;
+    *out_count = 0;
+    /* Resolve the explicit tip ref to its SHA (the orphan records branch). */
+    tip = hp_resolve_ref_sha(mirror, tip_ref, e_global, e_system, a);
+    if (tip == NULL) {
+        return -1;
+    }
+    /* The exclusion set: the remote's current tips (ls-remote of stored_url)
+     * plus the recs repo's tracking refs -- M1056's build_exclusion, which
+     * builds its OWN credential child internally (the reset-then-set flags +
+     * identity env), so the wrapper passes no credential args of its own. */
+    memset(&excl, 0, sizeof excl);
+    excl.a = a;
+    env_url = (char *)jc_arena_calloc(a, 512);
+    if (env_url == NULL) {
+        return -1;
+    }
+    if (build_exclusion(&excl, mirror, stored_url, e_global, e_system,
+                        env_url, a, git_token_file, harness_path) != 0) {
+        return -1;
+    }
+    /* M1056's list_pushed : `git rev-list --objects <tip> ^<excl>
+     * --not --remotes=origin` -- the exact "what the push adds" range. The
+     * `--not --remotes=origin` is the recs tracking-refs exclusion B1.2
+     * wants (build_exclusion's for-each-ref already added them as `^` too,
+     * belt-and-suspenders, as in M1056). */
+    rev = list_pushed(&tip, 1, &excl, mirror, e_global, e_system, &ok);
+    if (ok == 0) {
+        jc_sb_free(&rev);
+        return -1;
+    }
+    rc = hp_range_shas(&rev, a, out_shas, out_count);
+    jc_sb_free(&rev);
+    return rc;
+}
+
+/* (b) backlog (B3): the objects reachable from an explicit TIP commit, minus
+ * the current remote main tip (the step's delta; "both checks on" -- the key
+ * scan + size check run over this range, M1056 behaviour 7). The caller
+ * supplies the remote main tip's 40-char SHA (after a fetch,
+ * `git rev-parse refs/remotes/origin/<BR>/main`). Parameters:
+ *   a            -- the arena owning the returned shas.
+ *   mirror       -- the team repo (push.git / the mirror, B3).
+ *   tip_commit   -- the TIP's 40-char SHA (a commit on refs/heads/<BR>/main).
+ *   remote_main  -- the current remote <BR>/main tip's 40-char SHA (the
+ *                   single exclusion, the step's lower bound).
+ *   e_global     -- the "GIT_CONFIG_GLOBAL=<path>" env-slot string.
+ *   e_system     -- the "GIT_CONFIG_SYSTEM=<path>" env-slot string.
+ *   out_shas     -- receives the arena-allocated pushed-object OID array.
+ *   out_count    -- receives its length (0 when the TIP adds nothing).
+ * Returns 0 on success (the list may be empty), -1 on a git / arena failure
+ * (fail-closed). This reuses M1056's set_add (:907) + list_pushed (:1311);
+ * the exclusion set is just {remote_main} plus list_pushed's own
+ * `--not --remotes=origin` (the remote's tracking refs), so the range is
+ * "reachable from the TIP and not on the remote" -- the step's delta. */
+int
+jc_hp_tip_delta_scan(struct jc_arena *a, const char *mirror,
+                     const char *tip_commit, const char *remote_main,
+                     const char *e_global, const char *e_system,
+                     char ***out_shas, int *out_count)
+{
+    char *tip;
+    struct sha_set excl;
+    struct jc_sb rev;
+    int ok;
+    int rc;
+    *out_shas = NULL;
+    *out_count = 0;
+    if (tip_commit == NULL || strlen(tip_commit) != 40) {
+        return -1;
+    }
+    tip = (char *)jc_arena_calloc(a, 41);
+    if (tip == NULL) {
+        return -1;
+    }
+    memcpy(tip, tip_commit, 40);
+    tip[40] = '\0';
+    memset(&excl, 0, sizeof excl);
+    excl.a = a;
+    if (remote_main != NULL && strlen(remote_main) == 40) {
+        if (set_add(&excl, remote_main) != 0) {
+            return -1;
+        }
+    }
+    rev = list_pushed(&tip, 1, &excl, mirror, e_global, e_system, &ok);
+    if (ok == 0) {
+        jc_sb_free(&rev);
+        return -1;
+    }
+    rc = hp_range_shas(&rev, a, out_shas, out_count);
+    jc_sb_free(&rev);
+    return rc;
 }

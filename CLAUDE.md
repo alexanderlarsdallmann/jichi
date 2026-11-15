@@ -32,9 +32,9 @@ check the line, and read its section when it fires.
 
 ## What this is
 
-`jichi` ("just code") is a from-scratch reimplementation of the Continue CLI AI
-coding agent, written in **C conforming to the C89 (ANSI C / C90) standard**. It is
-Linux/POSIX-only. Two binaries are produced:
+`jichi` ("just code") is an AI coding agent written from scratch in **C conforming
+to the C89 (ANSI C / C90) standard**; it began as a Continue CLI reimplementation
+(`CREDITS.md`). It is Linux/POSIX-only. Two binaries are produced:
 
 The project was renamed from `jlu_continue` at M170. The `jc_`/`JC_` symbol prefix
 is unchanged and now abbreviates both *jichi* (自治（じち）, autonomy) and *just code* —

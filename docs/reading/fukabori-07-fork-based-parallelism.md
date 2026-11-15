@@ -6,8 +6,8 @@
 
 `spawn_parallel` runs N subtasks concurrently. It does so by `fork`-ing a
 pool of child processes, not by spawning threads — and in a C89 codebase
-built around a single-threaded agent loop, arenas, and a libcurl handle
-per request, that is the *conservative* choice, not the exotic one. This
+built around a single-threaded agent loop, arenas, and one libcurl handle
+per process, that is the *conservative* choice, not the exotic one. This
 chapter defends it and reads the three hard problems every process pool
 must solve: isolation, communication, and reaping.
 
@@ -16,7 +16,7 @@ must solve: isolation, communication, and reaping.
 Threads would share the address space, and everything this codebase
 relies on assumes it does not have to be thread-safe: the arenas
 (chapter 3) have no locks, the signal handlers touch a single
-`volatile sig_atomic_t`, libcurl is used handle-per-request. Making that
+`volatile sig_atomic_t`, libcurl keeps one handle per process (M227). Making that
 thread-safe is a rewrite; making it *fork*-safe is nearly free, because
 `fork` gives each child a **copy-on-write** snapshot of the parent —
 the arena is inherited read-only-until-touched, libcurl is documented

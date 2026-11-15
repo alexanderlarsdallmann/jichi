@@ -43,6 +43,14 @@
 #      check 5 requires this non-lint driver to run the tree's "$BIN" once; the
 #      assertion is a harness that drifted from the tree would say a different
 #      version.
+#  11. (M1190, def-383) the new line 'the harness's memory protection' is
+#      present in the TEXT form of BOTH the valid-config run (check 1's d1) and
+#      the no-config run (check 7's d7), and in the JSON form of check 8
+#      (d8.json) -- B2: the state is a property of the running process, not of
+#      the config, so it renders on EVERY doctor run.
+#  12. (M1190, def-383) the canary (a secret file's CONTENTS) does not appear on
+#      that new line -- the doctor reports the protection's STATE, never a key's
+#      value. Red in the unhardened tree because the line itself is absent.
 
 . "$(dirname "$0")/_smoke.sh"
 
@@ -54,9 +62,14 @@ HBIN="${JC_SMOKE_HBIN:-$ROOT/jichi-harness}"
 # then defeat the "absent reference" cases (checks 5-7), so clear all three.
 unset JICHI_HARNESS_DIR JICHI_HARNESS_MODEL_KEY_FILE JICHI_HARNESS_GIT_TOKEN_FILE
 
-t_plan 10
+t_plan 12
 smoke_home
 tmp=$(smoke_tmp)
+
+# (M1190, def-383) the label the new doctor line carries. It is the fixed
+# wording the task binds to: grep -F on it, so the apostrophe is literal.
+# On the unhardened tree this label is ABSENT from every doctor output.
+_label="the harness's memory protection"
 
 # A fresh random 32-hex-digit canary (never a fixed string): it rides in the
 # secret files' CONTENTS and must not reach doctor's output (a path is not a
@@ -187,6 +200,33 @@ if [ -n "$_hvtok" ] && [ "$_hvtok" = "$_jvtok" ]; then
     t_ok "10: jichi-harness and jichi report the same version ($_hvtok) -- one tree"
 else
     t_fail "10: version mismatch -- jichi-harness says '$_hv' but jichi says '$_jv'; the harness must be built from the same tree as jichi (M495)"
+fi
+
+# --- 11: the new line is present in text (d1, d7) and JSON (d8) -------------
+# B2: the protection's state is a property of the running PROCESS, not of the
+# config, so it must render on EVERY doctor run -- the valid-config text (d1),
+# the no-config text (d7) and the JSON form (d8.json). Red on the unhardened
+# tree because that label is absent from all three.
+_11miss=""
+for _11f in d1 d7 d8.json; do
+    grep -qF "$_label" "$tmp/$_11f" || _11miss="$_11miss $_11f"
+done
+if [ -z "$_11miss" ]; then
+    t_ok "11: the '$_label' line is present in the valid-config text, the no-config text and the JSON form (B2: a property of the process, on every run)"
+else
+    t_fail "11: the '$_label' line is missing from:$_11miss -- B2: it must render on EVERY doctor run (the state is a property of the running process, not the config)"
+fi
+
+# --- 12: the canary (a secret file's CONTENTS) never appears on the new line --
+# Extract the line(s) carrying the label from the valid-config text and assert
+# the canary is absent from it: the state line reports the protection, never a
+# key's value. Red on the unhardened tree because the label line is absent
+# (the extraction finds nothing to verify).
+_12line=$(grep -F "$_label" "$tmp/d1" 2>/dev/null)
+if [ -n "$_12line" ] && ! printf '%s\n' "$_12line" | grep -qF "$canary"; then
+    t_ok "12: the canary (a secret file's contents) does not appear on the '$_label' line (the state line reports the protection, never a key's value)"
+else
+    t_fail "12: the canary appears on the '$_label' line, or that line is absent -- the state line must report the protection's state and never a key's value: $(printf '%s\n' "$_12line" | head_bytes 200)"
 fi
 
 t_done

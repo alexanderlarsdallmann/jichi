@@ -155,6 +155,14 @@ struct jc_app {
     struct jc_index         *index;       /* lazily-built codebase index, or NULL */
     struct jc_bg_mgr        *bg;          /* background-process registry, or NULL */
     struct jc_control       *control;     /* mid-run control socket (M159), NULL */
+    /* M1149: the pool's CHILD drain flag. Set by the spawn_parallel child in
+     * run_child, after dup2'ing its inject pipe onto JC_CTL_INJECT_FD. It tells
+     * jc_control_boundary to drain THAT pipe and fold it into the child's own
+     * history as one [operator] user message. The lead never sets it (it runs
+     * depth-0 in-process, not from a pool fork), so flag-guarded is enough --
+     * a child's boundary is reached at agent_depth 1, but the flag is the
+     * distinguishing state. Never read by the lead. */
+    int                      pool_inject_fd_valid;
     char                     cwd[1024];
     char                     root[4096];  /* canonical workspace root (M24)    */
     char                    *rules;       /* concatenated AGENTS.md etc., or NULL */

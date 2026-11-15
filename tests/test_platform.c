@@ -32,6 +32,33 @@ static void test_home_dir_pid_fallback(void); /* C-16 (M1134) */
 static void test_list_dir_readdir_error(void); /* D-10 (M1140) */
 #endif
 
+/* M1174: the procfs status file names THIS process, in either of the two
+ * formats a measured row serves. Linux writes "Name:\t<comm>" lines (the
+ * sweep's qemu-user rows read that form too); NetBSD's procfs writes the BSD one-line
+ * form "<comm> <pid> <ppid> ..." -- measured in the NetBSD 10.1 guest on
+ * 2026-11-13 as "head 12713 10970 ...". The old check looked only for "Name:",
+ * which is Linux's format, not what the check is for: proving that jc_read_file
+ * returned the file's REAL content. A BSD status line counts only when its
+ * second field is our own pid, so an empty or wrong read still fails. */
+static int status_names_self(const char *text)
+{
+    const char *sp;
+    long pid;
+
+    if (text == NULL) {
+        return 0;
+    }
+    if (strstr(text, "Name:") != NULL) {
+        return 1;
+    }
+    sp = strchr(text, ' ');            /* the end of the command name */
+    if (sp == NULL) {
+        return 0;
+    }
+    pid = strtol(sp + 1, NULL, 10);
+    return pid > 0 && pid == (long)getpid();
+}
+
 void test_platform(void)
 {
     struct jc_arena *a = jc_arena_new(0);
@@ -198,12 +225,29 @@ void test_platform(void)
             len = 0;
             JC_CHECK(jc_read_file("/proc/self/status", &text, &len, a) == JC_OK);
             JC_CHECK(len > 0);
-            JC_CHECK(text != NULL && strstr(text, "Name:") != NULL);
+            /* M1175: illumos's procfs serves /proc/self/status as a BINARY
+             * pstatus_t (NUL bytes from offset 1, st_size 1136 -- measured in the
+             * OmniOS r151058 guest, 2026-11-13), so no text format applies. There
+             * the file has a real size, and the read must return all of it -- a
+             * stronger check than a format match. A text status (Linux, NetBSD)
+             * must name this process (status_names_self). */
+            if (text != NULL && memchr(text, '\0', (size_t)len) != NULL) {
+                JC_CHECK(pst.st_size > 0 && len == (jc_size)pst.st_size);
+            } else {
+                JC_CHECK(status_names_self(text));
+            }
 
-            text = NULL;
-            len = 0;
-            JC_CHECK(jc_read_file("/proc/cpuinfo", &text, &len, a) == JC_OK);
-            JC_CHECK(len > 0);
+            /* M1175: /proc/cpuinfo is Linux's (NetBSD's procfs serves it too);
+             * illumos has none -- read it only where it exists. */
+            {
+                struct stat cst;
+                if (stat("/proc/cpuinfo", &cst) == 0) {
+                    text = NULL;
+                    len = 0;
+                    JC_CHECK(jc_read_file("/proc/cpuinfo", &text, &len, a) == JC_OK);
+                    JC_CHECK(len > 0);
+                }
+            }
 
             text = NULL;
             len = 0;

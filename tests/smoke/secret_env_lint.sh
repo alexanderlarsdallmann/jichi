@@ -56,11 +56,21 @@ else
     t_fail "built-in list ($nb entries) misses shipped apiKeyEnv name(s):${missing:- (none; floor 15 failed)}"
 fi
 
-# --- 3: jichi's own two names, by name ----------------------------------------------
-if grep -qx JICHI_API_KEY "$tmp/builtin" && grep -qx JLU_API_KEY "$tmp/builtin"; then
-    t_ok "JICHI_API_KEY and JLU_API_KEY are built-in scrub entries"
+# --- 3: jichi's own key names AND the three harness token-file names, by name -------
+# M1170 (batch H9c, SV:0818): the three names are not apiKeyEnv values (so
+# checks 1 and 2 never see them) -- they are the reference scripts' ambient
+# token-file exports (push.sh/land.sh/push-backlog.sh) and the port's D13
+# twins (include/jc_harness_config.h). The fix is one rename from vacuous
+# unless the lint earns each name by exact match.
+c3missing=""
+for _c3n in JICHI_API_KEY JLU_API_KEY ZD_TOKEN_FILE \
+            JICHI_HARNESS_GIT_TOKEN_FILE JICHI_HARNESS_MODEL_KEY_FILE; do
+    grep -qx "$_c3n" "$tmp/builtin" || c3missing="$c3missing $_c3n"
+done
+if [ -z "$c3missing" ]; then
+    t_ok "JICHI_API_KEY, JLU_API_KEY, ZD_TOKEN_FILE, JICHI_HARNESS_GIT_TOKEN_FILE and JICHI_HARNESS_MODEL_KEY_FILE are built-in scrub entries"
 else
-    t_fail "jichi's own key names are not both built in: $(tr '\n' ' ' < "$tmp/builtin")"
+    t_fail "not all five built-in names are present by exact match; missing:${c3missing} (list: $(tr '\n' ' ' < "$tmp/builtin"))"
 fi
 
 # --- 4: armed before the first forking subcommand ---------------------------------

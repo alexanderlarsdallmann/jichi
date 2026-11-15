@@ -29,6 +29,28 @@ int  jc_http_redirect_guard_decide(int hop, int fam, const unsigned char *addr,
                                    unsigned int port);
 void jc_http_redirect_guard_reset(void);
 
+#ifndef JC_NO_SOCKETS
+/* M1174/M1175: the input classes on which a measured libc's inet_pton is more
+ * lenient than POSIX -- an input ending in a space (NetBSD), or one with an
+ * octet that has a leading zero (illumos). */
+static int lenient_libc_class(const char *s)
+{
+    size_t n = strlen(s);
+    const char *p;
+
+    if (n > 0 && s[n - 1] == ' ') {
+        return 1;
+    }
+    for (p = s; *p != '\0'; p++) {
+        if ((p == s || p[-1] == '.') && p[0] == '0' &&
+            p[1] >= '0' && p[1] <= '9') {
+            return 1;
+        }
+    }
+    return 0;
+}
+#endif
+
 void test_http(void)
 {
     /* jc_http_classify (M22c): map a finished transfer to a status code.
@@ -337,12 +359,29 @@ void test_http(void)
         JC_CHECK(jc_net_parse_ipv4("1.1.1.256", a) == 0);  /* out of range */
         JC_CHECK(jc_net_parse_ipv4("1.1.1", a) == 0);      /* three octets */
         JC_CHECK(jc_net_parse_ipv4("1.1.1.1.1", a) == 0);  /* five */
+        JC_CHECK(jc_net_parse_ipv4("1.2.3.4 ", a) == 0);   /* trailing space (M1174) */
         JC_CHECK(jc_net_parse_ipv4(NULL, a) == 0);
 #ifndef JC_NO_SOCKETS
         for (i = 0; corpus[i] != NULL; i++) {
             unsigned char b[4];
             int ours = jc_net_parse_ipv4(corpus[i], a);
             int libc = (inet_pton(AF_INET, corpus[i], b) == 1);
+            /* M1174/M1175: two libcs are more LENIENT than glibc and jichi, each
+             * on one input class (measured in the guests, 2026-11-13):
+             *   NetBSD 10.1 accepts trailing whitespace ("1.2.3.4 " -> 1.2.3.4);
+             *   illumos (OmniOS r151058) accepts an octet with a leading zero
+             *   ("01.2.3.4" -> 1.2.3.4, read as DECIMAL).
+             * jichi refuses both, on purpose: POSIX asks for the dotted-decimal
+             * form alone, and a leading zero means OCTAL to inet_aton-style
+             * readers -- an address two parsers read differently is the SSRF
+             * shape. So on those two classes, and ONLY where the oracle is the
+             * lenient side, the strict answer is required instead (the known
+             * answers above pin jichi's own verdict on every row). Any other
+             * disagreement -- above all jichi accepting what libc refuses -- is
+             * still a failure. */
+            if (libc && !ours && lenient_libc_class(corpus[i])) {
+                libc = 0;
+            }
             JC_CHECK(ours == libc);
             if (ours && libc) {
                 JC_CHECK(memcmp(a, b, 4) == 0);

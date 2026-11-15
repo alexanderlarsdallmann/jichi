@@ -58,7 +58,11 @@ enum jc_bg_state { JC_BG_RUNNING = 0, JC_BG_EXITED, JC_BG_KILLED, JC_BG_FREE };
 struct jc_bg_proc {
     int            id;        /* 1-based handle (0 => free slot)           */
     long           pid;       /* child pgid/pid                            */
-    char           spool[128];/* its output spool file, '' when none (M940)*/
+    char           spool[512];/* its output spool file, '' when none (M940);
+                                 M1146: 128 truncated the path for a deep HOME
+                                 once pids were 7 digits (SV:0540); 512 holds a
+                                 spool_dir <= 495 bytes + /bg-<id>-<pid>.out,
+                                 and jc_bg_start refuses a longer path */
     long           spool_pos; /* bytes already consumed from the spool     */
     int            state;     /* enum jc_bg_state                          */
     int            exit_code; /* valid once EXITED/KILLED                  */
@@ -74,7 +78,9 @@ struct jc_bg_proc {
 struct jc_bg_mgr {
     struct jc_bg_proc procs[JC_BG_MAX];
     int               next_id;
-    char              spool_dir[128]; /* ~/.jichi.d/bgspool, '' if absent */
+    char              spool_dir[512]; /* ~/.jichi.d/bgspool, '' if absent;
+                                         M1146: sized for jc_home_dir() +
+                                         /".jichi.d/bgspool" (20-byte suffix) */
 };
 
 void jc_bg_mgr_init(struct jc_bg_mgr *m);

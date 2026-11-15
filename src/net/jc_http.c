@@ -1774,7 +1774,14 @@ jc_status jc_http_perform(struct jc_http_request *req,
         if (rc != CURLE_OK) {
             /* M1039: classify the failure for telemetry */
             curl_easy_getinfo(curl, CURLINFO_CONNECT_TIME, &connect_time);
+            /* M1177: CURLINFO_APPCONNECT_TIME is libcurl 7.19.0; Debian 5's 7.18.2,
+             * which docs/INSTALL.md lists as building, lacks it. Below 7.19.0 the
+             * handshake time is not reported, app_time stays 0.0, and an https
+             * failure after TCP was up is classified as "in the TLS handshake" --
+             * a telemetry label only; nothing about the transfer changes. */
+#if LIBCURL_VERSION_NUM >= 0x071300
             curl_easy_getinfo(curl, CURLINFO_APPCONNECT_TIME, &app_time);
+#endif
             /* M1062-c: was the request actually uploaded? 0 on a resolve
              * timeout (nothing was sent) and > 0 on a reused-then-dead transfer.
              * CURLINFO_REQUEST_SIZE = CURLINFO_LONG + 12: takes a pointer to long. */
@@ -1942,7 +1949,10 @@ jc_status jc_http_stream(struct jc_http_request *req,
             /* M1039: classify the failure for telemetry.
              * Skip aborted transfers - the caller (agent) sets fail_class="aborted". */
             curl_easy_getinfo(curl, CURLINFO_CONNECT_TIME, &connect_time);
+            /* M1177: guarded as above (libcurl 7.19.0). */
+#if LIBCURL_VERSION_NUM >= 0x071300
             curl_easy_getinfo(curl, CURLINFO_APPCONNECT_TIME, &app_time);
+#endif
             /* M1062-c: was the request actually uploaded? 0 on a resolve
              * timeout (nothing was sent) and > 0 on a reused-then-dead transfer.
              * CURLINFO_REQUEST_SIZE = CURLINFO_LONG + 12: takes a pointer to long. */

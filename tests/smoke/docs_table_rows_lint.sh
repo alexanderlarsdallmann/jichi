@@ -42,6 +42,9 @@ LIMIT=200
 # 2026-10-15: PLATFORMS.md 45 -> 51 for the three physical-board rows (VisionFive 2
 # v1.3B, LicheeRV Nano, Raspberry Pi 500+) and their three Driven-register
 # peers -- the campaign's first hardware rows, dense-fact.
+# 2026-11-13: PLATFORMS.md 51 -> 54 (M1181, SV:1524): the 0.14.0 re-measure rows add
+# one dated in-row line each (the stamped-datum style), and three previously short
+# rows (macOS, Haiku, FreeDOS) crossed 200 chars with theirs.
 FLOORS=$(cat <<'EOF'
 ACCESSIBILITY.md 2
 ACP.md 1
@@ -81,7 +84,7 @@ MEDIA_GEN.md 1
 NOTICES.md 3
 OBSERVABILITY.md 15
 PLATFORM_RETEST.md 15
-PLATFORMS.md 51
+PLATFORMS.md 54
 PORTING_WINDOWS.md 4
 PROJECT_TIMELINE.md 10
 README.md 1

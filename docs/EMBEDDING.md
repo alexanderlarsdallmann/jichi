@@ -45,7 +45,7 @@ agree and that a field array holds identifiers only.
 | IDE / editor sidecar | **ACP** (`jichi serve`) | Bidirectional: permission round-trips, unsaved buffers, terminals |
 | Batch migration over a work-list | `-p … --auto --edit-scope` per item, `--journal` | Bounded per item; the journal is the audit trail |
 | Long unattended loop | a supervisor + `--control` | Steer without killing: `status`/`inject`/`pause`/`abort` |
-| Warm interactive front-end | **daemon** (`--connect`) | Skips per-turn startup; the M165 bridge does this |
+| Warm front-end | **daemon** (`--connect`) | Skips startup per turn; each request is a fresh turn with no history. The M165 web bridge starts `jichi -p` per run instead |
 | Website or app chatbot answering from documents | `-p … --readonly --output json` per message ([`CHATBOT.md`](CHATBOT.md)) | Read-only, fenced to one folder, a fixed persona |
 | Teaching / grading harness | `jichi assign` + `grade` + `--output json` | Structural grading with no toolchain but jichi |
 | Edge / embedded deliberative layer | `-p` on-device, model over the network | jichi is the seconds-scale layer; reflexes live below it ([ROBOTICS](ROBOTICS.md)) |

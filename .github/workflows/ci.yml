@@ -11,9 +11,12 @@
 # does eight of them plus valgrind, ASan and the e2e tier. Expect longer, and
 # treat the first hosted run as a measurement rather than a verdict.
 #
-# `timeout-minutes` is here so a hang costs an hour rather than six, and
-# `concurrency` so a push during a run cancels the older one instead of queueing
-# two clean rebuilds against each other.
+# `timeout-minutes` is here so a hang costs an hour and a half rather than
+# six, and `concurrency` so a push during a run cancels the older one instead
+# of queueing two clean rebuilds against each other. The 60 became 90 at the
+# 0.14.1 cut: the 0.13.0 hosted runs measured 48.4, 45.7 and 57.4 min (the tag
+# run was 2.6 min from the old limit) and the local `make ci` took 55m19s at
+# 10174de1, so a timeout would have stopped the cut the same way a red does.
 name: ci
 
 on:
@@ -27,7 +30,7 @@ concurrency:
 jobs:
   gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain

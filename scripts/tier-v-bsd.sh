@@ -60,6 +60,53 @@ set -u
 . "$(dirname "$0")/_rig_ship.sh"
 . "$(dirname "$0")/_rig_live.sh"
 
+# P6a (M1166): the diagnostic extraction, as a function that takes a log FILE
+# and prints the lines the row needs, capped at 20. The real ssh path and the
+# --selftest path both run this one function, so a fix cannot drift between them.
+# bsd_diags_pattern is the pattern's single definition: the remote grep (the
+# build log lives in the GUEST, so it is run over ssh) and the selftest (the
+# planted log lives in $TMPDIR) must never disagree about it.
+# FIX: ': (error|warning):' -- a compiler diagnostic carries file:line:col: in
+# front of the word, so it never matches a -Werror flag in a command line (the
+# filter must not match its own flags -- lesson 7).
+bsd_diags_pattern=': (error|warning):'
+bsd_diagnostics() {
+    grep -E "$bsd_diags_pattern" "$1" 2>/dev/null | head -20
+}
+
+# --selftest: plant a log in $TMPDIR, assert what bsd_diagnostics returns, and
+# exit non-zero iff any assertion failed. Runs before any download, boot or ssh.
+# The tooth (P6a): 20 -Werror command lines plus ONE real diagnostic; the
+# filter must return the diagnostic and none of the command lines.
+if [ "${1:-}" = "--selftest" ]; then
+    selftest() {
+        d=${TMPDIR:-/tmp}/tier_selftest.$$ ; mkdir -p "$d"
+        i=0
+        while [ $i -lt 20 ]; do i=$((i+1)); echo "cc -std=c89 -Werror -o obj/obj-$i.o obj/obj-$i.c"; done > "$d/build.log"
+        echo "x.c:10:5: error: expected expression before 'struct'" >> "$d/build.log"
+        N=0
+        OUT=$(bsd_diagnostics "$d/build.log")
+        printf '%s\n' "$OUT" | grep -qF "x.c:10:5: error: expected expression before 'struct'" \
+            && echo "ok 1 - the real diagnostic is in the output" \
+            || { N=1; echo "not ok 1 - the real diagnostic is ABSENT from bsd_diagnostics output"; }
+        printf '%s\n' "$OUT" | grep -qF "cc -std=c89 -Werror -o obj/obj-1.o obj/obj-1.c" \
+            && { N=1; echo "not ok 2 - a -Werror COMMAND LINE is in the output: $(printf '%s\n' "$OUT" | grep -F 'cc -std=c89 -Werror -o obj/obj-1.o obj/obj-1.c' | head -1)"; } \
+            || echo "ok 2 - no command line is in the output"
+        [ "$(printf '%s\n' "$OUT" | wc -l)" -le 20 ] \
+            && echo "ok 3 - output capped at 20 lines" \
+            || { N=1; echo "not ok 3 - output exceeds the 20-line cap"; }
+        : > "$d/nodiag.log"
+        echo "cc -std=c89 -Werror -o obj/a.o obj/a.c" >> "$d/nodiag.log"
+        [ -z "$(bsd_diagnostics "$d/nodiag.log")" ] \
+            && echo "ok 4 - a log of only -Werror command lines yields no diagnostic" \
+            || { N=1; echo "not ok 4 - a false positive: $(bsd_diagnostics "$d/nodiag.log" | head -1)"; }
+        rm -rf "$d"
+        if [ $N -eq 0 ]; then echo "bsd selftest: all assertions ok"; else echo "bsd selftest: FAILED"; fi
+        exit $N
+    }
+    selftest
+fi
+
 REL="${TIER_V_BSD_RELEASE:-15.1-RELEASE}"
 DIR="${TIER_V_DIR:-$HOME/.cache/jichi-tier-v}"
 PORT="${TIER_V_SSH_PORT:-2233}"
@@ -362,7 +409,9 @@ if g 'cd ~/jichi && gmake WERROR=1 >/tmp/build.log 2>&1 && echo BUILD_OK' 2>/dev
 else
     bad "build failed -- first diagnostics follow"
     note ""
-    g 'grep -E "error|warning" /tmp/build.log 2>/dev/null | head -20' >> "$RESULTS" 2>&1
+    # P6a: the pattern comes from bsd_diags_pattern, so the remote filter and the
+    # --selftest filter are one definition.
+    g "grep -E \"$bsd_diags_pattern\" /tmp/build.log 2>/dev/null | head -20" >> "$RESULTS" 2>&1
     say "the build log is the row; stopping here"
     exit 1
 fi

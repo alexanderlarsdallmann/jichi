@@ -297,31 +297,45 @@ static void spec_parse(struct spec *sp, const char **pp)
  * l-forms a long; %n takes an int * (a pointer, 8 bytes on x86-64 SysV);
  * everything else (floats, pointers, unknowns) consumes a double -- the
  * largest argument the class can carry, so the va_arg list stays in step
- * whatever the format string then asks for. */
-static void consume_class(va_list ap, char conv, int flags)
-{
-    if (conv == 'n') {
-        /* %n's operand is an int *, NOT an int (M1079-b / A-10). Reading it
-         * back as va_arg(ap,int) advances the va_list by 4 bytes; the
-         * pointer occupies an 8-byte slot on x86-64 SysV, so any conversion
-         * AFTER a %n re-desyncs the list -- the exact SEGV class A-10 exists
-         * to eliminate. Consume the pointer. Do NOT write through it: the
-         * fallback may not write outside its sink, and %n is a side-effecting
-         * spec -- consuming the slot and ignoring the write is the safe,
-         * documented behaviour. */
-        (void)va_arg(ap, int *);
-    } else if (conv == 'd' || conv == 'i' || conv == 'u' || conv == 'o' ||
-        conv == 'x' || conv == 'X' ||
-        conv == 'l' || conv == 'h' || conv == 'H' || conv == 't' ||
-        conv == 'j' || conv == 'q' || conv == 'Q') {
-        if (flags & F_LONG) { (void)va_arg(ap, long); }
-        else { (void)va_arg(ap, int); }
-    } else if (conv == 'p') {
-        (void)va_arg(ap, void *);
-    } else {
-        (void)va_arg(ap, double);
-    }
-}
+ * whatever the format string then asks for.
+ *
+ * %n: its operand is an int *, NOT an int (M1079-b / A-10). Consume the
+ * pointer; do NOT write through it -- the fallback may not write outside its
+ * sink, and %n is a side-effecting spec.
+ *
+ * WHY A MACRO, NOT A FUNCTION (M1172, 2026-11-13). This was a helper,
+ * `static void consume_class(va_list ap, ...)`, called with the caller's
+ * list. C89 4.8 (C99 7.15p3): a function that receives a va_list and calls
+ * va_arg on it leaves the CALLER's list INDETERMINATE. x86-64 SysV hides
+ * that -- its va_list is an array type, so the parameter is a pointer and the
+ * helper advanced the caller's list by luck. On aarch64, riscv64, 32-bit arm,
+ * i386, powerpc64le, loongarch64 and mips the helper got a COPY, the caller's
+ * list never moved, and the conversion after an unrendered one read the
+ * WRONG argument: `"%n%s"` printed `%n` followed by the bytes of the %n
+ * operand (snprintf_fallback cell 15 on the Pi 500 and the VisionFive 2:
+ * `out=[%nM]` -- 'M' is 77, the int the pointer pointed at). Passing &ap
+ * instead is not portable either (a va_list PARAMETER of array type has
+ * already decayed, so &ap is the wrong type on x86-64). So the consumption
+ * runs here, in the caller's frame, on the caller's list.
+ * docs/analysis/2026-11-13-a-va-list-passed-by-value.md tells the whole
+ * story; portability_lint check 40 keeps it from coming back. */
+#define JC_CONSUME_CLASS(ap, conv, flags)                                    \
+    do {                                                                     \
+        if ((conv) == 'n') {                                                 \
+            (void)va_arg(ap, int *);                                         \
+        } else if ((conv) == 'd' || (conv) == 'i' || (conv) == 'u' ||        \
+                   (conv) == 'o' || (conv) == 'x' || (conv) == 'X' ||        \
+                   (conv) == 'l' || (conv) == 'h' || (conv) == 'H' ||        \
+                   (conv) == 't' || (conv) == 'j' || (conv) == 'q' ||        \
+                   (conv) == 'Q') {                                          \
+            if ((flags) & F_LONG) { (void)va_arg(ap, long); }                \
+            else { (void)va_arg(ap, int); }                                  \
+        } else if ((conv) == 'p') {                                          \
+            (void)va_arg(ap, void *);                                        \
+        } else {                                                             \
+            (void)va_arg(ap, double);                                        \
+        }                                                                    \
+    } while (0)
 
 int jc_vsnprintf(char *buf, jc_size cap, const char *fmt, va_list ap)
 {
@@ -409,7 +423,7 @@ int jc_vsnprintf(char *buf, jc_size cap, const char *fmt, va_list ap)
         } else {
             /* Unsupported conversion: CONSUME its class (alignment core),
              * then print the specifier crudely -- never consume-less-print. */
-            consume_class(ap, conv, sp.flags);
+            JC_CONSUME_CLASS(ap, conv, sp.flags);
             sink_puts(&s, "%");
             if (sp.flags & F_LONG) { sink_putc(&s, 'l'); }
             sink_putc(&s, conv);

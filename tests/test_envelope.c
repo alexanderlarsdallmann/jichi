@@ -499,6 +499,11 @@ static void test_run_verify(void)
  * because it needs a fresh process; this one needs no process boundary. */
 static void test_run_verify_sigchld_site(void)
 {
+    /* M1177: DJGPP (the FreeDOS row) has no SIGCHLD -- no child processes to
+     * reap asynchronously, so the race this cell pins cannot happen there. Guard
+     * it the way the tree does elsewhere (#ifdef SIGCHLD); the cross-build
+     * failed on it from M987 (2026-10-19) until 2026-11-13. */
+#ifdef SIGCHLD
     void (*old)(int);
     int code;
 
@@ -513,6 +518,7 @@ static void test_run_verify_sigchld_site(void)
      * the checked reap) and 1 (the kernel happened to collect it before the
      * race) are both correct. Never 0. */
     JC_CHECK(code != 0);
+#endif
 }
 
 /* M86: the green-gate hollowness verdict. */

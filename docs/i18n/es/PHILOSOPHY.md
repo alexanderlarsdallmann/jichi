@@ -1,4 +1,7 @@
 <!-- tracks: ../../PHILOSOPHY.md @ 8ad8468 -->
+<!-- Original draft: Claude (July 2026). On 2026-11-07 (M1147, batch H7): the Continue sentence
+     in the "Giants" paragraph — whose CLI was jichi's starting specification, not that this
+     project re-implements it — was revised by jlu/qwen3-coder-next. -->
 # La filosofía de jichi
 
 La mayor parte de la documentación de este repositorio dice *cómo*. Esta página
@@ -124,9 +127,9 @@ conocer; el diseño de la API del cJSON vendorizado; git, cuya fontanería
 impulsa silenciosamente la maquinaria de instantáneas y worktrees; el Language
 Server Protocol, el Model Context Protocol y el Agent Client Protocol, cada
 uno un acto de generosidad que cambió una ventaja privada por un estándar
-público; [Continue](https://continue.dev), cuya CLI esto reimplementa y cuyo
-diseño demostró que la forma merecía construirse; y los proveedores de
-modelos cuyas API le dan al bucle algo con lo que hablar.
+público; [Continue](https://continue.dev), cuya CLI fue la especificación
+inicial de jichi y cuyo diseño demostró que la forma merecía construirse; y los
+proveedores de modelos cuyas API le dan al bucle algo con lo que hablar.
 
 Los enanos son más difíciles de nombrar, y esa es precisamente la cuestión:
 los autores de páginas de manual, quien respondió en Stack Overflow aquella
