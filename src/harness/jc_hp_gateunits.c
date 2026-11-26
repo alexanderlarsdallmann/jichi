@@ -81,6 +81,7 @@ build_gate_unit(const char *gate_run, char *dst, size_t cap)
     static const char exec_fmt[] =
         "ExecStart=%s\n";
     size_t off;
+    int n_ex;
     if (gate_run == NULL || gate_run[0] == '\0') {
         return 0;
     }
@@ -91,7 +92,8 @@ build_gate_unit(const char *gate_run, char *dst, size_t cap)
     memcpy(dst, c1a, strlen(c1a));
     memcpy(dst + strlen(c1a), c1b, strlen(c1b));
     memcpy(dst + strlen(c1a) + strlen(c1b), body_a, strlen(body_a));
-    if (jc_snprintf(dst + off, cap - off, exec_fmt, gate_run) < 0) {
+    n_ex = jc_snprintf(dst + off, cap - off, exec_fmt, gate_run);
+    if (n_ex < 0 || n_ex >= (int)(cap - off)) {
         return 0;
     }
     return 1;

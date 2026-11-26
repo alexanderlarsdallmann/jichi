@@ -422,9 +422,11 @@ wgate_verdict(const char *state_path, const char *sha8, const char *word)
     char line[WGATE_SHA_CAP + 96];
     char stamp[64];
     FILE *f;
+    int n_lv;
 
     wgate_ts(stamp, sizeof stamp);
-    if (jc_snprintf(line, sizeof line, "%s %s %s\n", sha8, word, stamp) < 0) {
+    n_lv = jc_snprintf(line, sizeof line, "%s %s %s\n", sha8, word, stamp);
+    if (n_lv < 0 || n_lv >= (int)sizeof line) {
         return;
     }
     if (state_path != NULL) {
@@ -896,6 +898,9 @@ wgate_digest_append(const char *digest_path, const char *text)
     char line[WGATE_PATH_CAP];
 
     if ((size_t)jc_snprintf(line, sizeof line, "%s\n", text) >= sizeof line) {
+        if (f != NULL) {
+            (void)fclose(f);   /* opened above; this way out left it open */
+        }
         return;
     }
     if (f == NULL) {
@@ -975,6 +980,7 @@ jc_hp_watchgate_run(const char *config_path, const char *log,
     char *nt_argv[WGATE_MAX_ARGV];
     int n_us, n_ul, n_ur, n_pg, n_nt;
     int rc;
+    int n_wg;
 
     if (config_path == NULL) {
         fprintf(stderr, "jichi-harness: watch gate: --config <path> is "
@@ -1157,11 +1163,12 @@ jc_hp_watchgate_run(const char *config_path, const char *log,
             under = 0;   /* not in push.git yet: the push timer has not run */
         }
         if (under == 0) {
-            if (jc_snprintf(say, sizeof say,
-                            "BATCH %s READY at %s (%s:%d): not on the "
-                            "remote's team branch yet; waiting for the push "
-                            "timer",
-                            ready.batch, s8, log_base, ready.line_no) < 0) {
+            n_wg = jc_snprintf(say, sizeof say,
+                               "BATCH %s READY at %s (%s:%d): not on the "
+                               "remote's team branch yet; waiting for the push "
+                               "timer",
+                               ready.batch, s8, log_base, ready.line_no);
+            if (n_wg < 0 || n_wg >= (int)sizeof say) {
                 return 1;
             }
             wgate_say(out, say);
@@ -1204,20 +1211,22 @@ jc_hp_watchgate_run(const char *config_path, const char *log,
             return 0;   /* gated already: its verdict stands (behaviour 6) */
         }
         if (started_dead) {
-            if (jc_snprintf(say, sizeof say,
-                            "the gate on %s died without a verdict "
-                            "(jhp-gate-%s is not active): gating it again",
-                            s8, s8) < 0) {
+            n_wg = jc_snprintf(say, sizeof say,
+                               "the gate on %s died without a verdict "
+                               "(jhp-gate-%s is not active): gating it again",
+                               s8, s8);
+            if (n_wg < 0 || n_wg >= (int)sizeof say) {
                 return 1;
             }
             wgate_say(out, say);
         }
         if (regate) {
-            if (jc_snprintf(say, sizeof say,
-                            "BATCH %s READY at %s: gating it again "
-                            "(gate/state says regate: the earlier verdict "
-                            "was withdrawn)",
-                            ready.batch, s8) < 0) {
+            n_wg = jc_snprintf(say, sizeof say,
+                               "BATCH %s READY at %s: gating it again "
+                               "(gate/state says regate: the earlier verdict "
+                               "was withdrawn)",
+                               ready.batch, s8);
+            if (n_wg < 0 || n_wg >= (int)sizeof say) {
                 return 1;
             }
             wgate_say(out, say);
@@ -1254,10 +1263,11 @@ jc_hp_watchgate_run(const char *config_path, const char *log,
         if (withdrawn) {
             char wtext[WGATE_PATH_CAP];
             char dgtext[WGATE_PATH_CAP];
-            if (jc_snprintf(say, sizeof say,
-                            "BATCH %s READY at %s (%s:%d) is WITHDRAWN by "
-                            "a later line: not gated",
-                            ready.batch, s8, log_base, ready.line_no) < 0) {
+            n_wg = jc_snprintf(say, sizeof say,
+                               "BATCH %s READY at %s (%s:%d) is WITHDRAWN by "
+                               "a later line: not gated",
+                               ready.batch, s8, log_base, ready.line_no);
+            if (n_wg < 0 || n_wg >= (int)sizeof say) {
                 return 1;
             }
             wgate_say(out, say);
@@ -1303,9 +1313,10 @@ jc_hp_watchgate_run(const char *config_path, const char *log,
         onm = wgate_git_is_ancestor(push_repo, s8, master);
         mff = wgate_git_is_ancestor(push_repo, master, s8);
         if (onm == 1) {
-            if (jc_snprintf(say, sizeof say,
-                            "BATCH %s READY at %s: on master already (%s)",
-                            ready.batch, s8, m8) < 0) {
+            n_wg = jc_snprintf(say, sizeof say,
+                               "BATCH %s READY at %s: on master already (%s)",
+                               ready.batch, s8, m8);
+            if (n_wg < 0 || n_wg >= (int)sizeof say) {
                 return 1;
             }
             wgate_say(out, say);
@@ -1317,10 +1328,11 @@ jc_hp_watchgate_run(const char *config_path, const char *log,
             return 1;
         }
         if (mff == 0) {
-            if (jc_snprintf(say, sizeof say,
-                            "BATCH %s READY at %s: NOT a fast-forward of "
-                            "master %s",
-                            ready.batch, s8, m8) < 0) {
+            n_wg = jc_snprintf(say, sizeof say,
+                               "BATCH %s READY at %s: NOT a fast-forward of "
+                               "master %s",
+                               ready.batch, s8, m8);
+            if (n_wg < 0 || n_wg >= (int)sizeof say) {
                 return 1;
             }
             wgate_say(out, say);
@@ -1400,10 +1412,11 @@ jc_hp_watchgate_run(const char *config_path, const char *log,
                 }
             }
             if (names[0] != '\0') {
-                if (jc_snprintf(say, sizeof say,
-                                "BATCH %s READY at %s: waiting, a gate runs "
-                                "(%s)",
-                                ready.batch, s8, names) < 0) {
+                n_wg = jc_snprintf(say, sizeof say,
+                                   "BATCH %s READY at %s: waiting, a gate runs "
+                                   "(%s)",
+                                   ready.batch, s8, names);
+                if (n_wg < 0 || n_wg >= (int)sizeof say) {
                     return 1;
                 }
                 wgate_say(out, say);
@@ -1456,10 +1469,11 @@ jc_hp_watchgate_run(const char *config_path, const char *log,
                     if (strcmp(cwd, team_dir) == 0 ||
                         (strncmp(cwd, team_dir, strlen(team_dir)) == 0 &&
                          cwd[strlen(team_dir)] == '/')) {
-                        if (jc_snprintf(say, sizeof say,
-                                        "BATCH %s READY at %s: waiting, a "
-                                        "team smoke runs (pid %s)",
-                                        ready.batch, s8, pid) < 0) {
+                        n_wg = jc_snprintf(say, sizeof say,
+                                           "BATCH %s READY at %s: waiting, a "
+                                           "team smoke runs (pid %s)",
+                                           ready.batch, s8, pid);
+                        if (n_wg < 0 || n_wg >= (int)sizeof say) {
                             return 1;
                         }
                         wgate_say(out, say);
@@ -1482,10 +1496,11 @@ jc_hp_watchgate_run(const char *config_path, const char *log,
         return 1;
     }
     if (dry) {
-        if (jc_snprintf(say, sizeof say,
-                        "DRY: would start jhp-gate-%s (gate-run.sh %s) for "
-                        "BATCH %s (%s:%d)",
-                        s8, s8, ready.batch, log_base, ready.line_no) < 0) {
+        n_wg = jc_snprintf(say, sizeof say,
+                           "DRY: would start jhp-gate-%s (gate-run.sh %s) for "
+                           "BATCH %s (%s:%d)",
+                           s8, s8, ready.batch, log_base, ready.line_no);
+        if (n_wg < 0 || n_wg >= (int)sizeof say) {
             return 1;
         }
         wgate_say(out, say);
@@ -1532,17 +1547,19 @@ jc_hp_watchgate_run(const char *config_path, const char *log,
         extra[n_extra++] = s8;
         extra[n_extra++] = ready.batch;
         wgate_verdict(state, s8, "started");
-        if (jc_snprintf(say, sizeof say,
-                        "BATCH %s READY at %s (%s:%d): starting "
-                        "jhp-gate-%s",
-                        ready.batch, s8, log_base, ready.line_no, s8) < 0) {
+        n_wg = jc_snprintf(say, sizeof say,
+                           "BATCH %s READY at %s (%s:%d): starting "
+                           "jhp-gate-%s",
+                           ready.batch, s8, log_base, ready.line_no, s8);
+        if (n_wg < 0 || n_wg >= (int)sizeof say) {
             return 1;
         }
         wgate_say(out, say);
         rc = wgate_run_to_file(ur_argv, n_ur, extra, n_extra, out);
         if (rc != 0) {
-            if (jc_snprintf(say, sizeof say, "systemd-run failed (rc=%d)",
-                            rc) < 0) {
+            n_wg = jc_snprintf(say, sizeof say, "systemd-run failed (rc=%d)",
+                               rc);
+            if (n_wg < 0 || n_wg >= (int)sizeof say) {
                 return 1;
             }
             wgate_say(out, say);

@@ -135,6 +135,7 @@ removes the **read-only** tools a stranger should not reach:
 | `git_log`, `git_blame`, `git_status`, `git_diff` and the other git tools | a repository's history names the people who wrote it, with their e-mail addresses |
 | `ask_user` | a headless run has no one to ask |
 | `todowrite`, `todoread` | a small model used a finished to-do item *as* its answer and then wrote nothing |
+| `load_skill` | a stranger-facing chatbot has no project knowledge to load; the built-in guide skill would otherwise be offered |
 | `write_plan`, `run_terminal_command`, `run_tests`, `spawn_subagent`, `spawn_parallel`, `remember` | refused by `--readonly` too; listed so the file is safe without the flag |
 
 ### 3.5 A persona of its own: `/ask`

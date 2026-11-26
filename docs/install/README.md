@@ -31,9 +31,9 @@ row there. This directory says how to install; `PLATFORMS.md` says what was prov
 | Raspberry Pi and other boards | Verified · Driven | [raspberry-pi.md](raspberry-pi.md) |
 | Guix System | Partly verified · Driven | [guix.md](guix.md) |
 | GNU/Hurd | Partly verified · Driven | [gnu-hurd.md](gnu-hurd.md) |
-| FreeBSD | Verified · Driven | [freebsd.md](freebsd.md) |
-| OpenBSD | Verified · Driven | [openbsd.md](openbsd.md) |
-| NetBSD | Verified · Driven | [netbsd.md](netbsd.md) |
+| FreeBSD | Partly verified · Driven | [freebsd.md](freebsd.md) |
+| OpenBSD | Partly verified · Driven | [openbsd.md](openbsd.md) |
+| NetBSD | Partly verified · Driven | [netbsd.md](netbsd.md) |
 | illumos / Solaris (OmniOS) | Partly verified · Driven | [illumos.md](illumos.md) |
 | Windows (WSL2, Cygwin, MSYS2) | WSL2 Verified · Driven | [wsl2.md](wsl2.md) |
 | macOS | Partly verified, driven | [macos.md](macos.md) |

@@ -150,6 +150,14 @@ static void reach_halves(const struct jc_reach *r, struct jc_sb *checked,
             jc_sb_append_fmt(unchecked, "%sthe verifier never "
                              "reached a verdict -- it was armed, the run "
                              "stopped first", unchecked->len > 0 ? " · " : "");
+            /* TW24.F4: the sentence above is about the completion check and
+             * stays byte for byte. A periodic verify that ran is added after
+             * it, so the footer does not read as "nothing checked this
+             * tree" when something did. */
+            if (r->periodic_ran) {
+                jc_sb_append_fmt(unchecked, " (the last periodic verify was %s)",
+                                 r->periodic_red ? "RED" : "green");
+            }
         }
         if (!r->scope_armed) {
             jc_sb_append_fmt(unchecked, "%sno edit scope -- "
@@ -207,6 +215,13 @@ struct cJSON *jc_reach_json(const struct jc_reach *r)
     cJSON_AddStringToObject(o, "verify",
         !r->verifier_armed ? "none" : (r->verify_red ? "red"
                                        : (r->verify_green ? "green" : "unknown")));
+    /* TW24.F4: `verify` keeps its four values. Beside "unknown", a periodic
+     * verify that ran is named; absent when none ran. */
+    if (r->verifier_armed && !r->verify_red && !r->verify_green &&
+        r->periodic_ran) {
+        cJSON_AddStringToObject(o, "last_periodic_verify",
+                                r->periodic_red ? "red" : "green");
+    }
     cJSON_AddNumberToObject(o, "tool_calls", (double)r->tool_calls);
     cJSON_AddNumberToObject(o, "tool_errors", (double)r->tool_errors);
     cJSON_AddNumberToObject(o, "tool_refused", (double)r->tool_refused);

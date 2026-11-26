@@ -192,6 +192,19 @@ static void test_parse_msg(void)
     JC_CHECK(jc_parallel_parse_msg("{\"t\":\"tool\",\"name\":\"read_file\"}", &m)
              == JC_PMSG_TOOL);
     JC_CHECK(strcmp(m.tool, "read_file") == 0);
+    JC_CHECK(m.in_cmd == 0);   /* M1192 B3: absent in_cmd degrades to 0 */
+    free(m.answer); free(m.error);
+    /* M1192 B3: the in_cmd wire field -- 1 while the child is INSIDE a shell
+     * command (the tool progress line), 0 on the matching end line. */
+    JC_CHECK(jc_parallel_parse_msg(
+                 "{\"t\":\"tool\",\"name\":\"run_terminal_command\",\"in_cmd\":1}",
+                 &m) == JC_PMSG_TOOL);
+    JC_CHECK(m.in_cmd == 1);
+    free(m.answer); free(m.error);
+    JC_CHECK(jc_parallel_parse_msg(
+                 "{\"t\":\"tool\",\"name\":\"run_terminal_command\",\"in_cmd\":0}",
+                 &m) == JC_PMSG_TOOL);
+    JC_CHECK(m.in_cmd == 0);
     free(m.answer); free(m.error);
 
     JC_CHECK(jc_parallel_parse_msg("{\"t\":\"tok\",\"n\":1234}", &m)

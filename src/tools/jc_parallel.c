@@ -134,6 +134,10 @@ int jc_parallel_parse_msg(const char *line, struct jc_pmsg *out)
         out->kind = JC_PMSG_TOOL;
         jc_snprintf(out->tool, sizeof(out->tool), "%s",
                     jc_json_get_str(o, "name", "?"));
+        /* M1192 B3: the in_cmd field is OPTIONAL (a pre-B3 child omits it,
+         * which degrades to "not in a command" -- the same absent-means-
+         * pre-existing-field rule as every other done/tool field). */
+        out->in_cmd = jc_json_clamp_int(jc_json_get_num(o, "in_cmd", 0.0));
     } else if (strcmp(t, "tok") == 0) {
         out->kind = JC_PMSG_TOK;
         out->tokens = jc_json_get_num(o, "n", 0.0);
@@ -177,6 +181,17 @@ int jc_parallel_parse_msg(const char *line, struct jc_pmsg *out)
         if (err != NULL) {
             out->error = jc_strdup(err);
         }
+    } else if (strcmp(t, "sig") == 0) {
+        /* def-377 W1.1: the child's progress signal at every tool result. An
+         * OLDER parent has no "sig" case: it falls to the default (unknown t ->
+         * NONE) and ignores it (W1.7). Missing numbers degrade to 0, the same
+         * absent-means-default rule as the other done/tool fields. `dup24` is a
+         * double share in [0,1]; `since_edit_s` is NOT parsed (parent's clock). */
+        out->kind = JC_PMSG_SIG;
+        out->sig_edits = jc_json_clamp_int(jc_json_get_num(o, "edits", 0.0));
+        out->sig_placeholders = jc_json_clamp_int(jc_json_get_num(o, "placeholders", 0.0));
+        out->sig_compactions = jc_json_clamp_int(jc_json_get_num(o, "compactions", 0.0));
+        out->sig_dup24 = jc_json_get_num(o, "dup24", 0.0);
     }
     cJSON_Delete(o);
     return out->kind;

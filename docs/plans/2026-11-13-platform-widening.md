@@ -141,6 +141,33 @@ sudo actions are asked for when a row needs them: reconnecting boards, a tap
 device for ARAnyM's driven step, and GUI installs. Nothing is assumed
 unavailable because it is switched off.
 
+## 6. Decided 2026-11-17
+
+The operator took the order this page proposes for the widening, and postponed the Windows
+layers, macOS and ReactOS. FreeDOS and FreeMiNT are part of the work
+([`DECISIONS.md`](../DECISIONS.md#dec-2026-11-17-platform-scope)):
+
+1. After batch G of the harness-port drive has landed: FreeBSD, OpenBSD, NetBSD and illumos,
+   reading first the failures section 3 calls unclassified; then Debian 12 in 256 MB and
+   Debian 9; then FreeMiNT under ARAnyM and FreeDOS under QEMU. FreeDOS's next work after that
+   is def-269, how jichi runs programs where only one runs at a time.
+2. The boards: the VisionFive 2 and the Pi 400 over the LAN, the LicheeRV Nano and the Pi
+   Zero 2 W over USB.
+3. The Hurd and Haiku, by hand.
+4. From section 4: DragonFly BSD and Alpine Linux first.
+
+Added the same day, at the operator's word: **Redox OS** (section 4, tier 3) gets a first probe
+after batch G has landed: a cross-compile of jichi with Redox's own toolchain, in a container, to
+learn whether jichi compiles there at all. Nothing in the tree has measured Redox yet. What was
+known on 2026-11-17, from Redox's own talks and news and not from a run: its C library, relibc, is
+written in Rust; `fork` and `exec` live in its user-space runtime (since 2022); POSIX signals moved
+to user space in 2024 and 2025; GCC runs on Redox itself "mostly". Unknown: a libcurl with TLS, the
+terminal calls the interface needs, Unix-domain sockets, and a POSIX shell and tools for the smoke
+tier (Redox's default shell, Ion, is not POSIX). If it compiles, the unit suite under Redox's QEMU
+image comes next, then a driven model turn, as for every row. As a row it is a defect detector: a C
+library written from scratch, in another language, is where assumptions that hold on Linux by
+accident show.
+
 ## Sources for the AROS facts
 
 - AROS Research Operating System, download and nightly pages: https://aros.sourceforge.io/download.php,

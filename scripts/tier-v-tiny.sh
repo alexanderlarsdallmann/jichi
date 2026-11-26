@@ -118,14 +118,18 @@ res() { if [ "$DRY" -eq 1 ]; then sed 's/^/[results] /'; else cat >> "$RESULTS";
 # refused on this bench's own state (a dynamic ./jichi) and, with --live-model and
 # no cached kernel, DOWNLOADED one -- invisible because rig_live_lint's call died
 # on an option this rig does not take before it got that far.
-stop() {
+# The name is stop_here, not stop: OpenBSD's sh (ksh) starts every shell with
+# the alias stop='kill -STOP', and an alias is expanded where a function is
+# defined too. `stop() {` read there as `kill -STOP() {`, a syntax error at
+# this line, so the script could not even be parsed on that system.
+stop_here() {
     if [ "$DRY" -eq 1 ]; then echo "tier-v-tiny: (dry run) a real run stops here" >&2; return 0; fi
     exit 2
 }
 
-command -v qemu-system-x86_64 >/dev/null 2>&1 || { echo "tier-v-tiny: no qemu-system-x86_64" >&2; stop; }
-command -v cpio >/dev/null 2>&1 || { echo "tier-v-tiny: no cpio" >&2; stop; }
-[ -n "$BUSYBOX" ] || { echo "tier-v-tiny: no busybox on PATH (apt install busybox-static)" >&2; stop; }
+command -v qemu-system-x86_64 >/dev/null 2>&1 || { echo "tier-v-tiny: no qemu-system-x86_64" >&2; stop_here; }
+command -v cpio >/dev/null 2>&1 || { echo "tier-v-tiny: no cpio" >&2; stop_here; }
+[ -n "$BUSYBOX" ] || { echo "tier-v-tiny: no busybox on PATH (apt install busybox-static)" >&2; stop_here; }
 # THE TURN RUNG FETCHES ITS OWN KERNEL, from the SAME release as the modules.
 # Before M680 it took whatever kernel happened to be cached and downloaded
 # modules from a floating URL; when Alpine moved from 6.12.81 to 6.12.110 the
@@ -147,8 +151,8 @@ elif [ "$TURN" -eq 1 ] && [ -z "${TINY_KERNEL:-}" ] && [ ! -r "$KERNEL" ]; then
 fi
 [ -r "$KERNEL" ] || { echo "tier-v-tiny: no readable kernel at $KERNEL" >&2
     echo "  (the host's /boot/vmlinuz-* is mode 0600 root; run a tier-v-vm.sh" >&2
-    echo "   row first, or point TINY_KERNEL at any bzImage you can read)" >&2; stop; }
-[ -x "$BIN" ] || { echo "tier-v-tiny: no jichi at $BIN" >&2; stop; }
+    echo "   row first, or point TINY_KERNEL at any bzImage you can read)" >&2; stop_here; }
+[ -x "$BIN" ] || { echo "tier-v-tiny: no jichi at $BIN" >&2; stop_here; }
 
 # A DYNAMIC binary cannot work here: the initramfs has no ld.so and no libc.
 # Refuse loudly rather than produce a guest that dies with a confusing message.
@@ -159,7 +163,7 @@ if ldd "$BIN" 2>&1 | grep -qv 'not a dynamic executable'; then
     echo "  Build a static one:" >&2
     echo '    make clean && make CC="zig cc -target x86_64-linux-musl" \' >&2
     echo '         HAVE_CURL= SIZE=1 jichi' >&2
-    stop
+    stop_here
 fi
 
 say "tiny guest"

@@ -84,6 +84,10 @@ enum jc_control_cmd_type {
      * enum order: "stop-task", "inject-task". */
     JC_CTL_STOP_TASK,
     JC_CTL_INJECT_TASK,
+    /* M1192 B3: cancel the CURRENT command (lead, or one pool task). Last in
+     * the enum, just before UNKNOWN (D4), so the codec's verb list gains it
+     * as the ninth name. */
+    JC_CTL_CANCEL_CMD,
     JC_CTL_UNKNOWN
 };
 
@@ -98,7 +102,9 @@ struct jc_control_cmd {
                        * only when it NARROWS the current posture; a widening is
                        * refused, because the control channel never widens. */
     int task;         /* M1149: STOP_TASK/INJECT_TASK -- the 0-based pool index
-                       * (the target child). Validity is pool-checked. */
+                       * (the target child). Validity is pool-checked.
+                       * M1192 B3: CANCEL_TASK -- the target, or -1 (task ABSENT)
+                       * meaning the LEAD's own current command. */
     const char *reason; /* M1149: STOP_TASK -- the optional reason (arena-owned) */
 };
 
@@ -123,6 +129,21 @@ struct jc_pool_task_snap {
     double idle_s;     /* seconds since the child's last progress line (behaviour 12) */
     const char *wt;    /* worktree path, "" if none */
     const char *ending;/* how the task ended, or NULL while live */
+    int in_cmd;        /* M1192 B3: 1 while the child is INSIDE a shell command
+                        * (the child's tool progress line carries in_cmd), 0
+                        * otherwise; the cancel-cmd worker form refuses a task
+                        * that is live but not in a command. */
+    /* def-377 W2.1/W2.2 (M1194): the child's progress signals, published for
+     * the supervisor. edits/placeholder/compaction/dup24 are the LATEST sig
+     * per task (A2's store + A3's placeholders/compactions); since_edit_s is
+     * computed HERE by the PARENT from sig_edits_ms (never on the wire); flag
+     * is 0/1 (W2.3/W3.2). All default to 0/absent for a task with no sig yet. */
+    int    edits;         /* W2.2: successful edit-tool calls so far (sig) */
+    double since_edit_s;  /* W2.2: parent-computed s since the last edits change */
+    int    placeholders;  /* W2.2: total copied placeholders (sig) */
+    int    compactions;   /* W2.2: total compact events (sig) */
+    double dup24;         /* W2.2: near-dup share of the last 24 calls (sig) */
+    int    flag;          /* W2.2/W2.3: 1 = the flag fired, 0 = not yet */
 };
 
 /* The published batch snapshot, refreshed by the pool every loop iteration. */
@@ -139,6 +160,11 @@ struct jc_pool_snap {
 struct jc_pool_ops {
     jc_status (*stop)(int task, const char *reason, char *why, jc_size whycap);
     jc_status (*inject)(int task, const char *text, char *why, jc_size whycap);
+    /* M1192 B3: cancel the CURRENT command of one pool task (SIGUSR1 -> the
+     * child's abort flag -> its watched command's cancel kill-arm). Same
+     * refusal contract as stop/inject (the pool fills *why, the handler
+     * replies with it verbatim); NULL when the pool did not register it. */
+    jc_status (*cancel)(int task, const char *reason, char *why, jc_size whycap);
     const struct jc_pool_snap *snap; /* the published snapshot, or NULL */
 };
 
@@ -168,6 +194,12 @@ char *jc_control_build_request(const char *type, const char *text,
  * inject's required text. */
 char *jc_control_build_task_request(const char *type, int task,
                                     const char *reason_or_text);
+
+/* M1192 B3: build a cancel-cmd request (client side; malloc'd, trailing
+ * newline included). `task` is -1 for the LEAD form (the "task" field is
+ * omitted) or a >= 0 pool index for the worker form; `reason` is optional
+ * (NULL/"" omitted). */
+char *jc_control_build_cancel_request(int task, const char *reason);
 
 /* Build response lines (server side; malloc'd, trailing newline included). */
 char *jc_control_build_ok(const char *note);   /* {"v":1,"ok":true[,note]}   */
@@ -261,6 +293,12 @@ struct jc_control {
                                * lives in the POOL, owned by the parent process;
                                * a forked child inherits a COW copy but never
                                * serves (serve_pid), so its copy is dead. */
+    struct jc_app *app;         /* M1192 cell 4: the owning app, recorded by
+                               * serve_pending. jc_control_close uses it for its
+                               * final CLOSING-boundary drain (a supervisor that
+                               * connects during teardown), where the app is still
+                               * valid. NULL on a NO_SOCKETS init or before the
+                               * first serve. */
 };
 
 /* Bind + listen on `path` (parent dir created 0700; a stale socket file is

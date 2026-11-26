@@ -244,4 +244,42 @@ void test_gatesweep(void)
         jc_vec_free(&env);
         jc_arena_free(a);
     }
+
+    /* --- the WORKDIR + CMD joined command string (M1221, the quoting fix) --- */
+
+    /* A workdir without a space (the simple case, should work before and after). */
+    JC_CHECK(jc_gatesweep_build_cmd("/tmp/wd", "ls -la", buf, sizeof buf) == 0);
+    ts_eq(buf, "cd '/tmp/wd' && ls -la");
+
+    /* A workdir WITH A SPACE (the M1221 red-first: must be quoted). */
+    JC_CHECK(jc_gatesweep_build_cmd("/tmp/wd a", "ls -la", buf, sizeof buf) == 0);
+    ts_eq(buf, "cd '/tmp/wd a' && ls -la");
+
+    /* NULL workdir (no cd, just the cmd). */
+    JC_CHECK(jc_gatesweep_build_cmd(NULL, "ls -la", buf, sizeof buf) == 0);
+    ts_eq(buf, "ls -la");
+
+    /* Empty string workdir (same as NULL). */
+    JC_CHECK(jc_gatesweep_build_cmd("", "ls -la", buf, sizeof buf) == 0);
+    ts_eq(buf, "ls -la");
+
+    /* Special characters in workdir (must be quoted to prevent shell interpretation). */
+    JC_CHECK(jc_gatesweep_build_cmd("/tmp/wd;rm -rf", "ls -la", buf, sizeof buf) == 0);
+    ts_eq(buf, "cd '/tmp/wd;rm -rf' && ls -la");
+
+    /* Another special case: dollar sign. */
+    JC_CHECK(jc_gatesweep_build_cmd("/tmp/wd$HOME", "ls -la", buf, sizeof buf) == 0);
+    ts_eq(buf, "cd '/tmp/wd$HOME' && ls -la");
+
+    /* Very long workdir (overflow test). Use a tiny buffer to force overflow. */
+    {
+        char longwd[256];
+        char longcmd[256];
+        char tinybuf[64];
+        memset(longwd, 'x', sizeof longwd - 1);
+        longwd[sizeof longwd - 1] = '\0';
+        memset(longcmd, 'y', sizeof longcmd - 1);
+        longcmd[sizeof longcmd - 1] = '\0';
+        JC_CHECK(jc_gatesweep_build_cmd(longwd, longcmd, tinybuf, sizeof tinybuf) == -1);
+    }
 }

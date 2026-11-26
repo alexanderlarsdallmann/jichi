@@ -214,6 +214,12 @@ cat > "$tmp/foreign" <<'EOF'
 # `git push --ff-only` -- both git's flags, named because they ARE the fix.
 --is-ancestor
 --ff-only
+# git, in the worker-model A/B record docs/internal/2026-11-17-worker-model-ab/ (2026-11-17): its
+# README names `git format-patch --stdout` (how each run's patch was made) and the `git log
+# --pretty=full` a worker ran instead of the trailer check it was asked for. (Its re-check script's
+# `git interpret-trailers --parse` is covered by the --parse entry the case study added below.)
+--stdout
+--pretty
 --work-tree
 --port
 --gpus
@@ -297,6 +303,11 @@ cat > "$tmp/foreign" <<'EOF'
 # says "over the gateway" must say how the key got to the board without
 # landing in a ps or a log.
 --live-key-env
+# The rigs' --selftest (M1166), named in VERIFY_A_PLATFORM.md §4 as the first
+# command to run before a real device run: it plants logs in $TMPDIR and checks
+# the rig's own extraction of the unit count (a failing summary, a smoke
+# driver's mid-line bait) before any ssh. A rig flag, not a jichi flag (2026-11-17).
+--selftest
 # tests/tools/ptydrive.c --presend (M672), named in DEFERRED.md where the
 # preprompt_discard diagnosis is recorded. A test-tool flag, not jichi's. It is
 # documented because the finding is only reproducible if a reader knows which
@@ -535,6 +546,16 @@ cat > "$tmp/foreign" <<'EOF'
 # `--no-legend` are listed above). systemd's flags, not jichi's.
 --collect
 --nice
+# git's, quoted verbatim in the harness-port case study's internal appendix
+# (docs/internal/2026-11-15-harness-port-case-study/README.md: `git diff --shortstat`,
+# `git log --date=format:%F` and `git diff --numstat` are the commands that produced its data
+# sheet) and in the lessons ledger's entry 2026-11-16.04 (`git interpret-trailers --parse < FILE`,
+# the measured check a commit message file gets before `git commit -F`). The commands are the
+# measurement, so they are not reworded. git's flags, not jichi's.
+--shortstat
+--date
+--numstat
+--parse
 EOF
 
 # jichi flags DESIGNED but not built (HARDENING/SELF_IMPROVEMENT/

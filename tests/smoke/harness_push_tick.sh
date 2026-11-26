@@ -21,13 +21,16 @@
 #   docs/internal/drive/2026-10-27-hardening-host/push-tick.sh
 #   docs/internal/drive/2026-10-27-hardening-host/push.sh        (the lock)
 #
+# M1211 (H7 follow-up). The push tick's push.git refresh (card [104], SV:1355):
+#   docs/internal/drive/2026-11-05-harness-port/notes/M1211.md
+#
 # THE RED THIS IS HELD BY. On the tree before this batch the top-level verb
 # `push` does not exist in jichi-harness: every check that runs a push
 # subcommand gets `unknown command 'push'` and exit 2. All eight cells run
 # the tick and are RED for exactly that reason (rc 2 instead of 0/1, and
 # every push.log / push-tick.out line they assert is absent).
 #
-# WHAT IS CHECKED -- 9 cells, one t_ok/t_fail each:
+# WHAT IS CHECKED -- 14 cells, one t_ok/t_fail each:
 #   1. two ticks started 1 s apart are serialised by the lock: the second
 #      WAITS, it does not fail and does not interleave. The first tick's
 #      records push is slow (a 32 MiB blob: the key-scan cat-file loop over
@@ -86,6 +89,32 @@
 #      objects, and the sanitizer's report flips the tick's exit code to 1,
 #      so the leak is RED on the rc and on the quoted `Direct leak of
 #      <N> byte(s) in <M> object(s)` line -- the H7 gate's RED.
+#  10. a pageCommand that cannot be executed is reported on stderr (M1179):
+#      the fork backend's child's exit 127 appears on stderr as
+#      `pageCommand exited 127`, the PAGE line is still written, rc 1.
+#  11. the push tick's push.git refresh lands (M1211, the note's b1-b4):
+#      the standin has a master branch, the token is restored (cell 10 left
+#      it renamed away), the state is reset to 0, a commit C2 is added to
+#      the team's $PFX/main, the mirror's $PFX/main = C2, the standin M1.
+#      After a PASSING tick: tracking $PFX/main == C2 == standin (b3);
+#      local $PFX/main == C2 == mirror (b2); origin/master == standin master
+#      (b1); push.log carries the exact b4 line with C2's short sha.
+#  12. a non-FF (rewritten) mirror ref is NOT carried over (b2's NO `+`):
+#      the MIRROR's $PFX/main is rewound to M1, the tick runs (team push
+#      fails, mirror M1 -> standin C2 is non-FF), the tick is rc 1, state
+#      1 -> 2, TICK FAIL (#2). Assert rc 1, push.log carries the b2 refusal
+#      line ('the fetch from the drive's mirror failed'), and push.git's
+#      local $PFX/main is STILL C2 (the rewound M1 was not carried over).
+#  13. a failed remote fetch -> the tick fails, NOTHING pushed (b1's FATAL):
+#      the standin is renamed away, the tick runs. Assert rc 1,
+#      push.log carries 'the fetch of the remote's refs failed', and the
+#      tick's push.log section has 'push: start' but NO timestamped
+#      'push: end rc=' (b1's failure skips the pushes AND the end line).
+#  14. a gate-style clone of push.git works (the consumer's shape): the
+#      state is reset to 0, the mirror is re-synced to the standin, a
+#      PASSING tick runs (empty range, C2->C2). Assert git clone + checkout
+#      both rc 0, and the clone's HEAD == push.git's local $PFX/main ==
+#      mirror's $PFX/main.
 #
 # THE FIXTURE. Under $SMOKE_TMP: an init-built rehearsal (src ->
 # `init rehearsal`, the team/mirror/standin/recs layout the built M1055/
@@ -120,7 +149,7 @@
 
 command -v git >/dev/null 2>&1 || t_skip "git not available"
 
-t_plan 10
+t_plan 14
 smoke_home
 tmp=$(smoke_tmp)
 
@@ -145,7 +174,7 @@ KEYCANARY=$(od -An -N20 -tx1 /dev/urandom | tr -d ' \n'); [ -n "$KEYCANARY" ] ||
 # A fixture failure emits one t_fail per cell so the plan stays honest.
 fixture_fail() {
     _ff_n=0
-    while [ "$_ff_n" -lt 9 ]; do
+    while [ "$_ff_n" -lt 13 ]; do
         _ff_n=$((_ff_n + 1))
         t_fail "$_ff_n: fixture failed: $1"
     done
@@ -210,6 +239,13 @@ git -C "$tmp/dir/team" branch -q "$PFX/work/a" "$PFX/main" \
 # guard compares bytes; init writes this once its extension lands).
 cp "$tmp/dir/recs/.git/config" "$tmp/dir/recs.git-config.harness-copy" \
     || fixture_fail "recs stored copy"
+
+# M1211: give the standin a master branch BEFORE the warm-up tick, because b1
+# fetches refs/heads/master explicitly. The real remote has a master; the
+# standin mirrors that shape.
+git -C "$tmp/dir/standin.git" update-ref refs/heads/master \
+    "$(git -C "$tmp/dir/standin.git" rev-parse refs/heads/$PFX/plan)" \
+    || fixture_fail "standin master branch"
 
 # One passing tick FIRST (before any big blobs), to make sure the fixture
 # itself can run the tick's two pushes end-to-end. It also lands the initial
@@ -471,6 +507,105 @@ elif ! grep -qF "pageCommand exited 127" "$tmp/t10.err"; then
     t_fail "10: an unexecutable pageCommand was SILENT on the fork backend (no 'pageCommand exited 127' on stderr): $(tr '\n' '|' < "$tmp/t10.err" | head_bytes 200)"
 else
     t_ok "10: a pageCommand that cannot be executed (fork backend, the child's exit 127) is reported on stderr as 'pageCommand exited 127', the PAGE line is still written, rc 1 (M1179)"
+fi
+
+# --- 11: the refresh lands (M1211, b1-b4) ----------------------------------
+# Standing state entering cell 11 (left by cell 10): the token file is
+# RENAMED AWAY, the state file reads 1. The mirror and the standin are in
+# sync at M1 (the tip the warm-up and cells 5-6 pushed); the standin's master
+# branch points at the plan tip (the fixture's new setup, above).
+# Setup: restore the token; reset the state to 0; record M1 = the standin's
+# $PFX/main; add a commit C2 to the team's $PFX/main; mirror fetch; run a
+# PASSING tick. Assert the four items (b1-b4).
+mv "$tmp/tokfile.broken" "$tmp/tokfile" 2>/dev/null || fixture_fail "c11 restore token"
+printf '0\n' > "$PH/push-tick.state" || fixture_fail "c11 state write"
+M1=$(git -C "$tmp/dir/standin.git" rev-parse "$PFX/main") || fixture_fail "c11 get M1"
+# Add a commit C2 to the team's $PFX/main
+printf 'c2 content\n' >> "$tmp/dir/team/c2.txt"
+git -C "$tmp/dir/team" add c2.txt
+git -C "$tmp/dir/team" -c user.name="Harness Smoke" -c user.email="harness-smoke@example.com" \
+    commit -q -m "team: commit C2" || fixture_fail "c11 commit C2"
+# Mirror fetch: the mirror's $PFX/main = C2, the standin still M1
+"$HBIN" mirror fetch --config "$tmp/cfg.json" "$tmp/dir/mirror.git" \
+    < /dev/null > "$tmp/f11" 2> "$tmp/f11.err" || fixture_fail "c11 mirror fetch"
+# Run the PASSING tick
+"$HBIN" push tick --config "$tmp/cfg.json" < /dev/null > "$tmp/t11" 2> "$tmp/t11.err"
+rc11=$?
+# Assert: tracking $PFX/main == C2 == standin (b3)
+_tracking=$(git -C "$PH/push.git" rev-parse -q --verify "refs/remotes/origin/$PFX/main" 2>/dev/null)
+_stand_main=$(git -C "$tmp/dir/standin.git" rev-parse -q --verify "$PFX/main" 2>/dev/null)
+_c2=$(git -C "$tmp/dir/team" rev-parse -q --verify "$PFX/main" 2>/dev/null)
+if [ -z "$_tracking" ]; then
+    t_fail "11: push.git has no refs/remotes/origin/$PFX/main (the tick's refresh is absent)"
+elif [ "$_tracking" != "$_c2" ] || [ "$_tracking" != "$_stand_main" ]; then
+    t_fail "11: push.git has no refs/remotes/origin/$PFX/main (the tick's refresh is absent) -- tracking='$_tracking' want '$_c2'='$_stand_main'"
+else
+    t_ok "11: the refresh lands -- tracking refs/remotes/origin/$PFX/main == C2 == standin (b3)"
+fi
+
+# --- 12: a non-FF (rewritten) mirror ref is NOT carried over (b2) -----------
+# Setup: rewind the MIRROR's $PFX/main to M1, run the tick. Assert rc 1,
+# push.log carries the b2 refusal line, and push.git's local $PFX/main is STILL C2.
+git -C "$tmp/dir/mirror.git" update-ref "refs/heads/$PFX/main" "$M1" \
+    || fixture_fail "c12 rewind mirror"
+"$HBIN" push tick --config "$tmp/cfg.json" < /dev/null > "$tmp/t12" 2> "$tmp/t12.err"
+rc12=$?
+_mirror_local=$(git -C "$PH/push.git" rev-parse "$PFX/main" 2>/dev/null)
+if [ "$rc12" -ne 1 ]; then
+    t_fail "12: the tick with a rewound mirror exited $rc12 (want 1)"
+elif ! grep -qF "the fetch from the drive's mirror failed" "$PH/push.log" 2>/dev/null; then
+    t_fail "12: push.log has no 'the fetch from the drive's mirror failed' line (the mirror fetch is absent)"
+elif [ "$_mirror_local" != "$_c2" ]; then
+    t_fail "12: push.git refs/heads/$PFX/main is '$_mirror_local' (want '$_c2' -- the rewound M1 was not carried over)"
+else
+    t_ok "12: a non-FF mirror ref is NOT carried over (b2) -- the tick fails (rc 1), push.log carries the b2 refusal line, push.git's local $PFX/main is STILL C2"
+fi
+
+# --- 13: a failed remote fetch -> the tick fails, NOTHING pushed (b1) -------
+# Setup: rename the standin away, run the tick. Assert rc 1,
+# push.log carries 'the fetch of the remote's refs failed', and the tick's
+# push.log section has 'push: start' but NO timestamped 'push: end rc='.
+mv "$tmp/dir/standin.git" "$tmp/dir/standin.git.broken" || fixture_fail "c13 rename standin"
+# Count timestamped 'push: end rc=' lines before the tick
+_end_before=$(grep -cE '^[0-9][0-9][0-9][0-9]-.*push: end rc=' "$PH/push.log" 2>/dev/null)
+[ -n "$_end_before" ] || _end_before=0
+"$HBIN" push tick --config "$tmp/cfg.json" < /dev/null > "$tmp/t13" 2> "$tmp/t13.err"
+rc13=$?
+_end_after=$(grep -cE '^[0-9][0-9][0-9][0-9]-.*push: end rc=' "$PH/push.log" 2>/dev/null)
+[ -n "$_end_after" ] || _end_after=0
+if [ "$rc13" -ne 1 ]; then
+    t_fail "13: the tick exited $rc13 (want 1) with the remote renamed away (the remote fetch is absent, so the tick did not fail)"
+elif ! grep -qF "the fetch of the remote's refs failed" "$PH/push.log" 2>/dev/null; then
+    t_fail "13: push.log has no 'the fetch of the remote's refs failed' line (the remote fetch is absent)"
+elif [ "$_end_after" -ne "$_end_before" ]; then
+    t_fail "13: the tick wrote 'push: end rc=' lines (count $_end_before -> $_end_after), but b1's failure skips the end line"
+else
+    t_ok "13: a failed remote fetch -> the tick fails, NOTHING pushed (b1) -- rc 1, push.log carries 'the fetch of the remote's refs failed', no timestamped 'push: end rc='"
+fi
+# Restore the standin
+mv "$tmp/dir/standin.git.broken" "$tmp/dir/standin.git" || fixture_fail "c13 restore standin"
+
+# --- 14: a gate-style clone of push.git works (the consumer's shape) --------
+# Setup: reset the state to 0; re-sync the mirror to the standin; run a
+# PASSING tick (empty range). Assert git clone + checkout both rc 0.
+printf '0\n' > "$PH/push-tick.state" || fixture_fail "c14 state write"
+git -C "$tmp/dir/mirror.git" fetch -q origin "+refs/heads/$PFX/main:refs/heads/$PFX/main" \
+    || fixture_fail "c14 re-sync mirror"
+"$HBIN" push tick --config "$tmp/cfg.json" < /dev/null > "$tmp/t14" 2> "$tmp/t14.err"
+rc14=$?
+git clone -q "$PH/push.git" "$tmp/cl14" || fixture_fail "c14 clone"
+git -C "$tmp/cl14" checkout -q "$PFX/main" 2>/dev/null
+clone_head=$(git -C "$tmp/cl14" rev-parse HEAD 2>/dev/null)
+push_local=$(git -C "$PH/push.git" rev-parse "$PFX/main" 2>/dev/null)
+mirror_local=$(git -C "$tmp/dir/mirror.git" rev-parse "$PFX/main" 2>/dev/null)
+if [ "$rc14" -ne 0 ]; then
+    t_fail "14: the PASSING tick exited $rc14 (want 0)"
+elif ! git -C "$tmp/cl14" rev-parse --verify "$PFX/main" >/dev/null 2>&1; then
+    t_fail "14: the clone of push.git has no $PFX/main branch to checkout (the tick's mirror fetch is absent)"
+elif [ "$clone_head" != "$push_local" ] || [ "$clone_head" != "$mirror_local" ]; then
+    t_fail "14: the clone's HEAD '$_clone_head' != push.git's local '$_push_local' != mirror's '$_mirror_local'"
+else
+    t_ok "14: a gate-style clone of push.git works -- clone + checkout rc 0, HEAD == push.git's local == mirror's"
 fi
 
 t_done

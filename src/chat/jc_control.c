@@ -37,8 +37,24 @@
 #include <sys/un.h>
 #endif
 
+/* The reply to an accepted inject-task. It says what the parent knows when it
+ * answers: the note is in the task's pipe. It does NOT say "applied": a task
+ * reads its notes only at a tool boundary, and a task whose next reply is its
+ * last has none, so the note is then never read (the threadwork review's F22;
+ * the operator's decision of 2026-11-26). Reporting which notes were read is
+ * a later step and needs a field in the child's result. Outside the
+ * JC_NO_SOCKETS block: serve_pending uses it in both builds (REL-0150D's gate
+ * went red on fallbacks-compile while it stood inside). */
+#define JC_CTL_INJECT_TASK_NOTE \
+    "queued; it is delivered at the task's next tool boundary, if it reaches one"
+
 /* Cap the total queued steering text (several injects between boundaries). */
 #define CONTROL_PENDING_MAX (4 * JC_CONTROL_LINE_MAX)
+
+/* Forward decl: jc_control_close (above the body) calls this for its final
+ * CLOSING-boundary drain (M1192 cell 4). */
+static int serve_pending(struct jc_app *app, struct jc_control *c,
+                         long wait_ms, int abort_mode);
 
 void jc_control_default_path(char *out, jc_size cap)
 {
@@ -150,12 +166,29 @@ void jc_control_close(struct jc_control *c)
         return;
     }
     if (c->listen_fd >= 0) {
+        /* M1192 cell 4: the CLOSING boundary serve. The agent loop's last
+         * serve point (the post-final-answer pre-request boundary) already ran
+         * by the time main.c reaches teardown; a supervisor that connects in
+         * this final window (the driver's second cancel-cmd) would otherwise
+         * sit in the listen backlog until the close below, and its reply would
+         * be lost -- the socket closes before anything accepts it. A final
+         * non-blocking drain answers it here, while the app (and thus the
+         * cancel arm's in_flight/why state) is still valid: main.c frees the
+         * run's env + arena only AFTER this call. abort_mode 1 defers any
+         * abort to the (already-finished) boundary, and the drain is bounded,
+         * so a closing run can never hang. c->app is NULL on a NO_SOCKETS
+         * init and on a control that served no app boundary yet -- both are
+         * no-ops. */
+        if (c->app != NULL && c->serve_pid == (long)getpid()) {
+            (void)serve_pending(c->app, c, 0, 1);
+        }
         close(c->listen_fd);
         c->listen_fd = -1;
     }
     if (c->path[0] != '\0') {
         unlink(c->path);
     }
+    c->app = NULL;
     jc_sb_free(&c->pending);
     jc_sb_free(&c->pending_from);
 }
@@ -335,6 +368,12 @@ static int serve_pending(struct jc_app *app, struct jc_control *c,
 {
     int served = 0;
 
+    /* M1192 cell 4: remember the owning app so jc_control_close can still
+     * serve a connection that lands in the backlog at the CLOSING boundary
+     * (the driver's second cancel) after the agent loop has returned. The
+     * app outlives this socket: main.c frees the run's env + arena only
+     * AFTER jc_control_close, so the pointer is valid for that final drain. */
+    c->app = app;
     for (;;) {
         fd_set rf;
         struct timeval tv;
@@ -540,7 +579,7 @@ static int serve_pending(struct jc_app *app, struct jc_control *c,
             if (jtxt == NULL) {
                 journal_cmd(app, "inject-task", NULL, 0, -1);
                 write_reply(fd, jc_control_build_ok(
-                    "applied at the task's next tool boundary"));
+                    JC_CTL_INJECT_TASK_NOTE));
                 break;
             }
             jc_snprintf(jtxt, JC_CONTROL_LINE_MAX + 64, "task=%d %s",
@@ -549,7 +588,78 @@ static int serve_pending(struct jc_app *app, struct jc_control *c,
             journal_cmd(app, "inject-task", jtxt, 0, -1);
             free(jtxt);
             write_reply(fd, jc_control_build_ok(
-                "applied at the task's next tool boundary"));
+                JC_CTL_INJECT_TASK_NOTE));
+            break;
+        }
+        case JC_CTL_CANCEL_CMD: {
+            /* M1192 B3: cancel the CURRENT command. LEAD form (task == -1,
+             * the field was absent): set app->cmd_cancel (the watched
+             * command's select loop notices it and takes the cancel kill-arm,
+             * D2) -- but refuse EXACTLY "no command is running" when no shell
+             * command is in flight (B3.7). WORKER form (task >= 0): route to
+             * the pool's cancel op (SIGUSR1 -> the child's abort flag). The
+             * refusals are EXACT (the handler replies with *why verbatim):
+             *   no live pool        -> "no batch is live"
+             *   dead / out-of-range -> "task N is not live (M tasks)"
+             *   live, not in cmd    -> "task N is not in a command (tool: X)"
+             *   non-cancellable cmd -> "task N's command is not cancellable"
+             * An accepted cancel is journaled; a refusal signals nothing and
+             * is NOT journaled (the stop-task shape). */
+            char why[192];
+            char jtxt[256];
+            jc_status rst;
+            if (cmd.task < 0) {
+                /* LEAD form: cancel the lead's own current shell command. */
+                if (!app->cmd_in_flight) {
+                    /* B3.7: the lead is not currently inside a shell command,
+                     * so there is nothing to cancel. */
+                    write_reply(fd, jc_control_build_err(
+                        "no command is running"));
+                    break;
+                }
+                app->cmd_cancel = 1;
+                if (cmd.reason != NULL && cmd.reason[0] != '\0') {
+                    jc_snprintf(app->cmd_cancel_reason,
+                                sizeof(app->cmd_cancel_reason), "%s",
+                                cmd.reason);
+                } else {
+                    app->cmd_cancel_reason[0] = '\0';
+                }
+                jc_snprintf(jtxt, sizeof(jtxt), "task=-1%s%s",
+                            cmd.reason != NULL && cmd.reason[0] != '\0'
+                                ? " reason=" : "",
+                            cmd.reason != NULL ? cmd.reason : "");
+                journal_cmd(app, "cancel-cmd", jtxt, 0, -1);
+                write_reply(fd, jc_control_build_ok(
+                    "cancelling the lead's current command"));
+                break;
+            }
+            /* WORKER form: cancel one pool task's current command. */
+            if (c->pool_ops == NULL || c->pool_ops->cancel == NULL) {
+                write_reply(fd, jc_control_build_err("no batch is live"));
+                break;
+            }
+            rst = c->pool_ops->cancel(cmd.task, cmd.reason, why, sizeof(why));
+            if (rst != JC_OK) {
+                write_reply(fd, jc_control_build_err(why));
+                break;
+            }
+            jc_snprintf(jtxt, sizeof(jtxt), "task=%d%s%s",
+                        cmd.task,
+                        cmd.reason != NULL && cmd.reason[0] != '\0'
+                            ? " reason=" : "",
+                        cmd.reason != NULL ? cmd.reason : "");
+            journal_cmd(app, "cancel-cmd", jtxt, 0, -1);
+            {
+                char m[96];
+                /* D2: the reply MUST name the target ("task N"), per the
+                 * driver's cell-2 assertion. */
+                jc_snprintf(m, sizeof(m),
+                            "cancelling task %d's current command "
+                            "(SIGUSR1 at the next pool wake)",
+                            cmd.task);
+                write_reply(fd, jc_control_build_ok(m));
+            }
             break;
         }
         default:
@@ -608,14 +718,14 @@ int jc_control_boundary(struct jc_app *app, struct jc_history *hist)
             jc_sb_init(&sb_pending);
         }
         for (;;) {
-            oldfl = fcntl(JC_CTL_INJECT_FD, F_GETFL);
+            oldfl = fcntl(app->pool_inject_fd, F_GETFL);
             if (oldfl >= 0) {
-                (void)fcntl(JC_CTL_INJECT_FD, F_SETFL,
+                (void)fcntl(app->pool_inject_fd, F_SETFL,
                             oldfl | O_NONBLOCK);
             }
-            r = read(JC_CTL_INJECT_FD, rb, sizeof(rb) - 1);
+            r = read(app->pool_inject_fd, rb, sizeof(rb) - 1);
             if (oldfl >= 0) {
-                (void)fcntl(JC_CTL_INJECT_FD, F_SETFL, oldfl);
+                (void)fcntl(app->pool_inject_fd, F_SETFL, oldfl);
             }
             if (r <= 0) {
                 break;   /* EAGAIN (nothing more) or 0 (parent closed the write end) */

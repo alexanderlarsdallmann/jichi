@@ -8,6 +8,17 @@
 # its work was lost: the red half.
 . "$(dirname "$0")/_smoke.sh"
 
+# setsid(1) is the INSTRUMENT here: the lead runs in a process group of its own
+# so that the whole run can be killed at once, which is what leaves the orphan.
+# It is a util-linux program; NetBSD 10.1 and OpenBSD 7.9 have none (asked in
+# both guests, TW24 2026-11-25), and without it the `exec setsid` below fails
+# into a redirected file, jichi never starts, and every check fails with
+# "no orphan base" -- a failure of the test's own setup, reported as the
+# product's. Decline with the reason. The salvage of an orphaned batch is then
+# NOT tested on that system; a helper of our own (setsid(2), then exec) would
+# test it there.
+command -v setsid >/dev/null 2>&1 || t_skip "no setsid(1) on this system (a util-linux program): the driver cannot put the lead in a process group of its own, so it cannot make the orphan it tests -- the salvage of an orphaned batch is NOT tested here"
+
 t_plan 6
 smoke_home
 marker="ORPHWORK_z9_kept"

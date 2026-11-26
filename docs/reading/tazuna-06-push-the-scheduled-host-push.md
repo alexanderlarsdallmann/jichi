@@ -127,14 +127,17 @@ already holds the lock sets it, and the tick skips the lock.
 
 **The pushes.** For the two calls the tick points its own stdout at
 `push.log` (`dup` the old fd 1, `dup2` the log onto it, restore afterwards),
-because both pushes print their report lines to stdout. It then calls the team
-push (`jc_harness_mirror_push_run`, the `mirror push` command, in process) and
-then the records push (`jc_harness_push_records_run`). Each outcome becomes a
-`push.log` line.
+because both pushes print their report lines to stdout. Before them the tick
+does a quiet fetch of the drive's branches from the mirror (the `b2` fetch,
+whose failure is a third outcome that also folds into the rc), and then it
+calls the team push (`jc_harness_mirror_push_run`, the `mirror push` command,
+in process) and the records push (`jc_harness_push_records_run`). Each outcome
+becomes a `push.log` line.
 
 ```c src/harness/jc_hp_tick.c:jc_harness_push_tick_run
-    /* rc = the OR of the two, normalised: any non-zero -> 1, both zero -> 0. */
-    rc = (team_rc != 0 || recs_rc != 0) ? 1 : 0;
+    /* rc = the OR of the three (team, records, the b2 fetch), normalised:
+     * any non-zero -> 1, all zero -> 0. */
+    rc = (team_rc != 0 || recs_rc != 0 || b2_failed != 0) ? 1 : 0;
 ```
 
 A push that returns 2 (its own usage refusal, say a mirror precheck) is folded

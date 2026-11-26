@@ -168,7 +168,10 @@ for f in $drivers; do
         # o2_unit_stage (M1160-a, run 0039): it builds the gate's whole -O2
         # universe of 353 TUs (make -n extraction, gcc, -o /dev/null) -- it
         # runs a COMPILER, not jichi -- so the "$BIN" rule does not apply
-        *_lint.sh|docs_flags.sh|hooks_docs.sh|lease_advisory_docs.sh|teeth_restore.sh|release_mode.sh|static_mode.sh|snprintf_fallback.sh|o2_unit_stage.sh|ci_32bit_probe.sh|deferred_platform_rows.sh) continue ;;
+        # convert_output (2026-11-23, SV:1942): it runs the pre-built
+        # jichi-convert, the second program, and never jichi -- so the "$BIN"
+        # rule does not apply (same shape as o2_unit_stage)
+        *_lint.sh|docs_flags.sh|hooks_docs.sh|lease_advisory_docs.sh|teeth_restore.sh|release_mode.sh|static_mode.sh|snprintf_fallback.sh|o2_unit_stage.sh|ci_32bit_probe.sh|deferred_platform_rows.sh|convert_output.sh) continue ;;
     esac
     grep -q '"\$BIN"' "$f" || bad="$bad $(basename "$f")"
     # M270: the ABSENCE side, which this check's own message has always

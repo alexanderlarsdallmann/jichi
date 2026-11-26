@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 334" width="920" height="334" role="img">
+<title>Work lost while the team, or part of it, stood still: hours by cause</title><desc>wall clock or worker hours that produced nothing; deliberate holds by the operator are left out</desc>
+<style>
+.s{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.tm{fill:#898781}
+.g{stroke:#e1e0d9}.ax{stroke:#c3c2b7}.wash{fill:#898781;fill-opacity:.16}
+.d0{fill:#2a78d6;stroke:#2a78d6}.d1{fill:#eb6834;stroke:#eb6834}.d2{fill:#1baf7a;stroke:#1baf7a}
+.d3{fill:#eda100;stroke:#eda100}.ring{stroke:#fcfcfb}
+.l0{fill:none;stroke:#2a78d6}.l1{fill:none;stroke:#eb6834}.l2{fill:none;stroke:#1baf7a}.l3{fill:none;stroke:#eda100}.good{fill:#0ca30c}.crit{fill:#d03b3b;stroke:#d03b3b}
+.ink{fill:#52514e}.down{fill:#898781;fill-opacity:.5}
+text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+@media (prefers-color-scheme: dark){
+.s{fill:#1a1a19}.t1{fill:#f0efec}.t2{fill:#c3c2b7}.g{stroke:#2c2c2a}.ax{stroke:#383835}
+.d0{fill:#3987e5;stroke:#3987e5}.d1{fill:#d95926;stroke:#d95926}.d2{fill:#199e70;stroke:#199e70}
+.d3{fill:#c98500;stroke:#c98500}.ring{stroke:#1a1a19}
+.l0{stroke:#3987e5}.l1{stroke:#d95926}.l2{stroke:#199e70}.l3{stroke:#c98500}.ink{fill:#c3c2b7}}
+</style>
+<rect class="s" x="0" y="0" width="920" height="334" rx="8"/>
+<text class="t1" x="24.0" y="30.0" font-size="15" text-anchor="start" font-weight="600">Work lost while the team, or part of it, stood still: hours by cause</text>
+<text class="t2" x="24.0" y="50.0" font-size="12" text-anchor="start" font-weight="400">wall clock or worker hours that produced nothing; deliberate holds by the operator are left out</text>
+<line class="ax" x1="300" y1="64" x2="300" y2="294" stroke-width="1"/>
+<text class="t2" x="290.0" y="90.0" font-size="12" text-anchor="end" font-weight="400">model outage</text>
+<path class="d0" d="M300.0,76.0 H816.0 Q820.0,76.0 820.0,80.0 V92.0 Q820.0,96.0 816.0,96.0 H300.0 Z" stroke-width="0"><title>model outage: 21.87 h in 12 set-backs</title></path>
+<text class="t1" x="828.0" y="90.0" font-size="12" text-anchor="start" font-weight="400">21.9 h</text>
+<text class="t2" x="290.0" y="122.0" font-size="12" text-anchor="end" font-weight="400">worker failure (cut off, stuck, no write access)</text>
+<path class="d0" d="M300.0,108.0 H610.3 Q614.3,108.0 614.3,112.0 V124.0 Q614.3,128.0 610.3,128.0 H300.0 Z" stroke-width="0"><title>worker failure (cut off, stuck, no write access): 13.22 h in 8 set-backs</title></path>
+<text class="t1" x="622.3" y="122.0" font-size="12" text-anchor="start" font-weight="400">13.2 h</text>
+<text class="t2" x="290.0" y="154.0" font-size="12" text-anchor="end" font-weight="400">lead mistake (rewrite, dirty tree, wrong dispatch)</text>
+<path class="d0" d="M300.0,140.0 H378.3 Q382.3,140.0 382.3,144.0 V156.0 Q382.3,160.0 378.3,160.0 H300.0 Z" stroke-width="0"><title>lead mistake (rewrite, dirty tree, wrong dispatch): 3.46 h in 4 set-backs</title></path>
+<text class="t1" x="390.3" y="154.0" font-size="12" text-anchor="start" font-weight="400">3.5 h</text>
+<text class="t2" x="290.0" y="186.0" font-size="12" text-anchor="end" font-weight="400">other</text>
+<path class="d0" d="M300.0,172.0 H368.3 Q372.3,172.0 372.3,176.0 V188.0 Q372.3,192.0 368.3,192.0 H300.0 Z" stroke-width="0"><title>other: 3.04 h in 9 set-backs</title></path>
+<text class="t1" x="380.3" y="186.0" font-size="12" text-anchor="start" font-weight="400">3.0 h</text>
+<text class="t2" x="290.0" y="218.0" font-size="12" text-anchor="end" font-weight="400">supervisor mistake</text>
+<path class="d0" d="M300.0,204.0 H336.4 Q340.4,204.0 340.4,208.0 V220.0 Q340.4,224.0 336.4,224.0 H300.0 Z" stroke-width="0"><title>supervisor mistake: 1.70 h in 1 set-backs</title></path>
+<text class="t1" x="348.4" y="218.0" font-size="12" text-anchor="start" font-weight="400">1.7 h</text>
+<text class="t2" x="290.0" y="250.0" font-size="12" text-anchor="end" font-weight="400">waiting for the operator</text>
+<path class="d0" d="M300.0,236.0 H331.9 Q335.9,236.0 335.9,240.0 V252.0 Q335.9,256.0 331.9,256.0 H300.0 Z" stroke-width="0"><title>waiting for the operator: 1.51 h in 3 set-backs</title></path>
+<text class="t1" x="343.9" y="250.0" font-size="12" text-anchor="start" font-weight="400">1.5 h</text>
+<text class="t2" x="290.0" y="282.0" font-size="12" text-anchor="end" font-weight="400">network/VPN</text>
+<path class="d0" d="M300.0,268.0 H311.7 Q315.7,268.0 315.7,272.0 V284.0 Q315.7,288.0 311.7,288.0 H300.0 Z" stroke-width="0"><title>network/VPN: 0.66 h in 3 set-backs</title></path>
+<text class="t1" x="323.7" y="282.0" font-size="12" text-anchor="start" font-weight="400">0.7 h</text>
+<text class="tm" x="820.0" y="322.0" font-size="11" text-anchor="end" font-weight="400">hours, each stretch counted once per cause</text>
+</svg>

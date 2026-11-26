@@ -1,0 +1,157 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 252" width="920" height="252" role="img">
+<title>Harness: a timeline</title><desc>Lead runs, gate runs (green or red), landings on master, and the spans the loop was down.</desc>
+<style>
+.s{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.tm{fill:#898781}
+.g{stroke:#e1e0d9}.ax{stroke:#c3c2b7}.wash{fill:#898781;fill-opacity:.16}
+.d0{fill:#2a78d6;stroke:#2a78d6}.d1{fill:#eb6834;stroke:#eb6834}.d2{fill:#1baf7a;stroke:#1baf7a}
+.d3{fill:#eda100;stroke:#eda100}.ring{stroke:#fcfcfb}
+.l0{fill:none;stroke:#2a78d6}.l1{fill:none;stroke:#eb6834}.l2{fill:none;stroke:#1baf7a}.l3{fill:none;stroke:#eda100}.good{fill:#0ca30c}.crit{fill:#d03b3b;stroke:#d03b3b}
+.ink{fill:#52514e}.down{fill:#898781;fill-opacity:.5}
+text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+@media (prefers-color-scheme: dark){
+.s{fill:#1a1a19}.t1{fill:#f0efec}.t2{fill:#c3c2b7}.g{stroke:#2c2c2a}.ax{stroke:#383835}
+.d0{fill:#3987e5;stroke:#3987e5}.d1{fill:#d95926;stroke:#d95926}.d2{fill:#199e70;stroke:#199e70}
+.d3{fill:#c98500;stroke:#c98500}.ring{stroke:#1a1a19}
+.l0{stroke:#3987e5}.l1{stroke:#d95926}.l2{stroke:#199e70}.l3{stroke:#c98500}.ink{fill:#c3c2b7}}
+</style>
+<rect class="s" x="0" y="0" width="920" height="252" rx="8"/>
+<text class="t1" x="24.0" y="30.0" font-size="15" text-anchor="start" font-weight="600">Harness: 2026-10-23 20:16 to 2026-10-27 05:37 (3.4 days)</text>
+<line class="g" x1="145.2" y1="54" x2="145.2" y2="196" stroke-width="1"/>
+<text class="tm" x="145.2" y="212.0" font-size="11" text-anchor="middle" font-weight="400">10-24</text>
+<line class="g" x1="372.6" y1="54" x2="372.6" y2="196" stroke-width="1"/>
+<text class="tm" x="372.6" y="212.0" font-size="11" text-anchor="middle" font-weight="400">10-25</text>
+<line class="g" x1="609.4" y1="54" x2="609.4" y2="196" stroke-width="1"/>
+<text class="tm" x="609.4" y="212.0" font-size="11" text-anchor="middle" font-weight="400">10-26</text>
+<line class="g" x1="836.8" y1="54" x2="836.8" y2="196" stroke-width="1"/>
+<text class="tm" x="836.8" y="212.0" font-size="11" text-anchor="middle" font-weight="400">10-27</text>
+<text class="t2" x="100.0" y="81.0" font-size="12" text-anchor="end" font-weight="400">Lead runs</text>
+<text class="t2" x="100.0" y="115.0" font-size="12" text-anchor="end" font-weight="400">Gate runs</text>
+<text class="t2" x="100.0" y="149.0" font-size="12" text-anchor="end" font-weight="400">Landings</text>
+<text class="t2" x="100.0" y="183.0" font-size="12" text-anchor="end" font-weight="400">Loop down</text>
+<rect class="d1" x="110.0" y="68" width="21.8" height="18" rx="2"><title>run 0001: 10-23 20:16 to 10-23 22:47, rc 0</title></rect>
+<rect class="d1" x="133.9" y="68" width="62.8" height="18" rx="2"><title>run 0002: 10-23 22:48 to 10-24 05:38, rc 0</title></rect>
+<rect class="d1" x="198.7" y="68" width="15.8" height="18" rx="2"><title>run 0003: 10-24 05:38 to 10-24 07:31, rc 0</title></rect>
+<rect class="d1" x="216.5" y="68" width="17.9" height="18" rx="2"><title>run 0004: 10-24 07:31 to 10-24 09:37, rc 0</title></rect>
+<rect class="d1" x="236.5" y="68" width="27.3" height="18" rx="2"><title>run 0005: 10-24 09:37 to 10-24 12:43, rc 0</title></rect>
+<rect class="d1" x="265.8" y="68" width="33.0" height="18" rx="2"><title>run 0006: 10-24 12:43 to 10-24 16:25, rc 0</title></rect>
+<rect class="d1" x="300.9" y="68" width="18.4" height="18" rx="2"><title>run 0007: 10-24 16:25 to 10-24 18:35, rc 0</title></rect>
+<rect class="d1" x="321.3" y="68" width="10.5" height="18" rx="2"><title>run 0008: 10-24 18:35 to 10-24 19:54, rc 0</title></rect>
+<rect class="d1" x="333.9" y="68" width="44.7" height="18" rx="2"><title>run 0009: 10-24 19:54 to 10-25 00:50, rc 0</title></rect>
+<rect class="d1" x="380.7" y="68" width="103.6" height="18" rx="2"><title>run 0010: 10-25 00:51 to 10-25 11:00, rc 0</title></rect>
+<rect class="d1" x="486.3" y="68" width="14.9" height="18" rx="2"><title>run 0011: 10-25 11:00 to 10-25 12:47, rc 0</title></rect>
+<rect class="d1" x="503.3" y="68" width="40.5" height="18" rx="2"><title>run 0012: 10-25 12:47 to 10-25 17:17, rc 0</title></rect>
+<rect class="d1" x="545.9" y="68" width="38.3" height="18" rx="2"><title>run 0013: 10-25 17:17 to 10-25 21:32, rc 1</title></rect>
+<rect class="d1" x="618.1" y="68" width="9.3" height="18" rx="2"><title>run 0014: 10-26 00:55 to 10-26 02:06, rc 0</title></rect>
+<rect class="d1" x="629.4" y="68" width="143.8" height="18" rx="2"><title>run 0015: 10-26 02:06 to 10-26 17:30, rc 0</title></rect>
+<rect class="d1" x="776.0" y="68" width="89.8" height="18" rx="2"><title>run 0016: 10-26 17:35 to 10-27 03:16, rc 0</title></rect>
+<rect class="d1" x="867.8" y="68" width="1.0" height="18" rx="2"><title>run 0017: 10-27 03:16 to 10-27 03:22, rc 0</title></rect>
+<rect class="d1" x="868.8" y="68" width="17.5" height="18" rx="2"><title>run 0018: 10-27 03:22 to 10-27 05:26, rc 0</title></rect>
+<rect class="d1" x="888.3" y="68" width="1.0" height="18" rx="2"><title>run 0019: 10-27 05:26 to 10-27 05:32, rc 0</title></rect>
+<rect class="d1" x="889.4" y="68" width="1.0" height="18" rx="2"><title>run 0020: 10-27 05:33 to 10-27 05:37, rc 0</title></rect>
+<path class="crit" d="M116.6,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 49c1ba05: red, 10-23 21:20 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M121.8,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on f16463da: red, 10-23 21:54 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M127.2,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 1788f869: red, 10-23 22:27 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M132.5,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 29e42332: killed, 10-23 23:01</title></path>
+<circle class="good ring" cx="138.7" cy="111.0" r="4.0" stroke-width="2"><title>gate on e9dcfe70: green, 10-23 23:18</title></circle>
+<circle class="good ring" cx="145.3" cy="111.0" r="4.0" stroke-width="2"><title>gate on 1a76f8d2: green, 10-24 00:00 (a pushed head, not a READY head)</title></circle>
+<path class="crit" d="M147.3,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on c10daba4: red, 10-24 00:35 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M152.6,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 4234c226: red, 10-24 01:08 (a pushed head, not a READY head)</title></path>
+<circle class="good ring" cx="172.2" cy="111.0" r="4.0" stroke-width="2"><title>gate on 885522fd: green, 10-24 02:50 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="181.6" cy="111.0" r="4.0" stroke-width="2"><title>gate on 93450b7e: green, 10-24 03:50 (a pushed head, not a READY head)</title></circle>
+<path class="crit" d="M184.4,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 81afcbd9: red, 10-24 04:30 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M189.8,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on d567b3de: killed, 10-24 05:04 (a pushed head, not a READY head)</title></path>
+<circle class="good ring" cx="195.6" cy="111.0" r="4.0" stroke-width="2"><title>gate on 3841c424: green, 10-24 05:19</title></circle>
+<circle class="good ring" cx="201.1" cy="111.0" r="4.0" stroke-width="2"><title>gate on 6951d044: green, 10-24 05:54 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="206.7" cy="111.0" r="4.0" stroke-width="2"><title>gate on 43412f6d: green, 10-24 06:29 (a pushed head, not a READY head)</title></circle>
+<path class="crit" d="M208.6,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 5cfec15f: red, 10-24 07:03 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M214.4,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 0049c303: red, 10-24 07:40 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M219.7,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 517e5550: red, 10-24 08:13 (a pushed head, not a READY head)</title></path>
+<circle class="good ring" cx="228.9" cy="111.0" r="4.0" stroke-width="2"><title>gate on e3ac20ef: green, 10-24 08:50 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="236.9" cy="111.0" r="4.0" stroke-width="2"><title>gate on 7c68689d: green, 10-24 09:40 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="242.4" cy="111.0" r="4.0" stroke-width="2"><title>gate on 93be9eaf: green, 10-24 10:15 (a pushed head, not a READY head)</title></circle>
+<path class="crit" d="M244.4,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 05f76eda: red, 10-24 10:50 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M249.7,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 0e413630: red, 10-24 11:23 (a pushed head, not a READY head)</title></path>
+<circle class="good ring" cx="258.5" cy="111.0" r="4.0" stroke-width="2"><title>gate on 6ded5431: green, 10-24 11:57 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="264.0" cy="111.0" r="4.0" stroke-width="2"><title>gate on b88c3c90: green, 10-24 12:32</title></circle>
+<circle class="good ring" cx="269.5" cy="111.0" r="4.0" stroke-width="2"><title>gate on 41af6ab5: green, 10-24 13:07 (a pushed head, not a READY head)</title></circle>
+<path class="crit" d="M282.3,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on fb9915cd: red, 10-24 14:50 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M291.8,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on d61e26e0: red, 10-24 15:50 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M297.1,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 449d21c5: red, 10-24 16:24 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M302.5,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 51941765: red, 10-24 16:58 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M307.8,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 134bd749: red, 10-24 17:32 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M310.8,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on dc0dc0b3: red, 10-24 17:50 (a pushed head, not a READY head)</title></path>
+<circle class="good ring" cx="317.4" cy="111.0" r="4.0" stroke-width="2"><title>gate on 92fc751a: green, 10-24 18:10</title></circle>
+<circle class="good ring" cx="322.9" cy="111.0" r="4.0" stroke-width="2"><title>gate on 71964573: green, 10-24 18:45 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="334.8" cy="111.0" r="4.0" stroke-width="2"><title>gate on 9d70ca8a: green, 10-24 20:00 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="340.3" cy="111.0" r="4.0" stroke-width="2"><title>gate on d66c79d2: green, 10-24 20:35 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="360.0" cy="111.0" r="4.0" stroke-width="2"><title>gate on 41751ceb: green, 10-24 22:40 (a pushed head, not a READY head)</title></circle>
+<path class="crit" d="M362.0,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 5d768c47: red, 10-24 23:15 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M369.2,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on ed399f56: red, 10-25 00:00 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M374.5,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on e6ecfcb8: red, 10-25 00:34 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M379.8,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 157250c5: red, 10-25 01:08 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M385.2,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 4a883a25: red, 10-25 01:41 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M390.5,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 5196eddc: red, 10-25 02:15 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M407.1,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on b85e76c1: red, 10-25 03:00 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M422.9,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 89e7fe3f: red, 10-25 04:40 (a pushed head, not a READY head)</title></path>
+<circle class="good ring" cx="431.7" cy="111.0" r="4.0" stroke-width="2"><title>gate on 121a3551: green, 10-25 05:14 (a pushed head, not a READY head)</title></circle>
+<path class="crit" d="M441.8,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on ebf6d996: red, 10-25 06:40 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M447.2,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on f9f3e8d9: red, 10-25 07:14 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M463.9,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 551017e6: red, 10-25 09:00 (a pushed head, not a READY head)</title></path>
+<circle class="good ring" cx="472.8" cy="111.0" r="4.0" stroke-width="2"><title>gate on f4500f78: green, 10-25 09:35 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="478.4" cy="111.0" r="4.0" stroke-width="2"><title>gate on 29df6d33: green, 10-25 10:10 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="483.9" cy="111.0" r="4.0" stroke-width="2"><title>gate on 1879e41a: green, 10-25 10:45</title></circle>
+<circle class="good ring" cx="489.5" cy="111.0" r="4.0" stroke-width="2"><title>gate on 36008db1: green, 10-25 11:20 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="497.4" cy="111.0" r="4.0" stroke-width="2"><title>gate on 3460e8eb: green, 10-25 12:10 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="503.0" cy="111.0" r="4.0" stroke-width="2"><title>gate on be47d710: green, 10-25 12:45 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="508.5" cy="111.0" r="4.0" stroke-width="2"><title>gate on 7527f5a8: green, 10-25 13:20 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="514.0" cy="111.0" r="4.0" stroke-width="2"><title>gate on 65ee0984: green, 10-25 13:55 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="519.6" cy="111.0" r="4.0" stroke-width="2"><title>gate on e961d31e: green, 10-25 14:30 (a pushed head, not a READY head)</title></circle>
+<path class="crit" d="M522.3,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 042e9f24: red, 10-25 15:10 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M527.8,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on c57f6b02: red, 10-25 15:44 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M535.0,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 987afda5: red, 10-25 16:30 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M538.1,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 9eaa27df: red, 10-25 16:50 (a pushed head, not a READY head)</title></path>
+<circle class="good ring" cx="547.0" cy="111.0" r="4.0" stroke-width="2"><title>gate on 16e28103: green, 10-25 17:24 (a pushed head, not a READY head)</title></circle>
+<path class="crit" d="M549.1,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on ec656c98: red, 10-25 18:00 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M554.6,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 4aff058b: red, 10-25 18:35 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M565.0,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on ce61d395: red, 10-25 19:40 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M570.4,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on f77adf80: red, 10-25 20:15 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M577.6,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 93559b6e: red, 10-25 21:00 (a pushed head, not a READY head)</title></path>
+<circle class="good ring" cx="622.1" cy="111.0" r="4.0" stroke-width="2"><title>gate on 1bbf71a1: green, 10-26 01:20 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="630.0" cy="111.0" r="4.0" stroke-width="2"><title>gate on 50b7b52f: green, 10-26 02:10 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="635.9" cy="111.0" r="4.0" stroke-width="2"><title>gate on 5e4f510c: green, 10-26 02:47 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="641.7" cy="111.0" r="4.0" stroke-width="2"><title>gate on 128d1ab0: green, 10-26 03:24 (a pushed head, not a READY head)</title></circle>
+<path class="crit" d="M644.0,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on b5708228: red, 10-26 04:01 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M661.3,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on f773d0fa: red, 10-26 05:50 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M667.6,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 139ea9b7: red, 10-26 06:30 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M673.9,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 436d8fb3: red, 10-26 07:10 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M708.6,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 5d198b65: red, 10-26 10:50 (a pushed head, not a READY head)</title></path>
+<circle class="good ring" cx="776.5" cy="111.0" r="4.0" stroke-width="2"><title>gate on d25d140e: green, 10-26 17:37</title></circle>
+<circle class="good ring" cx="783.2" cy="111.0" r="4.0" stroke-width="2"><title>gate on 4fe9b900: green, 10-26 18:20 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="788.9" cy="111.0" r="4.0" stroke-width="2"><title>gate on 4e254340: green, 10-26 18:57 (a pushed head, not a READY head)</title></circle>
+<circle class="good ring" cx="794.8" cy="111.0" r="4.0" stroke-width="2"><title>gate on b0c68f4b: green, 10-26 19:33 (a pushed head, not a READY head)</title></circle>
+<path class="crit" d="M798.6,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 0205c1c1: red, 10-26 20:20 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M804.5,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 70941d6d: red, 10-26 20:57 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M823.9,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on f31ce1fd: red, 10-26 23:00 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M836.5,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on b0b33bb4: red, 10-27 00:20 (a pushed head, not a READY head)</title></path>
+<path class="crit" d="M852.3,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 27d8a7f1: red, 10-27 02:00 (a pushed head, not a READY head)</title></path>
+<circle class="good ring" cx="862.4" cy="111.0" r="4.0" stroke-width="2"><title>gate on c7314dfc: green, 10-27 02:42</title></circle>
+<circle class="good ring" cx="869.4" cy="111.0" r="4.0" stroke-width="2"><title>gate on 561e91b4: green, 10-27 03:26</title></circle>
+<circle class="good ring" cx="877.9" cy="111.0" r="4.0" stroke-width="2"><title>gate on 200a4c64: green, 10-27 04:20 (a pushed head, not a READY head)</title></circle>
+<path class="crit" d="M885.5,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 2dff8aad: red, 10-27 05:30 (a pushed head, not a READY head)</title></path>
+<path class="ink" d="M144.5,139.0 l6,10 h-12 Z"><title>landing 1: H0 at 10-23 23:55, 8 commits</title></path>
+<path class="ink" d="M201.7,139.0 l6,10 h-12 Z"><title>landing 2: G18 at 10-24 05:57, 16 commits</title></path>
+<path class="ink" d="M269.6,139.0 l6,10 h-12 Z"><title>landing 3: H1 at 10-24 13:08, 30 commits</title></path>
+<path class="ink" d="M323.0,139.0 l6,10 h-12 Z"><title>landing 4: H2 at 10-24 18:46, 23 commits</title></path>
+<path class="ink" d="M490.4,139.0 l6,10 h-12 Z"><title>landing 5: H3 at 10-25 11:26, 37 commits</title></path>
+<path class="ink" d="M782.7,139.0 l6,10 h-12 Z"><title>landing 6: H4 at 10-26 18:17, 48 commits</title></path>
+<path class="ink" d="M876.7,139.0 l6,10 h-12 Z"><title>landing 7: H5 at 10-27 04:12, 17 commits</title></path>
+<rect class="down" x="586.2" y="170" width="31.9" height="18" rx="2"><title>model outage park: 10-25 21:32 to 10-26 00:55 (gateway refused new connections; run 0014 waited for it (&quot;gateway down: run 0014 waits&quot; ... &quot;gateway up again after 12122 s&quot;))</title></rect>
+<circle class="good ring" cx="110.0" cy="232.0" r="4.0" stroke-width="2"><title>green gate</title></circle>
+<text class="t2" x="120.0" y="236.0" font-size="12" text-anchor="start" font-weight="400">green gate (40)</text>
+<path class="crit" d="M250.0,228.0 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none"/>
+<text class="t2" x="264.0" y="236.0" font-size="12" text-anchor="start" font-weight="400">red, invalid or stopped gate (50)</text>
+<path class="ink" d="M460.0,226.0 l6,10 h-12 Z"/>
+<text class="t2" x="472.0" y="236.0" font-size="12" text-anchor="start" font-weight="400">landing on master (7)</text>
+<rect class="down" x="640.0" y="227.0" width="14" height="10"/>
+<text class="t2" x="660.0" y="236.0" font-size="12" text-anchor="start" font-weight="400">loop parked, stopped or paused</text>
+</svg>

@@ -61,7 +61,9 @@ d1_labeled_worker=$(grep '"event": *"model_call"' "$T" | grep '"depth": *1' | gr
 d1_labeled_lead=$(grep '"event": *"model_call"' "$T" | grep '"depth": *1' | grep -c '"model": *"lead"')
 d1_rows=$(grep -c '"depth": *1' "$T")
 d1_task_field=$(grep '"depth": *1' "$T" | grep -c '"task"')
-d1_seq_dups=$(grep '"depth": *1' "$T" | grep -o '"seq": *[0-9]*' | sort | uniq -d | wc -l)
+# tr: the wc of FreeBSD and illumos pads its count with blanks, and the check
+# compares it as a string (TW24, 2026-11-25).
+d1_seq_dups=$(grep '"depth": *1' "$T" | grep -o '"seq": *[0-9]*' | sort | uniq -d | wc -l | tr -d ' ')
 echo "# mock ground truth: requests naming mock-worker=$worker_reqs, mock-lead=$lead_reqs"
 echo "# telemetry depth-1: model_call rows=$d1_model_calls, labeled model_id mock-worker=$d1_labeled_worker, labeled model \"lead\"=$d1_labeled_lead"
 echo "# telemetry depth-1: rows=$d1_rows, rows with a \"task\" field=$d1_task_field, duplicated seq values=$d1_seq_dups"

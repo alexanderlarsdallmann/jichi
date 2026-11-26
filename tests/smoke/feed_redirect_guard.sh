@@ -49,11 +49,23 @@
 # (a plain 200 RSS on loopback) still fetches, the SELF-redirecting feed's RSS
 # body REACHES the model (check 6), both callers set the flag.
 #
+# S1 GAP (M1208, oversized status line). The redirect_hop_header callback in
+# src/net/jc_http.c uses a fixed char line[64] buffer; if the status line
+# (without trailing CRLF) is >= 64 bytes, it is ignored (n >= sizeof(line)).
+# A 302 status line with a reason phrase of 51+ 'x' chars (total 64+ bytes)
+# is never counted as a hop, so g_redirect_hop stays 0 and the private
+# address check consults hop 0 ("user-named"), allowing a redirect to a
+# private target on a different port. The tool tests/tools/longredirect.c
+# serves a 3xx with an oversized status line to expose this gap.
+# RED pre-fix (S1, oversized status line ignored): the target IS reached
+# (check 7 fails); GREEN post-fix (S1 fixed): the oversized status line
+# counts as a hop and the target is NOT reached.
+#
 # All three mocks sit on loopback: the feed and the target by design (that
 # IS the scenario), the chat + embed mocks like every other driver.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 6
+t_plan 7
 smoke_home
 tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
@@ -137,6 +149,37 @@ mm_start "$tmp/feed.mm" "$tmp/feed"
 FEED_PORT=$MM_PORT; FEED_PID=$MM_PID
 mm_start "$tmp/self.mm" "$tmp/self"
 SELF_PORT=$MM_PORT; SELF_PID=$MM_PID
+
+# =============================================================================
+# LONGREDIRECT: the oversized status line server. Answers with a 302 status
+# line >= 64 bytes to trigger the S1 gap (redirect_hop_header ignores status
+# lines >= 64 bytes, so g_redirect_hop stays 0 and the private redirect is
+# allowed as if there was no redirect at all). The target URL points to the
+# TARGET mock's loopback port.
+# =============================================================================
+mkdir -p "$tmp/longredirect"
+# Start longredirect with minlen 64 to force the oversized status line. It binds
+# an ephemeral port on 127.0.0.1 and prints "PORT=<n>" to stdout. We capture
+# this port and use it for the @rss: fetch in run E. Use --count 2 so the tool
+# serves at least one connection (run E) and then exits cleanly.
+# Use --capture DIR so we can verify the tool saw at least one connection.
+PORT_FILE="$tmp/longredirect.port"
+timeout 60 tests/tools/longredirect 64 "http://127.0.0.1:$TGT_PORT/secret" --count 2 \
+    --capture "$tmp/longredirect" > "$PORT_FILE" 2>&1 &
+LONG_PID=$!
+# Wait for the port file to be created
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    [ -s "$PORT_FILE" ] && break
+    sleep 0.2
+done
+LONG_PORT=$(grep "^PORT=" "$PORT_FILE" | sed 's/PORT=//')
+# Sanity check: we need a valid port
+if [ -z "$LONG_PORT" ] || ! echo "$LONG_PORT" | grep -qE '^[0-9]+$'; then
+    echo "FATAL: longredirect did not print a valid port" >&2
+    cat "$PORT_FILE" >&2
+    exit 2
+fi
+
 mm_start "$tmp/chat.mm" "$tmp/chat"
 CHAT_PORT=$MM_PORT; CHAT_PID=$MM_PID
 mm_start "$tmp/emb.mm" "$tmp/emb"
@@ -205,11 +248,29 @@ wsd=$(smoke_tmp)
     -p "@rss:http://127.0.0.1:$SELF_PORT/feed" \
     < /dev/null > "$tmp/outd.jsonl" 2>&1)
 
+# =============================================================================
+# RUN E -- the oversized status line (S1 gap test): a feed whose reply 302s
+# with a status line >= 64 bytes to the loopback TARGET. The longredirect
+# tool serves this status line; without the fix, the oversized status line
+# is ignored by redirect_hop_header (n >= sizeof(line)), so g_redirect_hop
+# stays 0 and the private redirect to the target's different port on loopback
+# is allowed. With the fix, the oversized status line counts as a hop and
+# the redirect is refused.
+# =============================================================================
+wse=$(smoke_tmp)
+# Run the feed fetch through longredirect, not the feed mock. The cfga.json
+# points to the chat mock on CHAT_PORT; the @rss: points to longredirect.
+(cd "$wse" && with_deadline 60 "$BIN" --config "$tmp/cfga.json" \
+    -q --no-session --auto --output jsonl \
+    -p "@rss:http://127.0.0.1:$LONG_PORT/feed" \
+    < /dev/null > "$tmp/oute.jsonl" 2>&1)
+
 kill "$TGT_PID" 2>/dev/null; wait "$TGT_PID" 2>/dev/null
 kill "$FEED_PID" 2>/dev/null; wait "$FEED_PID" 2>/dev/null
 kill "$SELF_PID" 2>/dev/null; wait "$SELF_PID" 2>/dev/null
 kill "$CHAT_PID" 2>/dev/null; wait "$CHAT_PID" 2>/dev/null
 kill "$EMB_PID" 2>/dev/null; wait "$EMB_PID" 2>/dev/null
+kill "$LONG_PID" 2>/dev/null; wait "$LONG_PID" 2>/dev/null
 
 # ---- 1: the fence (rss) -- the private target was never reached ----------
 # Floor: the feed mock captured run A's first hop (feed/req.1), so the @rss:
@@ -314,6 +375,27 @@ self first-hop captured: $([ -f "$tmp/self/req.1" ] && echo yes || echo no), \
 chat req.3: $([ -f "$tmp/chat/req.3" ] && echo yes || echo no), \
 marker in req.3: $([ -f "$tmp/chat/req.3" ] && { "$G" -q 'C08-SELF-MARKER' "$tmp/chat/req.3" && echo yes || echo no; } || echo no), \
 outd: $(tail -c 200 "$tmp/outd.jsonl" 2>/dev/null | tr '\n' ' ')"
+fi
+
+# ---- 7: the oversized status line (S1 gap, M1208) -- the target is reached
+# when the status line >= 64 bytes is ignored by redirect_hop_header. The
+# longredirect tool serves a 302 with a 64+-byte status line; without the
+# fix, g_redirect_hop stays 0 (the oversized status line is ignored), so the
+# redirect is treated as if there was no redirect at all (hop 0 = user-named
+# host), and the private target on a different port is allowed. With the fix,
+# the oversized status line counts as a hop and the redirect is refused.
+# Floor: longredirect captured at least one connection (longredirect/req.1
+# exists), so the @rss: fetch ran and the 302 really was answered.
+# RED pre-fix (S1 gap): the oversized status line is ignored, target IS reached
+# (tgt/req.1 exists), longredirect captured a connection.
+# GREEN post-fix (S1 fixed): the oversized status line counts as a hop, target
+# is NOT reached (tgt/req.1 absent), longredirect captured a connection.
+if [ -f "$tmp/longredirect/req.1" ] && [ ! -f "$tmp/tgt/req.1" ]; then
+    t_ok "fence: the oversized status line (>= 64 bytes) was counted as a hop, the target was refused"
+else
+    t_fail "fence: the oversized status line (>= 64 bytes) was ignored, the target was reached -- \
+target captured request ($([ -f "$tmp/tgt/req.1" ] && echo yes || echo no)); \
+longredirect captured: $([ -f "$tmp/longredirect/req.1" ] && echo yes || echo no)"
 fi
 
 t_done

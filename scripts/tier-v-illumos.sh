@@ -39,13 +39,24 @@
 #   scripts/tier-v-illumos.sh --dry-run
 #   scripts/tier-v-illumos.sh --keep          # leave the VM up for poking
 #   scripts/tier-v-illumos.sh --dirty         # ship the WORKING tree, not HEAD
+#   scripts/tier-v-illumos.sh --release r151060   # another OmniOS release
 set -u
 
 . "$(dirname "$0")/_rig_mult.sh"
 . "$(dirname "$0")/_rig_ship.sh"
 . "$(dirname "$0")/_rig_live.sh"
 
-REL="r151058"
+# THE RELEASE, and where its image is fetched from (changed 2026-11-25).
+# The default stays r151058: every illumos row on record ran on it, and a row
+# is comparable only with rows of its own release. What changed is the ADDRESS.
+# The rig fetched media/stable/omnios-<release>.cloud.qcow2, and "stable" holds
+# only the CURRENT release: on 2026-11-24, with r151060 out, that address
+# answered 404 for r151058 and the rig could not start on a bench without a
+# cached image. OmniOS keeps every release under media/<release>/, which does
+# not move (checked 2026-11-25: r151030 to r151060 are all listed, r151058 with
+# its .sha256). The rig uses that address now. --release or JC_ILLUMOS_RELEASE
+# choose another release; a row then says so in its results file's first line.
+REL="${JC_ILLUMOS_RELEASE:-r151058}"
 REF_SECS="${JC_REF_SECS:-}"
 DRY=0; KEEP=0; DIRTY=0; CONSOLE=0
 MEM="${JC_ILLUMOS_MEM:-4096}"; SMP="${JC_ILLUMOS_SMP:-4}"
@@ -79,7 +90,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-URL="https://downloads.omnios.org/media/stable/omnios-$REL.cloud.qcow2"
+URL="https://downloads.omnios.org/media/$REL/omnios-$REL.cloud.qcow2"
 IMG="$DIR/omnios-$REL.cloud.qcow2"
 WORK="$DIR/omni-work.qcow2"
 SEED="$DIR/omni-seed.iso"
@@ -159,7 +170,9 @@ note ""
 say "stage omnios-$REL.cloud.qcow2 (~1.1 GB)"
 if [ ! -f "$IMG" ]; then
     curl -fL --no-progress-meter --retry 3 -o "$IMG.part" "$URL" || {
-        echo "tier-v-illumos: download failed" >&2; exit 2; }
+        echo "tier-v-illumos: download failed: $URL" >&2
+        echo "tier-v-illumos: the releases are listed at https://downloads.omnios.org/media/ (one directory each); pass another with --release." >&2
+        exit 2; }
     mv "$IMG.part" "$IMG"
 fi
 # The published sha256 is a bare digest, not a `sha256sum -c` line.
@@ -356,7 +369,7 @@ else
 fi
 
 say "unit suite"
-if g 'cd ~/jichi && LC_ALL=C CC=gcc gmake test 2>&1 | tail -3' 2>/dev/null \
+if g 'cd ~/jichi && LC_ALL=C CC=gcc gmake test 2>&1 | grep -E "^ *FAIL |checks, [0-9]+ failures|\\*\\*\\*" | tail -40' 2>/dev/null \
         | tee -a "$RESULTS" | grep -qE '[0-9]+ checks, 0 failures'; then
     ok "unit suite: 0 failures"
 else

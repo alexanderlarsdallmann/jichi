@@ -175,6 +175,8 @@ before M860 carry `<sid>-t<task>`; split them where a child's `seq` starts again
 | `test_edit_hold` | `task`, `files` — a write child changed an existing test assertion, and its merge was held: kept as `parallel-test-edit` (M865) |
 | `metric_gate` | `task`, `verdict` (`merged`, `held`, `unknown`), `base`, `value` — the metric gate measured a child that moved a pin (M875) |
 | `loop_stop` | `kind` (`same_result`, `refused`, `placeholder`, `rotation`), `repeat` — a child ended for repeating itself (M829's stop, M869's two, M870's window) |
+| `worker_outcome` | `task`, `task_run`, `stop`, `looped`, `flag`, `tool_calls`, `tokens`, `kept`, `why` — one per LAUNCHED task at the batch's end (M1194, def-377 W6.2); story below |
+| `worker_flag` | `task`, `reason` (`no_edit`, `placeholders`), `edits` — the parent's `spawn_parallel` supervision flag fired for a task (M1194, def-377 W2.4); story below |
 | `privileged` | `launcher`, `decision` — the privileged-command gate ruled on a sudo-class launch (M152/M153); the always-on audit log holds the full record |
 | `retrieve` | `blocks`, `tokens` — auto-context retrieval attached passages to the user turn (M61) |
 | `history_check` | `violations`, `first` — the wire-shape validator found the history contract broken (M364); warned once per run |
@@ -222,6 +224,38 @@ and the dispatch ran, under `warn` or a clean/`unknown` tree), `refused` (a dirt
 "commit, then dispatch"), or `proceeded_unknown` (the probe failed and the dispatch
 nonetheless proceeded with an `[jichi]` note — an infra failure must not block work).
 `jichi telemetry` counts the checked dispatches and the refused + unknown shares.
+
+**`worker_flag` in detail (M1194, def-377 W2.4).** The parent's `spawn_parallel`
+supervision flag fired for a task, **once per task per batch** (the flag goes 0 → 1 and
+stays). It is emitted by the **parent** — the child never sees it — so it carries `task`
+(the 1-based pool index) and `reason` naming which rule flagged it: `no_edit` is R1
+(the child's edit count, after its first edit, unchanged for `noEditSec` seconds — the rule
+is never evaluated inside a running tool call), `placeholders` is R2 (the child's copied-placeholder
+total reached `parallelSupervise.placeholders` — a total-count rule, evaluated whether or not
+a tool call is running). `edits` is the child's edit count at the
+moment of firing. `jichi telemetry` sums them under a `Worker flags:` line, by reason.
+Observe-only under the default `report` action: a flag stops nothing — the task is marked
+on its board line and in the `status` reply and keeps running. Under the opt-in `action`s
+(`wrapup`, `stop`) the flag is followed by a soft stop, and by a kill when the child is still
+inside a command after `graceSec` ([PARALLEL.md](PARALLEL.md)).
+
+**`worker_outcome` in detail (M1194, def-377 W6.2).** The parent's `spawn_parallel`
+emits ONE event per LAUNCHED task at the END of the batch, after the merge/preserve
+decision is final — a never-forked task (invalid, or a pipe failure before the fork)
+has no run id and emits none. It carries `task_run` (R:4 of the A4 audit, naming
+243363e5) — the child's run id, `<batch>-b<k>-t<n>`, byte-for-byte the string the
+child's COW eventlog was marked with in `run_child` (`jc_eventlog_set_task_run`),
+which is the join to the child's own telemetry (its `done` line carries it) — plus
+the task's ENDING: `stop` (the stop name, `max_iters`
+for a loop/soft stop), `looped` (1–5, where **5 is `supervised`**, a W4 soft stop
+that ended the child with its report), and `flag` (whether the supervision flag
+fired for it) — plus `tool_calls` and `tokens`, and MERGED-OR-KEPT-WITH-WHY: `kept`
+is `merged`, `kept` (with `why` naming the preservation reason), or `readonly`
+(a read-only task had nothing to merge). `jichi telemetry` counts them by `kept`,
+and reports how many were of a flagged task and how many were a supervised soft
+stop. It is emitted by the parent (the child never sees it), `task` 1-based like
+every sibling pool telemetry. A parent killed before the batch's end emits no row
+for its remaining tasks.
 
 ### Reading a tool's ok-rate (M168)
 

@@ -29,6 +29,7 @@ On a terminal it runs **interactively**. With enough flags (or
 the same answers and call the same pure builders, so the output is identical.
 
 ## The flow
+<!-- jichi-guide topic="setup" name="setup-flow" -->
 
 ```mermaid
 flowchart TD
@@ -50,6 +51,7 @@ flowchart TD
 
 The optional subsystems the **no** branch walks: mode, snapshots, references, repoMap,
 testCommand, verify, hooks, telemetry, embed, LSP, MCP, docs, routing, web.
+<!--/jichi-guide -->
 
 ## Domain presets (the first question)
 
@@ -247,7 +249,8 @@ owner-only), and the default answer is **yes**. The generated start script
 (`run.sh`) sources that file, which is why `./run.sh` works in a shell where you
 never exported anything. If you would rather keep the key out of any file, answer
 **no** and export it yourself (`export JICHI_API_KEY=...`). The flag-driven,
-non-interactive path never asks and never writes a key.
+non-interactive path never asks and never writes a key. After the key it asks
+**context length in tokens** (M1200): the endpoint's figure pre-fills the default; blank skips.
 
 Either way `doctor` confirms only that a key is *present*; it never prints the
 value.

@@ -50,7 +50,12 @@ int main(int argc, char **argv)
         _exit(127);
     }
     ru.ru_maxrss = 0;
-    if (wait4(-1, &status, 0, &ru) < 0) {
+    /* The child's own pid, not -1. "Any child" is -1 on Linux and the BSDs,
+     * but illumos's wait4 reads a negative pid as a process GROUP and 0 as
+     * "any child": wait4(-1) there waits for group 1 and fails with ECHILD
+     * ("wait4: No child processes", OmniOS r151058, 2026-11-25). A positive
+     * pid means the same thing everywhere. */
+    if (wait4(child, &status, 0, &ru) < 0) {
         perror("wait4");
         return 2;
     }

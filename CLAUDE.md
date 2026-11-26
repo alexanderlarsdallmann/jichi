@@ -29,6 +29,9 @@ check the line, and read its section when it fires.
 13. **Committing** -- author, committer and the `Co-Authored-By: jichi` trailer all carry the
     maintainer's address (`docs/internal/COMMIT_IDENTITY.md`); never `noreply@jichi`, a placeholder or
     a respelling. (Repository)
+14. **Writing a default limit** (a timeout, cap, max, retry count, budget) -- say where its number
+    came from (a measurement or an incident) or write `unmeasured` and register it; 0 or absent never
+    means a cap. (Caps versus fences; `docs/LIMITS.md`)
 
 ## What this is
 
@@ -402,8 +405,5 @@ decision is one a future reader could reasonably disagree with; if there was no
 rejected alternative, it was not a decision.
 
 `docs/ANECDOTES.md` is a running log of debugging war stories worth remembering
-(symptom → dead ends → root cause → lesson). Entry 1 is the "stderr truncation"
-that turned out to be the autonomy envelope's rollback reverting a log file kept
-inside the workspace — a reminder to keep observability outside the
-snapshot/rollback blast radius, and to make flaky dependencies deterministic
-before debugging. Add to it when an investigation teaches something durable.
+(symptom → dead ends → root cause → lesson). Add to it when an investigation
+teaches something durable.

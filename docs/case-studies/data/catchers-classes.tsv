@@ -1,0 +1,14 @@
+caught_by	count	hardening-1	harness	hardening-2	harness-port
+supervisor re-check	87	30	12	24	21
+independent review	38	5	12	1	20
+make ci: unit or smoke tier	17	2	8	3	4
+first real use	15	6	3	5	1
+make ci: release/32-bit/other stage	14	2	3	3	6
+other	13	1	1	1	10
+platform retest	13	0	0	0	13
+shadow / switch-over replay	6	0	0	0	6
+make ci: sanitizers/valgrind/leaks	5	3	0	1	1
+make ci: compilers/warnings	4	0	1	1	2
+fast gate (unit/drivers run by the team)	2	0	0	1	1
+red-first test	2	0	0	0	2
+the operator	1	1	0	0	0

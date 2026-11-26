@@ -16,6 +16,24 @@
 > failures are kept alongside the successes because the failures carry most of
 > the lessons.
 
+## The drives: jichi on jichi, 2026-10-18 to now
+
+A different kind of case: no assignment machinery. In four drives one after another, a lead model and its
+workers developed jichi itself for 35 days, under a gate that ran the full `make ci`, a supervising agent and
+the operator. For self-learners, junior developers, project managers, and agents that plan such work:
+
+| Page | What it holds |
+|---|---|
+| [The four drives side by side](JICHI_DRIVES.md) | how long each took, where the time went, commits, lines and tokens, planning figures, charts |
+| The first hardening drive, 2026-10-17/23: [what it taught](hardening-2026-10-17/README.md), [data sheet](hardening-2026-10-17/DATA_SHEET.md) | fixing a review's findings, run by shell scripts; a history rewrite |
+| The harness drive, 2026-10-23/27: [what it taught](harness-2026-10-23/README.md), [data sheet](harness-2026-10-23/DATA_SHEET.md) | jichi builds the harness that runs its own drives |
+| The second hardening drive, 2026-10-27 to 11-05: [what it taught](hardening-2026-10-27/README.md), [data sheet](hardening-2026-10-27/DATA_SHEET.md) | the first drive run by that harness; a release; paused since |
+| The harness-port drive, 2026-11-05 to now: [what it taught](harness-port-2026-11/README.md), [data sheet](harness-port-2026-11/DATA_SHEET.md), [the platform retests](harness-port-2026-11/PLATFORM_RETESTS.md) | the host's gate and push scripts move into the harness; still running |
+
+Each drive's page tells how long it took, its set-backs with their cost, who decided what, and what each mistake
+taught. Every number comes from the drives' own records; the data tables and the script that draws the charts
+are in [data/](data/) and [charts/](charts/).
+
 ## The campaign: zigodot, 2026-08-12/13
 
 Two days of driving jichi headless on the zigodot repository (a from-scratch

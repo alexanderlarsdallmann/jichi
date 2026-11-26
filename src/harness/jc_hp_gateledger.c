@@ -42,9 +42,13 @@
 #include "jc_platform.h"        /* jc_status, jc_size */
 #include "jc_snprintf.h"        /* jc_snprintf, never sprintf */
 #include "jc_str.h"             /* struct jc_sb (the rev-list capture) */
+#include "jc_utf8.h"            /* jc_utf8_trunc_len: no byte-counted %.Ns cut (utf8_cut_lint) */
 #include <stdarg.h>             /* va_list (gl_append) */
 
 #define GL_CAP_LINE   (8 * 1024)   /* one trailer / log-format capture */
+#define GL_CUT        (-3)         /* gl_git: the capture filled its buffer */
+#define GL_REV_PAGE   1000         /* commit ids per rev-list page (41 KB) */
+#define GL_WHY_OVERFLOW " reasons-too-long-to-print"
 #define GL_CAP_SHA    96           /* a full 40-hex id + slack */
 
 /* One git child in REPO: jc_hp_git_run with no credential wiring (a read
@@ -55,8 +59,21 @@ static int
 gl_git(const char *repo, const char *args[], int n_args, char *out,
        int cap)
 {
-    return jc_hp_git_run(NULL, repo, NULL, 0, NULL, 0, args, n_args, cap,
-                         out, NULL);
+    int rc = jc_hp_git_run(NULL, repo, NULL, 0, NULL, 0, args, n_args, cap,
+                           out, NULL);
+
+    /* A capture that filled its buffer was CUT, and what stands behind the
+     * cut was never judged: a provider's name behind 8 KB of filler, the
+     * oldest commits of a batch whose list is longer than the buffer. A cut
+     * is a failure of the read (GL_CUT), so every caller fails closed. */
+    if (rc == 0 && cap > 0 && strlen(out) >= (size_t)cap - 1) {
+        fprintf(stderr, "jichi-harness: gate run --stage ledger: the output "
+                        "of `git %s` was cut at %d bytes; what stands "
+                        "behind the cut cannot be judged\n",
+                (n_args > 0 && args[0] != NULL) ? args[0] : "?", cap - 1);
+        return GL_CUT;
+    }
+    return rc;
 }
 
 /* jc_hp_gateledger_is_priced (exported, pure): ledger.sh:23's case over
@@ -105,11 +122,13 @@ gl_append(char *why, size_t cap, const char *fmt, ...)
      * dropped all but the last reason on this platform. */
     if ((size_t)jc_snprintf(next, sizeof next, "%s %s", why, part)
         >= sizeof next) {
-        why[0] = '\0';   /* a reason that cannot fit: the whole line stops */
+        /* A reason that cannot fit must still be a reason: an emptied
+         * line read as "no reasons", and the commit was judged clean. */
+        jc_snprintf(why, cap, "%s", GL_WHY_OVERFLOW);
         return;
     }
     if (strlen(next) >= cap) {
-        why[0] = '\0';
+        jc_snprintf(why, cap, "%s", GL_WHY_OVERFLOW);
         return;
     }
     memcpy(why, next, strlen(next) + 1);
@@ -614,20 +633,53 @@ jc_hp_gateledger_run(const char *config_path, const char *repo,
         goto fail_1;
     }
     {
-        const char *a_rev[3];
+        /* The batch's commits, newest first, read in PAGES: one capture of
+         * the whole list held 1,598 ids and the commits behind it were never
+         * judged. A page of GL_REV_PAGE ids is 41 bytes each, far inside the
+         * buffer, so no page can be cut; a page shorter than GL_REV_PAGE is
+         * the last one. */
+        const char *a_rev[5];
         char revcap[GL_CAP_LINE * 8];
+        char a_max[32];
+        char a_skip[40];
+        long skip = 0;
         int rc;
 
-        a_rev[0] = "rev-list";
-        a_rev[1] = range;
-        a_rev[2] = NULL;
-        rc = gl_git(repo, a_rev, 2, revcap, (int)sizeof revcap);
-        if (rc != 0) {
-            fprintf(stderr, "jichi-harness: gate run --stage ledger: git "
-                            "rev-list failed (rc=%d): %s\n", rc, revcap);
-            goto fail_1;
+        jc_snprintf(a_max, sizeof a_max, "--max-count=%d", GL_REV_PAGE);
+        for (;;) {
+            long got = 0;
+            const char *q;
+
+            jc_snprintf(a_skip, sizeof a_skip, "--skip=%ld", skip);
+            a_rev[0] = "rev-list";
+            a_rev[1] = a_max;
+            a_rev[2] = a_skip;
+            a_rev[3] = range;
+            a_rev[4] = NULL;
+            rc = gl_git(repo, a_rev, 4, revcap, (int)sizeof revcap);
+            if (rc != 0) {
+                fprintf(stderr, "jichi-harness: gate run --stage ledger: git "
+                                "rev-list failed (rc=%d): %s\n", rc,
+                        (rc == GL_CUT) ? "(cut)" : revcap);
+                goto fail_1;
+            }
+            for (q = revcap; *q != '\0'; q++) {
+                if (*q == '\n') {
+                    got++;
+                }
+            }
+            if (revcap[0] != '\0' && revcap[strlen(revcap) - 1] != '\n') {
+                got++;   /* a last line without its newline */
+                jc_sb_append(&list, revcap);
+                jc_sb_append(&list, "\n");
+            } else {
+                jc_sb_append(&list, revcap);
+            }
+            if (got < GL_REV_PAGE) {
+                break;
+            }
+            skip += got;
         }
-        jc_sb_append(&list, revcap);
     }
     /* Walk the rev-list output: one full sha per line, newest first. */
     off = 0;
@@ -678,8 +730,17 @@ jc_hp_gateledger_run(const char *config_path, const char *repo,
                 goto fail_1;
             }
             /* :19-20 the two trailers. */
-            gl_trailer(repo, sha, "Jichi-Build", jb, (int)sizeof jb);
-            gl_trailer(repo, sha, "Jichi-Model", jm, (int)sizeof jm);
+            if (gl_trailer(repo, sha, "Jichi-Build", jb,
+                           (int)sizeof jb) == GL_CUT ||
+                gl_trailer(repo, sha, "Jichi-Model", jm,
+                           (int)sizeof jm) == GL_CUT) {
+                fprintf(stderr,
+                        "jichi-harness: gate run --stage ledger: a trailer "
+                        "of %.*s is too long to be judged\n",
+                        (int)(strlen(sha) > 8 ? jc_utf8_trunc_len(sha, 8)
+                                              : strlen(sha)), sha);
+                goto fail_1;
+            }
             cc.ae = ae;
             cc.ce = ce;
             cc.co_list = &co_list;

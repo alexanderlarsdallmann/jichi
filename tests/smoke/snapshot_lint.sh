@@ -50,7 +50,7 @@ if ! git -C "$SMOKE_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
     t_skip "not a git repository -- the snapshot's manifest is the index"
 fi
 
-t_plan 17
+t_plan 18
 
 if [ ! -f "$SNAP_SH" ]; then
     t_fail "scripts/make-snapshot.sh is missing -- the snapshot has no producer"
@@ -652,6 +652,74 @@ EOF
             else
                 t_fail "unpublished name(s) found in the publishable tree:$_hits$_path_hits"
             fi
+        fi
+    fi
+fi
+
+# --- 18: the D-G2 snapshot rule -- the publishable tree ships the six pages ---
+# M1197 (B3, D-G2): `make install` copies the six core learner pages, and the
+# public snapshot's install ships the same set. The snapshot is a `git archive`
+# of this tree, so "ships the same set" reduces to a lint on the tree: the
+# six `docs/<PAGE>.md` files exist in $TREE, and the Makefile's G2_PAGES
+# variable names exactly those six and nothing else. The list is a make
+# variable, not a hard-coded repetition -- the Makefile's G2_PAGES (beside
+# MANDIR, the install-location block) is the SOURCE, and this driver
+# re-derives it: the same six names spelled here as `_g2_want` are the second
+# surface, in the M1196 "two surfaces must agree" sense. The two lines are
+# read with awk, not `grep -A`: `-A` is not in the POSIX grep, so a one-line
+# read is exactly what would hide a page name that later moved to the
+# continuation. `g2_pages_list` returns the names as one
+# space-joined list. The negative control is the idiom of checks 4-9: the
+# plant is a copy of the snapshot Makefile with one page name dropped from the
+# G2_PAGES line, and the SAME comparison must flag it -- a plant the
+# comparison misses would let a Makefile that lists five pages certify a
+# snapshot that ships six, and B3's "ships the same set" is the agreement,
+# not the superset.
+_g2_want="TUTORIAL_BEGINNER SETUP_WIZARD CONFIG_TUTORIAL AGENTS_GUIDE VOCABULARY CURRICULUM"
+g2_pages_list() {
+    awk '/^G2_PAGES / { print; if (/\\$/) { if ((getline) > 0) print } exit }' "$1" \
+        | sed -e 's/^G2_PAGES[[:space:]]*=[[:space:]]*/ /' \
+              -e 's/[[:space:]]*\\[[:space:]]*$//' \
+        | tr '\n' ' '
+}
+if [ ! -f "$TREE/Makefile" ]; then
+    t_fail "no Makefile in the snapshot -- the G2 install's page list has no source to agree with"
+else
+    # The plant must flag first, or the comparison below cannot be trusted.
+    _g2_plant="$TMP/g2plant.mk"
+    sed '/^G2_PAGES /s/ CONFIG_TUTORIAL / /' "$TREE/Makefile" > "$_g2_plant"
+    _g2_plant_got="$(g2_pages_list "$_g2_plant")"
+    for _g2_p in $_g2_plant_got; do printf '%s\n' "$_g2_p"; done | sort -u > "$TMP/g2.plantgot"
+    for _g2_p in $_g2_want; do printf '%s\n' "$_g2_p"; done | sort -u > "$TMP/g2.g2want"
+    _g2_plant_diff=$(comm -13 "$TMP/g2.g2want" "$TMP/g2.plantgot" | tr '\n' ' ')
+    _g2_plant_diff="${_g2_plant_diff}$(comm -23 "$TMP/g2.g2want" "$TMP/g2.plantgot" | tr '\n' ' ')"
+    if [ -z "$(printf '%s' "$_g2_plant_diff" | tr -d ' ')" ]; then
+        t_fail "the G2_PAGES comparison does not flag its own plant (a Makefile missing CONFIG_TUTORIAL) -- the check is meaningless"
+    else
+        _g2_got="$(g2_pages_list "$TREE/Makefile")"
+        _g2_diff=""
+        if [ -z "$_g2_got" ]; then
+            _g2_diff="
+  G2_PAGES is missing or empty in the snapshot's Makefile"
+        else
+            for _g2_p in $_g2_got; do printf '%s\n' "$_g2_p"; done | sort -u > "$TMP/g2.got"
+            _g2_extra=$(comm -13 "$TMP/g2.g2want" "$TMP/g2.got" | tr '\n' ' ')
+            _g2_miss=$(comm -23 "$TMP/g2.g2want" "$TMP/g2.got" | tr '\n' ' ')
+            [ -n "$_g2_extra" ] && _g2_diff="$_g2_diff
+  G2_PAGES names a page the snapshot does not carry: $_g2_extra"
+            [ -n "$_g2_miss" ] && _g2_diff="$_g2_diff
+  G2_PAGES does not name a page the snapshot ships: $_g2_miss"
+        fi
+        _g2_absent=""
+        for _g2_p in $_g2_want; do
+            [ -f "$TREE/docs/$_g2_p.md" ] || _g2_absent="$_g2_absent $_g2_p.md"
+        done
+        [ -n "$_g2_absent" ] && _g2_diff="$_g2_diff
+  missing from the snapshot:$_g2_absent"
+        if [ -z "$_g2_diff" ]; then
+            t_ok "the snapshot ships the six D-G2 pages, and G2_PAGES names exactly those six"
+        else
+            t_fail "the D-G2 snapshot rule is broken (the tree carries the six pages and the Makefile's G2_PAGES names exactly those six, nothing else):$_g2_diff"
         fi
     fi
 fi

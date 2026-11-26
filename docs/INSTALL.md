@@ -93,21 +93,22 @@ standard POSIX facilities — `fork`/`exec`/`pipe`/`select`/`wait` (for git, MCP
 LSP servers, user tools, the parallel fork pool, and verifiers), `termios` +
 `TIOCGWINSZ` (the TUI line editor), and `opendir`/`stat`/`mkdir`.
 
-- **Verified:** **22 rows**, compiled *and* gate-run on each, with the numbers kept
+- **Verified:** **20 rows**, compiled *and* gate-run on each, with the numbers kept
   per row in [`PLATFORMS.md`](PLATFORMS.md#the-matrix). Linux across 14
-  architectures and five libcs — glibc, musl, uClibc, bionic — x86-64 / aarch64 /
+  architectures and four libcs — glibc, musl, uClibc, bionic — x86-64 / aarch64 /
   armhf / s390x (big-endian) and eleven more, down to a 256 MB one-core VM and a
   kernel 4.9 userland. The code was endian-agnostic when that was last measured, on
   2026-09-21. One defect has come in since and is not fixed yet: the shell fence packs a
   kernel attribute in little-endian order
   ([the review](analysis/2026-11-11-reviewing-our-own-decisions.md), §6.2).
-- **Verified beyond Linux:** **FreeBSD**, **NetBSD** and **OpenBSD** each run the
-  full gate; **WSL2** runs the whole of `make ci`; Android is built both by the NDK
-  and on-device by Termux. Between them the BSD rows found ten real defects — an
+- **Verified beyond bare-metal Linux:** **WSL2** runs the whole of `make ci`; Android is
+  built both by the NDK and on-device by Termux. **FreeBSD**, **NetBSD** and **OpenBSD** each
+  ran the full gate and are **Partly verified** since 2026-11-24: their latest runs fail some
+  smoke drivers, named in their rows. Between them the BSD rows found ten real defects — an
   inherited `SIGPIPE` that hung pipelines on *every* platform among them — which is
   the argument for the rows: they are a defect detector, not compatibility work.
-- **Partly verified:** among others **illumos / Solaris** — fully driven and green
-  since M703 — **macOS** on Apple Silicon (driven since M817; `make ci` has never run
+- **Partly verified:** among others the three BSDs above, **illumos / Solaris** — fully
+  driven, and green from M703 until the 0.14.0 retest — **macOS** on Apple Silicon (driven since M817; `make ci` has never run
   on a Mac), **GNU/Hurd**, **Haiku**, **Windows + Cygwin** and **Windows + MSYS2**.
   Each carries a named gap; [`PLATFORMS.md`](PLATFORMS.md) owns the verdicts, the
   full list and the numbers.

@@ -537,11 +537,14 @@ else
       | sort -u > "$tmp/psys_p"
     _ncv=$(grep -c . < "$tmp/csys_v"); _ncp=$(grep -c . < "$tmp/csys_p")
     _npv=$(grep -c . < "$tmp/psys_v"); _npp=$(grep -c . < "$tmp/psys_p")
-    # Floors at today's exact counts: 4 verified kernels, 3 partly-verified rows.
-    if [ "$_ncv" -lt 4 ] || [ "$_ncp" -lt 3 ] \
-       || [ "$_npv" -lt 4 ] || [ "$_npp" -lt 3 ]; then
+    # Floors at today's exact counts (2026-11-24, when FreeBSD, NetBSD and
+    # OpenBSD went back to Partly verified): 1 verified kernel (Linux), 8
+    # partly-verified entries (the three BSDs, SunOS, CYGWIN_NT-, MSYS_NT-,
+    # Darwin, Haiku). Before that day: 4 verified, 5 partly.
+    if [ "$_ncv" -lt 1 ] || [ "$_ncp" -lt 8 ] \
+       || [ "$_npv" -lt 1 ] || [ "$_npp" -lt 8 ]; then
         t_fail "verdict-table extraction came up short (C: $_ncv verified, $_ncp partly; \
-PLATFORMS.md: $_npv verified, $_npp partly; floors 4/3/4/3) -- one side is empty or a \
+PLATFORMS.md: $_npv verified, $_npp partly; floors 1/8/1/8) -- one side is empty or a \
 format moved, and this check compares nothing until both sides read"
     else
         _mismatch=""
@@ -1441,7 +1444,7 @@ CURL_SSLVERSION_TLSv1_2 7.34.0
 CURLcode 7.1
 CURLVERSION_NOW 7.10
 CURLV
-_cv=$(cd "$ROOT" && find src include -name '*.[ch]' | sort | while read -r f; do
+_cv=$(cd "$SMOKE_ROOT" && find src include -name '*.[ch]' | sort | while read -r f; do
     awk -v F="$f" -v T="$tmp/curlv" '
         BEGIN {
             while ((getline l < T) > 0) {
@@ -1499,7 +1502,7 @@ _cv=$(cd "$ROOT" && find src include -name '*.[ch]' | sort | while read -r f; do
 done)
 _cv_bad=$(printf '%s\n' "$_cv" | grep -e '^UNKNOWN' -e '^BARE' | sort -u)
 _cv_guarded=$(printf '%s\n' "$_cv" | grep -c '^GUARDED' || true)
-_cv_ids=$(cd "$ROOT" && find src include -name '*.[ch]' -exec cat {} + 2>/dev/null \
+_cv_ids=$(cd "$SMOKE_ROOT" && find src include -name '*.[ch]' -exec cat {} + 2>/dev/null \
     | grep -o -E '(^|[^A-Za-z0-9_])CURL[A-Za-z0-9_]*' | sed 's/^[^C]*//' | sort -u | grep -c .)
 if [ -z "$_cv_bad" ] && [ "$_cv_ids" -ge 60 ] && [ "$_cv_guarded" -ge 10 ]; then
     t_ok "every libcurl identifier newer than 7.19.4 is guarded or has a fallback ($_cv_guarded uses; $_cv_ids identifiers in the table's universe)"
@@ -1517,7 +1520,7 @@ fi
 # the fixture's reason, not the product's. jichi itself calls neither. THE
 # UNIVERSE: the smoke drivers and scripts/, comments excluded; `git restore` is
 # the same release's other new verb. `git checkout` does both jobs everywhere.
-_gnew=$(cd "$ROOT" && grep -n -E '(^|[^#[:alnum:]_-])git +(switch|restore)( |$)' \
+_gnew=$(cd "$SMOKE_ROOT" && grep -n -E '(^|[^#[:alnum:]_-])git +(switch|restore)( |$)' \
     tests/smoke/*.sh scripts/*.sh 2>/dev/null | grep -v -E '^[^:]*:[0-9]+:[[:space:]]*#' | head -n 5)
 if [ -z "$_gnew" ]; then
     t_ok "no smoke driver or script uses git switch/restore (git 2.23; Debian 9 has 2.11)"
@@ -1534,7 +1537,7 @@ fi
 # every /usr/bin/grep in a smoke driver, comments excluded; the only line allowed
 # to name it is the assignment, and the next line must be the fallback. This file
 # is outside it: it names the path in its own patterns.
-_ubg=$(cd "$ROOT" && for f in tests/smoke/*.sh; do
+_ubg=$(cd "$SMOKE_ROOT" && for f in tests/smoke/*.sh; do
     [ "$f" = tests/smoke/portability_lint.sh ] && continue
     awk -v F="$f" '
         /^[ \t]*#/ { prev = $0; next }
@@ -1545,7 +1548,7 @@ _ubg=$(cd "$ROOT" && for f in tests/smoke/*.sh; do
         NR == want && $0 !~ /\[ -x "\$G" \] [|][|] G=grep/ { print F ":" NR " (no fallback after G=)" }
     ' "$f"
 done)
-_ubg_n=$(cd "$ROOT" && grep -l '^[[:space:]]*G=/usr/bin/grep' tests/smoke/*.sh | grep -c .)
+_ubg_n=$(cd "$SMOKE_ROOT" && grep -l '^[[:space:]]*G=/usr/bin/grep' tests/smoke/*.sh | grep -c .)
 if [ -z "$_ubg" ] && [ "$_ubg_n" -ge 26 ]; then
     t_ok "every /usr/bin/grep in the smoke tier is the guarded G= form ($_ubg_n drivers)"
 else
@@ -1635,8 +1638,8 @@ function scan_file(   i, line, rest, off, e, name) {
 FNR == 1 && NR > 1 { scan_file() }
 { L[++n] = $0; FN[n] = FILENAME }
 END { scan_file() }'
-_bin_files=$(cd "$ROOT" && ls src/*.c src/*/*.c include/*.h tests/*.c 2>/dev/null)
-_bf=$(cd "$ROOT" && awk -v WANT='(^|[^A-Za-z0-9_>.])(fopen|fdopen|freopen)[ \t]*[(]' "$_bin_awk" $_bin_files </dev/null)
+_bin_files=$(cd "$SMOKE_ROOT" && ls src/*.c src/*/*.c include/*.h tests/*.c 2>/dev/null)
+_bf=$(cd "$SMOKE_ROOT" && awk -v WANT='(^|[^A-Za-z0-9_>.])(fopen|fdopen|freopen)[ \t]*[(]' "$_bin_awk" $_bin_files </dev/null)
 _bf_n=$(printf '%s\n' "$_bf" | grep -c .)
 _bf_bad=$(printf '%s\n' "$_bf" | awk -F'\t' 'NF >= 3 && $3 !~ /b/ { print $1 " " $2 "(\"" $3 "\")" }')
 if [ -z "$_bf_bad" ] && [ "$_bf_n" -ge 81 ]; then
@@ -1647,7 +1650,7 @@ else
 $_bf_bad"
 fi
 
-_bo=$(cd "$ROOT" && awk -v WANT='(^|[^A-Za-z0-9_>.])open[ \t]*[(]' "$_bin_awk" $_bin_files </dev/null)
+_bo=$(cd "$SMOKE_ROOT" && awk -v WANT='(^|[^A-Za-z0-9_>.])open[ \t]*[(]' "$_bin_awk" $_bin_files </dev/null)
 _bo_n=$(printf '%s\n' "$_bo" | grep -c .)
 _bo_bad=$(printf '%s\n' "$_bo" | awk -F'\t' 'NF >= 4 && index($4, "JC_O_BINARY") == 0 &&
     index($4, "/dev/null") == 0 && index($4, "O_PATH") == 0 { print $1 }')

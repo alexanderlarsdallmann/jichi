@@ -331,6 +331,8 @@ void test_lease(void);
 void test_inhist(void);
 void test_env_panel(void);
 void test_delegreport(void);
+void test_delegreport_kind(void);  /* def-377 W6.1 (M1194): the summary's loop kind */
+void test_sup_stop(void);          /* def-377 W4 (M1194, A4b): the soft-stop sentinel */
 void test_toolloop(void);
 void test_toolloop_atbound(void);
 void test_relay(void);   /* M920: the context relay's decision core */

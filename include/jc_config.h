@@ -399,6 +399,24 @@ enum jc_priv_policy { JC_PRIVPOL_ASK = 0, JC_PRIVPOL_DENY = 1,
 #define JC_TESTEDITS_HOLD   0   /* M875: a moved assertion keeps the work (M865) */
 #define JC_TESTEDITS_METRIC 1   /* M875: the declared metric decides pin files   */
 
+/* def-377 W3.3 (M1194): the `parallelSupervise` object's `action` member.
+ * `report` (default) records a flagged task and stops nothing; `wrapup`/`stop`
+ * are opt-in (W4) and are built by A4. W3.4: a DISTINCT knob from
+ * parallelTaskTimeout (a timeout keeps and never merges, def-300; a flagged
+ * task under report is neither), so its own enum, not the task-timeout's. */
+enum jc_parallel_supervise_action {
+    JC_PAR_SUP_REPORT = 2,   /* default: observe only (flag -> status/board/telem) */
+    JC_PAR_SUP_WRAPUP = 1,   /* W4.2: one grace call, then the soft stop (A4) */
+    JC_PAR_SUP_STOP = 0      /* W4.2: soft stop, hard stop after the grace (A4) */
+};
+
+/* def-377 W3.3: the defaults of the `parallelSupervise` members, in SECONDS
+ * (the note's unit decision, run 0059): R1 3600 s == the measured 60 min; R2
+ * two copied placeholders; the soft-stop->hard-stop fence 60 s (W3.3b). */
+#define JC_PAR_SUP_NO_EDIT_SEC   3600
+#define JC_PAR_SUP_PLACEHOLDERS   2
+#define JC_PAR_SUP_GRACE_SEC       60
+
 struct jc_config {
     struct jc_vec models;      /* of struct jc_model_cfg: all configured      */
     struct jc_model_cfg model; /* the active model (a copy of models[active]) */
@@ -584,6 +602,15 @@ struct jc_config {
     int   parallel_verify;     /* M144: verify each write child's worktree
                                 * before merging (opt-in; needs a verifier)    */
     long  parallel_task_timeout; /* per-child watchdog (s, M62); 0 => built-in  */
+    /* def-377 W3.3/W3.4 (M1194): the `parallelSupervise` object, a DISTINCT knob
+     * from parallelTaskTimeout (a timeout-stopped task is kept and never merged,
+     * def-300; a flagged task under report is neither). All in SECONDS (the
+     * note's unit decision, run 0059). The flag rule (R1 noEditSec after the
+     * first edit / R2 placeholders) is evaluated at the pool's 200 ms wake. */
+    long  parallel_sup_no_edit_sec; /* R1 (W3.1): s of no edit after the first edit */
+    int   parallel_sup_placeholders; /* R2 (W3.1): total placeholders that flag */
+    int   parallel_sup_action;       /* JC_PAR_SUP_*; default report (W4) */
+    long  parallel_sup_grace_sec;    /* W3.3b: the soft-stop->hard-stop fence */
     int   daemon_workers;      /* daemon concurrent request workers; 0 => auto  */
     long  daemon_worker_timeout; /* daemon per-request watchdog (s); 0 => 300   */
     int   control_on;          /* M159: open the mid-run control socket        */
@@ -611,6 +638,12 @@ struct jc_config {
     int   self_review;         /* -1 auto (AUTO mode only) / 0 off / 1 on       */
     int   path_fence;          /* workspace containment fence (M24):
                                 * -1 auto (autonomous postures only) /0 off /1 on*/
+    /* def-415 (the decision of 2026-11-17): a value on a fence key that jichi
+     * cannot read as true or false turns the fence ON, in every mode. The value
+     * as written is kept here so that doctor can say so; empty = the key was
+     * absent or readable. */
+    char  path_fence_unreadable[48];
+    char  self_review_unreadable[48];
     int   shell_fence;         /* Landlock write fence on a parallel WRITE child's
                                 * shell (M831, O9): -1 auto (=on where Landlock is
                                 * available) /0 off /1 on. path_fence bounds the FILE

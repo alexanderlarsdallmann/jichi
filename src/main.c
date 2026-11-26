@@ -35,6 +35,7 @@
 #include "jc_glossary.h"
 #include "jc_doctor.h"
 #include "jc_scaffold.h"
+#include "jc_guide.h"
 #include "jc_assetval.h"
 #include "jc_convert.h"
 #include "jc_net.h"
@@ -229,122 +230,123 @@ static void print_version(void)
 #endif
 }
 
-static void print_help(const char *argv0)
+/* M1199 (G4): build the FULL top-level help (Usage + Options + Commands + exit codes) into a string buffer ONCE. Both print_help and print_help_section read from this one text, so the per-verb section cannot drift from the full help (the M262 lesson: no hand-maintained second copy). */
+static void build_help(struct jc_sb *sb, const char *argv0)
 {
-    printf("Usage: %s [options] [prompt...]\n\n", argv0);
-    printf("Options:\n");
-    printf("  -p, --print <prompt>   Headless mode: print the reply and exit\n");
-    printf("      --config <path>    Use the given JSON config file\n");
-    printf("      -C <dir>, --cwd <dir>  Run as if started in <dir> (M1043-b)\n");
-    printf("      --config-json <s>  Use inline JSON as the whole config "
+    jc_sb_append_fmt(sb, "Usage: %s [options] [prompt...]\n\n", argv0);
+    jc_sb_append_fmt(sb, "Options:\n");
+    jc_sb_append_fmt(sb, "  -p, --print <prompt>   Headless mode: print the reply and exit\n");
+    jc_sb_append_fmt(sb, "      --config <path>    Use the given JSON config file\n");
+    jc_sb_append_fmt(sb, "      -C <dir>, --cwd <dir>  Run as if started in <dir> (M1043-b)\n");
+    jc_sb_append_fmt(sb, "      --config-json <s>  Use inline JSON as the whole config "
            "(self-contained runs;\n");
-    printf("                         visible in `ps` -- use apiKeyEnv, not a "
+    jc_sb_append_fmt(sb, "                         visible in `ps` -- use apiKeyEnv, not a "
            "literal key)\n");
-    printf("      --config-json-b64 <b64>  Base64 of the inline config "
+    jc_sb_append_fmt(sb, "      --config-json-b64 <b64>  Base64 of the inline config "
            "(quoting-safe transport)\n");
-    printf("      --config-json -    Read the config JSON from stdin "
+    jc_sb_append_fmt(sb, "      --config-json -    Read the config JSON from stdin "
            "(alias --config-stdin;\n");
-    printf("                         keeps it out of `ps`; prompt must then use "
+    jc_sb_append_fmt(sb, "                         keeps it out of `ps`; prompt must then use "
            "-p/--prompt-b64)\n");
-    printf("      --prompt-b64 <b64> Base64 of the prompt text (multiline/quote"
+    jc_sb_append_fmt(sb, "      --prompt-b64 <b64> Base64 of the prompt text (multiline/quote"
            "-safe)\n");
-    printf("      --design <file>    Inject a design/spec doc as the "
+    jc_sb_append_fmt(sb, "      --design <file>    Inject a design/spec doc as the "
            "authoritative plan for the task (alias --spec)\n");
-    printf("      --model <sel>      Select a configured model (name/index/id substring), "
+    jc_sb_append_fmt(sb, "      --model <sel>      Select a configured model (name/index/id substring), "
            "or a raw id\n");
-    printf("                         on the active model if nothing matches\n");
-    printf("      --plan             Start in plan mode (investigate, propose "
+    jc_sb_append_fmt(sb, "                         on the active model if nothing matches\n");
+    jc_sb_append_fmt(sb, "      --plan             Start in plan mode (investigate, propose "
            "a plan, change nothing)\n");
-    printf("      --auto             Start in auto mode (run approved tools "
+    jc_sb_append_fmt(sb, "      --auto             Start in auto mode (run approved tools "
            "without asking)\n");
-    printf("      --readonly         Disable mutating tools\n");
+    jc_sb_append_fmt(sb, "      --readonly         Disable mutating tools\n");
     /* M539: two more undocumented off-switches, in the section a reader of
      * `--help` actually reaches. --config-editable is a privilege escalation: a
      * model that can write the config can widen its own fences. */
-    printf("      --config-editable  Let the model write the config file via "
+    jc_sb_append_fmt(sb, "      --config-editable  Let the model write the config file via "
            "`config set` (it can then widen its own fences)\n");
-    printf("      --path-fence/--no-path-fence  Force the workspace path "
+    jc_sb_append_fmt(sb, "      --path-fence/--no-path-fence  Force the workspace path "
            "containment fence on/off (default: auto = on in --auto)\n");
-    printf("      --prompt-cache/--no-prompt-cache  Force prompt caching "
+    jc_sb_append_fmt(sb, "      --prompt-cache/--no-prompt-cache  Force prompt caching "
            "on/off (default: auto = on)\n");
-    printf("      --cost-model/--no-cost-model  Tell the model its output caps "
+    jc_sb_append_fmt(sb, "      --cost-model/--no-cost-model  Tell the model its output caps "
            "and what follows (default: auto = on when caching is off)\n");
-    printf("      --auto-context/--no-auto-context  Auto-retrieve relevant "
+    jc_sb_append_fmt(sb, "      --auto-context/--no-auto-context  Auto-retrieve relevant "
            "code/docs into each turn (default: off)\n");
-    printf("      --learn-on-stop/--no-learn-on-stop  Draft lessons via the "
+    jc_sb_append_fmt(sb, "      --learn-on-stop/--no-learn-on-stop  Draft lessons via the "
            "mentor after a completed --auto run (default: off)\n");
-    printf("      --no-hooks         Disable configured lifecycle hooks for "
+    jc_sb_append_fmt(sb, "      --no-hooks         Disable configured lifecycle hooks for "
            "this run\n");
-    printf("      --output-style <name>  Activate a custom output style "
+    jc_sb_append_fmt(sb, "      --output-style <name>  Activate a custom output style "
            "(.jichi/output-styles/<name>.md)\n");
-    printf("      --language <lang>  Answer in this natural language "
+    jc_sb_append_fmt(sb, "      --language <lang>  Answer in this natural language "
            "(e.g. Japanese, Deutsch; config \"language\")\n");
-    printf("      --image <path>     Attach an image to the prompt (repeatable; "
+    jc_sb_append_fmt(sb, "      --image <path>     Attach an image to the prompt (repeatable; "
            "needs a vision model). In a message, @photo.png / @img:<path> also "
            "attach.\n");
-    printf("  -c, --continue         Resume the most recent session for this "
+    jc_sb_append_fmt(sb, "  -c, --continue         Resume the most recent session for this "
            "directory (alias: --resume)\n");
-    printf("      --session <id>     Resume a specific session (id or "
+    jc_sb_append_fmt(sb, "      --session <id>     Resume a specific session (id or "
            "unambiguous prefix; see `ls`)\n");
-    printf("      --all              With ls / --continue: every project, not "
+    jc_sb_append_fmt(sb, "      --all              With ls / --continue: every project, not "
            "just this directory\n");
-    printf("  -v, --verbose          Enable debug logging\n");
-    printf("      --voice / --no-voice   Speak replies, approval prompts and "
+    jc_sb_append_fmt(sb, "  -v, --verbose          Enable debug logging\n");
+    jc_sb_append_fmt(sb, "      --voice / --no-voice   Speak replies, approval prompts and "
            "errors aloud (needs an\n");
-    printf("                         audio-role model + sound.play; off by "
+    jc_sb_append_fmt(sb, "                         audio-role model + sound.play; off by "
            "default)\n");
-    printf("  -q, --quiet, --silent  Minimal output: only essential info "
+    jc_sb_append_fmt(sb, "  -q, --quiet, --silent  Minimal output: only essential info "
            "(errors still shown)\n");
-    printf("      --output <fmt>     Output format: text (default), json (one "
+    jc_sb_append_fmt(sb, "      --output <fmt>     Output format: text (default), json (one "
            "object), or jsonl (streaming events)\n");
-    printf("      --heartbeat <secs> With --output jsonl: emit a periodic "
+    jc_sb_append_fmt(sb, "      --heartbeat <secs> With --output jsonl: emit a periodic "
            "\"heartbeat\" event\n");
-    printf("                         for both model-call liveness and parallel "
+    jc_sb_append_fmt(sb, "                         for both model-call liveness and parallel "
            "batch progress\n");
-    printf("                         (k of m tasks done) at most once per "
+    jc_sb_append_fmt(sb, "                         (k of m tasks done) at most once per "
            "interval (0 = off;\n");
-    printf("                         for supervisors)\n");
-    printf("      --color/--no-color Force ANSI color on/off (default: auto; "
+    jc_sb_append_fmt(sb, "                         for supervisors)\n");
+    jc_sb_append_fmt(sb, "      --color/--no-color Force ANSI color on/off (default: auto; "
            "honors NO_COLOR)\n");
-    printf("      --no-stdin         Do not read piped stdin as/with the "
+    jc_sb_append_fmt(sb, "      --no-stdin         Do not read piped stdin as/with the "
            "prompt\n");
-    printf("      --no-session       Do not save this run as a session\n");
-    printf("      --handoff-in <file> Relay: start a FRESH session seeded with\n");
-    printf("                         the previous leg's baton (refuses\n");
-    printf("                         --session/-c; the relay's config key is\n");
-    printf("                         not implied by this flag)\n");
-    printf("      --lite             Low-resource profile (lean defaults for "
+    jc_sb_append_fmt(sb, "      --no-session       Do not save this run as a session\n");
+    jc_sb_append_fmt(sb, "      --handoff-in <file> Relay: start a FRESH session seeded with\n");
+    jc_sb_append_fmt(sb, "                         the previous leg's baton (refuses\n");
+    jc_sb_append_fmt(sb, "                         --session/-c; the relay's config key is\n");
+    jc_sb_append_fmt(sb, "                         not implied by this flag)\n");
+    jc_sb_append_fmt(sb, "      --lite             Low-resource profile (lean defaults for "
            "RAM/CPU/disk;\n");
-    printf("                         alias --low-memory; config: \"lowResource\""
+    jc_sb_append_fmt(sb, "                         alias --low-memory; config: \"lowResource\""
            ")\n");
-    printf("      --no-lite          Force the normal profile (wins over the "
+    jc_sb_append_fmt(sb, "      --no-lite          Force the normal profile (wins over the "
            "config key\n");
-    printf("                         and the low-RAM auto-detection)\n");
-    printf("      --reindex          Rebuild the index cache from scratch\n");
-    printf("  --                     Treat all following args as the prompt\n");
-    printf("\nAutonomous envelope (bounds an unsupervised run; implies --auto "
+    jc_sb_append_fmt(sb, "                         and the low-RAM auto-detection)\n");
+    jc_sb_append_fmt(sb, "      --reindex          Rebuild the index cache from scratch\n");
+    jc_sb_append_fmt(sb, "  --                     Treat all following args as the prompt\n");
+    jc_sb_append_fmt(sb, "\nAutonomous envelope (bounds an unsupervised run; implies --auto "
            "in headless mode):\n");
-    printf("      --verify <cmd>     Run <cmd> when the agent finishes; it must "
+    jc_sb_append_fmt(sb, "      --verify <cmd>     Run <cmd> when the agent finishes; it must "
            "pass (exit 0)\n");
-    printf("      --with-rules       attempt: load the project's AGENTS.md/CLAUDE.md "
+    jc_sb_append_fmt(sb, "      --with-rules       attempt: load the project's AGENTS.md/CLAUDE.md "
            "into the graded run\n");
-    printf("                         (off by default -- a big rules file dominated "
+    jc_sb_append_fmt(sb, "                         (off by default -- a big rules file dominated "
            "every call: M309)\n");
-    printf("      --verify-retries <n>  Fix-forward attempts before rollback "
+    jc_sb_append_fmt(sb, "      --verify-retries <n>  Fix-forward attempts before rollback "
            "(default 3)\n");
-    printf("      --verify-every <n>  Run the verifier every <n> tool calls "
+    jc_sb_append_fmt(sb, "      --verify-every <n>  Run the verifier every <n> tool calls "
            "mid-turn (bank green / feed failures back)\n");
-    printf("      --verify-timeout <dur>  Kill the verifier if it runs longer "
+    jc_sb_append_fmt(sb, "      --verify-timeout <dur>  Kill the verifier if it runs longer "
            "(e.g. 5m)\n");
-    printf("      --verify-baseline  Run the verifier once at start (records "
+    jc_sb_append_fmt(sb, "      --verify-baseline  Run the verifier once at start (records "
            "if the tree is already broken)\n");
-    printf("      --verify-kind <invariant|goal>  Declare what the verifier "
+    jc_sb_append_fmt(sb, "      --verify-kind <invariant|goal>  Declare what the verifier "
            "asserts: an invariant (green before the work) or a goal (red "
            "until the work lands).\n");
-    printf("                         Declaring arms the start probe, which "
+    jc_sb_append_fmt(sb, "                         Declaring arms the start probe, which "
            "CHECKS the declaration: a goal gate that already passes forces "
            "nothing (config \"verifyKind\")\n");
-    printf("      --no-rollback      On failure, leave the workspace as-is "
+    jc_sb_append_fmt(sb, "      --no-rollback      On failure, leave the workspace as-is "
            "instead of reverting\n");
     /* M539: the safety OFF-switches. All six were accepted by the parser and
      * documented in NO help output and NO man page -- an operator could not
@@ -353,351 +355,466 @@ static void print_help(const char *argv0)
      * `jichi recover <hash>` handle that makes an `undo` recoverable, which is
      * the safety net M537's incident actually landed in. A fence nobody can
      * find is a fence nobody can reason about. */
-    printf("      --no-self-review   Skip the self-review pass at the end of "
+    jc_sb_append_fmt(sb, "      --no-self-review   Skip the self-review pass at the end of "
            "an autonomous run\n");
-    printf("      --no-strict-green  Accept a green verify without the checks "
+    jc_sb_append_fmt(sb, "      --no-strict-green  Accept a green verify without the checks "
            "for a gate that passed for the wrong reason\n");
-    printf("      --no-revert-out-of-scope  Report out-of-scope edits but do "
+    jc_sb_append_fmt(sb, "      --no-revert-out-of-scope  Report out-of-scope edits but do "
            "NOT revert them (--edit-scope stops being enforced)\n");
-    printf("      --no-preserve-discarded   Do not keep the state `undo` "
+    jc_sb_append_fmt(sb, "      --no-preserve-discarded   Do not keep the state `undo` "
            "discards -- no `jichi recover` handle, the revert is final\n");
-    printf("      --strict-scope     With --edit-scope, also forbid "
+    jc_sb_append_fmt(sb, "      --strict-scope     With --edit-scope, also forbid "
            "run_terminal_command (no shell escape)\n");
-    printf("      --privileged-commands <ask|deny|allow>  Policy for "
+    jc_sb_append_fmt(sb, "      --privileged-commands <ask|deny|allow>  Policy for "
            "model-issued sudo/doas/pkexec (default ask; config "
            "\"privilegedCommands\")\n");
-    printf("      --kinetic-commands <ask|deny|allow>  Policy for "
+    jc_sb_append_fmt(sb, "      --kinetic-commands <ask|deny|allow>  Policy for "
            "model-issued physical actuation (default ask; config "
            "\"kineticCommands\")\n");
-    printf("      --revert-out-of-scope  Restore files changed outside the "
+    jc_sb_append_fmt(sb, "      --revert-out-of-scope  Restore files changed outside the "
            "edit scope at turn end (config \"revertOutOfScope\")\n");
-    printf("      --strict-green     Refuse a passing verify if the run changed "
+    jc_sb_append_fmt(sb, "      --strict-green     Refuse a passing verify if the run changed "
            "a file outside the edit scope (config \"strictGreen\")\n");
-    printf("      --lease MODE       Concurrent runs on one workspace: "
+    jc_sb_append_fmt(sb, "      --lease MODE       Concurrent runs on one workspace: "
            "warn (default) | fail | off (M431e)\n");
-    printf("      --budget-panel     Give the agent a periodic budget reading "
+    jc_sb_append_fmt(sb, "      --budget-panel     Give the agent a periodic budget reading "
            "with its spend RATE (off by default; config \"budgetPanel\")\n");
-    printf("      --preserve-discarded  Commit the tree a rollback would throw "
+    jc_sb_append_fmt(sb, "      --preserve-discarded  Commit the tree a rollback would throw "
            "away, under refs/jichi/discarded/ (config \"preserveDiscarded\")\n");
-    printf("      --parallel-verify  Verify each parallel write-child's "
+    jc_sb_append_fmt(sb, "      --parallel-verify  Verify each parallel write-child's "
            "worktree before merging it (config \"parallelVerify\")\n");
-    printf("      --budget-tokens <n>   Token cap for the run (e.g. 200k, 1m)\n");
-    printf("      --deadline <dur>   Wall-clock cap (e.g. 30s, 20m, 2h)\n");
-    printf("      --max-tool-calls <n>  Cap on tool calls ATTEMPTED (a\n");
-    printf("                            gate-refused call still counts)\n");
-    printf("      --max-reads <n>       Cap on read-category tool calls (prevents over-reading)\n");
-    printf("      --context-limit <n>   Context budget in tokens (sizes the "
+    jc_sb_append_fmt(sb, "      --budget-tokens <n>   Token cap for the run (e.g. 200k, 1m)\n");
+    jc_sb_append_fmt(sb, "      --deadline <dur>   Wall-clock cap (e.g. 30s, 20m, 2h)\n");
+    jc_sb_append_fmt(sb, "      --max-tool-calls <n>  Cap on tool calls ATTEMPTED (a\n");
+    jc_sb_append_fmt(sb, "                            gate-refused call still counts)\n");
+    jc_sb_append_fmt(sb, "      --max-reads <n>       Cap on read-category tool calls (prevents over-reading)\n");
+    jc_sb_append_fmt(sb, "      --context-limit <n>   Context budget in tokens (sizes the "
            "system-prompt fit + compaction; use when the model's real context "
            "is smaller than its declared contextLength)\n");
-    printf("      --tool-profile <p>    auto | core | full -- advertise the lean "
+    jc_sb_append_fmt(sb, "      --tool-profile <p>    auto | core | full -- advertise the lean "
            "core tool set on a small-context model (auto: core when context is "
            "small or --lite)\n");
-    printf("      --edit-scope <glob>   Restrict file edits to a path glob "
+    jc_sb_append_fmt(sb, "      --edit-scope <glob>   Restrict file edits to a path glob "
            "(repeatable)\n");
-    printf("      --reference-root <path>  Allow READS under this external "
+    jc_sb_append_fmt(sb, "      --reference-root <path>  Allow READS under this external "
            "root with the fence on (repeatable; writes stay in-workspace)\n");
-    printf("      --journal <path|->    Audit log path "
+    jc_sb_append_fmt(sb, "      --journal <path|->    Audit log path "
            "(default ~/.jichi.d/runs/<id>.jsonl; - disables)\n");
-    printf("      --control [path]      Open a mid-run control socket "
+    jc_sb_append_fmt(sb, "      --control [path]      Open a mid-run control socket "
            "(default ~/.jichi.d/control/<pid>.sock;\n");
-    printf("                            steer with `jichi control "
+    jc_sb_append_fmt(sb, "                            steer with `jichi control "
            "<sock> status|inject|pause|resume|abort|mode|"
-           "stop-task|inject-task`)\n");
-    printf("\nEvent logging / telemetry (metrics on by default; what `learn "
+           "stop-task|inject-task|cancel-cmd`)\n");
+    jc_sb_append_fmt(sb, "\nEvent logging / telemetry (metrics on by default; what `learn "
            "analyze` reads):\n");
-    printf("      --log-level <tier>    off | metrics | full "
+    jc_sb_append_fmt(sb, "      --log-level <tier>    off | metrics | full "
            "(default metrics; full adds prompt/response content)\n");
-    printf("      --log <path|->        Telemetry JSONL path "
+    jc_sb_append_fmt(sb, "      --log <path|->        Telemetry JSONL path "
            "(default ~/.jichi.d/telemetry/<workspace>-<key>.jsonl; - disables;\n");
-    printf("                            implies metrics if no --log-level)\n");
-    printf("\nModel routing (fast-first, escalate to strong on a hard step):\n");
-    printf("      --route-fast <model>    Routine turns run on this model\n");
-    printf("      --route-strong <model>  Escalate to this model on a verify "
+    jc_sb_append_fmt(sb, "                            implies metrics if no --log-level)\n");
+    jc_sb_append_fmt(sb, "\nModel routing (fast-first, escalate to strong on a hard step):\n");
+    jc_sb_append_fmt(sb, "      --route-fast <model>    Routine turns run on this model\n");
+    jc_sb_append_fmt(sb, "      --route-strong <model>  Escalate to this model on a verify "
            "failure\n");
-    printf("      --no-route              Disable routing (use the single "
+    jc_sb_append_fmt(sb, "      --no-route              Disable routing (use the single "
            "active model)\n");
-    printf("      --route-on-stall        Escalate to the strong model when "
+    jc_sb_append_fmt(sb, "      --route-on-stall        Escalate to the strong model when "
            "the fast one stalls (default)\n");
-    printf("      --no-route-on-stall     Don't escalate on a model stall\n");
-    printf("      --route-on-context <pct> Escalate when the history reaches "
+    jc_sb_append_fmt(sb, "      --no-route-on-stall     Don't escalate on a model stall\n");
+    jc_sb_append_fmt(sb, "      --route-on-context <pct> Escalate when the history reaches "
            "pct%% of the\n");
-    printf("                              fast tier's window (default 75; "
+    jc_sb_append_fmt(sb, "                              fast tier's window (default 75; "
            "needs a roomier\n");
-    printf("                              strong tier to have any effect)\n");
-    printf("      --no-route-on-context   Don't escalate on context pressure\n");
-    printf("      --timeout-connect <s>   Model-call connect timeout, seconds "
+    jc_sb_append_fmt(sb, "                              strong tier to have any effect)\n");
+    jc_sb_append_fmt(sb, "      --no-route-on-context   Don't escalate on context pressure\n");
+    jc_sb_append_fmt(sb, "      --timeout-connect <s>   Model-call connect timeout, seconds "
            "(0/off disables)\n");
-    printf("      --timeout-stall <s>     Abort a model stream stalled for this "
+    jc_sb_append_fmt(sb, "      --timeout-stall <s>     Abort a model stream stalled for this "
            "many seconds\n");
-    printf("      --timeout-request <s>   Hard cap on a whole model call, "
+    jc_sb_append_fmt(sb, "      --timeout-request <s>   Hard cap on a whole model call, "
            "seconds (0/off = none)\n");
-    printf("      --run-timeout <s>       Wall-clock cap on a model-run "
+    jc_sb_append_fmt(sb, "      --run-timeout <s>       Wall-clock cap on a model-run "
            "shell command, seconds (0 = none)\n");
-    printf("      --no-markdown           Don't render markdown/syntax in the "
+    jc_sb_append_fmt(sb, "      --no-markdown           Don't render markdown/syntax in the "
            "TUI (raw text)\n");
-    printf("      --type-ahead            Collect keys typed while the agent "
+    jc_sb_append_fmt(sb, "      --type-ahead            Collect keys typed while the agent "
            "works, apply at its next step\n");
-    printf("      --no-type-ahead         Don't (the default; see "
+    jc_sb_append_fmt(sb, "      --no-type-ahead         Don't (the default; see "
            "docs/TYPE_AHEAD.md)\n");
-    printf("      --accessible            Reduce motion, keep output "
+    jc_sb_append_fmt(sb, "      --accessible            Reduce motion, keep output "
            "screen-reader-friendly (docs/ACCESSIBILITY.md)\n");
-    printf("      --no-fuzzy-edit         Require exact-string edits (disable "
+    jc_sb_append_fmt(sb, "      --no-fuzzy-edit         Require exact-string edits (disable "
            "whitespace/anchor fallback)\n");
-    printf("      --bell                  Ring the terminal bell when a turn / "
+    jc_sb_append_fmt(sb, "      --bell                  Ring the terminal bell when a turn / "
            "--auto run finishes\n");
-    printf("      --notify <cmd>          Run <cmd> on completion ($JICHI_NOTIFY, "
+    jc_sb_append_fmt(sb, "      --notify <cmd>          Run <cmd> on completion ($JICHI_NOTIFY, "
            "$JICHI_CWD)\n");
-    printf("\nWith no prompt and a non-terminal stdin, the piped input is the "
+    jc_sb_append_fmt(sb, "\nWith no prompt and a non-terminal stdin, the piped input is the "
            "prompt; with a prompt, piped stdin is appended as context.\n");
-    printf("\nCommands:\n");
-    printf("  ls [--all]             List saved sessions (this project; "
+    jc_sb_append_fmt(sb, "\nCommands:\n");
+    jc_sb_append_fmt(sb, "  ls [--all]             List saved sessions (this project; "
            "--all for every project)\n");
-    printf("  prune [--keep N] [--older-than DUR] [--dry-run]\n");
-    printf("                         Delete old sessions AND dreams (both "
+    jc_sb_append_fmt(sb, "  prune [--keep N] [--older-than DUR] [--dry-run]\n");
+    jc_sb_append_fmt(sb, "                         Delete old sessions AND dreams (both "
            "criteria must agree; --dry-run lists)\n");
-    printf("  export [id] [--html]   Export a session transcript (Markdown, "
+    jc_sb_append_fmt(sb, "  export [id] [--html]   Export a session transcript (Markdown, "
            "--html, or --output\n");
-    printf("                         json for a structured projection); "
+    jc_sb_append_fmt(sb, "                         json for a structured projection); "
            "-o <file>\n");
-    printf("  index [--reindex]      Build/update the codebase search index\n");
-    printf("  docs [index|search]    List/index/search external documentation "
+    jc_sb_append_fmt(sb, "  index [--reindex]      Build/update the codebase search index\n");
+    jc_sb_append_fmt(sb, "  docs [index|search]    List/index/search external documentation "
            "sources\n");
-    printf("  setup                  Guided project setup: role preset -> "
+    jc_sb_append_fmt(sb, "  setup                  Guided project setup: role preset -> "
            "assets + config +\n");
-    printf("                         start-script + validation (interactive; "
+    jc_sb_append_fmt(sb, "                         start-script + validation (interactive; "
            "--list, --preset)\n");
-    printf("                         `--api-base <URL>` sets the endpoint a "
+    jc_sb_append_fmt(sb, "                         `--api-base <URL>` sets the endpoint a "
            "locally hosted or\n");
-    printf("                         gateway model needs (the flag form of the "
+    jc_sb_append_fmt(sb, "                         gateway model needs (the flag form of the "
            "wizard's\n");
-    printf("                         apiBase question);\n");
-    printf("                         `--context-length <tokens|auto>` records "
+    jc_sb_append_fmt(sb, "                         apiBase question);\n");
+    jc_sb_append_fmt(sb, "                         `--context-length <tokens|auto>` records "
            "the model's\n");
-    printf("                         window (a number stays offline; `auto` "
+    jc_sb_append_fmt(sb, "                         window (a number stays offline; `auto` "
            "asks the server,\n");
-    printf("                         which only a LiteLLM gateway answers);\n");
-    printf("                         `setup --import <continue|opencode config>`"
+    jc_sb_append_fmt(sb, "                         which only a LiteLLM gateway answers);\n");
+    jc_sb_append_fmt(sb, "                         `setup --import <continue|opencode config>`"
            " converts an\n");
-    printf("                         existing config into a jichi config + .jichi/ "
+    jc_sb_append_fmt(sb, "                         existing config into a jichi config + .jichi/ "
            "tree;\n");
-    printf("                         `--journey`/`--machine`/`--stance`"
+    jc_sb_append_fmt(sb, "                         `--journey`/`--machine`/`--stance`"
            " <name> layer onto it\n");
-    printf("                         (setup asks for both; --preset <journey>"
+    jc_sb_append_fmt(sb, "                         (setup asks for both; --preset <journey>"
            " alone still works);\n");
-    printf("                         `setup --advisor` asks the configured model"
+    jc_sb_append_fmt(sb, "                         `setup --advisor` asks the configured model"
            " for tailored\n");
-    printf("                         recommendations (writes .jichi/"
+    jc_sb_append_fmt(sb, "                         recommendations (writes .jichi/"
            "setup.advice.md);\n");
-    printf("                         `setup --from-global` seeds the project "
+    jc_sb_append_fmt(sb, "                         `setup --from-global` seeds the project "
            "config from\n");
-    printf("                         ~/.jichi (--inherit <keys> copies "
+    jc_sb_append_fmt(sb, "                         ~/.jichi (--inherit <keys> copies "
            "only some);\n");
-    printf("                         `setup --onboard` scaffolds + drafts a "
+    jc_sb_append_fmt(sb, "                         `setup --onboard` scaffolds + drafts a "
            "propose-only\n");
-    printf("                         project analysis + tutorial (W6)\n");
-    printf("  init [pack ...]        Scaffold .jichi/ assets (agents, skills, "
+    jc_sb_append_fmt(sb, "                         project analysis + tutorial (W6)\n");
+    jc_sb_append_fmt(sb, "  init [pack ...]        Scaffold .jichi/ assets (agents, skills, "
            "commands, AGENTS.md);\n");
-    printf("                         --list packs, --global, --force, "
+    jc_sb_append_fmt(sb, "                         --list packs, --global, --force, "
            "--dry-run\n");
-    printf("  embed \"text\"           Print an embedding (uses the embed model)\n");
-    printf("  rerank \"q\" \"doc\"...    Score documents against a query\n");
-    printf("  doctor                 Check config, keys, server reachability, "
+    jc_sb_append_fmt(sb, "  guide [topic]          Print the compiled-in jichi guide "
+           "(setup model learner agents limits commands)\n");
+    jc_sb_append_fmt(sb, "                         (offline: no provider, no network)\n");
+    jc_sb_append_fmt(sb, "  embed \"text\"           Print an embedding (uses the embed model)\n");
+    jc_sb_append_fmt(sb, "  rerank \"q\" \"doc\"...    Score documents against a query\n");
+    jc_sb_append_fmt(sb, "  doctor                 Check config, keys, server reachability, "
            "MCP/LSP, git\n");
-    printf("                         (--output json for a machine-readable "
+    jc_sb_append_fmt(sb, "                         (--output json for a machine-readable "
            "report;\n");
-    printf("                         --live makes ONE real request that "
+    jc_sb_append_fmt(sb, "                         --live makes ONE real request that "
            "advertises a trivial\n");
-    printf("                         tool, to confirm tool calling works "
+    jc_sb_append_fmt(sb, "                         tool, to confirm tool calling works "
            "end to end\n");
-    printf("                         --unattended judges the config as an "
+    jc_sb_append_fmt(sb, "                         --unattended judges the config as an "
            "unattended-loop\n");
-    printf("                         posture and exits 1 on an unsafe one)\n");
-    printf("  config [path|show|validate]  Name the config file(s) in effect, "
+    jc_sb_append_fmt(sb, "                         posture and exits 1 on an unsafe one)\n");
+    jc_sb_append_fmt(sb, "  config [path|show|validate]  Name the config file(s) in effect, "
            "summarise the\n");
-    printf("                         resolved settings, or confirm it parsed; "
+    jc_sb_append_fmt(sb, "                         resolved settings, or confirm it parsed; "
            "`config set <key>\n");
-    printf("                         <value>` and `config telemetry <level>` "
+    jc_sb_append_fmt(sb, "                         <value>` and `config telemetry <level>` "
            "edit it when\n");
-    printf("                         configEditable is on\n");
-    printf("  assign <spec.md>       Render a machine-checkable assignment for "
+    jc_sb_append_fmt(sb, "                         configEditable is on\n");
+    jc_sb_append_fmt(sb, "  assign <spec.md>       Render a machine-checkable assignment for "
            "its audience\n");
-    printf("  hint <spec.md> [N]     Print rung N of the spec's hint ladder "
+    jc_sb_append_fmt(sb, "  hint <spec.md> [N]     Print rung N of the spec's hint ladder "
            "(default 1)\n");
-    printf("  grade <spec.md>        Run the spec's verify command and score "
+    jc_sb_append_fmt(sb, "  grade <spec.md>        Run the spec's verify command and score "
            "pass/fail\n");
-    printf("                         (--expect-fail: authoring check -- exit 0 "
+    jc_sb_append_fmt(sb, "                         (--expect-fail: authoring check -- exit 0 "
            "iff the gate\n");
-    printf("                         is RED on the untouched tree; a green one "
+    jc_sb_append_fmt(sb, "                         is RED on the untouched tree; a green one "
            "is HOLLOW)\n");
-    printf("  attempt <spec.md>      Let a learner solve one assignment in an "
+    jc_sb_append_fmt(sb, "  attempt <spec.md>      Let a learner solve one assignment in an "
            "isolated worktree,\n");
-    printf("                         graded by its verify (--agent <profile> "
+    jc_sb_append_fmt(sb, "                         graded by its verify (--agent <profile> "
            "picks a tier;\n");
-    printf("                         --budget-tokens/--deadline/--max-tool-calls "
+    jc_sb_append_fmt(sb, "                         --budget-tokens/--deadline/--max-tool-calls "
            "bound it;\n");
-    printf("                         a green verify with test-assertion edits "
+    jc_sb_append_fmt(sb, "                         a green verify with test-assertion edits "
            "reports TAINTED,\n");
-    printf("                         exit 1 -- --keep-worktree keeps the sandbox "
+    jc_sb_append_fmt(sb, "                         exit 1 -- --keep-worktree keeps the sandbox "
            "for review)\n");
-    printf("  dream [path]           Propose-only reflection over telemetry -> "
+    jc_sb_append_fmt(sb, "  dream [path]           Propose-only reflection over telemetry -> "
            "a dated draft\n");
-    printf("  workflow <spec.json>   Run a deterministic multi-agent pipeline "
+    jc_sb_append_fmt(sb, "  workflow <spec.json>   Run a deterministic multi-agent pipeline "
            "(map -> synthesize)\n");
-    printf("  improve [specs-dir]    Reflect + grade a spec suite; track the "
+    jc_sb_append_fmt(sb, "  improve [specs-dir]    Reflect + grade a spec suite; track the "
            "pass-rate over time\n");
-    printf("                         (--attempt: let the agent try each failure "
+    jc_sb_append_fmt(sb, "                         (--attempt: let the agent try each failure "
            "in an isolated\n");
-    printf("                         worktree and re-grade -- your tree is "
+    jc_sb_append_fmt(sb, "                         worktree and re-grade -- your tree is "
            "never touched)\n");
-    printf("  models                 List configured models, roles, fallback, "
+    jc_sb_append_fmt(sb, "  models                 List configured models, roles, fallback, "
            "and live reachability\n");
     /* M297: these three were dispatched, worked, and appeared in NEITHER --help
      * nor the man page -- undiscoverable except by reading main.c. A working
      * feature nobody can find is a feature that was not shipped. */
-    printf("  benchmark [path]       Score a config against the built-in "
+    jc_sb_append_fmt(sb, "  benchmark [path]       Score a config against the built-in "
            "checks (offline)\n");
-    printf("  board [add|move|done|phase] ...\n");
-    printf("                         Show or edit the persistent kanban board "
+    jc_sb_append_fmt(sb, "  board [add|move|done|phase] ...\n");
+    jc_sb_append_fmt(sb, "                         Show or edit the persistent kanban board "
            "(.jichi/board.json)\n");
-    printf("  packages [recommend]   List the setup presets (role recipes) "
+    jc_sb_append_fmt(sb, "  packages [recommend]   List the setup presets (role recipes) "
            "`setup --preset` accepts;\n");
-    printf("                         `recommend` suggests one from what is in "
+    jc_sb_append_fmt(sb, "                         `recommend` suggests one from what is in "
            "the project\n");
-    printf("  timeouts               Show the model-call timeouts in effect "
+    jc_sb_append_fmt(sb, "  timeouts               Show the model-call timeouts in effect "
            "for the active model\n");
     /* M297: the verbs were dispatched but named nowhere in --help. */
-    printf("  mcp [resources|read <uri>|prompts|prompt <name>|call <tool> "
+    jc_sb_append_fmt(sb, "  mcp [resources|read <uri>|prompts|prompt <name>|call <tool> "
            "[json]]\n");
-    printf("                         Connect to configured MCP servers; list "
+    jc_sb_append_fmt(sb, "                         Connect to configured MCP servers; list "
            "tools, or use one\n");
-    printf("  skills                 List available agent skills\n");
-    printf("  agents                 List discovered agent profiles "
+    jc_sb_append_fmt(sb, "  skills                 List available agent skills\n");
+    jc_sb_append_fmt(sb, "  agents                 List discovered agent profiles "
            "(.jichi/agents)\n");
-    printf("  commands               List custom slash commands "
+    jc_sb_append_fmt(sb, "  commands               List custom slash commands "
            "(.jichi/commands)\n");
-    printf("  output-styles          List output styles "
+    jc_sb_append_fmt(sb, "  output-styles          List output styles "
            "(.jichi/output-styles)\n");
-    printf("  rules                  Print the resolved project rules "
+    jc_sb_append_fmt(sb, "  rules                  Print the resolved project rules "
            "(AGENTS.md chain)\n");
-    printf("  assignments            List assignments under docs/assignments/, "
+    jc_sb_append_fmt(sb, "  assignments            List assignments under docs/assignments/, "
            "grouped by stage\n"
            "                         with point totals; --stage <name> filters "
            "(see `init assignments`)\n");
-    printf("  sysmsg                 Print the resolved system prompt "
+    jc_sb_append_fmt(sb, "  sysmsg                 Print the resolved system prompt "
            "(debugging)\n");
-    printf("  status                 Print the resolved session config "
+    jc_sb_append_fmt(sb, "  status                 Print the resolved session config "
            "(model, mode, routing, cwd)\n");
-    printf("  describe               Print jichi's interface contract for "
+    jc_sb_append_fmt(sb, "  describe               Print jichi's interface contract for "
            "driving agents (--output json)\n");
-    printf("  map                    Print the repository map (files + "
+    jc_sb_append_fmt(sb, "  map                    Print the repository map (files + "
            "top-level symbols)\n");
-    printf("  context                Print the context-budget breakdown "
+    jc_sb_append_fmt(sb, "  context                Print the context-budget breakdown "
            "(prompt/tools vs limit)\n");
-    printf("  context tools          Per-tool definition sizes, largest first, "
+    jc_sb_append_fmt(sb, "  context tools          Per-tool definition sizes, largest first, "
            "joined to telemetry (paid-for vs called)\n");
-    printf("  context history [<id>] Where a saved session's history went: by "
+    jc_sb_append_fmt(sb, "  context history [<id>] Where a saved session's history went: by "
            "role, by tool, largest messages\n");
-    printf("  memory                 Print persisted agent memory "
+    jc_sb_append_fmt(sb, "  memory                 Print persisted agent memory "
            "(.jichi/memory.md)\n");
-    printf("  glossary               Print the domain-term glossary "
+    jc_sb_append_fmt(sb, "  glossary               Print the domain-term glossary "
            "(.jichi/glossary.md)\n");
-    printf("  brief-check <file|->  Pre-flight a brief with NO model call: which "
+    jc_sb_append_fmt(sb, "  brief-check <file|->  Pre-flight a brief with NO model call: which "
            "constraints it would\n                        infer and from which line, "
            "the envelope, and the gate's\n                        baseline colour "
            "(exit 1 if a declared goal gate forces nothing)\n");
-    printf("  constraints [scan <f>] List the enforced constraints, or predict "
+    jc_sb_append_fmt(sb, "  constraints [scan <f>] List the enforced constraints, or predict "
            "what a\n");
-    printf("                         brief/prompt would get ADOPTED "
+    jc_sb_append_fmt(sb, "                         brief/prompt would get ADOPTED "
            "(offline; exit 1 if any)\n");
-    printf("  telemetry [path]       Summarize a telemetry log "
+    jc_sb_append_fmt(sb, "  telemetry [path]       Summarize a telemetry log "
            "(default: newest under ~/.jichi.d/telemetry;\n");
-    printf("                         --workspace <path> filters to one "
+    jc_sb_append_fmt(sb, "                         --workspace <path> filters to one "
            "project's events;\n");
-    printf("                         --since 7d windows a log that spans older "
+    jc_sb_append_fmt(sb, "                         --since 7d windows a log that spans older "
            "builds;\n");
-    printf("                         --cache-audit diagnoses prompt-cache reuse "
+    jc_sb_append_fmt(sb, "                         --cache-audit diagnoses prompt-cache reuse "
            "vs re-billing)\n");
-    printf("  trust [path]           Trust this directory's project config "
+    jc_sb_append_fmt(sb, "  trust [path]           Trust this directory's project config "
            "(local/config.json\n"
            "                         or .jichi/config.json): apply all of it, "
            "until it changes\n");
-    printf("  untrust [path]         Stop trusting it: only its safe settings "
+    jc_sb_append_fmt(sb, "  untrust [path]         Stop trusting it: only its safe settings "
            "apply again\n");
-    printf("  audit [path]           Summarize the privileged-command audit "
+    jc_sb_append_fmt(sb, "  audit [path]           Summarize the privileged-command audit "
            "log (--since 7d limits the window;\n");
-    printf("                         --output json for a machine-readable "
+    jc_sb_append_fmt(sb, "                         --output json for a machine-readable "
            "summary)\n");
-    printf("  ps                     The jichi runs alive on this machine: pid, mode, "
+    jc_sb_append_fmt(sb, "  ps                     The jichi runs alive on this machine: pid, mode, "
            "lease, control\n");
-    printf("                         socket and journal (--output json for "
+    jc_sb_append_fmt(sb, "                         socket and journal (--output json for "
            "supervisors)\n");
-    printf("  runs [dir]             One triage row per bounded run's journal "
+    jc_sb_append_fmt(sb, "  runs [dir]             One triage row per bounded run's journal "
            "(newest first; --all shows every run;\n");
-    printf("                         --since 1d windows by activity; --output "
+    jc_sb_append_fmt(sb, "                         --since 1d windows by activity; --output "
            "json for machine-readable rows)\n");
-    printf("  control <sock> <verb>  Steer a running --control run: status | "
+    jc_sb_append_fmt(sb, "  control <sock> <verb>  Steer a running --control run: status | "
            "inject <text> | pause [--extend] |\n");
-    printf("                         resume | abort | mode <chat|plan>  "
+    jc_sb_append_fmt(sb, "                         resume | abort | mode <chat|plan>  "
            "(--extend credits the paused\n");
-    printf("                         time back to the deadline; mode only ever "
+    jc_sb_append_fmt(sb, "                         time back to the deadline; mode only ever "
            "NARROWS the posture)\n");
-    printf("  learn analyze [path]   Mine telemetry + recent sessions for "
+    jc_sb_append_fmt(sb, "  learn analyze [path]   Mine telemetry + recent sessions for "
            "recurring problems (offline)\n");
-    printf("  learn apply            Commit a reviewed .jichi/lessons.draft.md "
+    jc_sb_append_fmt(sb, "  learn apply            Commit a reviewed .jichi/lessons.draft.md "
            "to memory + skills\n");
-    printf("  learn corrections      Commit ONLY the draft's corrections "
+    jc_sb_append_fmt(sb, "  learn corrections      Commit ONLY the draft's corrections "
            "(retract stale notes)\n");
-    printf("  learn review           How to run the mentor (it needs a model, "
+    jc_sb_append_fmt(sb, "  learn review           How to run the mentor (it needs a model, "
            "so it is a command)\n");
     /* The command name is backticked so `/learn` reads as a unit: an undelimited
      * `/learn <word>` is a SUBCOMMAND invocation as far as the M295 lint is
      * concerned, and "the /learn command" would be read as a subcommand `command`.
      * Most of the tree already writes it this way. */
-    printf("                         (the mentor draft comes from the `/learn` "
+    jc_sb_append_fmt(sb, "                         (the mentor draft comes from the `/learn` "
            "command)\n");
-    printf("  complete [text]        Autocomplete the text (or stdin) with the "
+    jc_sb_append_fmt(sb, "  complete [text]        Autocomplete the text (or stdin) with the "
            "autocomplete-role model\n");
-    printf("  fim <file> <offset>    Fill-in-the-middle at a byte offset (or "
+    jc_sb_append_fmt(sb, "  fim <file> <offset>    Fill-in-the-middle at a byte offset (or "
            "JSON {prefix,suffix} on stdin)\n");
-    printf("  test [command]         Run the tests (default: configured "
+    jc_sb_append_fmt(sb, "  test [command]         Run the tests (default: configured "
            "testCommand/verify) and print a parsed summary\n");
-    printf("  lsp <file> | symbols <file> | def|refs <file> <symbol> | "
+    jc_sb_append_fmt(sb, "  lsp <file> | symbols <file> | def|refs <file> <symbol> | "
            "actions <file> <line>\n");
-    printf("                         Diagnostics, or LSP code navigation\n");
-    printf("  serve [--acp]          Run as an ACP agent server over "
+    jc_sb_append_fmt(sb, "                         Diagnostics, or LSP code navigation\n");
+    jc_sb_append_fmt(sb, "  serve [--acp]          Run as an ACP agent server over "
            "stdin/stdout (for editors)\n");
-    printf("  daemon [--socket P]    Warm process: keep config/MCP/LSP/index "
+    jc_sb_append_fmt(sb, "  daemon [--socket P]    Warm process: keep config/MCP/LSP/index "
            "hot and serve\n");
-    printf("                         requests over a Unix socket. Talk to it "
+    jc_sb_append_fmt(sb, "                         requests over a Unix socket. Talk to it "
            "with:\n");
-    printf("                         jichi --connect <socket> -p "
+    jc_sb_append_fmt(sb, "                         jichi --connect <socket> -p "
            "\"...\"\n");
-    printf("                         (--idle-dream <sec>: reflect over telemetry "
+    jc_sb_append_fmt(sb, "                         (--idle-dream <sec>: reflect over telemetry "
            "when idle)\n");
-    printf("  checkpoints            List this workspace's snapshots\n");
-    printf("  checkpoints gc         Report the shadow-checkpoint store and "
+    jc_sb_append_fmt(sb, "  checkpoints            List this workspace's snapshots\n");
+    jc_sb_append_fmt(sb, "  checkpoints gc         Report the shadow-checkpoint store and "
            "what is orphaned\n");
     /* M539: --yes was accepted and documented nowhere; it removes the
      * confirmation on a command that DELETES checkpoint stores, and there is no
      * undo for a pruned store. */
-    printf("                         (--yes to actually delete; there is no "
+    jc_sb_append_fmt(sb, "                         (--yes to actually delete; there is no "
            "undo for a pruned store)\n");
-    printf("  attempts               List work a rollback discarded and "
+    jc_sb_append_fmt(sb, "  attempts               List work a rollback discarded and "
            "preserved (see --preserve-discarded)\n");
-    printf("  recover <commit>       Materialise a preserved attempt into a "
+    jc_sb_append_fmt(sb, "  recover <commit>       Materialise a preserved attempt into a "
            "worktree (--into <dir>)\n");
-    printf("  undo [N] [--dry-run]   Revert the workspace to the N-th most "
+    jc_sb_append_fmt(sb, "  undo [N] [--dry-run]   Revert the workspace to the N-th most "
            "recent checkpoint\n");
-    printf("                         (--dry-run previews the change without "
+    jc_sb_append_fmt(sb, "                         (--dry-run previews the change without "
            "applying it)\n");
-    printf("  rewind [N] [--dry-run] Revert files AND the conversation to the "
+    jc_sb_append_fmt(sb, "  rewind [N] [--dry-run] Revert files AND the conversation to the "
            "N-th checkpoint's turn\n");
-    printf("  -V, --version          Print version and exit\n");
-    printf("  -h, --help             Print this help and exit\n");
-    printf("\nExit codes: 0 ok, 1 error, 2 usage, 130 interrupted (SIGINT), "
+    jc_sb_append_fmt(sb, "  -V, --version          Print version and exit\n");
+    jc_sb_append_fmt(sb, "  -h, --help             Print this help and exit\n");
+    jc_sb_append_fmt(sb, "\nExit codes: 0 ok, 1 error, 2 usage, 130 interrupted (SIGINT), "
            "143 terminated (SIGTERM, graceful), 129 hangup (SIGHUP, "
            "graceful).\n");
 }
+
+/* M1199 (G4): print the full top-level help. */
+static void print_help(const char *argv0)
+{
+    struct jc_sb sb;
+
+    jc_sb_init(&sb);
+    build_help(&sb, argv0);
+    if (sb.data != NULL) {
+        fputs(sb.data, stdout);
+    }
+    jc_sb_free(&sb);
+}
+
+/* Does the line OPEN a <verb>'s block in the Commands section? A block starts
+ * at its "  <verb> ..." line: exactly two leading spaces, the verb name, and
+ * nothing at the end of the name -- so "  learn analyze" is not "learn" and
+ * "  context tools" is not "context". */
+static int help_line_is_verb_start(const char *line, const char *verb)
+{
+    size_t n;
+
+    if (line[0] != ' ' || line[1] != ' ') {
+        return 0;
+    }
+    n = strlen(verb);
+    if (strncmp(line + 2, verb, n) != 0) {
+        return 0;
+    }
+    return line[2 + n] == '\0' || line[2 + n] == ' ';
+}
+
+/* M1199 (G4): print ONE verb's section of the top-level help -- its block in
+ * the Commands list (the "  <verb> ..." line plus the continuation lines
+ * indented under it) -- for "jichi <verb> --help". The region is extracted from
+ * the SAME text build_help produces, so it is a section, not a reprint of the
+ * whole help, and it cannot drift. verb == NULL prints the full help; a word
+ * with no Commands block (a flag like -V/-h, or an unknown name) also prints
+ * the full help -- today's behaviour, no invented refusal. The exit code is 0
+ * for both. */
+static void print_help_section(const char *argv0, const char *verb)
+{
+    struct jc_sb sb;
+    const char *p;
+    const char *start;
+    const char *end;
+    size_t len;
+
+    if (verb == NULL) {
+        print_help(argv0);
+        return;
+    }
+    jc_sb_init(&sb);
+    build_help(&sb, argv0);
+    if (sb.data == NULL) {
+        jc_sb_free(&sb);
+        return;
+    }
+    /* The verb's block is the first "  <verb> ..." line after "Commands:". */
+    p = strstr(sb.data, "Commands:\n");
+    if (p != NULL) {
+        p += strlen("Commands:\n");
+    }
+    if (p == NULL) {
+        p = sb.data;
+    }
+    start = NULL;
+    for (;;) {
+        if (p == NULL || p[0] == '\0') {
+            break;
+        }
+        if (help_line_is_verb_start(p, verb)) {
+            start = p;
+            break;
+        }
+        p = strchr(p, '\n');
+        if (p == NULL) {
+            break;
+        }
+        p++;
+    }
+    if (start == NULL) {
+        fputs(sb.data, stdout);
+        jc_sb_free(&sb);
+        return;
+    }
+    /* The block runs to the next "  <word>" line or a blank line. */
+    len = strlen(start);
+    end = start + len;
+    p = start;
+    while (p < end && p[0] != '\0') {
+        const char *nx;
+
+        nx = strchr(p, '\n');
+        if (nx == NULL || nx + 1 >= end) {
+            break;
+        }
+        p = nx + 1;
+        if (p[0] == '\n') {
+            break; /* a blank line ends the block */
+        }
+        if (p[0] == ' ' && p[1] == ' ' && p[2] != ' ' && p[2] != '\0') {
+            break; /* the next block ("  <verb>" line) ends this one */
+        }
+    }
+    len = p - start;
+    if (len > 0) {
+        fwrite(start, 1, len, stdout);
+    }
+    jc_sb_free(&sb);
+}
+
 
 #define JC_MAX_POS 64
 
@@ -926,7 +1043,19 @@ static int parse_args(int argc, char **argv, struct cli_args *out)
             continue;
         }
         if (strcmp(a, "-h") == 0 || strcmp(a, "--help") == 0) {
-            print_help(argv[0]);
+            /* M1199 (G4): "jichi <verb> -h/--help" prints that verb's OWN
+             * section of the top-level help, not the whole thing. The early
+             * parse used to steal -h before the verb was ever dispatched, so
+             * "init --help" and "guide --help" all printed the top-level block
+             * -- the trial's learner guide corrected itself against an
+             * unreliable surface. args.pos[0] is the first positional seen so
+             * far: it is the verb when one precedes the flag, and the first
+             * word of a -p prompt otherwise (a prompt word is never a Commands
+             * verb, so the section lookup misses and the full help prints --
+             * today's behaviour, kept). Unknown word + --help: full help, no
+             * invented refusal. The exit code stays 0 for both. */
+            print_help_section(argv[0],
+                               out->npos > 0 ? out->pos[0] : NULL);
             return 1;
         } else if (strcmp(a, "-V") == 0 || strcmp(a, "--version") == 0) {
             print_version();
@@ -1852,25 +1981,29 @@ static void hl_text_flush(struct hl_ctx *c, int final)
     rlen = (jc_size)strlen(red);
     safe = final ? rlen : (rlen > hold ? rlen - hold : 0);
     if (!final) {
-        /* M1065: the safe cut above is a raw byte offset into `red` and can
-         * land INSIDE a multi-byte character (a provider may still be streaming
-         * the tail of one). Move the cut BACKWARD to the longest well-formed
-         * prefix of the held buffer. That prefix is a boundary-safe cut of
-         * `red` too: provider deltas are well-formed apart from this at most
-         * 3-byte truncated tail, and a pre-cut redaction only shifts bytes
-         * TOWARD offset 0 (each hit shrinks the copy by at most hold - 3,
-         * hold = jc_redact_maxlen() >= JC_REDACT_MIN), so no cut point of
-         * `red` can sit inside a character whole in `text_hold`. The held
-         * remainder is released on the next delta or at final, so no byte is
-         * lost. `safe` must never move BACKWARD (the chunk below re-copies
-         * `red + text_emitted`), so clamp to text_emitted: the buffer only
-         * grows, so the well-formed prefix only advances, and the clamp keeps
-         * the emit monotonic even if the step-back momentarily overshoots. */
-        jc_size bsafe = jc_utf8_stream_prefix(c->text_hold.data != NULL
-                                          ? c->text_hold.data : "", c->text_hold.len);
-        if (bsafe > rlen) bsafe = rlen;
-        if (bsafe < c->text_emitted) bsafe = c->text_emitted;
-        if (bsafe < safe) safe = bsafe;
+        /* def-284 (M1193): the safe cut above is a raw byte offset into the
+         * REDACTED buffer `red` (rlen - hold) and can land INSIDE a multi-byte
+         * character (a provider may still be streaming the tail of one, and a
+         * redaction in the current buffer has shifted `red`'s offsets relative
+         * to the raw one). Move the cut BACKWARD, in `red`'s OWN coordinates:
+         * jc_utf8_trunc_len(red, safe) is the largest cut <= safe that does
+         * not split a sequence -- it inspects red[safe], and a continuation
+         * byte means step back to that sequence's lead; red is NUL-terminated
+         * at rlen >= safe, so the inspect is in-bounds. A boundary of the
+         * WHOLE buffer (jc_utf8_stream_prefix) cannot do this job: the
+         * measured buffer is well-formed in full, so its boundary is the end
+         * -- the defect is that the CUT sits mid-character, not that the
+         * buffer does (M1065's raw-buffer clamp was a no-op exactly where it
+         * was needed). `safe` must never move BACKWARD (the chunk below
+         * re-copies `red + text_emitted`), so floor at text_emitted: the
+         * M802b prefix-stability invariant -- no secret straddles the cut, so
+         * red[0..safe) is byte-stable across flushes -- makes that floor a
+         * boundary too once this fix is in. The held remainder (at most the
+         * 1-3 bytes of the split character, beside the usual hold) is
+         * released on the next flush or at final, so no byte is lost. */
+        jc_size rlim = jc_utf8_trunc_len(red, safe);
+        if (rlim < c->text_emitted) rlim = c->text_emitted;
+        if (rlim < safe) safe = rlim;
     }
     if (safe > c->text_emitted) {
         cJSON *o = jc_agentjson_event("text");
@@ -2581,6 +2714,11 @@ static void hl_reach_fill(const struct hl_ctx *c, struct jc_app *app,
     r->verify_green = r->verifier_armed && env->verifier_ran &&
                       env->outcome == JC_ENV_OK;
     r->verify_red = (env->outcome == JC_ENV_VERIFY_FAILED);
+    /* TW24.F4: what the last periodic verify said, for the case where the
+     * completion check gave no verdict (read right after the turn, like the
+     * baton's "Last verify" line). */
+    r->periodic_ran = r->verifier_armed && app->last_verify_ran;
+    r->periodic_red = r->periodic_ran && app->last_verify_code != 0;
     /* M1048 (G18), then un-split by the reviewer: there is NO separate
      * "completed but the check never ran" state to name here. After the
      * un-gate at jc_agent.c, a run that COMPLETES (a final answer) always
@@ -2684,6 +2822,48 @@ static void relay_git_facts(const char *root, char *commit, jc_size commit_cap,
         }
         (void)jc_proc_pclose(pipe);
     }
+}
+
+/* TW24.F3: how many commits lie between `from` and HEAD (`git rev-list --count
+ * from..HEAD`), or -1 when it cannot be said (no repo, `from` unknown to it).
+ * A read-only probe of the USER's repo, like relay_git_facts. `from` is jichi's
+ * own earlier `rev-parse --short` output, hexadecimal only; anything else is
+ * refused here, since it goes into a shell line. */
+static long relay_git_count_since(const char *root, const char *from)
+{
+    FILE *pipe;
+    char cmd[5200];
+    char chunk[64];
+    size_t n;
+    size_t i;
+    long v = 0;
+
+    if (root == NULL || root[0] == '\0' || from == NULL || from[0] == '\0') {
+        return -1;
+    }
+    for (i = 0; from[i] != '\0'; i++) {
+        char c = from[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+            return -1;
+        }
+    }
+    jc_snprintf(cmd, sizeof(cmd),
+                "exec 2>/dev/null; git -C '%s' rev-list --count %s..HEAD",
+                root, from);
+    pipe = jc_proc_popen(cmd, "r");
+    if (pipe == NULL) {
+        return -1;
+    }
+    n = fread(chunk, 1, sizeof(chunk) - 1, pipe);
+    chunk[n] = '\0';
+    (void)jc_proc_pclose(pipe);
+    if (n == 0 || chunk[0] < '0' || chunk[0] > '9') {
+        return -1;
+    }
+    for (i = 0; chunk[i] >= '0' && chunk[i] <= '9'; i++) {
+        v = v * 10 + (long)(chunk[i] - '0');
+    }
+    return v;
 }
 
 /* M921 (sub-slice D): the relay's next leg -- build the fresh session's first
@@ -3002,6 +3182,13 @@ static void relay_write_baton(struct jc_app *app, struct jc_session *session,
     char path[2160];
     char commit[64];
     char uncommitted[800];
+    /* Real one-element lists for the two baton fields that carry ONE
+     * pre-joined string. The fields are `const char **`; casting the ADDRESS
+     * OF A char ARRAY to that type made the renderer read the text's first
+     * bytes as a pointer and crash (card [149]: uncommitted; TW24.F1:
+     * verify_fail). Function scope: the renderer runs further down. */
+    const char *uncommitted_one;
+    const char *failnames_one;
     int dirty = 0;
     long leg;
     jc_size note_bytes = 0;
@@ -3079,8 +3266,15 @@ static void relay_write_baton(struct jc_app *app, struct jc_session *session,
                     uncommitted, sizeof(uncommitted));
     f.commit = commit[0] != '\0' ? commit : NULL;
     f.dirty = dirty;
+    /* The leg's range (TW24.F3): where the leg started, and the count. */
+    if (app->relay_leg_start_commit[0] != '\0') {
+        f.leg_start = app->relay_leg_start_commit;
+        f.leg_commits = relay_git_count_since(app->root,
+                                              app->relay_leg_start_commit);
+    }
     if (uncommitted[0] != '\0') {
-        f.uncommitted = (const char **)&uncommitted;
+        uncommitted_one = uncommitted;
+        f.uncommitted = &uncommitted_one;
         f.uncommitted_n = 1;   /* a pre-joined list; the renderer prints it as
                                  * one entry -- the name is the list, not a file */
     }
@@ -3096,7 +3290,9 @@ static void relay_write_baton(struct jc_app *app, struct jc_session *session,
             f.changed = (const char **)app->env->wrote.data;
             f.changed_n = (int)app->env->wrote.len;
         }
-        if (app->last_verify_code != 0) {
+        /* "A verify ran", not "its exit status was not 0": the old test left
+         * the green arm below unreachable (TW24.F2). */
+        if (app->last_verify_ran) {
             char lv[96];
             if (app->last_verify_code == 0) {
                 jc_snprintf(lv, sizeof(lv), "green");
@@ -3109,7 +3305,8 @@ static void relay_write_baton(struct jc_app *app, struct jc_session *session,
             }
             f.last_verify = jc_arena_strdup(fa, lv);
             if (app->last_verify_failnames[0] != '\0') {
-                f.verify_fail = (const char **)&app->last_verify_failnames;
+                failnames_one = app->last_verify_failnames;
+                f.verify_fail = &failnames_one;
                 f.verify_fail_n = 1;
             }
         }
@@ -3245,10 +3442,12 @@ static void relay_write_baton(struct jc_app *app, struct jc_session *session,
                  mech_probe.data != NULL) ? mech_probe.len : 0;
         jc_sb_free(&mech_probe);
         {
-            char one = 'x';
+            /* Use a two-byte literal "x" (with implicit NUL) instead of
+             * one-byte 'x' to bound strlen in relay_baton_render's section 3
+             * (which reads f->account[0] != '\0' then strlen(f->account)). */
             jc_size mechB = 0;
             struct jc_sb probe_b;
-            pm.account = &one;
+            pm.account = "x";
             pm.account_max = 0;
             jc_sb_init(&probe_b);
             mechB = (relay_baton_render(&pm, &probe_b) == JC_OK &&
@@ -3727,6 +3926,17 @@ static int run_headless(struct jc_app *app, const char *prompt, int fmt)
     relay_task = prompt != NULL ? jc_arena_strdup(app->arena, prompt) : NULL;
     for (leg = 0; ; leg++) {
         turn_from = jc_history_len(&session.history);
+        /* TW24.F3: remember where this leg starts, so its baton can give the
+         * next leg the range of commits that is this leg's. Only when the
+         * relay is on: the probe runs git. */
+        app->relay_leg_start_commit[0] = '\0';
+        if (app->config.relay) {
+            char ls_unc[8];
+            int ls_dirty = 0;
+            relay_git_facts(app->root, app->relay_leg_start_commit,
+                            sizeof(app->relay_leg_start_commit), &ls_dirty,
+                            ls_unc, sizeof(ls_unc));
+        }
         if (app->env != NULL) {
             app->env->one_shot = app->no_session ? 1 : 0;
         }
@@ -5275,6 +5485,7 @@ static void load_prompt_assets(struct jc_app *app,
     jc_app_constraints_load(app); /* M110: enforced constraints are in the prompt */
     app->repo_map = app->config.repo_map ? jc_repomap_build(app) : NULL;
     jc_skill_load(&app->skills, app->cwd, app->arena);
+    jc_skill_add_builtin(&app->skills, app->arena); /* M1196: the compiled-in guide skill */
     jc_output_style_load(&app->output_styles, app->cwd, app->arena);
     jc_output_style_set_active(&app->output_styles, app->config.output_style);
     jc_app_load_design(app, design_paths, n_design); /* M-C: a spec is prompt text */
@@ -6874,6 +7085,73 @@ static int setup_yesno(struct jc_term *t, const char *label, int dflt)
  * environment variable and a script that never loaded one, then told the user to
  * `export` it themselves -- which, done in ~/.bashrc, silently does nothing for
  * a cron or systemd run (docs/CONFIG_TUTORIAL.md 1.4). */
+/* Find the stored value of `name` in ~/.jichi.env, the file
+ * setup_offer_key_file writes (M1200, wave 2). That writer emits
+ * `export NAME='VALUE'` and REFUSES a VALUE containing a single quote, so
+ * the value can hold none: the text between the first pair of single quotes
+ * after the name is the whole value, no escape rule to implement.
+ *
+ * Returns a malloc'd copy of the value, or NULL for every "no key" outcome --
+ * no file, wrong name, an unquoted or empty value. A key file is the user's
+ * (setup_offer_key_file appends to it), so the read is bounded (one line at
+ * 4 KiB); only the path uses jc_snprintf, the value is a malloc'd copy. The caller owns freeing it and
+ * must not print it: it is used for exactly one request and then discarded.
+ */
+static char *setup_jichi_env_lookup(const char *name)
+{
+    const char *home = jc_home_dir();
+    char path[1024];
+    FILE *f;
+    char line[4096];
+    char *value;
+    const char *p;
+    size_t prefix_len;
+    size_t vlen;
+
+    if (name == NULL || home == NULL || home[0] == '\0') {
+        return NULL;
+    }
+    jc_snprintf(path, sizeof path, "%s/.jichi.env", home);
+    /* "rb" (not "r"): portability_lint 37 / M837 -- on DOS (DJGPP) a text-mode read of a data file mangles \r\n; "b" is a no-op on POSIX. */
+    f = fopen(path, "rb");
+    if (f == NULL) {
+        return NULL;
+    }
+    value = NULL;
+    prefix_len = 7 + strlen(name) + 1;   /* export <name>' */
+    while (fgets(line, (int)sizeof line, f) != NULL) {
+        if (strncmp(line, "export ", 7) != 0 ||
+            strncmp(line + 7, name, strlen(name)) != 0) {
+            continue;
+        }
+        p = line + prefix_len;
+        if (*p != '\'') {
+            continue;             /* not the quoted form setup_offer_key_file
+                                   * writes -- never a stored value of ours */
+        }
+        vlen = 0;
+        p++;
+        while (p[vlen] != '\0' && p[vlen] != '\'' &&
+               vlen < sizeof(line) - 1) {
+            vlen++;
+        }
+        if (p[vlen] != '\'') {
+            continue;             /* unbalanced: no closing quote on the line */
+        }
+        if (vlen == 0) {
+            continue;             /* empty value: same as not set */
+        }
+        free(value);
+        value = (char *)malloc(vlen + 1);
+        if (value != NULL) {
+            memcpy(value, p, vlen);
+            value[vlen] = '\0';
+        }
+    }
+    fclose(f);
+    return value;
+}
+
 static enum jc_setup_key_state setup_offer_key_file(struct jc_term *t,
                                                    const char *var)
 {
@@ -7683,6 +7961,7 @@ static void setup_print_option(int n, const struct jc_setup_preset *p,
  * Returns 0 on success, -1 if the user aborted (EOF / Ctrl-C). */
 static int setup_interactive(struct jc_term *t, struct jc_arena *a,
                              int accessible,
+                             long pre_ctx,
                              const struct jc_setup_preset **preset_out,
                              const struct jc_setup_preset **journey_out,
                              const struct jc_setup_preset **machine_out,
@@ -7951,6 +8230,13 @@ static int setup_interactive(struct jc_term *t, struct jc_arena *a,
     if (tree_root != NULL && tree_root[0] != '\0') {
         ans->reference_root = tree_root;   /* set AFTER the init that zeroes */
     }
+    /* A number already given on the command line (`setup --context-length <n>`
+     * with the wizard nonetheless running) is an answer the wizard must not
+     * re-ask: the init above just zeroed it, so mirror the flag path's own
+     * recording here. The later ask is gated on context_length <= 0. */
+    if (pre_ctx > 0) {
+        ans->context_length = pre_ctx;
+    }
 
     printf("\nModel provider:\n");
     i = setup_menu(t, PROVS, 3, 1);
@@ -8029,6 +8315,102 @@ static int setup_interactive(struct jc_term *t, struct jc_arena *a,
      * outcome is recorded (M326f) so the closing checklist and next-steps stop
      * telling the user to export a key the wizard just stored. */
     ans->key_state = setup_offer_key_file(t, ans->api_key_env);
+
+    /* M1200 (G5, wave 2): the context-length ask. The endpoint's published
+     * figure is a HINT beside the prompt, never the answer by default-
+     * acceptance: the figure is shown only when the endpoint publishes it and
+     * a key is available (env or ~/.jichi.env), and writing it into the config
+     * still takes a user act (typing the number or pressing Enter on the
+     * pre-filled default). Blank is an ANSWER here -- "skip, no window known"
+     * -- not a rejection, so context_length stays 0 and the closing doctor's
+     * existing under-declared warning covers it later. The ask comes BEFORE
+     * the preset application on purpose: a preset that sets contextLimit
+     * (small-local, constrained) still applies on top, exactly as
+     * --context-length does on the flag path. The figure request is the
+     * wizard's ONE extra network call -- same shape as the listing above:
+     * one jc_http_global_init/cleanup pair, timeout 8, and every failure
+     * (no key, 404, a non-table 200, refused, no curl) is fail-soft: no
+     * hint line at all, no error, the question is asked with no default.
+     */
+    if (ans->context_length <= 0) {
+        char fig[64];
+        char *figdflt = "";
+        char *key = NULL;
+        int key_owned = 0;
+        long lim = 0;
+        const char *figbase = (ans->api_base != NULL &&
+                               ans->api_base[0] != '\0')
+            ? ans->api_base : jc_config_default_base(ans->provider);
+
+        if (ans->api_key_env != NULL) {
+            const char *k = getenv(ans->api_key_env);
+            if (k != NULL && k[0] != '\0') {
+                key = (char *)k;      /* exported: the environment holds it -- NOT ours */
+            } else {
+                key = setup_jichi_env_lookup(ans->api_key_env);
+                if (key != NULL) key_owned = 1;   /* helper-allocated: we own it */
+            }
+        }
+        if (key != NULL && figbase != NULL && figbase[0] != '\0') {
+            long outmax = 0;
+            long http = 0;
+            jc_status ps;
+            jc_http_global_init();
+            ps = jc_net_model_limits(figbase, key, ans->model, 8, NULL,
+                                     &lim, &outmax, &http);
+            jc_http_global_cleanup();
+            if (ps != JC_OK || lim <= 0) {
+                lim = 0;   /* not published / not this model: no hint */
+            }
+        }
+        if (lim > 0) {
+            jc_snprintf(fig, sizeof fig, "%ld", lim);
+            printf("  (that endpoint lists %s tokens for %s)\n",
+                   fig, ans->model != NULL ? ans->model : "");
+            figdflt = fig;
+        }
+        for (;;) {
+            const char *s = setup_line(t, a, "context length in tokens "
+                                                "(blank = skip)", figdflt);
+            const char *q;
+            long n = 0;
+            if (s == NULL) {
+                if (key != NULL && key_owned) {
+                    memset(key, 0, strlen(key));
+                    free(key);
+                }
+                return -1;   /* EOF / Ctrl-C */
+            }
+            if (s[0] == '\0') {
+                break;       /* blank = skip: an answer, not a mistake */
+            }
+            q = s;
+            while (*q != '\0') {
+                if (!isdigit((unsigned char)*q)) {
+                    break;
+                }
+                q++;
+            }
+            if (q == s || *q != '\0' || q - s > 12) {
+                printf("\n  Enter a positive number of tokens (or leave "
+                       "it blank to skip)\n");
+                continue;    /* junk: re-ask, the key-env loop's shape */
+            }
+            n = strtol(s, NULL, 10);
+            if (n <= 0) {
+                printf("\n  Enter a positive number of tokens (or leave "
+                       "it blank to skip)\n");
+                continue;
+            }
+            ans->context_length = n;
+            break;
+        }
+        if (key != NULL && key_owned) {
+            memset(key, 0, strlen(key));
+            free(key);
+            key = NULL;
+        }
+    }
 
     jc_setup_apply_preset(ans, preset);
     /* M326j: role first, journey second. jc_setup_apply_preset only fills what
@@ -8785,8 +9167,25 @@ static int run_setup(struct cli_args *args, struct jc_arena *arena)
     if (interactive) {
         struct jc_term t;
         int rc;
+        long pre_ctx = 0;
         jc_term_init(&t);
+        /* --context-length on the command line is an ANSWER the wizard must
+         * not re-ask. The gate above does not exclude it, so `setup
+         * --context-length 4096` on a TTY runs the wizard, which zeroes the
+         * answers struct and would ask again. Record the given number the way
+         * the flag path does (a positive integer; `auto`/junk are not
+         * pre-answers, they leave the ask in place) and pass it down: the
+         * later question is gated on context_length <= 0. */
+        if (args->setup_context_length != NULL &&
+            strcmp(args->setup_context_length, "auto") != 0) {
+            char *endp = NULL;
+            long v = strtol(args->setup_context_length, &endp, 10);
+            if (v > 0 && endp != NULL && *endp == '\0') {
+                pre_ctx = v;
+            }
+        }
         rc = setup_interactive(&t, arena, args->accessible,
+                               pre_ctx,
                                &preset, &journey, &machine,
                                &stance, &pack, &ans,
                                cfgpath, sizeof(cfgpath));
@@ -9198,6 +9597,14 @@ static const char *describe_control_summary(enum jc_control_cmd_type t)
                "argument index; reason journaled, named in the batch report; "
                "refusals: 'no batch is live', 'task <N> is not live "
                "(<total> tasks)' (M1149)";
+    case JC_CTL_CANCEL_CMD:  /* M1192 B3 */
+        return "cancel the CURRENT command: the lead's own (no task) or one "
+               "worker of a live spawn_parallel batch (task index). The "
+               "command's result carries 'cancelled by the supervisor "
+               "(control cancel-cmd)' with exit 143; refusals: 'no command "
+               "is running', 'no batch is live', 'task <N> is not live "
+               "(<total> tasks)', \"task <N> is not in a command (tool: "
+               "<X>)\" (M1192)";
     case JC_CTL_INJECT_TASK: /* M1149 */
         return "queue steering text for one worker; it lands as ONE [operator] "
                "user message at that task's next tool boundary; per-task queue "
@@ -9615,6 +10022,8 @@ static int run_describe(int json)
     describe_named(arr, "setup", "guided/flag-driven project setup + --import",
                    0, 0);
     describe_named(arr, "init", "scaffold a .jichi/ asset pack", 0, 0);
+    describe_named(arr, "guide",
+                   "print the compiled-in jichi guide [topic] (offline)", 0, 0);
     describe_named(arr, "telemetry", "offline log summary (+ --cache-audit)",
                    0, 0);
     describe_named(arr, "audit", "privileged-command audit summary "
@@ -10730,6 +11139,7 @@ static int run_skills(struct jc_app *app, struct cli_args *args)
 
     (void)args;
     jc_skill_load(&app->skills, app->cwd, app->arena);
+    jc_skill_add_builtin(&app->skills, app->arena); /* M1196: the compiled-in guide skill */
     n = jc_skill_count(&app->skills);
     if (n == 0) {
         printf("(no skills; add .jichi/skills/<name>/SKILL.md files)\n");
@@ -10740,6 +11150,63 @@ static int run_skills(struct jc_app *app, struct cli_args *args)
         printf("  %s - %s\n", sk->name,
                (sk->description != NULL) ? sk->description : "");
     }
+    return 0;
+}
+
+/* `guide [topic]`: print the compiled-in jichi guide (M1196, batch G).
+ * No provider, no network, no assets: the text is generated from the marked
+ * page sections in docs/ (tests/tools/guide_gen.sh) and lives in jc_guide.c.
+ * No arg lists the six topics with their intent; a topic prints its sections;
+ * an unknown topic is a NAMED refusal (exit 2) with the list on stdout. */
+static int run_guide(struct jc_app *app, const char *topic)
+{
+    static const struct
+    {
+        const char *name;
+        const char *intent;
+    } INTENTS[6] = {
+        {"setup", "the order to set up"},
+        {"model", "key in the shell, never in config"},
+        {"learner", "the learning route"},
+        {"agents", "what an AGENTS.md carries"},
+        {"limits", "the code of conduct"},
+        {"commands", "the TUI slash commands"},
+    };
+    struct jc_guide_topic *t;
+    struct jc_sb sb;
+    int k;
+
+    (void)app;
+    jc_sb_init(&sb);
+    for (k = 0; k < 6; k++) {
+        jc_sb_append_fmt(&sb, "jichi guide %s -- %s\n", INTENTS[k].name,
+                         INTENTS[k].intent);
+    }
+    if (topic == NULL) {
+        fputs(sb.data, stdout);
+        jc_sb_free(&sb);
+        return 0;
+    }
+    t = jc_guide_topics();
+    for (; t->name != NULL; t++) {
+        if (strcmp(t->name, topic) == 0) {
+            break;
+        }
+    }
+    if (t->name == NULL) {
+        /* named refusal: the topic list on stdout, the error on stderr. */
+        fputs(sb.data, stdout);
+        fprintf(stderr,
+                "error: unknown guide topic '%s' (topics: setup model learner "
+                "agents limits commands)\n",
+                topic);
+        jc_sb_free(&sb);
+        return 2;
+    }
+    jc_sb_init(&sb);
+    jc_guide_append_topic(&sb, topic);
+    fputs(sb.data, stdout);
+    jc_sb_free(&sb);
     return 0;
 }
 
@@ -11237,15 +11704,30 @@ static int run_sysmsg(struct jc_app *app, const char *const *design_paths,
                       struct cli_args *a, struct jc_arena *arena)
 {
     char *msg;
+    struct jc_tool_registry reg;
     struct jc_envelope env;
     int armed;
 
+    /* M1196(h): register the SAME tool registry `context` does (run_context,
+     * main.c:5445-5453), in the same relative order, so the advertised set
+     * jc_app_advertises answers against is the one a real turn sends. Without
+     * it app->tools is NULL, load_skill is not advertised, and the Available
+     * skills catalog drops out of the system message while the context report
+     * keeps it -- the two surfaces sizing different prompts. */
+    jc_tool_registry_init(&reg);
+    jc_tool_register_builtins(&reg);
+    app->tools = &reg;
     /* M311: the same load `context` does -- one helper, so the prompt and the
      * report that sizes it cannot describe different prompts. */
     load_prompt_assets(app, design_paths, n_design);
+    /* M325b: the conditional built-ins too, registered AFTER load_prompt_assets
+     * because load_skill's gate is "some skills are loaded". */
+    jc_tool_register_configured(&reg, app);
     armed = intro_arm_env(app, a, &env, arena);
     msg = jc_sysmsg_build(app);
     printf("%s\n", msg != NULL ? msg : "");
+    app->tools = NULL;
+    jc_tool_registry_free(&reg);
     if (armed) {
         app->env = NULL;
         jc_env_free(&env);
@@ -14570,9 +15052,13 @@ static int run_doctor(struct jc_app *app, int json, int unattended, int live)
                                 strcmp(ddfold, "refuse") == 0);
                 }
                 dd_fell = (ddlen > 0 && !dd_known);
-                if (rr != NULL) {
-                    cJSON_Delete(rr);
-                }
+                /* Format the dddet string BEFORE cJSON_Delete because dm
+                 * points into the cJSON tree which will be freed. For
+                 * ddlen >= sizeof(ddfold) the value is unknown and we
+                 * format directly from dm (which is live), avoiding any
+                 * ddfold buffer that would overflow.
+                 * The printed bytes are identical: the value of dm is used
+                 * directly in the snprintf. */
                 if (dd_fell) {
                     /* Present but none of the three (case-insensitive): the
                      * parser fell through to warn -- name the value and the
@@ -14584,6 +15070,9 @@ static int run_doctor(struct jc_app *app, int json, int unattended, int live)
                 } else {
                     jc_snprintf(dddet, sizeof(dddet),
                                 "strictness.dirtyDispatch");
+                }
+                if (rr != NULL) {
+                    cJSON_Delete(rr);
                 }
                 jc_snprintf(ddlabel, sizeof(ddlabel), "%s",
                             dd_mode == JC_DIRTYDISPATCH_OFF ? "off"
@@ -14634,8 +15123,11 @@ static int run_doctor(struct jc_app *app, int json, int unattended, int live)
              * is the part a reader cannot see from the config alone. */
             const struct jc_model_cfg *am = &app->config.model;
             const char *vend_env = jc_config_vendor_key_env(am->provider);
-            const char *vend_val = (vend_env != NULL) ? getenv(vend_env)
-                                                      : NULL;
+            /* "x" stands for "it was set": the value is never used below,
+             * and after the environ scrub getenv cannot say it (TW24.F19). */
+            const char *vend_val = (vend_env != NULL &&
+                                    jc_proc_secret_env_was_set(vend_env))
+                                       ? "x" : NULL;
             const char *base = (am->api_base != NULL && am->api_base[0] != '\0')
                                    ? am->api_base : "(no endpoint)";
             const char *named_vendor = NULL;
@@ -15286,7 +15778,15 @@ static int run_doctor(struct jc_app *app, int json, int unattended, int live)
          * (see docs/AUTONOMOUS_LOOPS.md). Unsafe => FAIL (gates the loop);
          * risky-but-legitimate => WARN. */
         if (unattended) {
-            if (app->config.path_fence == 0) {
+            if (app->config.path_fence_unreadable[0] != '\0') {
+                /* def-415: a typo is not an explicit choice. The fence is ON,
+                 * and an unattended loop should still not start on a config
+                 * its writer did not mean. */
+                jc_doctor_add(&d, JC_DOC_FAIL,
+                    "unattended: pathFence has a value jichi cannot read",
+                    "it is read as ON (the warning at load time shows the "
+                    "value); write pathFence: true or false");
+            } else if (app->config.path_fence == 0) {
                 jc_doctor_add(&d, JC_DOC_FAIL,
                     "unattended: pathFence is explicitly off",
                     "set pathFence: true (or rely on the --auto default); use "
@@ -15965,7 +16465,13 @@ static int run_doctor(struct jc_app *app, int json, int unattended, int live)
     }
 
     /* Path-containment fence (M24). */
-    if (app->config.path_fence == 1) {
+    if (app->config.path_fence_unreadable[0] != '\0') {
+        jc_doctor_add(&d, JC_DOC_FAIL,
+                      "path fence ON: pathFence has a value jichi cannot read",
+                      "an unreadable value on a fence key closes the fence in "
+                      "every mode (the warning at load time shows the value); "
+                      "write pathFence: true or false");
+    } else if (app->config.path_fence == 1) {
         jc_doctor_add(&d, JC_DOC_OK, "path fence on (all modes)", NULL);
     } else if (app->config.path_fence == 0) {
         jc_doctor_add(&d, JC_DOC_WARN, "path fence off",
@@ -16144,6 +16650,7 @@ static int run_doctor(struct jc_app *app, int json, int unattended, int live)
         jc_agentdef_load(&app->agents, app->cwd, app->arena);
         jc_command_load(&app->commands, app->cwd, app->arena);
         jc_skill_load(&app->skills, app->cwd, app->arena);
+        jc_skill_add_builtin(&app->skills, app->arena); /* M1196: the compiled-in guide skill */
         /* M302: doctor loaded agents/commands/skills but NOT output styles, so the
          * new style lint compared every `style:` against an empty set and called
          * all of them dead -- the empty-universe failure its own comment warns
@@ -16682,16 +17189,175 @@ static int run_doctor(struct jc_app *app, int json, int unattended, int live)
     return code;
 }
 
+/* M1197 (batch G, G2): the installed doc directory derived from this
+ * executable's own location (B4a). The readlink("/proc/self/exe") idiom is the
+ * one main() already uses to export JICHI_BIN (~line 18550); re-reading here
+ * keeps the helper self-contained and C89-clean (a caller buffer would force
+ * one to outlive `run_docs`, and `run_docs` is a top-level CLI verb, not a tool
+ * call, so a file-local static is the right lifetime: one `docs` invocation per
+ * process, no per-call data, no arena).
+ *
+ * The layout is fixed by the install: jichi is at <prefix>/bin/jichi and the
+ * docs land at <prefix>/share/doc/jichi. So take the binary's directory and
+ * build "<bin_dir>/../share/doc/jichi". Two guards keep the B4c "never
+ * fabricate" rule intact: (1) the binary's filename must be exactly "jichi" --
+ * the driver and every installed layout put jichi at <prefix>/bin/jichi, and a
+ * differently-named binary (a build-tree run, a wrapper) has no install layout
+ * to derive a path from, so the default must not appear for it; (2) the
+ * candidate must exist and be a directory (jc_is_dir), else NULL. On success
+ * the candidate is copied into the static buffer and that buffer's address is
+ * returned.
+ *
+ * Returns NULL on any failure (readlink, non-"jichi" name, or the directory
+ * missing/not a directory) so the caller falls back to the existing no-sources
+ * message.
+ *
+ * 2026-11-25 (the operator: "have jichi docs find its installed
+ * documentation"): /proc/self/exe was the only answer read, and FreeBSD (no
+ * procfs by default), OpenBSD (no such interface) and illumos (the link is
+ * /proc/self/path/a.out, def-185) have none, so `jichi docs` printed the
+ * no-sources message there beside an installed directory (docs_install cells
+ * 6 and 7, red on all three rigs). The executable's own path is now the first
+ * of three answers that passes both guards:
+ *   1. readlink("/proc/self/exe") -- Linux, NetBSD's procfs;
+ *   2. readlink("/proc/self/path/a.out") -- illumos;
+ *   3. argv[0], resolved at startup before -C moves the directory it is read
+ *      against (g_self_from_argv0, jc_path_from_argv0) -- the only one on
+ *      FreeBSD and OpenBSD, and the one left when the kernel's answer names
+ *      something else, as under `ld.so jichi` (docs_install cells 9 and 10).
+ * argv[0] is what the caller wrote; the two guards are what make it safe to
+ * read: a wrong answer finds no directory and changes nothing. */
+static char g_self_from_argv0[JC_PATH_MAX]; /* empty: argv[0] did not resolve */
+
+/* The last component of path `p` (after its last '/'), or `p` itself. */
+static const char *self_leaf(const char *p)
+{
+    const char *s = strrchr(p, '/');
+
+    return s != NULL ? s + 1 : p;
+}
+
+static const char *docs_dir_for_exe(const char *self)
+{
+    static char dir[JC_PATH_MAX];
+    const char *slash;
+    int n;
+
+    /* The binary's filename must be exactly "jichi" (see the guard's reason in
+     * the comment above); a different name means there is no install layout to
+     * derive a doc path from. */
+    slash = strrchr(self, '/');
+    if (slash == NULL || strcmp(slash + 1, "jichi") != 0) {
+        return NULL;
+    }
+
+    /* dir[] = "<binary's directory>/../share/doc/jichi"; the binary's
+     * directory is self[0..slash] (the slash ends it, or the path had no
+     * directory -- in which case there is no install layout to derive). A
+     * cut path is no path. */
+    if (slash == self) {
+        return NULL;
+    }
+    n = jc_snprintf(dir, sizeof(dir), "%.*s/../share/doc/jichi",
+                    (int)(slash - self), self);
+    if (n < 0 || (size_t)n >= sizeof(dir) || !jc_is_dir(dir)) {
+        return NULL;
+    }
+    return dir;
+}
+
+static const char *docs_installed_dir(void)
+{
+    static const char *const self_links[2] = {
+        "/proc/self/exe", "/proc/self/path/a.out"
+    };
+    char self[JC_PATH_MAX];
+    const char *dir;
+    ssize_t n;
+    int i;
+
+    for (i = 0; i < 2; i++) {
+        n = readlink(self_links[i], self, sizeof(self) - 1);
+        if (n > 0) {
+            self[n] = '\0';
+            dir = docs_dir_for_exe(self);
+            if (dir != NULL) {
+                return dir;
+            }
+        }
+    }
+    if (g_self_from_argv0[0] != '\0') {
+        return docs_dir_for_exe(g_self_from_argv0);
+    }
+    return NULL;
+}
+
+/* M1197 (B4d): resolve a docs source by name, treating the synthetic installed
+ * source as present when `syn_active`. The synthetic source is the only one the
+ * search arm can see when no config source is set; an unnamed/empty name falls
+ * through to it via jc_docs_find's sole-source shortcut, which only fires when
+ * there is exactly one configured source -- so the synthetic case is routed here
+ * explicitly (matching the name "jichi-docs" too) before jc_docs_find, which
+ * would otherwise see len==0 and return NULL. Otherwise defer to jc_docs_find. */
+static const struct jc_docs_cfg *docs_find(struct jc_app *app,
+                                           const char *name,
+                                           const struct jc_docs_cfg *syn,
+                                           int syn_active)
+{
+    if (syn_active && syn != NULL &&
+        (name == NULL || name[0] == '\0' || strcmp(name, "jichi-docs") == 0)) {
+        return syn;
+    }
+    return jc_docs_find(app, name);
+}
+
 /* `docs` -> list configured external documentation sources.
  * `docs index [<name>]` -> build/refresh the index for one source (or all).
  * `docs search <name> <query...>` -> retrieve passages for a query.
- * Index/search need an embed-role model + network; list is offline. */
+ * Index/search need an embed-role model + network; list is offline.
+ *
+ * M1197 (B4): when no source is configured and the installed doc directory
+ * exists (docs_installed_dir), the docs surface behaves as if a single source
+ * named "jichi-docs" at that path were configured. It is synthetic -- not
+ * written to any config; a configured docs array is always authoritative. All
+ * three arms (list / index / search) read the SAME source set below. */
 static int run_docs(struct jc_app *app, struct cli_args *args)
 {
     const char *sub = (args->npos >= 2) ? args->pos[1] : NULL;
     jc_size i;
+    const char *syn_path;
+    struct jc_docs_cfg syn;
+    int syn_active;
+    const struct jc_docs_cfg *srcs;
+    jc_size nsrcs;
 
-    if (app->config.docs.len == 0) {
+    /* The B4 synthetic source: only meaningful when no config source is set AND
+     * the installed doc directory actually exists (B4a/B4c). The path is stored
+     * in docs_installed_dir's static buffer; syn.path borrows that address. */
+    memset(&syn, 0, sizeof(syn));
+    syn_path = docs_installed_dir();
+    syn.name = "jichi-docs";
+    syn.path = (char *)syn_path;
+    syn.url = NULL;
+    syn.feed = 0;
+    syn_active = (app->config.docs.len == 0 && syn_path != NULL);
+
+    /* The one source set all three arms share: the configured vector when any
+     * source is set (authoritative, B5b), otherwise the single synthetic source
+     * when the installed directory exists. When there is neither (build-tree
+     * run, no config), nsrcs==0 and the no-sources message stands (B4c). */
+    if (app->config.docs.len >= 1) {
+        srcs = (const struct jc_docs_cfg *)app->config.docs.data;
+        nsrcs = app->config.docs.len;
+    } else if (syn_active) {
+        srcs = &syn;
+        nsrcs = 1;
+    } else {
+        srcs = NULL;
+        nsrcs = 0;
+    }
+
+    if (nsrcs == 0) {
         printf("(no documentation sources configured; add a \"docs\": "
                "[{\"name\":...,\"path\":...}] array to your config)\n");
         return 0;
@@ -16700,9 +17366,8 @@ static int run_docs(struct jc_app *app, struct cli_args *args)
     /* `docs` with no subcommand (or an explicit "list"): list the sources. */
     if (sub == NULL || strcmp(sub, "list") == 0) {
         printf("Configured documentation sources:\n");
-        for (i = 0; i < app->config.docs.len; i++) {
-            const struct jc_docs_cfg *d =
-                (const struct jc_docs_cfg *)jc_vec_at(&app->config.docs, i);
+        for (i = 0; i < nsrcs; i++) {
+            const struct jc_docs_cfg *d = &srcs[i];
             const char *loc = (d->url != NULL) ? d->url
                             : (d->path != NULL) ? d->path : "?";
             printf("  %-16s %s%s\n", d->name != NULL ? d->name : "?",
@@ -16720,9 +17385,8 @@ static int run_docs(struct jc_app *app, struct cli_args *args)
                             "(add a model with role \"embed\")\n");
             return 1;
         }
-        for (i = 0; i < app->config.docs.len; i++) {
-            const struct jc_docs_cfg *d =
-                (const struct jc_docs_cfg *)jc_vec_at(&app->config.docs, i);
+        for (i = 0; i < nsrcs; i++) {
+            const struct jc_docs_cfg *d = &srcs[i];
             char root[4096];
             struct jc_index *idx = NULL;
             struct jc_index_stats st;
@@ -16768,7 +17432,7 @@ static int run_docs(struct jc_app *app, struct cli_args *args)
             fprintf(stderr, "usage: docs search <name> <query>\n");
             return 1;
         }
-        src = jc_docs_find(app, name);
+        src = docs_find(app, name, &syn, syn_active);
         if (src == NULL) {
             fprintf(stderr, "error: unknown docs source '%s'\n",
                     name != NULL ? name : "");
@@ -17679,7 +18343,8 @@ static int run_control(const struct cli_args *args)
         fprintf(stderr, "usage: jichi control <socket> "
                         "status|pause|resume|abort|inject <text...>"
                         "|mode <chat|plan>|stop-task <n> [reason...]"
-                        "|inject-task <n> <text...>\n");
+                        "|inject-task <n> <text...>"
+                        "|cancel-cmd [<n> [reason...]]\n");
         return 2;
     }
     sock = args->pos[1];
@@ -17687,7 +18352,7 @@ static int run_control(const struct cli_args *args)
     if (jc_control_type_parse(verb) == JC_CTL_UNKNOWN) {
         fprintf(stderr, "error: unknown control verb '%s' "
                         "(status|inject|pause|resume|abort|mode|"
-                        "stop-task|inject-task)\n", verb);
+                        "stop-task|inject-task|cancel-cmd)\n", verb);
         return 2;
     }
     if (strcmp(verb, "mode") == 0) {
@@ -17724,6 +18389,46 @@ static int run_control(const struct cli_args *args)
         }
         text = jc_sb_finish(&sb);
         jc_sb_free(&sb);
+    }
+    if (strcmp(verb, "cancel-cmd") == 0) {
+        /* M1192 B3: `cancel-cmd [<n> [reason...]]`. The task index is OPTIONAL
+         * -- absent means the LEAD's own current command (the no-task form);
+         * present, the remaining args are the reason joined with a space.
+         * A non-numeric pos[3] is read as the reason, not an error: the task
+         * is optional, so the same position holds the lead form's reason. */
+        struct jc_sb sb;
+        int i;
+        int first_reason;
+        long n;
+        char *end;
+        task_idx = -1;   /* the LEAD form: no task, until pos[3] says otherwise */
+        first_reason = 3;
+        if (args->npos >= 4) {
+            end = NULL;
+            n = strtol(args->pos[3], &end, 10);
+            if (end != NULL && *end == '\0' && n >= 0 &&
+                n <= 2147483647L) {
+                task_idx = (int)n;
+                first_reason = 4;
+            }
+            /* pos[3] not a whole >= 0 number: it is the reason's first word
+             * (the task is optional), not an error -- the server rejects a
+             * bad shape with its own refusal. */
+        }
+        jc_sb_init(&sb);
+        for (i = first_reason; i < args->npos; i++) {
+            if (i > first_reason) {
+                jc_sb_append(&sb, " ");
+            }
+            jc_sb_append(&sb, args->pos[i]);
+        }
+        text = jc_sb_finish(&sb);
+        jc_sb_free(&sb);
+        /* An empty reason joins to "" (the builder omits it). */
+        if (text != NULL && text[0] == '\0') {
+            free(text);
+            text = NULL;
+        }
     }
     if (strcmp(verb, "stop-task") == 0 || strcmp(verb, "inject-task") == 0) {
         /* M1149: the per-worker verbs. `stop-task <n> [reason...]` and
@@ -17788,7 +18493,10 @@ static int run_control(const struct cli_args *args)
         free(text);
         return 1;
     }
-    if (strcmp(verb, "stop-task") == 0 || strcmp(verb, "inject-task") == 0) {
+    if (strcmp(verb, "cancel-cmd") == 0) {
+        reqline = jc_control_build_cancel_request(task_idx, text);
+    } else if (strcmp(verb, "stop-task") == 0 ||
+               strcmp(verb, "inject-task") == 0) {
         reqline = jc_control_build_task_request(verb, task_idx, text);
     } else {
         reqline = jc_control_build_request(verb, text,
@@ -18178,6 +18886,15 @@ int main(int argc, char **argv)
     if (rc < 0) {
         return 2;
     }
+    /* 2026-11-25: argv[0] as the shell found it, for docs_installed_dir's
+     * third answer and JICHI_BIN's (FreeBSD and OpenBSD have no other). Here,
+     * because a relative argv[0] is read against the directory -C is about to
+     * leave. */
+    if (argc < 1 || argv[0] == NULL ||
+        jc_path_from_argv0(argv[0], getenv("PATH"), g_self_from_argv0,
+                           sizeof(g_self_from_argv0)) != JC_OK) {
+        g_self_from_argv0[0] = '\0';
+    }
     /* M1043-b (M1043-b-c): -C <dir> / --cwd <dir> -- the working directory.
      * The chdir happens AFTER argument parsing and BEFORE EVERY dispatch --
      * the subcommand chain (describe/ls/prune/export/init/setup/daemon/
@@ -18282,13 +18999,41 @@ int main(int argc, char **argv)
      * ./jichi wrapper, or an absolute build path. The scaffolded /learn command
      * prefers "$JICHI_BIN" over a bare `jichi`, so mining telemetry works
      * even when jichi isn't on PATH (otherwise the mentor "learns" from a
-     * `jichi: not found` shell error). */
+     * `jichi: not found` shell error).
+     *
+     * 2026-11-25 (the operator: for 0.15.0; the idea is threadwork's P34): the
+     * same answers as docs_installed_dir, in the same order -- the kernel's
+     * (/proc/self/exe, then illumos's /proc/self/path/a.out), then argv[0] as
+     * the shell found it, resolved before -C (g_self_from_argv0). Only then the
+     * raw argv[0]. Before, off Linux, JICHI_BIN was always the raw argv[0],
+     * read after the -C chdir: a relative one named nothing from there.
+     *
+     * 2026-11-25 (the operator: "Fix the JICHI_BIN loader case for 0.15.0"):
+     * the kernel's answer is taken only when it names the same file name as
+     * argv[0]'s canonical answer, or when argv[0] resolved to nothing. Started
+     * as `ld.so jichi`, /proc/self/exe names the LOADER, and a child running
+     * "$JICHI_BIN" would start the loader with jichi's arguments; the program
+     * is then argv[0]'s answer. Compared by the last component of each
+     * canonical path, so a symlink with another name (argv[0] "jc" for
+     * .../jichi) still agrees: g_self_from_argv0 is already resolved. */
     {
         char selfpath[JC_PATH_MAX];
         ssize_t sn = readlink("/proc/self/exe", selfpath, sizeof(selfpath) - 1);
+        if (sn <= 0) {
+            sn = readlink("/proc/self/path/a.out", selfpath,
+                          sizeof(selfpath) - 1);
+        }
         if (sn > 0) {
             selfpath[sn] = '\0';
+        } else {
+            selfpath[0] = '\0';
+        }
+        if (selfpath[0] != '\0' &&
+            (g_self_from_argv0[0] == '\0' ||
+             strcmp(self_leaf(selfpath), self_leaf(g_self_from_argv0)) == 0)) {
             setenv("JICHI_BIN", selfpath, 1);
+        } else if (g_self_from_argv0[0] != '\0') {
+            setenv("JICHI_BIN", g_self_from_argv0, 1);
         } else if (argv[0] != NULL && argv[0][0] != '\0') {
             setenv("JICHI_BIN", argv[0], 1);
         }
@@ -18640,16 +19385,25 @@ int main(int argc, char **argv)
         int ki;
         int kn = jc_config_model_count(&app.config);
         int lost = 0;
+        int rr = 0;
         for (ki = 0; ki < kn; ki++) {
             struct jc_model_cfg *km = jc_config_model_at(&app.config, ki);
             if (km != NULL) {
-                jc_redact_register(km->api_key);
+                rr = jc_redact_register(km->api_key);
+                if (rr != 0) {
+                    jc_logf(JC_LOG_WARN, "redaction: registering the provider key failed (OOM); the secret will not be scrubbed from the run's logs");
+                    lost = 1;
+                }
                 if (jc_proc_secret_env_add(km->api_key_env) != 0) {
                     lost = 1;
                 }
             }
         }
-        jc_redact_register(app.config.search.api_key);
+        rr = jc_redact_register(app.config.search.api_key);
+        if (rr != 0) {
+            jc_logf(JC_LOG_WARN, "redaction: registering the search API key failed (OOM); the secret will not be scrubbed from the run's logs");
+            lost = 1;
+        }
         if (jc_proc_secret_env_add(app.config.search.api_key_env) != 0) {
             lost = 1;
         }
@@ -18716,7 +19470,10 @@ int main(int argc, char **argv)
                         v++;
                     if (jc_header_is_credential(name,
                                                  (size_t)(colon - line))) {
-                        jc_redact_register(v);
+                        int rr = jc_redact_register(v);
+                        if (rr != 0) {
+                            jc_logf(JC_LOG_WARN, "redaction: registering the MCP header value failed (OOM); the secret will not be scrubbed from the run's logs");
+                        }
                         /* strip a "Bearer " prefix (any case) and register the
                          * bare token after it, which is what the sinks hold */
                         vlen = strlen(v);
@@ -18726,7 +19483,9 @@ int main(int argc, char **argv)
                             tok = v + 7;
                             while (*tok == ' ' || *tok == '\t')
                                 tok++;
-                            jc_redact_register(tok);
+                            if (jc_redact_register(tok) != 0) {
+                                jc_logf(JC_LOG_WARN, "redaction: registering the MCP bearer token failed (OOM); the secret will not be scrubbed from the run's logs");
+                            }
                         }
                     }
                 }
@@ -18742,8 +19501,12 @@ int main(int argc, char **argv)
                      * value is everything after the first '=' */
                     key = e;
                     val = eq + 1;
-                    if (jc_credential_name(key, (size_t)(eq - e)))
-                        jc_redact_register(val);
+                    if (jc_credential_name(key, (size_t)(eq - e))) {
+                        int rr = jc_redact_register(val);
+                        if (rr != 0) {
+                            jc_logf(JC_LOG_WARN, "redaction: registering the MCP env value failed (OOM); the secret will not be scrubbed from the run's logs");
+                        }
+                    }
                 }
             }
             for (ut = 0; ut < app.config.user_tools.len; ut++) {
@@ -18764,8 +19527,12 @@ int main(int argc, char **argv)
                      * value is everything after the first '=' */
                     key = e;
                     val = eq + 1;
-                    if (jc_credential_name(key, (size_t)(eq - e)))
-                        jc_redact_register(val);
+                    if (jc_credential_name(key, (size_t)(eq - e))) {
+                        int rr = jc_redact_register(val);
+                        if (rr != 0) {
+                            jc_logf(JC_LOG_WARN, "redaction: registering the MCP env value failed (OOM); the secret will not be scrubbed from the run's logs");
+                        }
+                    }
                 }
             }
         }
@@ -19873,6 +20640,18 @@ int main(int argc, char **argv)
         return sub_code;
     }
 
+    /* `guide [topic]` subcommand: print the compiled-in jichi guide, then exit
+     * (offline; no provider, no network, no assets -- M1196). */
+    if (args.npos > 0 && strcmp(args.pos[0], "guide") == 0) {
+        int sub_code = run_guide(&app,
+                                 args.npos > 1 ? args.pos[1] : NULL);
+
+        app_free_common(&app);
+        jc_config_free(&app.config);
+        jc_arena_free(arena);
+        return sub_code;
+    }
+
     /* `skills` subcommand: list agent skills, then exit (no provider/network). */
     if (args.npos > 0 && strcmp(args.pos[0], "skills") == 0) {
         int sub_code = run_skills(&app, &args);
@@ -20006,8 +20785,11 @@ int main(int argc, char **argv)
          * apiKey -- the config shape doctor's M55 lint warns against. */
         const char *vendor_env =
             jc_config_vendor_key_env(app.config.model.provider);
-        const char *vendor_val = (vendor_env != NULL) ? getenv(vendor_env)
-                                                      : NULL;
+        /* "x" stands for "it was set": only that is asked below, and after
+         * the environ scrub getenv cannot say it (TW24.F19). */
+        const char *vendor_val = (vendor_env != NULL &&
+                                  jc_proc_secret_env_was_set(vendor_env))
+                                     ? "x" : NULL;
         if (app.config.model.api_key_env != NULL) {
             fprintf(stderr,
                     "warning: no API key found: $%s (this model's apiKeyEnv) "
@@ -20239,8 +21021,11 @@ int main(int argc, char **argv)
     jc_agentdef_load(&app.agents, app.cwd, arena);
     jc_command_load(&app.commands, app.cwd, arena);
 
-    /* Agent skills: advertise the load_skill tool only when some exist. */
+    /* Agent skills: advertise the load_skill tool only when some exist. The
+     * built-in jichi-guide skill (M1196) is added after the disk load, so the
+     * gate is satisfied even in a clean container with no .jichi/skills. */
     jc_skill_load(&app.skills, app.cwd, arena);
+    jc_skill_add_builtin(&app.skills, arena);
     /* load_skill is registered by jc_tool_register_configured (M325b), which is
      * called AFTER this so its "some skills exist" gate can see them. */
 
@@ -20592,6 +21377,24 @@ int main(int argc, char **argv)
                     || app.env->verifier_ran) {
                 fprintf(stderr, "[envelope] verified ok (tokens %s, "
                         "tool calls %d)\n", tk, app.env->tool_calls);
+            } else if (app.last_verify_ran) {
+                /* The COMPLETION check did not run (a relay handover ends
+                 * the leg before it), but a periodic verify did, and "the
+                 * verifier did not run" was false then: the journal two
+                 * lines up records its runs (TW24.F4). Say which check
+                 * did not run, and what the last one that ran said. */
+                if (app.last_verify_code == 0) {
+                    fprintf(stderr, "[envelope] ok, not verified (the "
+                            "completion check did not run; the last "
+                            "periodic verify was green) (tokens %s, "
+                            "tool calls %d)\n", tk, app.env->tool_calls);
+                } else {
+                    fprintf(stderr, "[envelope] ok, not verified (the "
+                            "completion check did not run; the last "
+                            "periodic verify was RED, exit %d) (tokens "
+                            "%s, tool calls %d)\n", app.last_verify_code,
+                            tk, app.env->tool_calls);
+                }
             } else {
                 fprintf(stderr, "[envelope] ok, not verified (verifier did "
                         "not run) (tokens %s, tool calls %d)\n", tk,

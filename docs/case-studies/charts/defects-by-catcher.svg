@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 526" width="920" height="526" role="img">
+<title>Which check caught each defect first, four drives</title><desc>confirmed defects, by the check that caught each first. The supervisor's log is the fullest record, so its catches are over-counted</desc>
+<style>
+.s{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.tm{fill:#898781}
+.g{stroke:#e1e0d9}.ax{stroke:#c3c2b7}.wash{fill:#898781;fill-opacity:.16}
+.d0{fill:#2a78d6;stroke:#2a78d6}.d1{fill:#eb6834;stroke:#eb6834}.d2{fill:#1baf7a;stroke:#1baf7a}
+.d3{fill:#eda100;stroke:#eda100}.ring{stroke:#fcfcfb}
+.l0{fill:none;stroke:#2a78d6}.l1{fill:none;stroke:#eb6834}.l2{fill:none;stroke:#1baf7a}.l3{fill:none;stroke:#eda100}.good{fill:#0ca30c}.crit{fill:#d03b3b;stroke:#d03b3b}
+.ink{fill:#52514e}.down{fill:#898781;fill-opacity:.5}
+text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+@media (prefers-color-scheme: dark){
+.s{fill:#1a1a19}.t1{fill:#f0efec}.t2{fill:#c3c2b7}.g{stroke:#2c2c2a}.ax{stroke:#383835}
+.d0{fill:#3987e5;stroke:#3987e5}.d1{fill:#d95926;stroke:#d95926}.d2{fill:#199e70;stroke:#199e70}
+.d3{fill:#c98500;stroke:#c98500}.ring{stroke:#1a1a19}
+.l0{stroke:#3987e5}.l1{stroke:#d95926}.l2{stroke:#199e70}.l3{stroke:#c98500}.ink{fill:#c3c2b7}}
+</style>
+<rect class="s" x="0" y="0" width="920" height="526" rx="8"/>
+<text class="t1" x="24.0" y="30.0" font-size="15" text-anchor="start" font-weight="600">Which check caught each defect first, four drives</text>
+<text class="t2" x="24.0" y="50.0" font-size="12" text-anchor="start" font-weight="400">confirmed defects, by the check that caught each first. The supervisor's log is the fullest record, so its catches are over-counted</text>
+<line class="ax" x1="300" y1="64" x2="300" y2="486" stroke-width="1"/>
+<text class="t2" x="290.0" y="90.0" font-size="12" text-anchor="end" font-weight="400">supervisor re-check</text>
+<path class="d0" d="M300.0,76.0 H816.0 Q820.0,76.0 820.0,80.0 V92.0 Q820.0,96.0 816.0,96.0 H300.0 Z" stroke-width="0"><title>supervisor re-check: 87 defects</title></path>
+<text class="t1" x="828.0" y="90.0" font-size="12" text-anchor="start" font-weight="400">87</text>
+<text class="t2" x="290.0" y="122.0" font-size="12" text-anchor="end" font-weight="400">independent review</text>
+<path class="d0" d="M300.0,108.0 H523.1 Q527.1,108.0 527.1,112.0 V124.0 Q527.1,128.0 523.1,128.0 H300.0 Z" stroke-width="0"><title>independent review: 38 defects</title></path>
+<text class="t1" x="535.1" y="122.0" font-size="12" text-anchor="start" font-weight="400">38</text>
+<text class="t2" x="290.0" y="154.0" font-size="12" text-anchor="end" font-weight="400">make ci: unit or smoke tier</text>
+<path class="d0" d="M300.0,140.0 H397.6 Q401.6,140.0 401.6,144.0 V156.0 Q401.6,160.0 397.6,160.0 H300.0 Z" stroke-width="0"><title>make ci: unit or smoke tier: 17 defects</title></path>
+<text class="t1" x="409.6" y="154.0" font-size="12" text-anchor="start" font-weight="400">17</text>
+<text class="t2" x="290.0" y="186.0" font-size="12" text-anchor="end" font-weight="400">first real use</text>
+<path class="d0" d="M300.0,172.0 H385.7 Q389.7,172.0 389.7,176.0 V188.0 Q389.7,192.0 385.7,192.0 H300.0 Z" stroke-width="0"><title>first real use: 15 defects</title></path>
+<text class="t1" x="397.7" y="186.0" font-size="12" text-anchor="start" font-weight="400">15</text>
+<text class="t2" x="290.0" y="218.0" font-size="12" text-anchor="end" font-weight="400">make ci: release/32-bit/other stage</text>
+<path class="d0" d="M300.0,204.0 H379.7 Q383.7,204.0 383.7,208.0 V220.0 Q383.7,224.0 379.7,224.0 H300.0 Z" stroke-width="0"><title>make ci: release/32-bit/other stage: 14 defects</title></path>
+<text class="t1" x="391.7" y="218.0" font-size="12" text-anchor="start" font-weight="400">14</text>
+<text class="t2" x="290.0" y="250.0" font-size="12" text-anchor="end" font-weight="400">other</text>
+<path class="d0" d="M300.0,236.0 H373.7 Q377.7,236.0 377.7,240.0 V252.0 Q377.7,256.0 373.7,256.0 H300.0 Z" stroke-width="0"><title>other: 13 defects</title></path>
+<text class="t1" x="385.7" y="250.0" font-size="12" text-anchor="start" font-weight="400">13</text>
+<text class="t2" x="290.0" y="282.0" font-size="12" text-anchor="end" font-weight="400">platform retest</text>
+<path class="d0" d="M300.0,268.0 H373.7 Q377.7,268.0 377.7,272.0 V284.0 Q377.7,288.0 373.7,288.0 H300.0 Z" stroke-width="0"><title>platform retest: 13 defects</title></path>
+<text class="t1" x="385.7" y="282.0" font-size="12" text-anchor="start" font-weight="400">13</text>
+<text class="t2" x="290.0" y="314.0" font-size="12" text-anchor="end" font-weight="400">shadow / switch-over replay</text>
+<path class="d0" d="M300.0,300.0 H331.9 Q335.9,300.0 335.9,304.0 V316.0 Q335.9,320.0 331.9,320.0 H300.0 Z" stroke-width="0"><title>shadow / switch-over replay: 6 defects</title></path>
+<text class="t1" x="343.9" y="314.0" font-size="12" text-anchor="start" font-weight="400">6</text>
+<text class="t2" x="290.0" y="346.0" font-size="12" text-anchor="end" font-weight="400">make ci: sanitizers/valgrind/leaks</text>
+<path class="d0" d="M300.0,332.0 H325.9 Q329.9,332.0 329.9,336.0 V348.0 Q329.9,352.0 325.9,352.0 H300.0 Z" stroke-width="0"><title>make ci: sanitizers/valgrind/leaks: 5 defects</title></path>
+<text class="t1" x="337.9" y="346.0" font-size="12" text-anchor="start" font-weight="400">5</text>
+<text class="t2" x="290.0" y="378.0" font-size="12" text-anchor="end" font-weight="400">make ci: compilers/warnings</text>
+<path class="d0" d="M300.0,364.0 H319.9 Q323.9,364.0 323.9,368.0 V380.0 Q323.9,384.0 319.9,384.0 H300.0 Z" stroke-width="0"><title>make ci: compilers/warnings: 4 defects</title></path>
+<text class="t1" x="331.9" y="378.0" font-size="12" text-anchor="start" font-weight="400">4</text>
+<text class="t2" x="290.0" y="410.0" font-size="12" text-anchor="end" font-weight="400">fast gate (unit/drivers run by the team)</text>
+<path class="d0" d="M300.0,396.0 H308.0 Q312.0,396.0 312.0,400.0 V412.0 Q312.0,416.0 308.0,416.0 H300.0 Z" stroke-width="0"><title>fast gate (unit/drivers run by the team): 2 defects</title></path>
+<text class="t1" x="320.0" y="410.0" font-size="12" text-anchor="start" font-weight="400">2</text>
+<text class="t2" x="290.0" y="442.0" font-size="12" text-anchor="end" font-weight="400">red-first test</text>
+<path class="d0" d="M300.0,428.0 H308.0 Q312.0,428.0 312.0,432.0 V444.0 Q312.0,448.0 308.0,448.0 H300.0 Z" stroke-width="0"><title>red-first test: 2 defects</title></path>
+<text class="t1" x="320.0" y="442.0" font-size="12" text-anchor="start" font-weight="400">2</text>
+<text class="t2" x="290.0" y="474.0" font-size="12" text-anchor="end" font-weight="400">the operator</text>
+<path class="d0" d="M300.0,460.0 H303.0 Q306.0,460.0 306.0,463.0 V477.0 Q306.0,480.0 303.0,480.0 H300.0 Z" stroke-width="0"><title>the operator: 1 defects</title></path>
+<text class="t1" x="314.0" y="474.0" font-size="12" text-anchor="start" font-weight="400">1</text>
+<text class="tm" x="820.0" y="514.0" font-size="11" text-anchor="end" font-weight="400">defects</text>
+</svg>

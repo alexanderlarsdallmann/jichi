@@ -341,16 +341,22 @@ static void test_relay_baton(void)
     baton_init(&f);
     f.changed = many; f.changed_n = 10000;
     f.uncommitted = many; f.uncommitted_n = 10000;
-    f.commits = many; f.commits_n = 10000;
+    f.commit = "abc1234"; f.leg_start = "0123abc"; f.leg_commits = 3;
     jc_sb_init(&out);
     JC_CHECK(relay_baton_render(&f, &out) == JC_OK);
     JC_CHECK(out.data != NULL);
     JC_CHECK(out.len > 0 && out.len < 8192);
     JC_CHECK(strstr(out.data, "(+9980 more)") != NULL);
+    /* TW24.F3: the leg's range is one line of facts, with the command that
+     * lists the commits; no list of subjects. */
+    JC_CHECK(strstr(out.data, "- Since the leg started at 0123abc: 3 commit(s) "
+                              "(git log 0123abc..abc1234)") != NULL);
+    JC_CHECK(strstr(out.data, "Commits in this leg") == NULL);
     JC_CHECK(strstr(out.data, "## 2. Where the work stands") != NULL);
     jc_sb_free(&out);
-    f.changed = f.uncommitted = f.commits = NULL;
-    f.changed_n = f.uncommitted_n = f.commits_n = 0;
+    f.changed = f.uncommitted = NULL;
+    f.changed_n = f.uncommitted_n = 0;
+    f.commit = NULL; f.leg_start = NULL; f.leg_commits = -1;
 
     /* --- the template: every section present, in order ------------------- */
     baton_init(&f);

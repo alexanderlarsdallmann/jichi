@@ -53,6 +53,13 @@ against the binary it just built.
 **If it fails:** read the *first* failure, not the last. The tier is fail-fast by
 default, so a later driver's silence means "never ran", not "passed".
 
+**A failing unit suite no longer hides the smoke tier.** Until 2026-11-12,
+`check-target` stopped when the unit suite failed, so one unit check that timed
+the machine kept every smoke driver from running on a board (§2.4, Finding 5).
+Since M1164 it prints `check-target: test failed (continuing to smoke)`, runs the
+smoke tier anyway, and still fails at the end. Read both results; the exit code
+alone tells you only that something failed.
+
 **If it is slow or times out**, the tier's deadlines assume a quiet machine:
 
 ```sh
@@ -60,7 +67,10 @@ JC_SMOKE_TIMEOUT_MULT=3 make check-target
 ```
 
 The multiplier is a **ratio** — this machine's `make WERROR=1` seconds divided by
-the reference bench's. Copy the formula, never somebody else's number.
+the reference bench's. Copy the formula, never somebody else's number. And never
+your own old one: the bench's seconds grow with the tree (6.19 s, then 8.59, 10.33
+and 10.43 s by 2026-11-17), so both numbers belong to one commit
+([`PLATFORM_RETEST.md`](PLATFORM_RETEST.md) §2, T7).
 
 **If you want every failure rather than the first:**
 
@@ -88,6 +98,11 @@ suggested only because it needs no daemon and no root.)
 Same kernel, same CPU, same filesystem. A pass here does not mean "portable"; it
 means "not glibc-specific", which is a smaller and still useful claim.
 
+**No container at hand?** A native musl build of the unit suite needs no second
+machine and no emulator; the command is in the "How to reproduce" section of
+[the 2026-11-12 retest](analysis/2026-11-12-platform-retest.md). It is the
+instrument that showed musl refusing a seek that glibc allows (§2.4).
+
 ### Rung 2 — a whole virtual machine
 
 A container shares your kernel. A VM does not, and the difference shows up in
@@ -102,6 +117,9 @@ scripts/tier-v-vm.sh v2e --ref-secs <this machine's build seconds>
 ```sh
 make clean && time make WERROR=1
 ```
+
+Run it three times on a quiet machine and take the middle value (§2.5), at the
+same commit you are about to test.
 
 **Two failure modes to tell apart**, and the rig now helps:
 
@@ -162,6 +180,17 @@ workspace.
 **Keep the model server on loopback** and reach the target with a reverse
 forward; there is no reason to expose it on the network.
 
+**A gateway instead of a local server** works too: `--live <its URL>`,
+`--live-key-env <the variable that holds the key>` and `--live-model <its id>`.
+The rig pipes the key's value to the target over `stdin`, writes it there with
+mode 600, and removes it at the end
+([`VERIFY_A_PLATFORM.md`](VERIFY_A_PLATFORM.md) §4 has the details, and what
+`--keep` leaves behind). The 2026-11-12 retest drove its boards that way, because
+local inference had crashed the bench's display twice under long contexts; by
+2026-11-17 a fix was in place, and local models were usable for the bench again. **Which model, and where it
+ran, is part of the row**: a local turn and a gateway turn time different
+things.
+
 ---
 
 ## 2. The three lessons, which are the actual content
@@ -216,6 +245,70 @@ sentence:
 A row that overstates its scope will be quoted later by somebody who was not
 there. That is the whole risk, and it is why every row in
 [`PLATFORMS.md`](PLATFORMS.md) carries a scope sentence.
+
+### 2.4 What one retest added: the 2026-11-12 lessons
+
+On 2026-11-12 this project re-ran its boards, FreeBSD and a 20-target
+architecture sweep at one commit, during a pause in its work.
+[The page that records it](analysis/2026-11-12-platform-retest.md) tells each
+finding in full; these are the parts that change how you test:
+
+- **Three gates on one libc are one sample.** Every gate ran on Ubuntu, glibc
+  2.39 and x86-64. Two defects passed all three: a test tool used `offsetof`
+  without including `<stddef.h>`, and glibc's headers happened to pull it in
+  while Debian 12's glibc on aarch64 did not (Finding 1); and musl refuses to
+  seek to the end of a `/proc` file, which glibc allows, so every `/proc` read
+  through one helper failed on musl (Finding 2).
+- **A compiler upgrade is a new reviewer.** FreeBSD's clang 19 rejected a
+  variable that was set and never read, which clang 18, gcc 13 and gcc 15
+  accepted, and under `WERROR=1` that one line stopped the whole build.
+- **A toolchain upgrade can break `-Werror` for one kind of target only.** zig
+  0.17.1 printed a new warning when building for the host's own architecture on
+  a machine with two GCC versions installed, and nothing for the ARM targets
+  (Finding 4). A change of the bench's tools is a reason to re-run
+  ([`PLATFORM_RETEST.md`](PLATFORM_RETEST.md) §2, T8).
+- **One blocker hides the next.** FreeBSD had five, each added after its last
+  run, each stopping the run before the next could show (Finding 3). They were
+  found one at a time, by fixing each in the virtual machine's throwaway copy
+  and running again, until a run went all the way through. Only then was the
+  list complete.
+- **A test that waits a fixed time measures the machine.** One unit check polled
+  4 seconds for a shell writer that took 0.88 s on the workstation and up to
+  6.43 s on an older box whose distribution had switched to a slower coreutils.
+  It failed there, and read like a product defect (Finding 5). The fix waits for
+  the condition under a scaled deadline.
+- **A target can hide a tier.** The same check stopped `make check-target`
+  before the smoke tier ran; that is the reason it now continues (rung 0).
+- **An emulator can hide part of a defect.** `qemu-user` serves `/proc/cpuinfo`
+  from a file that *can* be seeked, so on some emulated targets two of the musl
+  failures disappeared.
+- **Read the error, not your filter's idea of it.** A rig printed *"build failed
+  — first diagnostics follow"*, then twenty compiler command lines and no
+  diagnostic: its filter, `grep -E "error|warning"`, matched `-Werror` in every
+  command line before it reached the error. Match the compiler's own form
+  instead, `: error:` and `: warning:`, as the rig has done since M1166. The
+  same day, a count of lines that *begin* with `not ok` read a failing smoke
+  tier as clean, because the runner prints a failing driver's lines behind a
+  `    | ` prefix. Read the instrument's format before you write a pattern for it.
+
+### 2.5 Measure on a quiet machine
+
+A timing is a measurement of everything that ran at the same time: a build's
+seconds for the multiplier, a deadline, a model turn's duration. Before you time
+anything, look at what else is running:
+
+```sh
+uptime; ps -eo pcpu,args --sort=-pcpu | head -5
+```
+
+(The `ps` options are those of Linux's `ps`; a BSD or a Mac sorts differently,
+and `top` shows the same at a glance.) If a long build, a test tier or another measurement is running, wait for it to
+end, or write beside your number what ran with it. This project has met both
+halves of that rule: in a comparison of two models, two of the three tasks were
+timed while a full gate ran on the same machine, and their records have to say
+so. On 2026-11-17 the multiplier's reference build was timed only after a
+running test tier on the same machine had finished, three times, at 10.54, 10.43
+and 10.38 s.
 
 ---
 
@@ -405,6 +498,11 @@ asked in the last line of the email.
 | Every capability probe answers "no" | no `cc` on the box; pass `CC=gcc` |
 | A live turn answers but no tool runs | the model emits tool calls as prose; check `doctor --live` calls it **native** |
 | A live turn passes with the server off | your check is not testing what it says |
+| The model server crashes or unloads the model mid-turn | infrastructure; restart it, run the turn again, record that it happened |
+| A rig says "build failed" and shows only compiler command lines | its filter matched `-Werror`; read the build log for `: error:` |
+| One unit check fails on a slow box, about a wait or a size | a fixed time window measuring the machine (§2.4) |
+| A board no longer answers at its address | it got a new one; find it by MAC, compare its host key ([`VERIFY_A_PLATFORM.md`](VERIFY_A_PLATFORM.md) §7) |
+| A timing is far from last time's | something else ran; check §2.5 before you believe it |
 
 ---
 

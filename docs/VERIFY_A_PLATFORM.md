@@ -42,12 +42,21 @@ A platform guard for a platform nobody builds is untested code that *looks*
 tested, because it sits in a file that compiles cleanly. The only instrument
 that reaches inside it is a machine like yours.
 
-**Where macOS stands today:** the matrix says **Never compiled**
-([`PLATFORMS.md`](PLATFORMS.md), the macOS row). Two people have said they
-compiled jichi on a Mac, and that is welcome news — but no build log, test count
-or commit has reached the project yet, so there is nothing the matrix can
-record. A message saying "it compiled" is where this starts; the rest of this
-page is what turns it into a row.
+**Where macOS stands today:** **Partly verified, and Driven**, since 2026-09-26
+([`PLATFORMS.md`](PLATFORMS.md), the macOS row, and its
+[notes](platform-notes/macos.md)). When this page was written the row said
+**Never compiled**: two people had said they compiled jichi on a Mac, but no
+build log, test count or commit had reached the project, so there was nothing
+the matrix could record. Then one macOS user followed this page on an Apple
+Silicon Mac and sent the files it asks for. The build was clean after one
+Darwin-only fix, the unit suite ran (13,899 checks, 3 failures, all three about
+the tests' own tolerance), and both live turns passed with tool calling observed
+`native`. The project folded that in at M817. *Partly* names what is still
+missing: `make ci` has never run on a Mac, and the checks made tolerant for that
+report wait for a re-run there. This project has no Mac, so the next step for
+that row, and an Intel Mac, which would be a row of its own, can only come from
+someone who has one. A message saying "it compiled" is where this starts; the
+rest of this page is what turns it into a row.
 
 ---
 
@@ -58,7 +67,7 @@ measured against them. Nothing is ever called verified because it "should work".
 
 | The row says | It means | The evidence that earns it |
 |---|---|---|
-| **Never compiled** | No compiler on that platform has ever seen this tree. Not "probably fine" — unmeasured. | — (where macOS is now) |
+| **Never compiled** | No compiler on that platform has ever seen this tree. Not "probably fine" — unmeasured. | — (where macOS was until 2026-09-26) |
 | **Partly verified** | Compiled there, and *some* gate ran green, with the missing part named. | A clean build **and** the unit suite's result |
 | **Verified** | Compiled there **and** its test gates ran, by a person, with the numbers written down. | The above **and** the whole smoke tier |
 | **Driven** | A **live task with a real model** ran there: a request over the wire, a tool the model chose, the tool executed, and a second turn that used the result. | The two live turns of step 7, with the pass phrase |
@@ -277,6 +286,15 @@ times). If you need it, time a clean `make WERROR=1`, send that number, and say
 which multiplier you used. A recent laptop is unlikely to need it — and if yours
 does, that is a datum too.
 
+**The reference number moves with the tree**, so a ratio is only right for the
+commit both numbers were measured on. The development workstation's serial
+`make WERROR=1` took 6.19 s, then 8.59 s at `7f5ca791` (master `f4cf1a84`), 10.33 s at `7b23e620` and
+10.43 s at `81f9d35c` (2026-11-17), as the tree grew. Send your seconds with your
+commit, and the maintainer divides by the reference measured at that commit.
+Measure on a quiet machine, three times, and take the middle value: a build
+timed while something else runs times the something else too
+([`PLATFORM_TESTING.md`](PLATFORM_TESTING.md) §2.5).
+
 ### Step 6 — what jichi can see about your system
 
 ```sh
@@ -317,6 +335,12 @@ and the context window is set differently (below); everything else is the same.
   minimum applies, and how to set it is Ollama's documentation, not this page's
   — nothing here has been measured on Ollama.)
 - Make sure nothing else is using the server (rule 3).
+- **If the server itself fails during a turn** — it crashes, unloads the model, or
+  the graphics card resets under it — that is your machine's infrastructure, not
+  a result about jichi or your platform. Restart the server, run step 7 again,
+  and say in the report that it happened. Recording a failed turn as a platform
+  verdict is the mistake [`PLATFORM_TESTING.md`](PLATFORM_TESTING.md) §2.1 is
+  about.
 
 **Then run:**
 
@@ -398,10 +422,61 @@ useful thing anyone can send this project ([`CONTRIBUTING.md`](../CONTRIBUTING.m
 says why); patches are applied by hand, not merged, and credited. In the message,
 add in your own words:
 
-- **the model** you used for step 7, and the server (LM Studio or Ollama);
+- **the model** you used for step 7, and where it ran (LM Studio, Ollama, or a
+  gateway). The row records both: a turn on a local server and a turn on a
+  gateway are different measurements, and the timings of one do not compare with
+  the other;
 - **anything you had to set** to make the build find curl or the compiler;
 - **anything surprising**, even if everything passed;
 - **whether you want to be named** in the row and the changelog, and how.
+
+### When you have a second machine: the rig does steps 2 to 7
+
+If the machine you are testing is a board or a box you reach over `ssh` from a
+Linux machine with a jichi clone, the maintainers' own rig runs steps 2 to 7 for
+you: `scripts/tier-b-device.sh`. It ships the tree with `git archive`, so the
+result is stamped with a commit and carries no local edits. On the device it
+records the system, builds under `WERROR=1`, runs `make check-target` with the
+computed multiplier, measures the footprint, runs the offline commands, and,
+if you ask for it, the two live turns of step 7. It writes one results file.
+
+Try it without touching anything first. The first command checks the rig's own
+reading of a log, on logs it plants itself. The second prints what it would run:
+
+```sh
+scripts/tier-b-device.sh --selftest
+scripts/tier-b-device.sh user@192.0.2.10 --ref-secs 10.43 --live-port 1234 --live-model prism-ml/bonsai-27b --dry-run
+```
+
+What to know before a real run:
+
+- **`--ref-secs` is required**, and it is the *second* machine's serial
+  `make WERROR=1` seconds at the same commit (step 5 says why the number moves).
+  The rig refuses to guess it.
+- **A local model server** on the second machine: `--live-port 1234` with
+  `--live-model <its id>`. Unless the device already reaches that port, it
+  reaches it through a reverse forward (`ssh -R`) the rig holds for the turn, so
+  the server stays on loopback.
+- **An endpoint that needs a key** (a gateway): `--live <its URL>`,
+  `--live-key-env <the variable's name>` and `--live-model <its id>`. The key's
+  *value* is piped to the device over `stdin`, never on a command line, and
+  written to the run's own home there as `.jichi.env` with mode 600. The rig
+  removes it at the end. `--keep` leaves the work directory for a follow-up, and
+  with it that file: delete it yourself, and never share a kept directory.
+- **Verdicts come from markers, never from exit codes.** Two corrections from a
+  retest on 2026-11-12 are worth knowing, because both made a run look better
+  than it was:
+  - `make check-target` stopped after the unit suite when the unit suite
+    failed, so one failing check could hide every smoke driver. Since M1164 it
+    prints `check-target: test failed (continuing to smoke)`, runs the smoke tier
+    anyway, and still fails at the end.
+  - The rig looked for a line `N checks, 0 failures`. It took the *last* such
+    line, which can be a smoke driver's own, and a failing unit summary did not
+    match at all, so a unit suite with 4 failures could be reported as
+    `7 checks, 0 failures`. Since M1166 it takes the first line that is
+    *exactly* `N checks, M failures`, and `--selftest` plants both traps and
+    checks that neither is taken.
+- **Say which model and which endpoint** the live turns used, as in step 8.
 
 ---
 
@@ -462,8 +537,33 @@ calendar; it simply speaks for less of the tree as the tree moves, and
 | `doctor --live` says `text`, and turn 2 has no phrase | the model writes tool calls as prose | choose a model `doctor --live` calls `native` |
 | A command sits there forever | a headless run without `< /dev/null` | re-run it as written |
 | The final `grep -c` prints `1` even with the model server stopped | the check is not testing what it says — please report that too | everything |
+| The model server crashes or unloads the model during step 7 | your machine's infrastructure, not a result | re-run step 7 after a restart; say it happened |
+| A board no longer answers at the address in your notes | its network gave it a new address | find it, and check it is the same machine (below) |
 
-[`PLATFORM_TESTING.md`](PLATFORM_TESTING.md) §5 has more of these, from the
+**A board that moved.** A board that takes its address from the network (DHCP)
+can come back on a different one after it is reconnected. Find it by its
+hardware (MAC) address, which does not change. `ip neigh` lists only the machines
+yours has talked to recently: if the board is not there, look in your router's
+list of leases, or send one packet to each address of your network first. Then,
+**before you trust the new address, check that the same machine answers**, by
+comparing its ssh host key with the one you recorded under the old address:
+
+```sh
+ip neigh show | grep -i "$MAC"
+ssh-keygen -l -F "$OLD"
+ssh-keyscan -t ed25519 "$NEW" 2>/dev/null | ssh-keygen -l -f -
+```
+
+`MAC` is the board's hardware address, `OLD` the address in your notes and `NEW`
+the one `ip neigh` showed. The second command prints the fingerprints you
+accepted before; the third asks the machine now at `NEW` for its key without
+trusting it. The same `SHA256:` fingerprint means the same machine. A different
+one means a different machine, or a reinstalled one: find out which before you
+type a password or copy a key. The project's own bench met this on 2026-11-17,
+when a RISC-V board came back on a new address after a reconnect; the two ED25519
+fingerprints matched.
+
+[`PLATFORM_TESTING.md`](PLATFORM_TESTING.md) §6 has more of these, from the
 maintainers' own rigs.
 
 ---
@@ -501,11 +601,13 @@ confirmed the clone stayed clean.
 
 ## 9. What this page cannot promise
 
-- **Nothing on this page has run on a Mac.** The commands are meant to be
-  portable, and every one ran on Linux as printed (§8), but whether macOS's own
-  `od`, `tar`, `mktemp`, `/usr/bin/time` and `sw_vers` accept exactly these forms
-  is unmeasured. If one of them fails on your Mac, that is a finding about this
-  page — send it.
+- **This page has run on one Mac, and the record of it is partial.** Every
+  command ran on Linux as printed (§8). The one macOS report (2026-09-26, Apple
+  Silicon) came back as the archive of step 8, holding the files of every step
+  from `system.txt` and `build.log` to `smoke.log` and `live-tool.txt`, so the
+  procedure ran there from beginning to end; macOS's `tar` added a `._` companion
+  beside each file. Whether every command ran exactly as printed is not recorded.
+  If one of them fails on your Mac, that is a finding about this page — send it.
 - **A Driven pass is one closed loop**, not a claim about long or busy sessions
   (step 7 says exactly what it covers).
 - **The live task is a copy.** Its one definition is `scripts/_rig_live.sh`,
@@ -513,10 +615,11 @@ confirmed the clone stayed clean.
   fixture and its configuration for you to paste. A copy is where drift starts,
   so a check pins it: `tests/smoke/rig_live_commands_lint.sh` fails if this page
   and the rig ever disagree.
-- **There is no one-command script yet.** Everything above is copy-and-paste. A
-  script that sources the rig's definition and writes the report folder for you
-  is the obvious next step, and is recorded as open work in
-  [`DEFERRED.md`](DEFERRED.md) rather than promised here.
+- **There is no one-command script for your own machine yet.** Steps 2 to 8 are
+  copy-and-paste. A script that sources the rig's definition and writes the
+  report folder for you is the obvious next step, and is recorded as open work
+  in [`DEFERRED.md`](DEFERRED.md) rather than promised here. For a machine you
+  reach over `ssh` from a second one, the rig exists (§4, the last part).
 
 ---
 

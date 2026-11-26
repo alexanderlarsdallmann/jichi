@@ -417,7 +417,7 @@ else
 fi
 
 say "unit suite"
-if g 'cd ~/jichi && gmake test 2>&1 | tail -3' 2>/dev/null | tee -a "$RESULTS" | grep -qE '[0-9]+ checks, 0 failures'; then
+if g 'cd ~/jichi && gmake test 2>&1 | grep -E "^ *FAIL |checks, [0-9]+ failures|\\*\\*\\*" | tail -40' 2>/dev/null | tee -a "$RESULTS" | grep -qE '[0-9]+ checks, 0 failures'; then
     ok "unit suite: 0 failures"
 else
     bad "unit suite did not report '<N> checks, 0 failures'"
@@ -454,7 +454,14 @@ else
         # NOT anchored: run.sh indents a nested driver's checks as "    | ok 3 - ...",
         # so `^not ok` matches nothing and the capture stays silent about the very
         # thing it exists to record. (Made that mistake here once already.)
-        echo "--- every failing check, and the driver banners ---"
+        # THE WHOLE LIST FIRST (TW24, 2026-11-25). The excerpt below is cut at 40
+        # lines, and a record that shows 40 lines of a longer list was read as the
+        # list: three rows were reported with 5, 6 and 5 failing drivers where the
+        # runner counted 36, 33 and 27. run.sh prints every failing driver's name
+        # on one line; print that line, and say of the excerpt that it is one.
+        echo "--- every failing driver (the runner's own line) ---"
+        g 'grep "^smoke: FAILED -- " /tmp/smoke.log | tail -1' 2>/dev/null
+        echo "--- the FIRST 40 lines of failing checks and driver banners (an excerpt, not the list) ---"
         g 'grep -nE "not ok|FAILED \(in suite\)|ALSO fails|classify the failure" /tmp/smoke.log | head -40' 2>/dev/null
         echo "--- the standalone re-run, which is the classified diagnosis ---"
         g 'sed -n "/ALSO fails standalone/,\$p" /tmp/smoke.log | head -45' 2>/dev/null
@@ -462,13 +469,26 @@ else
 fi
 
 say "offline surfaces"
-for s in "--version" "doctor" "describe" "context"; do
+for s in "--version" "describe" "context"; do
     if g "cd ~/jichi && ./jichi $s >/dev/null 2>&1 && echo SURFACE_OK" 2>/dev/null | grep -q SURFACE_OK; then
         ok "offline: $s ran"
     else
         bad "offline: $s failed"
     fi
 done
+# doctor is judged by a POSITIVE MARKER, its summary line, never by its exit
+# status: it exits non-zero when it FINDS something, and a guest with no
+# configuration always gives it something to find ("no model is configured").
+# Read by exit status, this step failed on every platform, Linux included
+# (TW24.F19); scripts/tier-v-illumos.sh has had this form since its first run.
+_doc=$(g 'cd ~/jichi && ./jichi doctor 2>&1' 2>/dev/null)
+_sum=$(printf '%s' "$_doc" | grep -E '[0-9]+ ok, [0-9]+ warning' | tail -1)
+if [ -n "$_sum" ]; then
+    ok "offline: doctor ran and printed its summary -- $_sum"
+    note "    doctor: $_sum"
+else
+    bad "offline: doctor printed no summary line at all"
+fi
 
 # ------------------------------------------------------------- live turns
 # The DRIVEN step. Its definition, and every reason behind it, is in ONE place:

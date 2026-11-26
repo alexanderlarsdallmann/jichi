@@ -279,8 +279,14 @@ void test_bg(void)
         long c;
         jc_sb_clear(&sb);
         id = jc_bg_start(&m,
-                         "i=0; while [ $i -lt 32768 ]; do printf 'l%06d\\n' "
-                         "$i; i=$((i+1)); done");
+                         /* ONE awk, not a shell loop of 32768 printf
+                          * calls: printf is built into Linux's sh and
+                          * is /usr/bin/printf on OpenBSD, where the
+                          * loop took 19 s against this test's 2 s wait
+                          * (measured); awk prints the same lines at
+                          * once everywhere. */
+                         "awk 'BEGIN { for (i = 0; i < 32768; i++) "
+                         "printf \"l%06d\\n\", i }'");
         JC_CHECK(id > 0);
         if (id > 0) {
             c = wait_exit_count(&m, id, &sb, "l032500\n");
@@ -301,8 +307,14 @@ void test_bg(void)
         long c;
         jc_sb_clear(&sb);
         id = jc_bg_start(&m,
-                         "i=0; while [ $i -lt 33280 ]; do printf 'l%06d\\n' "
-                         "$i; i=$((i+1)); done");
+                         /* ONE awk, not a shell loop of 33280 printf
+                          * calls: printf is built into Linux's sh and
+                          * is /usr/bin/printf on OpenBSD, where the
+                          * loop took 19 s against this test's 2 s wait
+                          * (measured); awk prints the same lines at
+                          * once everywhere. */
+                         "awk 'BEGIN { for (i = 0; i < 33280; i++) "
+                         "printf \"l%06d\\n\", i }'");
         JC_CHECK(id > 0);
         if (id > 0) {
             c = wait_exit_count(&m, id, &sb, "l032500\n");
@@ -335,7 +347,10 @@ void test_bg(void)
         id = jc_bg_start(&m,
                          "echo 'MARKHEAD'; "
                          "i=0; while [ $i -lt 130 ]; do "
-                         "  yes MARK | head -c 4096; "
+                         /* 819 lines of "MARK" (4,095 bytes) from awk: `head -c` is
+                          * not POSIX and OpenBSD's head has no -c, so
+                          * `yes MARK | head -c 4096` wrote nothing there. */
+                         "  awk 'BEGIN { for (j = 0; j < 819; j++) print \"MARK\" }'; "
                          "  i=$((i+1)); "
                          "  if [ $i -eq 125 ]; then echo 'MARKTAIL'; fi; "
                          "  sleep 0.005; "
@@ -410,7 +425,10 @@ void test_bg(void)
         jc_sb_clear(&sb);
         id = jc_bg_start(&m,
                          "i=0; while [ $i -lt 130 ]; do "
-                         "  yes MARK | head -c 4096; "
+                         /* 819 lines of "MARK" (4,095 bytes) from awk: `head -c` is
+                          * not POSIX and OpenBSD's head has no -c, so
+                          * `yes MARK | head -c 4096` wrote nothing there. */
+                         "  awk 'BEGIN { for (j = 0; j < 819; j++) print \"MARK\" }'; "
                          "  i=$((i+1)); sleep 0.005; "
                          "done; "
                          "sleep 0.5; echo L27_VERDICT");
@@ -448,7 +466,10 @@ void test_bg(void)
         jc_sb_clear(&sb);
         id = jc_bg_start(&m,
                          "i=0; while [ $i -lt 130 ]; do "
-                         "  yes MARK | head -c 4096; "
+                         /* 819 lines of "MARK" (4,095 bytes) from awk: `head -c` is
+                          * not POSIX and OpenBSD's head has no -c, so
+                          * `yes MARK | head -c 4096` wrote nothing there. */
+                         "  awk 'BEGIN { for (j = 0; j < 819; j++) print \"MARK\" }'; "
                          "  i=$((i+1)); sleep 0.005; "
                          "done; "
                          "sleep 1; echo M996_MARKER");

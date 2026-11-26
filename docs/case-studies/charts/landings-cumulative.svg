@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 420" width="920" height="420" role="img">
+<title>Landings on master, cumulative, four drives</title><desc>Each step is one gated batch landing on master. Grey bands: the loop was parked, stopped or paused.</desc>
+<style>
+.s{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.tm{fill:#898781}
+.g{stroke:#e1e0d9}.ax{stroke:#c3c2b7}.wash{fill:#898781;fill-opacity:.16}
+.d0{fill:#2a78d6;stroke:#2a78d6}.d1{fill:#eb6834;stroke:#eb6834}.d2{fill:#1baf7a;stroke:#1baf7a}
+.d3{fill:#eda100;stroke:#eda100}.ring{stroke:#fcfcfb}
+.l0{fill:none;stroke:#2a78d6}.l1{fill:none;stroke:#eb6834}.l2{fill:none;stroke:#1baf7a}.l3{fill:none;stroke:#eda100}.good{fill:#0ca30c}.crit{fill:#d03b3b;stroke:#d03b3b}
+.ink{fill:#52514e}.down{fill:#898781;fill-opacity:.5}
+text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+@media (prefers-color-scheme: dark){
+.s{fill:#1a1a19}.t1{fill:#f0efec}.t2{fill:#c3c2b7}.g{stroke:#2c2c2a}.ax{stroke:#383835}
+.d0{fill:#3987e5;stroke:#3987e5}.d1{fill:#d95926;stroke:#d95926}.d2{fill:#199e70;stroke:#199e70}
+.d3{fill:#c98500;stroke:#c98500}.ring{stroke:#1a1a19}
+.l0{stroke:#3987e5}.l1{stroke:#d95926}.l2{stroke:#199e70}.l3{stroke:#c98500}.ink{fill:#c3c2b7}}
+</style>
+<rect class="s" x="0" y="0" width="920" height="420" rx="8"/>
+<text class="t1" x="24.0" y="30.0" font-size="15" text-anchor="start" font-weight="600">Landings on master over 35 days: four drives, 68 landings</text>
+<rect class="wash" x="99.0" y="56" width="1.0" height="304"><title>Hardening 1, paused: 10-19 23:06 to 10-20 00:15 (STOP on the operator's word (&quot;Yes, pause the loop with the STOP file.&quot;), so that the operator could review batches 0-3; resumed on &quot;proceed ... with the next batches&quot;)</title></rect>
+<rect class="wash" x="107.5" y="56" width="1.4" height="304"><title>Hardening 1, stopped by the operator: 10-20 09:32 to 10-20 11:14 (STOP for the history rewrite (commit identity), on the operator's scope-A order &quot;fix everything, and document it honestly&quot;; restarted on the rewritten history)</title></rect>
+<rect class="wash" x="215.9" y="56" width="2.7" height="304"><title>Harness, model outage park: 10-25 21:32 to 10-26 00:55 (gateway refused new connections; run 0014 waited for it (&quot;gateway down: run 0014 waits&quot; ... &quot;gateway up again after 12122 s&quot;))</title></rect>
+<rect class="wash" x="244.8" y="56" width="1.0" height="304"><title>Hardening 2, restart: 10-27 09:01 to 10-27 09:05 (the M1060 shakedown (`drive --once`, run 0077) ended by design; the supervisor then started the loop unit)</title></rect>
+<rect class="wash" x="273.0" y="56" width="1.0" height="304"><title>Hardening 2, restart: 10-28 19:38 to 10-28 19:38 (STOP for a loop restart onto the pinned c49b4270 jichi-harness (the loop process still ran 561e91b4's deleted binary); the operator: &quot;restart the loop&quot;)</title></rect>
+<rect class="wash" x="316.5" y="56" width="2.6" height="304"><title>Hardening 2, model outage park: 10-31 01:02 to 10-31 04:10 (STOP to park: gateway block 1 (probe 000 01:03-04:04); resumed by park-resume.sh)</title></rect>
+<rect class="wash" x="356.7" y="56" width="2.6" height="304"><title>Hardening 2, model outage park: 11-02 02:22 to 11-02 05:31 (STOP to park: gateway block 2 (01:26-05:26); resumed by park-resume.sh)</title></rect>
+<rect class="wash" x="368.7" y="56" width="2.7" height="304"><title>Hardening 2, model outage park: 11-02 17:09 to 11-02 20:31 (STOP to park: gateway block 3 from 16:27; a workstation reboot (18:16) fell inside the park; resumed by park-resume.sh v2)</title></rect>
+<rect class="wash" x="416.3" y="56" width="1.0" height="304"><title>Hardening 2, paused: 11-05 03:30 to 11-05 04:19 (PAUSE (supervisor, per the operator's DH5.1 decisions) while BATCH 12 (4a1aee78) gated; restarted for fix batch 12b after the review rated M1125 WRONG)</title></rect>
+<rect class="wash" x="458.3" y="56" width="1.0" height="304"><title>Harness port, waiting: 11-07 07:05 to 11-07 07:15 (three quick failures in a row: waiting 10 minutes (runs died at exec, rc 127: the prompt as one argv over 128 KiB))</title></rect>
+<rect class="wash" x="458.5" y="56" width="1.0" height="304"><title>Harness port, waiting: 11-07 07:16 to 11-07 07:26 (three quick failures in a row: waiting 10 minutes (runs died at exec, rc 127))</title></rect>
+<rect class="wash" x="458.6" y="56" width="1.0" height="304"><title>Harness port, waiting: 11-07 07:27 to 11-07 07:37 (three quick failures in a row: waiting 10 minutes (runs died at exec, rc 127))</title></rect>
+<rect class="wash" x="458.8" y="56" width="1.0" height="304"><title>Harness port, waiting: 11-07 07:38 to 11-07 07:48 (three quick failures in a row: waiting 10 minutes (runs died at exec, rc 127))</title></rect>
+<rect class="wash" x="471.4" y="56" width="1.0" height="304"><title>Harness port, restart: 11-07 23:09 to 11-07 23:09 (RESTART onto the pinned a4f6305c jichi-harness (H6 + H7 harness code), on the operator's word)</title></rect>
+<rect class="wash" x="505.6" y="56" width="1.0" height="304"><title>Harness port, restart: 11-09 17:07 to 11-09 17:08 (RESTART onto the pinned 53a1ef4e jichi-harness (H9a + H9a1), on the operator's word)</title></rect>
+<rect class="wash" x="521.0" y="56" width="1.0" height="304"><title>Harness port, model outage park: 11-10 12:05 to 11-10 12:06 (the page watcher saw model calls failing for 31 minutes (10:39) and set the drive to stop after its current run; the run's own retry recovered, the run ended normally and the loop started again)</title></rect>
+<rect class="wash" x="563.8" y="56" width="2.2" height="304"><title>Harness port, paused: 11-12 16:31 to 11-12 19:12 (PAUSE on the operator's word (&quot;pause after the next master lands, and discuss the next steps&quot;) after H9b landed; platform retests on the new master; resumed on the operator's word)</title></rect>
+<rect class="wash" x="581.3" y="56" width="1.1" height="304"><title>Harness port, paused: 11-13 14:00 to 11-13 15:25 (PAUSE at the PLAT landing for the 0.14.0 release candidate and cut (the operator's word of 11-12 18:3x))</title></rect>
+<rect class="wash" x="585.9" y="56" width="2.8" height="304"><title>Harness port, paused: 11-13 19:40 to 11-13 23:08 (STOP after the operator-approved short run 0047 (BATCH REL READY) while the release batch went through the gate; resumed on the operator's &quot;option 1&quot;)</title></rect>
+<rect class="wash" x="599.7" y="56" width="1.0" height="304"><title>Harness port, restart: 11-14 12:40 to 11-14 12:41 (RESTART onto the new pin (7f5ff7eb harness code), on the operator's word)</title></rect>
+<rect class="wash" x="637.7" y="56" width="1.0" height="304"><title>Harness port, restart: 11-16 11:13 to 11-16 11:14 (RESTART onto the pinned bbaf6a7b jichi-harness, on the operator's word (&quot;Start on 1, and yes to 2&quot;))</title></rect>
+<rect class="wash" x="729.0" y="56" width="1.0" height="304"><title>Harness port, restart: 11-21 03:22 to 11-21 03:22 (RESTART onto the pinned 17dcf279 jichi-harness, on the operator's word (&quot;Then restart the drive loop!&quot;))</title></rect>
+<line class="g" x1="64" y1="360.0" x2="760" y2="360.0" stroke-width="1"/>
+<text class="tm" x="56.0" y="364.0" font-size="11" text-anchor="end" font-weight="400">0</text>
+<line class="g" x1="64" y1="315.3" x2="760" y2="315.3" stroke-width="1"/>
+<text class="tm" x="56.0" y="319.3" font-size="11" text-anchor="end" font-weight="400">10</text>
+<line class="g" x1="64" y1="270.6" x2="760" y2="270.6" stroke-width="1"/>
+<text class="tm" x="56.0" y="274.6" font-size="11" text-anchor="end" font-weight="400">20</text>
+<line class="g" x1="64" y1="225.9" x2="760" y2="225.9" stroke-width="1"/>
+<text class="tm" x="56.0" y="229.9" font-size="11" text-anchor="end" font-weight="400">30</text>
+<line class="g" x1="64" y1="181.2" x2="760" y2="181.2" stroke-width="1"/>
+<text class="tm" x="56.0" y="185.2" font-size="11" text-anchor="end" font-weight="400">40</text>
+<line class="g" x1="64" y1="136.5" x2="760" y2="136.5" stroke-width="1"/>
+<text class="tm" x="56.0" y="140.5" font-size="11" text-anchor="end" font-weight="400">50</text>
+<line class="g" x1="64" y1="91.8" x2="760" y2="91.8" stroke-width="1"/>
+<text class="tm" x="56.0" y="95.8" font-size="11" text-anchor="end" font-weight="400">60</text>
+<line class="g" x1="80.2" y1="56" x2="80.2" y2="360" stroke-width="1"/>
+<text class="tm" x="80.2" y="376.0" font-size="11" text-anchor="middle" font-weight="400">10-19</text>
+<line class="g" x1="217.9" y1="56" x2="217.9" y2="360" stroke-width="1"/>
+<text class="tm" x="217.9" y="376.0" font-size="11" text-anchor="middle" font-weight="400">10-26</text>
+<line class="g" x1="354.8" y1="56" x2="354.8" y2="360" stroke-width="1"/>
+<text class="tm" x="354.8" y="376.0" font-size="11" text-anchor="middle" font-weight="400">11-02</text>
+<line class="g" x1="491.6" y1="56" x2="491.6" y2="360" stroke-width="1"/>
+<text class="tm" x="491.6" y="376.0" font-size="11" text-anchor="middle" font-weight="400">11-09</text>
+<line class="g" x1="628.5" y1="56" x2="628.5" y2="360" stroke-width="1"/>
+<text class="tm" x="628.5" y="376.0" font-size="11" text-anchor="middle" font-weight="400">11-16</text>
+<line class="ax" x1="64" y1="360" x2="760" y2="360" stroke-width="1"/>
+<path class="l0" d="M64.0,360.0 L89.1,360.0 L89.1,355.5 L91.2,355.5 L91.2,351.1 L98.3,351.1 L98.3,346.6 L126.1,346.6 L126.1,342.1 L132.7,342.1 L132.7,337.6 L144.9,337.6 L144.9,333.2 L151.8,333.2 L151.8,328.7 L158.1,328.7 L158.1,324.2 L161.3,324.2 L161.3,319.8 L164.9,319.8 L164.9,315.3 L174.7,315.3 L174.7,310.8 L174.8,310.8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle class="d0 ring" cx="174.8" cy="310.8" r="4.5" stroke-width="2"><title>Hardening 1: 11 landings, 10-18 04:07 to 10-23 20:05</title></circle>
+<text class="t2" x="166.8" y="300.8" font-size="12" text-anchor="end" font-weight="400">Hardening 1: 11</text>
+<path class="l1" d="M174.9,310.8 L177.9,310.8 L177.9,306.4 L182.8,306.4 L182.8,301.9 L188.7,301.9 L188.7,297.4 L193.3,297.4 L193.3,292.9 L207.7,292.9 L207.7,288.5 L232.8,288.5 L232.8,284.0 L240.9,284.0 L240.9,279.5 L242.0,279.5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle class="d1 ring" cx="242.0" cy="279.5" r="4.5" stroke-width="2"><title>Harness: 7 landings, 10-23 20:16 to 10-27 05:37</title></circle>
+<text class="t2" x="234.0" y="269.5" font-size="12" text-anchor="end" font-weight="400">Harness: 7</text>
+<path class="l2" d="M243.5,279.5 L245.0,279.5 L245.0,275.1 L245.6,275.1 L245.6,270.6 L261.7,270.6 L261.7,266.1 L267.1,266.1 L267.1,261.6 L273.6,261.6 L273.6,257.2 L281.8,257.2 L281.8,252.7 L294.0,252.7 L294.0,248.2 L315.7,248.2 L315.7,243.8 L327.9,243.8 L327.9,239.3 L330.0,239.3 L330.0,234.8 L338.4,234.8 L338.4,230.4 L341.7,230.4 L341.7,225.9 L353.4,225.9 L353.4,221.4 L356.6,221.4 L356.6,216.9 L376.5,216.9 L376.5,212.5 L396.6,212.5 L396.6,208.0 L416.9,208.0 L416.9,203.5 L419.2,203.5 L419.2,199.1 L420.5,199.1 L420.5,194.6 L426.3,194.6 L426.3,190.1 L426.7,190.1" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle class="d2 ring" cx="426.7" cy="190.1" r="4.5" stroke-width="2"><title>Hardening 2: 20 landings, 10-27 07:22 to 11-05 16:15</title></circle>
+<text class="t2" x="418.7" y="180.1" font-size="12" text-anchor="end" font-weight="400">Hardening 2: 20</text>
+<path class="l3" d="M432.2,190.1 L442.6,190.1 L442.6,185.6 L469.0,185.6 L469.0,181.2 L479.0,181.2 L479.0,176.7 L495.4,176.7 L495.4,172.2 L503.5,172.2 L503.5,167.8 L505.4,167.8 L505.4,163.3 L563.5,163.3 L563.5,158.8 L576.6,158.8 L576.6,154.4 L591.4,154.4 L591.4,149.9 L597.1,149.9 L597.1,145.4 L600.5,145.4 L600.5,140.9 L602.7,140.9 L602.7,136.5 L609.5,136.5 L609.5,132.0 L610.5,132.0 L610.5,127.5 L612.4,127.5 L612.4,123.1 L615.4,123.1 L615.4,118.6 L619.5,118.6 L619.5,114.1 L647.1,114.1 L647.1,109.6 L650.9,109.6 L650.9,105.2 L651.9,105.2 L651.9,100.7 L669.1,100.7 L669.1,96.2 L675.8,96.2 L675.8,91.8 L685.1,91.8 L685.1,87.3 L689.6,87.3 L689.6,82.8 L709.3,82.8 L709.3,78.4 L717.8,78.4 L717.8,73.9 L730.8,73.9 L730.8,69.4 L734.3,69.4 L734.3,64.9 L753.3,64.9 L753.3,60.5 L758.5,60.5 L758.5,56.0 L760.0,56.0" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle class="d3 ring" cx="760.0" cy="56.0" r="4.5" stroke-width="2"><title>Harness port: 30 landings, 11-05 23:04 to 11-22 17:22</title></circle>
+<text class="t2" x="768.0" y="60.0" font-size="12" text-anchor="start" font-weight="400">Harness port: 30</text>
+<rect class="d0" x="64" y="40" width="14" height="4" rx="2"/>
+<text class="t2" x="84.0" y="46.0" font-size="12" text-anchor="start" font-weight="400">Hardening 1</text>
+<rect class="d1" x="194" y="40" width="14" height="4" rx="2"/>
+<text class="t2" x="214.0" y="46.0" font-size="12" text-anchor="start" font-weight="400">Harness</text>
+<rect class="d2" x="324" y="40" width="14" height="4" rx="2"/>
+<text class="t2" x="344.0" y="46.0" font-size="12" text-anchor="start" font-weight="400">Hardening 2</text>
+<rect class="d3" x="454" y="40" width="14" height="4" rx="2"/>
+<text class="t2" x="474.0" y="46.0" font-size="12" text-anchor="start" font-weight="400">Harness port</text>
+<rect class="wash" x="584" y="38" width="14" height="10"/>
+<text class="t2" x="604.0" y="46.0" font-size="12" text-anchor="start" font-weight="400">loop parked, stopped or paused</text>
+<text class="tm" x="64.0" y="406.0" font-size="11" text-anchor="start" font-weight="400">Times in Europe/Berlin. The harness-port drive is still running; counted to 2026-11-22 17:22.</text>
+</svg>

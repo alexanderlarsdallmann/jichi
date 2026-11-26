@@ -56,7 +56,14 @@ M130 scrub) and receives everything else on stdin as JSON.
   empty matches every tool. Events without a tool (`UserPromptSubmit`,
   `SessionStart`, `Stop`) ignore it.
 - Each command is `{command,args}` (argv form, no shell) **or** `{shell}` (run
-  via `/bin/sh -c`), plus an optional `timeout` (seconds, default 30).
+  via `/bin/sh -c`), plus an optional `timeout` in seconds. **Absent or `0` both
+  mean 30 seconds**: `0` is not "no limit" here, unlike `runTimeout`. Measured on
+  2026-11-21 and again on 2026-11-23: a 31-second hook is killed with no `timeout`
+  and with `"timeout": 0`, and finishes with `60`. A killed hook prints
+  `[jichi warn] hook timed out and was killed` on stderr. In a headless run's
+  `SessionStart` that line is the only trace: the run's telemetry holds no hook
+  record. The 30 is an unmeasured default ([`LIMITS.md`](LIMITS.md)), so set
+  `timeout` to what your hook actually needs.
 
 ## What the hook receives
 

@@ -4,6 +4,7 @@
 /* jc_agent.c - the streaming agent loop (see jc_agent.h). */
 
 #include "jc_agent.h"
+#include "jc_sup_stop.h"  /* def-377 W4 (M1194, A4b): the soft-stop sentinel line */
 #include "jc_scopededit.h"  /* D6 (M975): the scoped edit check */
 #include "jc_utf8.h"   /* M911: hand-back head cut on a char boundary */
 #include "jc_outcome.h"
@@ -234,6 +235,17 @@ static int cut_continue_allowed(const struct jc_app *app)
     }
     return app->config.continue_cut_reply == JC_CUTCONT_HEADLESS &&
            app->headless_run;
+}
+
+/* M1209: adopt app->provider into *prov only if the loop's last call (or a
+ * route inside it) actually changed it -- same guard as the post-call site
+ * (M1207, :2814), so a delegate child keeps its assigned model across its
+ * nudge rounds instead of silently switching onto the lead's provider. */
+static void prov_resync(struct jc_app *app, struct jc_provider **prov,
+                        const struct jc_provider *pre_route)
+{
+    if (app->provider != pre_route)
+        *prov = app->provider;
 }
 
 static cJSON *telem(struct jc_app *app, const char *event)
@@ -986,6 +998,7 @@ static void app_record_last_verify(struct jc_app *app, int code,
     int added = 0;
 
     app->last_verify_code = code;
+    app->last_verify_ran = 1;
     app->last_verify_fail = (rep != NULL) ? rep->failed : -1;
     names[0] = '\0';
     if (rep != NULL) {
@@ -2211,6 +2224,7 @@ static void relay_account_call(struct jc_app *app, struct jc_history *hist,
     jc_status st;
     struct jc_message *acc;
     const char *last;
+    char scan_name[64];
 
     *out = NULL;
     *cut = 0;
@@ -2234,8 +2248,18 @@ static void relay_account_call(struct jc_app *app, struct jc_history *hist,
     /* Re-fetch by index: the stream may have reallocated the message vector,
      * so the `acc` pointer above is not guaranteed stable after stream_once. */
     acc = jc_history_get(hist, jc_history_len(hist) - 1);
+    /* A reply that is a tool call written as text is NOT an account: the
+     * request offers no tools, and a model that answers it with
+     * `{"name":"read_file",...}` has said nothing about the leg (measured
+     * with a local model: 4 of 8 accounts). The scanner is the loop's own
+     * (M147: high precision, the name must resolve in the live registry).
+     * It is asked here whatever the model's text_tool_calls setting says:
+     * a call is no account under either setting. On a hit the fallback
+     * below is taken, as for a failed call. */
     if (st == JC_OK && acc != NULL && acc->content != NULL &&
-        acc->content[0] != '\0') {
+        acc->content[0] != '\0' &&
+        !jc_toolcall_scan(acc->content, app->tools, scan_name,
+                          sizeof(scan_name))) {
         *cut = acc->truncated ? 1 : 0;
         {
             size_t L = strlen(acc->content);
@@ -2343,6 +2367,60 @@ static void agent_loop_midturn_persist(struct jc_app *app,
         jc_logf(JC_LOG_WARN,
                 "mid-turn session save failed; the end-of-turn save will retry"
                 " and report it");
+    }
+}
+
+/* M1194 W4 (def-377, A4b): the SOFT-STOP ARM, the child half. Called right
+ * after each of this loop's two `jc_control_boundary` fold sites (the M438
+ * pre-request boundary and the post-round boundary) -- for a FORKED pool child
+ * the boundary's only fold is the pool_inject drain (jc_control.c), which turns
+ * the parent's queued wrapup+sentinel inject into [operator] user messages, so
+ * the sentinel (sent LAST) is the history's last message when it has landed.
+ *
+ * Recognition is EXACT-LINE (jc_sup_stop_line) on the raw queued text -- the
+ * content of the last message with its "[operator] " prefix stripped. The A4
+ * wave's loop-top strstr history re-scan (R:1) is gone; this is the ONLY place
+ * a soft stop arms. The arm (pool_sup_stop_seen = 1) and the STAMP
+ * (last_run_capped = 1, last_run_looped = 5) happen TOGETHER, here, because
+ * the fold is the one moment every trace is guaranteed to pass through (R:3):
+ * whether the run then ends cooperatively at the ncalls == 0 return or breaks
+ * at the next loop top, the done line already carries the kind. Only the first
+ * fold arms (the != 0 guard): a sentinel folds once, and the wrapup line is a
+ * different [operator] message that is never the last one.
+ *
+ * The prefix is the EXACT 11-byte "[operator] " that jc_history_add_operator
+ * prepends (jc_message.c) -- the only producer of prefixed user messages, and
+ * the pool child's task prompt is user-role WITHOUT it, so a prompt that
+ * contains the control word can never be mistaken for a folded sentinel. */
+static void jc_sup_stop_check_fold(struct jc_app *app, struct jc_history *hist)
+{
+    jc_size hlen;
+    struct jc_message *last;
+    const char *content;
+    if (app->pool_sup_stop_seen != 0) {
+        return;   /* already armed: a soft stop folds once, and only once arms */
+    }
+    hlen = jc_history_len(hist);
+    if (hlen == 0) {
+        return;
+    }
+    last = jc_history_get(hist, hlen - 1);
+    if (last == NULL || last->role != JC_ROLE_USER || last->content == NULL) {
+        return;
+    }
+    content = last->content;
+    if (strncmp(content, "[operator] ", 11) != 0) {
+        return;
+    }
+    if (jc_sup_stop_line(content + 11)) {
+        app->pool_sup_stop_seen = 1;   /* armed; the grace call is not yet served.
+                                         * The flip to 2 (served) happens after the
+                                         * FIRST stream that follows this fold --
+                                         * run_agent_loop's post-stream_once check --
+                                         * which is the one whose prompt carries the
+                                         * sentinel. See include/jc_app.h. */
+        app->last_run_capped = 1;      /* like the loop stops (M869) */
+        app->last_run_looped = 5;      /* supervised (W6.1, the 5th kind) */
     }
 }
 
@@ -2461,11 +2539,13 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
      * verdict from the previous run -- same read-right-after reset as
      * relay_handover, so the baton's "Last verify" line omits stale data. */
     app->last_verify_code = 0;
+    app->last_verify_ran = 0;
     app->last_verify_fail = -1;
     app->last_verify_failnames[0] = '\0';
     memset(&relay_st, 0, sizeof relay_st); /* M920: no streak across runs */
     app->last_run_budget_stopped = 0; /* set only on a delegate's budget stop */
     app->last_run_looped = 0;         /* M869: set only on a child's loop stop */
+    app->pool_sup_stop_seen = 0;      /* M1194 W4 (A4b): set only at the fold */
     app->last_fail_tool[0] = '\0';    /* M437: this run's last failing call */
     app->last_fail_msg[0] = '\0';
     app->last_fail_cls = (int)JC_FAIL_OTHER;
@@ -2482,6 +2562,8 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
     memset(app->fail_cls_count, 0, sizeof app->fail_cls_count);
     for (iter = 0; iter < opts->max_iters; iter++) {
         struct jc_message *assistant;
+        struct jc_provider *pre_route; /* M1207: app->provider before the call */
+        const struct jc_provider *round_prov; /* M1219: provider at tool-round boundary */
         cJSON *tools;
         int ntools_adv = 0;   /* tools this request advertised (M255) */
         long tools_est = 0;   /* byte-estimate of the tool schemas (M286) */
@@ -2493,6 +2575,49 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
 
         if (app->abort_flag) {
             return JC_ERR_ABORTED;
+        }
+
+        /* M1194 W4 (def-377, A4b): the SOFT-STOP BREAK, the child half.
+         * Recognition is NOT here. The A4 wave's loop-top history scan
+         * (strstr over the last few user-role messages) was review finding
+         * R:1: a TASK PROMPT containing the control word mid-prose self-armed
+         * a child that never received a soft stop, and a human inject that
+         * merely mentioned it armed it too. Recognition now happens exactly
+         * ONCE, at the FOLD -- the boundary call that drains the parent's
+         * wrapup+sentinel inject (jc_control.c's pool_inject drain folds it as
+         * an [operator] message; this file checks the just-folded message with
+         * jc_sup_stop_line, the EXACT-line rule). There is no second
+         * recognition site, so a task prompt, a tool result, and any
+         * mid-prose mention are never re-matched.
+         *
+         * Here the loop top only BREAKS, and only on the armed-AND-served
+         * state (pool_sup_stop_seen == 2). The armed state (== 1) was set at
+         * the fold -- and the kind was STAMPED there too (R:3, see below) --
+         * so which call is the ONE grace model call W4.2 allows depends on the
+         * fold site, and the 1 -> 2 flip (right after stream_once) is what
+         * makes it exactly ONE for both:
+         *   pre-request fold (the M438 boundary, below in this loop): the
+         *   sentinel lands in THIS iteration's prompt; state is 1 (armed, not
+         *   yet served), so the loop top does NOT break and this iteration
+         *   RUNS -- its stream is the grace call (the flip to 2 happens after
+         *   the stream). If the model calls a tool, the next loop top breaks.
+         *   post-round fold (the M159 boundary, after the tool round): the
+         *   sentinel lands in the NEXT iteration's prompt; the current
+         *   iteration's stream already ran BEFORE the fold, so it is not the
+         *   grace call (the fold sets 1 and the next iteration RUNS); its
+         *   stream is the grace call.
+         *
+         * The stamp is at the FOLD, not at the break or the detection,
+         * because the usual ending is cooperative: the model obeys the wrapup
+         * text and ends the grace call with its final answer (the ncalls == 0
+         * return below), never reaching the next loop top; the done line must
+         * still carry stop=max_iters + looped=5, and the fold is the one
+         * guaranteed observation moment on EVERY trace (the inject must fold
+         * before the run can end, at either site). The break is the NON-
+         * cooperative arm: the model calls a tool during grace; the next loop
+         * top ends the run here, and the stamp is already on `app`. */
+        if (app->pool_sup_stop_seen == 2) {
+            break;
         }
 
         {
@@ -2620,9 +2745,11 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
          * one. This is a clean history point: every turn above is complete and the
          * placeholder is not yet appended, so a queued inject folds in here and
          * reaches the request about to be built rather than the one after it. */
-        if (jc_control_boundary(app, hist) &&
-            cb != NULL && cb->on_status != NULL) {
-            cb->on_status(cb->user, "operator steering injected");
+        if (jc_control_boundary(app, hist)) {
+            jc_sup_stop_check_fold(app, hist);   /* M1194 W4 (A4b): the FOLD */
+            if (cb != NULL && cb->on_status != NULL) {
+                cb->on_status(cb->user, "operator steering injected");
+            }
         }
 
         /* Append the assistant message we will stream into. Its index is
@@ -2655,10 +2782,63 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
          * array in scope. */
         app->last_nonhist_est = sys_est + tools_est;
 
+        /* M1207: snapshot the provider before the call so the post-call re-sync
+         * can tell "the call re-routed" (app->provider now a fresh pointer, the
+         * old one freed) from "nothing happened" (the same pointer). */
+        pre_route = app->provider;
         st = stream_once(app, hist, opts->system_msg, tools, assistant, cb,
                          prov, sys_est, tools_est);
-        /* Re-sync prov after stream_once in case it was re-routed (M1038). */
-        prov = app->provider;
+        /* M1194 W4 (A4b): mark the ONE grace call SERVED. The fold set
+         * pool_sup_stop_seen = 1; the FIRST stream that follows that fold is
+         * the one whose prompt carries the sentinel, because there is no other
+         * model call between a fold and this line. That holds for BOTH fold
+         * sites: a pre-request fold arms before this stream's request is
+         * built (so it is the carrier); a post-round fold armed after the
+         * current stream already ran (so the NEXT stream is the carrier).
+         * Flipping 1 -> 2 here (after the stream completes -- the parent's
+         * fence stands down on the `tok` line this very call emits) means a
+         * tool call the model makes in the grace call is NOT run: the next
+         * loop top breaks (seen == 2). Exactly one grace call. The
+         * cooperative ending (ncalls == 0, the final answer) reads the kind
+         * already stamped at the fold (R:3). */
+        if (app->pool_sup_stop_seen == 1) {
+            app->pool_sup_stop_seen = 2;
+        }
+        /* M1207: re-sync prov after stream_once ONLY when the call actually
+         * re-routed. M1038's reason still holds for that case: a mid-call route
+         * (the connect-fallback re-sync inside stream_once at :762, the one
+         * depth-independent switch that also serves a child whose endpoint dies)
+         * frees the old provider and rebuilds app->provider to a fresh pointer,
+         * so prov must adopt the new one -- a stale prov would be a use-after-
+         * free, M1038 Q7's wound. Detect the re-route as `app->provider` having
+         * CHANGED during the call (pre_route, snapshotted above), not as
+         * `prov != app->provider`:
+         *
+         * For a delegate child whose model differs from the lead's, the fork
+         * (jc_tool_parallel.c:1121-1130 for spawn_parallel; jc_tool_subagent.c
+         * for spawn_subagent) resolves the child's model into its OWN provider
+         * and passes it to this loop as prov, while app->provider in the child's
+         * COW copy stays the LEAD's -- the intended design, not a bug. So for
+         * such a child `prov != app->provider` is TRUE on every model call, a
+         * guard keyed on it fires every call, and it re-syncs prov off the
+         * child's assigned model onto the lead's provider from request 2 on --
+         * exactly the defect M1207 fixes (the child's later requests reach the
+         * lead's model; its telemetry rows, M800's label, keep the assigned
+         * model's name so the rows look right while the wire is wrong). A guard
+         * keyed on `prov != app->provider` is a NO-OP against this: it is
+         * behaviourally identical to the unconditional line, and the RED driver
+         * (delegate_model.sh, DM1-DM3) stays red.
+         *
+         * Keying on `app->provider != pre_route` is correct for BOTH sides: the
+         * lead's prov == app->provider at the loop top, so a re-route still
+         * adopts the new provider exactly as M1038 intended; the child's
+         * app->provider is unchanged across a normal call, so the child keeps
+         * its assigned model on every request (and, if it genuinely re-routes
+         * mid-run, its app->provider changes and the guard adopts it, as it
+         * must). The unconditional re-sync's bytes are otherwise untouched. */
+        if (app->provider != pre_route) {
+            prov = app->provider;
+        }
         /* M334: carry the provider's truncation verdict to the tool layer,
          * which is where a cut-off tool call is about to be misdiagnosed. */
         app->last_response_truncated = (assistant != NULL) ? assistant->truncated
@@ -2806,7 +2986,9 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
             if (assistant->truncated && !cut_continued &&
                 cut_continue_allowed(app)) {
                 char nudge[256];
+                const struct jc_provider *nud;
                 cut_continued = 1;
+                nud = app->provider;
                 /* A-07 / M1090: name the cause in the nudge. The two
                  * truncation causes look identical to the model (a reply that
                  * stopped short), but the fix differs: the model's own
@@ -2837,7 +3019,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     cJSON *o = telem(app, "cut_continue");
                     jc_eventlog_end(app->telemetry, o);
                 }
-                prov = app->provider;
+                prov_resync(app, &prov, nud);
                 continue;
             }
             /* M937 (D3, the zigodot drive; widened by M965): a reply that ended
@@ -2861,7 +3043,9 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                 !assistant->truncated && assistant->saw_reasoning &&
                 (assistant->content == NULL ||
                  assistant->content[0] == '\0')) {
+                const struct jc_provider *nud;
                 empty_nudged = 1;
+                nud = app->provider;
                 jc_history_add(hist, JC_ROLE_USER,
                     "[jichi] You ended your last reply with reasoning but gave "
                     "no final answer. Do not restate your reasoning. Give your "
@@ -2876,7 +3060,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     }
                     jc_eventlog_end(app->telemetry, o);
                 }
-                prov = app->provider;
+                prov_resync(app, &prov, nud);
                 continue;
             }
             /* M147: a tool call written as prose (a fenced JSON block, a bare
@@ -3334,6 +3518,11 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
 
         /* Execute each requested tool call and append its result. */
         round_read = 0;
+        /* M1219: snapshot the provider before the tool-exec loop. A same-model
+         * child's in-process connect-fallback may free app->provider and
+         * replace it with a fallback's provider. We must resync prov if the
+         * round changed the provider (the child's fallback case). */
+        round_prov = app->provider;
         for (k = 0; k < ncalls; k++) {
             struct jc_tool_call *tc;
             struct jc_tool_result res;
@@ -3869,17 +4058,19 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                         refuse = 1;
                         app->deg_privilege++;   /* M443 */
                         reason = "privileged command refused: a delegate does "
-                                 "not run sudo/doas/pkexec/su, not even one "
-                                 "privilegedCommandsAllow names -- that list is "
-                                 "for your own turn and a top-level --auto run. "
-                                 "Run the command in the main turn.";
+                                 "not run sudo/doas/pkexec/su or a command whose "
+                                 "launcher the tokeniser could not resolve, not "
+                                 "even one privilegedCommandsAllow names -- that "
+                                 "list is for your own turn and a top-level "
+                                 "--auto run. Run the command in the main turn.";
                     } else {
                         decision = "unattended_refused";
                         refuse = 1;
                         app->deg_privilege++;   /* M443 */
                         reason = "privileged command refused: an unattended "
-                                 "agent will not run sudo/doas/pkexec/su. "
-                                 "Approve it interactively, or set "
+                                 "agent will not run sudo/doas/pkexec/su or a "
+                                 "command whose launcher the tokeniser could not "
+                                 "resolve. Approve it interactively, or set "
                                  "privilegedCommands: allow, or add it to "
                                  "privilegedCommandsAllow.";
                     }
@@ -3895,7 +4086,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     if (refuse) {
                         jc_history_add_tool_result(hist, call_id, reason, 1);
                         jc_app_why_note(app, name_copy, args_copy, 1,
-                            "the privileged-command policy (sudo, doas, pkexec, su)",
+                            "the privileged-command policy (sudo, doas, pkexec, su, or a command whose launcher the tokeniser could not resolve)",
                             reason);
                         app->tool_refusals++; /* M638: a fence, counted apart */
                         if (cb != NULL && cb->on_tool_result != NULL) {
@@ -4482,6 +4673,14 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     int sv_capped = app->last_run_capped;
                     int sv_budget = app->last_run_budget_stopped;
                     int sv_looped = app->last_run_looped;   /* M869 */
+                    /* M1194 W4c (def-377, R:5): the soft-stop flag is the SAME
+                     * per-run slot as the ones above. The nested delegate's
+                     * entry reset (run_agent_loop's pool_sup_stop_seen = 0)
+                     * would wipe the OUTER run's flag -- the grace call's model
+                     * answer invoking a subagent is the hole -- and the outer
+                     * loop-top break would then never take. Save it here,
+                     * restore it after the nested run; the nested reset stays. */
+                    int sv_sup_stop = app->pool_sup_stop_seen;
                     int sv_cls = app->last_fail_cls;
                     int sv_fstop = app->last_fail_stopped;   /* M885 */
                     int sv_repeat = app->last_fail_repeat;   /* M808 */
@@ -4626,6 +4825,9 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     app->last_run_capped = sv_capped;
                     app->last_run_budget_stopped = sv_budget;
                     app->last_run_looped = sv_looped;   /* M869 */
+                    /* R:5 (M1194 W4c): restore the outer run's soft-stop flag;
+                     * the nested run's own reset must not erase it. */
+                    app->pool_sup_stop_seen = sv_sup_stop;
                     app->last_fail_cls = sv_cls;
                     app->last_fail_stopped = sv_fstop;   /* M885 */
                     app->last_fail_repeat = sv_repeat;   /* M808 */
@@ -4677,6 +4879,25 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                         }
                         /* ok + error + exit, from one predicate (M536). */
                         stamp_outcome(o, res.is_error, res.exit_status);
+                        /* M1192 B3 (B3.8): the CANCELLED command. exit 143
+                         * (128 + SIGTERM) is produced ONLY by the watched
+                         * command's cancel kill-arm -- the abort arm kills the
+                         * whole pgroup with SIGKILL (137), the timeout arm
+                         * reports 124, and every other path is the command's
+                         * own exit -- so 143 is a sufficient discriminator for
+                         * "the supervisor cancelled this command" with no
+                         * marker flag to carry from the kill site (the disjoint
+                         * split that lets this live in the agent loop, not in
+                         * jc_app.c). The reader (jc_telemetry.c) counts these
+                         * and renders a line only when some occurred. The one
+                         * honest edge, recorded with the D8 deferral row: an
+                         * EXTERNAL SIGTERM to the command's process group also
+                         * reads 143 and is labelled cancel -- indistinguishable
+                         * from the exit status alone. */
+                        if (jc_tool_name_runs_shell(gate_name) &&
+                            res.exit_status == 143) {
+                            cJSON_AddStringToObject(o, "stopped", "cancel");
+                        }
                         /* M1041-d: write fail_class on failed calls only. This matches
                          * the loop detector's condition (res.is_error || tool_at_bound)
                          * so the field means 'the class of a FAILED call' exactly like
@@ -5273,6 +5494,11 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
              * the same round is malformed (M364's contract). */
             jc_control_poll(app);
         }
+        /* M1219: a same-model child's in-process connect-fallback may have freed
+         * app->provider and replaced it with a fallback's. Resync prov if the
+         * round changed the provider. */
+        if (app->provider != round_prov)
+            prov = app->provider;
         /* M1083 (D-08): the tool-round boundary -- every call of THIS round has
          * its result landed, so the history is a consistent prefix. Persist the
          * live session here (top-level only, throttled, durable) so a SIGKILL /
@@ -5295,9 +5521,11 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
          * consistent -- one zero-timeout poll; a pause blocks here in slices;
          * queued steering lands as one "[operator]" user message the NEXT
          * model call sees. Top-level only; NULL app->control => no-op. */
-        if (jc_control_boundary(app, hist) &&
-            cb != NULL && cb->on_status != NULL) {
-            cb->on_status(cb->user, "operator steering injected");
+        if (jc_control_boundary(app, hist)) {
+            jc_sup_stop_check_fold(app, hist);   /* M1194 W4 (A4b): the FOLD */
+            if (cb != NULL && cb->on_status != NULL) {
+                cb->on_status(cb->user, "operator steering injected");
+            }
         }
         /* M254: the SAME boundary, for the human at the keyboard. The TUI
          * collects keystrokes typed while the agent works (they used to be
@@ -5530,6 +5758,7 @@ static jc_status run_agent_loop(struct jc_app *app, struct jc_history *hist,
                     cJSON_AddNumberToObject(o, "age",
                                             (double)(nc - ndup - nargs));
                     cJSON_AddNumberToObject(o, "args", (double)nargs);
+                    app->compaction_total++;  /* def-377 W1.5: the total compact events */
                 }
                 jc_eventlog_end(app->telemetry, o);
                 /* M323: say it ONCE per turn. The condition persists for every
@@ -6288,6 +6517,9 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
         if (did_compact) {
             cJSON *o = telem(app, "compact");
             jc_eventlog_end(app->telemetry, o);
+            if (o != NULL) {
+                app->compaction_total++;  /* def-377 W1.5: the total compact events */
+            }
             /* M218: the summarized prefix's messages were just freed --
              * another low-water moment worth sweeping back to the OS. */
             jc_mem_release_os();
@@ -6668,6 +6900,15 @@ jc_status jc_agent_run_turn(struct jc_app *app, struct jc_history *hist,
                         app->env->outcome == JC_ENV_OK ? 1 : 0);
                 } else {
                     cJSON_AddStringToObject(o, "verified", "not_run");
+                    /* `verified` is about the COMPLETION check and stays
+                     * as it is. A periodic verify that ran is said beside
+                     * it, so a reader of `end` events does not take
+                     * "not_run" for "nothing checked this tree"
+                     * (TW24.F4). Absent when none ran. */
+                    if (app->last_verify_ran) {
+                        cJSON_AddStringToObject(o, "last_periodic_verify",
+                            app->last_verify_code == 0 ? "green" : "red");
+                    }
                 }
             }
             /* M690: and WHY it stopped, which `outcome` cannot say. Measured

@@ -35,7 +35,7 @@
 # in the live workspace), never spelled in a command the mock sends.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 15
+t_plan 17
 smoke_home
 tmp=$(smoke_tmp)
 
@@ -489,6 +489,7 @@ if ! wait_sock "$tmp/s10.sock"; then
 else
     ctl_wait_batch "$tmp/s10.sock" > /dev/null
     REPLY=$(cs "$tmp/s10.sock" '{"v":1,"type":"inject-task","task":1,"text":"M1149-MARKER"}')
+    REPLY10=$REPLY
     finish_lead_ctl
     T1=0; LEAK=0
     for f in "$CAP"/cap/req.*; do
@@ -1112,5 +1113,100 @@ else
         fi
     fi
 fi
+
+# --- 16: cell 10 again, with at most 512 open files -----------------------------
+# THE DEFECT (the threadwork review, 2026-11-26, the OpenBSD 7.9 row). A worker
+# received its notes on the FIXED descriptor 912. OpenBSD's default limit for an
+# ordinary user is 512 open files, so the dup2 onto 912 failed, the worker closed
+# its end of the pipe and said nothing, and no note and no supervision stop ever
+# reached it: there this driver's cells 10, 11, 14 and 15 and
+# parallel_supervise's wrapup cell were red. The parent went on answering "ok".
+# Any system or shell with a limit of 912 or less has it (`ulimit -n`). This cell
+# is cell 10's fixture under `ulimit -n 512`, so it is red on Linux too.
+if ( ulimit -n 512 ) 2>/dev/null; then
+    _saved_nofile=$(ulimit -n)
+    ulimit -n 512
+# Argument index 0 = CHILDT0 (write, shell, loops run_terminal_command),
+# index 1 = CHILDT1 (read-only). Task 1 makes a SECOND model call (read_file),
+# giving the inject a "next request" to land in. The child folds a queued
+# inject only at its OWN tool-round boundary, and the parent hands the bytes
+# to the child's pipe at that wake -- so the child's read_file call carries a
+# 2 s delay (M1149-b2): the parent's wake fires and writes the M1149-LOWFD
+# to task 1's pipe BEFORE task 1's read_file boundary folds, and the marker
+# lands in task 1's next model request (the CHILDT1-ANSWER one). Attributed by
+# REQUEST CONTENT (each child's prompt, which no other request carries): the
+# marker must appear in task 1's request and in NO other task's request.
+cat > "$tmp/s16.mm" <<'EOF'
+wire openai
+rule
+  match "LEADX"
+  nomatch "## Parallel agents"
+  tool spawn_parallel {"tasks":[{"task":"CHILDT0 zero","write":true,"max_tool_calls":2},{"task":"CHILDT1 one","max_tool_calls":8}]}
+rule
+  match "LEADX"
+  match "## Parallel agents"
+  text LEAD-DONE
+rule
+  match "CHILDT1"
+  match "\"role\":\"tool\""
+  text CHILDT1-ANSWER
+rule
+  match "CHILDT1"
+  delay 2000
+  tool read_file {"path":"seed.txt"}
+rule
+  match "CHILDT1"
+  match "\"role\":\"tool\""
+  text CHILDT1-ANSWER
+rule
+  match "CHILDT0"
+  delay 1000
+  tool run_terminal_command {"command":"echo a-loop"}
+EOF
+start_lead_ctl "$tmp/s16.mm" ',"shellFence":false' "$tmp/s16.sock"
+if ! wait_sock "$tmp/s16.sock"; then
+    finish_lead_ctl
+    t_fail "cell 16: control socket never appeared"
+else
+    ctl_wait_batch "$tmp/s16.sock" > /dev/null
+    REPLY=$(cs "$tmp/s16.sock" '{"v":1,"type":"inject-task","task":1,"text":"M1149-LOWFD"}')
+    finish_lead_ctl
+    T1=0; LEAK=0
+    for f in "$CAP"/cap/req.*; do
+        [ -f "$f" ] || continue
+        grep -q 'M1149-LOWFD' "$f" 2>/dev/null || continue
+        if grep -q 'CHILDT1' "$f" 2>/dev/null; then T1=$((T1+1)); else LEAK=$((LEAK+1)); fi
+    done
+    if [ "$T1" -ge 1 ] && [ "$LEAK" -eq 0 ]; then
+        t_ok "16 under a descriptor limit of 512: inject-task 1 lands in task 1's next model request and in NO other task's (isolation)"
+    else
+        t_fail "16 under a descriptor limit of 512 the note never reached the worker: inject-task 1 had no effect (reply: $(printf '%s' "$REPLY" | head_bytes 200)); marker in task1-req=$T1, in other-req=$LEAK (want >=1 / 0)"
+    fi
+fi
+
+    ulimit -n "$_saved_nofile" 2>/dev/null || true
+else
+    t_ok "16 SKIP: this shell cannot lower its descriptor limit to 512"
+fi
+
+# --- 17: the inject-task reply says what the parent knows, not what it hopes --------
+# THE DEFECT (the threadwork review's F22, 2026-11-25; the operator's decision of
+# 2026-11-26). The reply to an accepted inject-task was
+#   {"v":1,"ok":true,"note":"applied at the task's next tool boundary"}
+# When the parent answers, the note is in the child's pipe and nothing more is
+# known: a child whose next reply is its last has no further boundary, never
+# reads the note, and nobody is told. Measured on Linux: a note sent three
+# seconds late was acknowledged with that sentence and lost. "applied" was a
+# promise; "queued ... if it reaches one" is what the parent knows. This check
+# reads cell 10's own reply. (Counting the notes a child really read, and
+# reporting the rest, is the second step and a format change; not this check.)
+case "${REPLY10:-}" in
+    *'"ok":true'*queued*'if it reaches one'*)
+        case "$REPLY10" in
+            *applied*) t_fail "17 the inject-task reply still says 'applied': $(printf '%s' "$REPLY10" | head_bytes 200)" ;;
+            *) t_ok "17 the inject-task reply says queued, and that delivery needs a further tool boundary" ;;
+        esac ;;
+    *) t_fail "17 the inject-task reply promises delivery it cannot know of: $(printf '%s' "${REPLY10:-<no reply: cell 10 did not send>}" | head_bytes 200)" ;;
+esac
 
 t_done

@@ -123,6 +123,25 @@ book, and Ziglings.
   codebase**, kept cheap by the same discipline (strict C89, one
   dependency) — not a target.
 
+## ARM cross-builds, measured (moved from the README on 2026-11-23)
+
+**ARM cross-builds** ride the same `zig cc -target` path — one command each,
+zero warnings, for the single-board Linux targets (Raspberry Pi, Arduino UNO
+Q; see [`docs/plans/2026-07-hardware-testing.md`](plans/2026-07-hardware-testing.md)).
+Both **word-sizes** compile and link clean, which exercises the 32-bit `long`
+portability axis the C-standards assignments teach. Latest static-musl
+`SIZE=1 HAVE_CURL=` binaries (at 7b23e620 (2026-11-12), zig 0.17.1, on an x86-64 Linux workstation):
+
+| target | `jichi` | `run_tests` |
+|---|---|---|
+| `aarch64-linux-musl` (64-bit) | 1,705,928 B (1.63 MiB) | 2,841,672 B (2.71 MiB) |
+| `arm-linux-musleabihf` (32-bit) | 1,565,360 B (1.49 MiB) | 2,972,992 B (2.84 MiB) |
+
+Both static-pie + stripped. This proves the arch builds off-target; the on-device
+runtime numbers (footprint, the `check-target` timeout multiplier) are gathered
+natively on the boards — with libcurl, since the static `HAVE_CURL=` build runs
+only the offline unit + smoke suite.
+
 ## The extracurricular task
 
 The experiment ships as a graded curriculum extra:

@@ -60,6 +60,16 @@ void jc_proc_child_sigreset(void);
  * Only mode "r" is supported (no caller has ever written). Close the stream
  * with jc_proc_pclose(), NEVER pclose(3): the FILE* is fdopen'd, and libc's
  * pclose on it is undefined behaviour. posix_utils_lint enforces that too. */
+/* M1192 B1 (D5): the pid-returning half of jc_proc_popen. `g_popen` already
+ * captured the child pid per stream but hid it; the read loops that want to
+ * notice the SHELL's exit before the pipe's EOF (waitpid(pid, WNOHANG) after
+ * each wake) need it. Passes the pid to `*pid_out` on success (a non-NULL
+ * stream), and jc_proc_pclose reaps the same pid from its own table, so the
+ * caller only ever waitpids it with WNOHANG -- a pclose on a shell already
+ * reaped returns -1 via ECHILD immediately and is ignored. `pid_out` may be
+ * NULL (behaves exactly like jc_proc_popen). */
+FILE *jc_proc_popen_pid(const char *cmd, const char *mode, pid_t *pid_out);
+
 FILE *jc_proc_popen(const char *cmd, const char *mode);
 
 /* Close a jc_proc_popen() stream and reap its child: returns the wait status
@@ -342,6 +352,15 @@ void jc_proc_harden_environ(void);
  * JC_HARDEN_ON_PARTIAL (or OFF_OPTOUT); where JC_HAVE_ENVIRON_SCRUB is not
  * defined it does nothing. tests/smoke/proc_key_hidden.sh drives it. */
 void jc_proc_harden_secret_env(void);
+
+/* Was the secret variable `name` set (and non-empty) in jichi's environment?
+ * Use this, not getenv, for any question asked AFTER jc_proc_harden_secret_env:
+ * where the in-place scrub runs (OpenBSD, NetBSD, illumos) getenv then says
+ * "unset" for a variable the user did set, and the run told a user whose
+ * OPENAI_API_KEY was deliberately withheld only "no API key found". Answers
+ * from the scrub's own record where it ran, and from getenv elsewhere. It never
+ * returns the value. */
+int jc_proc_secret_env_was_set(const char *name);
 
 /* The state jc_proc_harden_environ() left, as an enum jc_harden. Five states,
  * not three, so that doctor's sentence is true in each: a build WITH the probe

@@ -9,7 +9,7 @@ that [`PLATFORMS.md`](../PLATFORMS.md) can stay a short matrix and the
 how a verdict was earned — not someone just trying to install it (that is
 [`install/`](../install/)). Nothing here is required reading to build or use jichi.
 
-Each page is kept **verbatim** from where it used to live in `PLATFORMS.md`; `git log
+Each page but `bpi-f3.md` (written for its row, 2026-11-17) is kept **verbatim** from where it used to live in `PLATFORMS.md`; `git log
 -S` on any phrase names the commit that wrote it. They are war stories with a lesson,
 in the same spirit as [`ANECDOTES.md`](../ANECDOTES.md).
 
@@ -23,6 +23,7 @@ in the same spirit as [`ANECDOTES.md`](../ANECDOTES.md).
 | [macos.md](macos.md) | the macOS row: the first verified Darwin build (M817) and its three test fixes |
 | [haiku.md](haiku.md) | the Haiku row: one Makefile line, and what the smoke tier found (M830) |
 | [freedos.md](freedos.md) | the FreeDOS/DJGPP row, written for a reader new to DOS: how to reproduce it, and what text mode, 8.3 names, `TZ`, sockets and one-program-at-a-time each broke (M833–M839) |
+| [bpi-f3.md](bpi-f3.md) | the Banana Pi BPI-F3 row: both runs' figures, the moving denominator, and how the turns were timed |
 
 For the short, user-facing version of each platform's difficulties, see that
 platform's [install page](../install/). For the verdicts and the numbers, see

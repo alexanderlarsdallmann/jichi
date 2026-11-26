@@ -63,7 +63,10 @@ EOF
         --no-session --verify "sh $tmp/$_n.gate" --verify-retries 3 \
         --journal "$tmp/$_n.jsonl" -p "change the tree" < /dev/null) \
         >/dev/null 2>"$tmp/$_n.err"
-    eval "rc_$_n=\$?"
+    # The status goes into a plain variable FIRST: inside eval, "$?" is already 0
+    # in FreeBSD's and OpenBSD's sh, so `eval "rc_$_n=\$?"` read every run as 0 there.
+    _rc=$?
+    eval "rc_$_n=$_rc"
     mm_stop
 }
 

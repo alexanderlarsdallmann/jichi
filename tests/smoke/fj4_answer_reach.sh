@@ -114,7 +114,9 @@ done
 #    own answers are small and never spill. Exactly one dir under the root
 #    makes child-pid-ness provable rather than assumed.
 SPILL=$(for r in "$CAP"/req.*; do grep -o '[^ "]*/tool-output/[0-9]*/[^ "\\]*' "$r" 2>/dev/null; done | sort -u | head -1)
-NPIDS=$(ls "$HOME/.jichi.d/tool-output" 2>/dev/null | wc -l)
+# tr: the wc of FreeBSD and illumos pads its count with blanks ("       1"), and
+# the comparison below is a string comparison (TW24, 2026-11-25).
+NPIDS=$(ls "$HOME/.jichi.d/tool-output" 2>/dev/null | wc -l | tr -d ' ')
 [ -n "$SPILL" ] && [ -f "$SPILL" ] && [ "$NPIDS" = 1 ] \
     && t_ok "the M911 note names a readable spill in the child's pid dir (the only one, since the lead never spills): $SPILL" \
     || t_fail "the M911 note names no readable spill file: '${SPILL:-none}' (pid dirs: $NPIDS)"

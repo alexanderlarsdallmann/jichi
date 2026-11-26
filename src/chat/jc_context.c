@@ -72,6 +72,50 @@ static cJSON *advertised_tools(struct jc_app *app, int *core_out)
     return arr;
 }
 
+/* Does THIS run advertise a named tool -- the same question answered by the
+ * request builder's own tool array? Resolved through advertised_tools: the
+ * config's permissions.deny and the active toolProfile fence, in one place.
+ *
+ * One definition of "advertised", not a second hand-derived deny/profile
+ * filter: jc_sysmsg.c guards the skills catalog with this (a catalog naming a
+ * skill the model cannot fetch is a dead reference to a tool that cannot run,
+ * the M292 class, in the system prompt), and the context report answers the
+ * same question from advertised_tools already. The predicate is exactly
+ * "in the array the request builder sends" for a top-level turn: the builder's
+ * own exclusions (depth-hidden tools, the read-only write_plan exception)
+ * never apply to the tools the predicate is asked about, so both callers share
+ * the one definition rather than two that could drift (the M311 lesson).
+ * NULL/empty registries advertise nothing. */
+int jc_app_advertises(struct jc_app *app, const char *name)
+{
+    cJSON *arr;
+    int i, n;
+    int found = 0;
+
+    if (app == NULL || name == NULL || name[0] == '\0') {
+        return 0;
+    }
+    arr = advertised_tools(app, NULL);
+    if (arr == NULL) {
+        return 0;
+    }
+    n = cJSON_GetArraySize(arr);
+    for (i = 0; i < n; i++) {
+        cJSON *e = cJSON_GetArrayItem(arr, i);
+        cJSON *fn = (e != NULL) ? cJSON_GetObjectItem(e, "function") : NULL;
+        cJSON *nm = (fn != NULL) ? cJSON_GetObjectItem(fn, "name")
+                                 : ((e != NULL) ? cJSON_GetObjectItem(e, "name")
+                                                : NULL);
+        if (nm != NULL && nm->valuestring != NULL &&
+            strcmp(nm->valuestring, name) == 0) {
+            found = 1;
+            break;
+        }
+    }
+    cJSON_Delete(arr);
+    return found;
+}
+
 static long tool_tokens(struct jc_app *app, int *ntools, int *core_out)
 {
     cJSON *arr;
@@ -389,7 +433,7 @@ void jc_context_tools_report(struct jc_app *app,
                                                            : (char *)"?";
         taken[i] = 0;
         total += sizes[i];
-        if (jc_tool_is_core(names[i])) {
+        if (jc_tool_kept_by_core(names[i])) {
             core_bytes += sizes[i];
             core_count++;
         }
@@ -436,7 +480,7 @@ void jc_context_tools_report(struct jc_app *app,
                                                        (jc_size)sizes[best]),
                          (total > 0) ? sizes[best] * 100 / total : 0,
                          (total > 0) ? cum * 100 / total : 0,
-                         jc_tool_is_core(names[best]) ? "*" : " ");
+                         jc_tool_kept_by_core(names[best]) ? "*" : " ");
         if (telem != NULL) {
             long c = telem_calls(telem, names[best]);
             jc_sb_append_fmt(out, "%6ld ", (c > 0) ? c : 0);

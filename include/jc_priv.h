@@ -33,7 +33,8 @@ enum jc_priv_kind {
     JC_PRIV_DOAS,
     JC_PRIV_PKEXEC,
     JC_PRIV_SU,
-    JC_PRIV_RUN0
+    JC_PRIV_RUN0,
+    JC_PRIV_SUSPICIOUS
 };
 
 /* The first privileged launcher that begins a command segment in `command`,

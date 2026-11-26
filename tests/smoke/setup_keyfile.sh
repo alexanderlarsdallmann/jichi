@@ -81,6 +81,15 @@ expect "mode 600" 30
 delay 500
 send "\r"
 delay 500
+# M1200 (G5 wave 2): after the store-confirm the wizard now asks for a context
+# length BEFORE "Write the config where?" and the role-features question. This
+# driver tests the key store, not the window, and its wizard has no mock
+# endpoint, so the figure request fails soft and the prompt carries no default:
+# a bare Enter is the answer that skips the window.
+expect "context length in tokens" 30
+delay 400
+send "\r"
+delay 500
 expect "Accept this role's default features?" 30
 delay 400
 send "n\r"
@@ -348,12 +357,15 @@ fi
 # output: a terminal redraws the whole prompt on every keystroke, and stripping
 # CR to read the transcript concatenates those redraws into one very long line.
 # Every wizard prompt shows its default in [brackets] and ends "]: ", which is
-# what this filters -- the no-echo key prompt has no redraws to merge.
-wide=$(printf '%s' "$plain" | grep -v '\]: ' | awk 'length>76' | wc -l)
+# what this filters -- the no-echo key prompt has no redraws to merge. The
+# context-length prompt (M1200) renders with no bracketed default when the
+# endpoint published no figure, so its redraws end "): " and the filter
+# excludes them too.
+wide=$(printf '%s' "$plain" | grep -v -e '\]: ' -e '(blank = [a-z]*): ' | awk 'length>76' | wc -l)
 if [ "$wide" -eq 0 ]; then
     t_ok "no wizard line exceeds 76 columns"
 else
-    t_fail "$wide line(s) over 76 columns: $(printf '%s' "$plain" | grep -v '\]: ' | awk 'length>76' | head -1)"
+    t_fail "$wide line(s) over 76 columns: $(printf '%s' "$plain" | grep -v -e '\]: ' -e '(blank = [a-z]*): ' | awk 'length>76' | head -1)"
 fi
 
 # The config is SHOWN, not just located -- the connection between the answers

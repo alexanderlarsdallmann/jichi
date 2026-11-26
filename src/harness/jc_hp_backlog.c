@@ -368,6 +368,7 @@ backlog_checks(const char *pushgit, const char *tip_sha40,
     int i;
     int ok;
     unsigned long total;
+    char *content;
 
     if (tip_sha40 == NULL || strlen(tip_sha40) != 40) {
         return 1;   /* a TIP that is not a 40-char sha cannot be scanned */
@@ -378,6 +379,11 @@ backlog_checks(const char *pushgit, const char *tip_sha40,
         return 1;   /* a scan that cannot run is never a pass (fail-closed) */
     }
     total = 0;
+    /* ONE content buffer for the whole step, taken lazily at the first blob:
+     * the arena gives nothing back before the command ends, so a buffer per
+     * blob cost BACKLOG_BLOB_CAP (64 MiB, zeroed) for EVERY file version --
+     * 12.8 GB for a step of 200 small files (measured). */
+    content = NULL;
     for (i = 0; i < nshas; i++) {
         char type[16];
         unsigned long size;
@@ -385,7 +391,39 @@ backlog_checks(const char *pushgit, const char *tip_sha40,
             return 1;   /* a delta object we cannot classify: fail-closed */
         }
         if (strcmp(type, "blob") != 0) {
-            continue;   /* commits + trees carry no content / size */
+            /* A commit or a tree carries no file content and no size, but a
+             * commit carries its message and author lines and a tree carries
+             * file NAMES; a secret there must not go out either (the mirror
+             * push and the records push read both). Read it pretty-printed
+             * and search it; an object that cannot be read is fail-closed. */
+            const char *oargv[3];
+            char oerr[512];
+            int oc;
+            int olen;
+            if (content == NULL) {
+                content = (char *)jc_arena_calloc(a, (jc_size)BACKLOG_BLOB_CAP);
+                if (content == NULL) {
+                    return 1;
+                }
+            }
+            oargv[0] = (char *)"cat-file";
+            oargv[1] = (char *)"-p";
+            oargv[2] = (char *)shas[i];
+            oc = backlog_git(pushgit, NULL, 0, NULL, 0, oargv, 3,
+                             BACKLOG_BLOB_CAP, content, oerr);
+            if (oc != 0) {
+                return 1;
+            }
+            olen = (int)strlen(content);   /* printed text: no NUL inside */
+            if ((model_key_len > 0 &&
+                 jc_hp_bytes_contains(content, olen, model_key,
+                                      model_key_len)) ||
+                (git_token_len > 0 &&
+                 jc_hp_bytes_contains(content, olen, git_token,
+                                      git_token_len))) {
+                return 1;   /* a secret in a message or a file name */
+            }
+            continue;
         }
         if (backlog_obj_size(pushgit, shas[i], &size) != 0) {
             return 1;   /* a blob we cannot size: fail-closed */
@@ -403,13 +441,14 @@ backlog_checks(const char *pushgit, const char *tip_sha40,
          * BACKLOG_BLOB_CAP; we never read the content of a blob that already
          * tripped the per-file limit.) */
         {
-            char *content;
             const char *argv[3];
             char err[512];
             int cc;
-            content = (char *)jc_arena_calloc(a, (jc_size)BACKLOG_BLOB_CAP);
             if (content == NULL) {
-                return 1;
+                content = (char *)jc_arena_calloc(a, (jc_size)BACKLOG_BLOB_CAP);
+                if (content == NULL) {
+                    return 1;
+                }
             }
             argv[0] = (char *)"cat-file";
             argv[1] = (char *)"blob";

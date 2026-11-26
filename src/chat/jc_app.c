@@ -24,6 +24,7 @@
 #include "jc_confbench.h"
 #include "jc_proc.h"
 #include "jc_spawn.h"   /* M832 */
+#include "jc_bg.h"      /* M1192 B1: the B1-adopt hand-off (jc_bg_adopt) */
 #include "jc_agent.h"
 #include "jc_log.h"
 #include "jc_telemetry.h"
@@ -725,6 +726,170 @@ jc_status jc_app_load_image(struct jc_app *app, const char *path,
     return st;
 }
 
+/* M1192 B1 (B1.1/B1.2/B1.3): return 1 when the command's SHELL (the direct
+ * child `pid`) has EXITED but its output pipe has not hit EOF -- a background
+ * job it started still holds the pipe's write end (the measured F2 shape:
+ * `( job > f 2>&1 ) & echo started`). Waitpid with WNOHANG only: a shell that
+ * has not exited (still running its own `wait`) leaves a LIVE pid, WNOHANG
+ * returns 0, and 0 is returned -- the deadline still wins (B-01: a WNOHANG on
+ * a live pid must not make the call return early). A failed waitpid (ECHILD
+ * under an inherited-ignored SIGCHLD) is UNKNOWN by the project rule, never
+ * an exit notice: 0. The captured status is written to `*status_out`. */
+static int jc_app_b1_shell_exited(pid_t pid, int *status_out)
+{
+    int status;
+    pid_t r = waitpid(pid, &status, WNOHANG);
+    if (r == pid) {
+        if (status_out != NULL) {
+            *status_out = status;
+        }
+        return 1;
+    }
+    return 0;
+}
+
+/* M1192 B1 (B1.2): the drain shape, shared by both read loops after the shell
+ * has exited. Collect whatever is pending into `out` without blocking: a loop
+ * of select(fd, 20 ms) + read() until either the pipe hits EOF or ~200 ms of
+ * silence. A held job that is chatty re-readiness the pipe between wakes, so
+ * each readable chunk is taken before the silence timer re-arms; a held job
+ * that writes nothing (the measured shape) simply reaches the 200 ms of
+ * silence and stops. The return tells the caller which happened -- this is
+ * what separates cell 1 (B1) from cell 2 (normal):
+ *   1  -- EOF: the pipe closed. Every writer is gone, so this is an ordinary
+ *      completion (the shell exited and its last writer did too); adopt must
+ *      NOT fire.
+ *   0  -- ~200 ms of silence with no EOF: a job still holds the pipe's write
+ *      end. This is the held-call case; adopt fires.
+ *  -1  -- a read error: treat as the ordinary path (never adopt on error).
+ * The bytes read so far are in `out` either way. `byte_limit`/`truncated`
+ * keep the capture bounded exactly as the read block does (the drain runs at
+ * most ~200 ms, but a chatty held job could still over-run the cap): bytes
+ * past the limit are counted as truncated and dropped. */
+static int jc_app_b1_drain_fd(int fd, struct jc_sb *out, jc_size byte_limit,
+                              int *truncated)
+{
+    double end = jc_now_millis() + 200.0;
+    for (;;) {
+        fd_set rfds;
+        struct timeval tv;
+        int rc;
+        char chunk[4096];
+        FD_ZERO(&rfds);
+        FD_SET(fd, &rfds);
+        tv.tv_sec = 0;
+        tv.tv_usec = 20000;
+        rc = select(fd + 1, &rfds, NULL, NULL, &tv);
+        if (rc < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return -1;
+        }
+        if (rc > 0 && FD_ISSET(fd, &rfds)) {
+            ssize_t n = read(fd, chunk, sizeof(chunk));
+            if (n > 0) {
+                jc_size add = (jc_size)n;
+                if (byte_limit > 0 && out->len + add > byte_limit) {
+                    if (out->len >= byte_limit) {
+                        add = 0;
+                    } else {
+                        add = byte_limit - out->len;
+                    }
+                    if (truncated != NULL) {
+                        *truncated = 1;   /* bytes past the cap are dropped */
+                    }
+                }
+                if (add > 0) {
+                    jc_sb_append_n(out, chunk, add);
+                }
+            } else if (n < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                return -1;
+            } else {
+                return 1;   /* EOF: the pipe closed -- ordinary completion */
+            }
+        }
+        if (jc_now_millis() >= end) {
+            return 0;   /* ~200 ms of silence, pipe still open -- held job */
+        }
+    }
+}
+
+/* M1192 B1 (B1.3/B1.4/B1.5): hand the still-open read end to the background
+ * registry and return the note's text.
+ *
+ * B1-adopt (the design, D1): jc_bg_adopt forks a DRAINER that copies `read_fd`
+ * continuously into a jc_bg spool file (M940: a pipe read only at tool
+ * boundaries stalls a chatty job) and registers it, so
+ * read_background_output and kill_background work on the job.
+ *   WATCHED path (`adopt_pgid` > 0): the shell ran in its own process group
+ *   (new_pgroup: pgid == the shell's pid). The backgrounded job re-parents to
+ *   init when the shell dies but STAYS in that group, so storing it as
+ *   adopt_pgid makes jc_bg_kill and jc_bg_mgr_free's kill arm stop the whole
+ *   job via kill(-pgid) while they signal the drainer by its own pid.
+ *   POPEN path (`adopt_pgid` == 0): the shell stayed in JICHI's process group
+ *   (the M885 contract), and a plain `cmd &` job stays in that same group too
+ *   (it was spawned by that shell; re-parenting to init keeps the group), so
+ *   signaling by group would kill jichi itself. We therefore store
+ *   adopt_pgid = 0, which means "no job group to signal": jc_bg_kill and
+ *   jc_bg_mgr_free's kill arm then signal ONLY the drainer by its pid. The
+ *   job itself is best-effort stopped -- it gets SIGPIPE on its NEXT write
+ *   after the drainer dies, but a silent job is not stopped by
+ *   kill_background until it writes or exits (the same limit the pre-B1
+ *   abort path always had on this path; the drainer keeps the output and the
+ *   note says so). def-399 records this; the WATCHED path's kill-both is the
+ *   real guarantee.
+ * The note's spool line names the id; the spool file itself is
+ * $HOME/.jichi.d/bgspool/bg-<id>-<pid>.out (jc_bg's own naming).
+ *
+ * B1-min (the fallback -- registry full (jc_bg_adopt 0), no registry
+ * (app->bg NULL, e.g. a pool child), or any adopt error (-1)): close the read
+ * end and say the output is discarded. The job keeps running either way
+ * (B1.6: it is the model's now); a held process that later writes to the
+ * closed pipe gets SIGPIPE (jc_spawn resets it in children, B1.5). */
+static int jc_app_b1_adopt(struct jc_app *app, int read_fd,
+                           long adopt_pgid, int shell_status,
+                           struct jc_sb *out)
+{
+    int bgid;
+    char m[320];
+    int note_len;
+    if (app->bg != NULL) {
+        bgid = jc_bg_adopt(app->bg, read_fd, adopt_pgid, "shell command");
+        if (bgid > 0) {
+            note_len = jc_snprintf(m, sizeof(m),
+                "\n[the shell exited (status %d) while a process it "
+                "started still holds the command's output; the call "
+                "returns now and the output keeps running as background "
+                "process %d -- read_background_output id %d for its "
+                "output, kill_background id %d to stop it; its spool "
+                "file is under $HOME/.jichi.d/bgspool]\n",
+                WIFEXITED(shell_status) ? WEXITSTATUS(shell_status)
+                    : 128 + (WIFSIGNALED(shell_status) ? WTERMSIG(shell_status) : 0),
+                bgid, bgid, bgid);
+            jc_sb_append_n(out, m, (jc_size)note_len);
+            return WIFEXITED(shell_status) ? WEXITSTATUS(shell_status)
+                : 128 + (WIFSIGNALED(shell_status) ? WTERMSIG(shell_status) : 0);
+        }
+        /* 0 (registry full) or -1 (error): fall through to B1-min. */
+    }
+    (void)close(read_fd);
+    note_len = jc_snprintf(m, sizeof(m),
+        "\n[the shell exited (status %d) while a process it started still "
+        "holds the command's output; the call returns now and that process "
+        "keeps running, but its remaining output is discarded "
+        "(no free background slot -- use run_in_background for jobs that "
+        "outlive the command)]\n",
+        WIFEXITED(shell_status) ? WEXITSTATUS(shell_status)
+            : 128 + (WIFSIGNALED(shell_status) ? WTERMSIG(shell_status) : 0));
+    jc_sb_append_n(out, m, (jc_size)note_len);
+    return WIFEXITED(shell_status) ? WEXITSTATUS(shell_status)
+        : 128 + (WIFSIGNALED(shell_status) ? WTERMSIG(shell_status) : 0);
+}
+
 /* Run `command` with a memory watchdog (M117): fork /bin/sh in its own process
  * group, read output via select, and sample the group's RSS every ~500ms.
  * On WARN (>=80% of budget) emit one status note; on KILL (>=100%) SIGTERM then
@@ -744,6 +909,9 @@ static jc_status run_command_watched(struct jc_app *app, const char *command,
     int status = 0;
     int warned = 0, killed = 0, timed_out = 0;
     int cap_killed = 0, mem_killed = 0;
+    int cmd_cancel_killed = 0;   /* M1192 B3: the cancel-cmd kill-arm (D2) */
+    int b1_adopted = 0;          /* M1192 B1: the shell-exit-adopt hand-off */
+    int b1_reaped = 0;           /* M1192 B1: the shell was reaped in the loop */
     double next_check;
     double deadline = 0.0;
 
@@ -799,10 +967,51 @@ static jc_status run_command_watched(struct jc_app *app, const char *command,
             app->cmd_stopped = 1;   /* M885: the run's stop, not a limit */
             break;
         }
+        /* M1192 B3 (D2): the cancel-cmd kill-arm. The handler set cmd_cancel
+         * (the lead form) or the pool child's SIGUSR1 handler set this child's
+         * own copy (the worker form). Consume it HERE at the kill site, while
+         * the command is still running: set our own flag (cmd_cancel_killed),
+         * do the SAME group kill the abort path does, and clear the socket
+         * flag so a second cancel is refused by effect (B3.7's cell 4). D6:
+         * this only runs while the command is alive -- once EOF has broken us
+         * out, a late cancel is dropped, never a re-kill. */
+        if (app->cmd_cancel) {
+            app->cmd_cancel = 0;
+            kill(-pid, SIGTERM);
+            killed = 1;
+            cmd_cancel_killed = 1;
+            break;
+        }
         if (timeout_sec > 0 && jc_now_millis() >= deadline) {
             kill(-pid, SIGTERM);
             killed = 1;
             timed_out = 1;
+            break;
+        }
+        /* M1192 B1 (B1.1): the shell-exit check, after EVERY wake (the 300 ms
+         * select, the EINTR return, the control poll): a WNOHANG on the
+         * direct child. 0 = the shell has not exited (still running, or still
+         * `wait`ing for a job -- cell 3, and B-01's live-pid deadline) -> the
+         * loop continues and the deadline still wins. 1 = the shell EXITED but
+         * we have not hit EOF (a background job holds fd 1 -- cell 1, the
+         * measured F2): drain ~200 ms non-blocking and return the shell's own
+         * exit status with the B1 note, adopting the pipe into a jc_bg spool
+         * (B1-adopt, D1) when a registry slot allows. */
+        if (jc_app_b1_shell_exited(pid, &status)) {
+            int dr = jc_app_b1_drain_fd(outp[0], out, byte_limit, truncated);
+            b1_reaped = 1;
+            if (dr == 0) {
+                /* The shell exited with the pipe still open: the held-call
+                 * case. `status` holds the shell's wait status; the pipe and
+                 * its bytes are handed off after the loop (where the read end
+                 * is still open) and `*exit_code` is the shell's own code. */
+                b1_adopted = 1;
+            }
+            /* EOF (dr == 1) or a read error (dr == -1): the ordinary
+             * completion -- drain() already appended what it read; break to
+             * the standard path. The shell is reaped, so the reap block below
+             * must not waitpid it again (B1.7: no note, no adoption, the
+             * shell's own status is the result). */
             break;
         }
         if (rc > 0 && FD_ISSET(outp[0], &rfds)) {
@@ -846,13 +1055,36 @@ static jc_status run_command_watched(struct jc_app *app, const char *command,
             next_check = jc_now_millis() + 500.0;
         }
     }
+    if (b1_adopted) {
+        /* M1192 B1 (B1.3/B1.4): the shell is already reaped (its status is in
+         * `status`), the pipe is still open (a job holds it). Hand the read
+         * end to the background registry WHILE IT IS OPEN (the drainer copies
+         * it; a second close is harmless after the hand-off), then skip the
+         * reap block below entirely: there is nothing left to reap, and the
+         * shell's own exit status is the call's result (with the B1 note).
+         * The watched path's shell ran in its own group (new_pgroup), so the
+         * job group to store is the shell's own pid. */
+        int shell_code = jc_app_b1_adopt(app, outp[0], (long)pid, status, out);
+        close(outp[0]);
+        if (exit_code != NULL) {
+            *exit_code = shell_code;
+        }
+        return JC_OK;
+    }
     close(outp[0]);
     /* Reap the child. If already killed (in-loop SIGTERM sent), the child is
      * being stopped, so a checked blocking reap is acceptable. Otherwise, use
      * the bounded, interrupt-aware helper to avoid unbounded waits on EOF+alive. */
     {
         int reaped = 1;  /* tracks successful reap */
-        if (killed) {
+        if (b1_reaped) {
+            /* M1192 B1: the shell EXITED normally (EOF with the last writer
+             * gone) and the in-loop check already reaped it: `status` is the
+             * shell's own wait status. waitpid again would ECHILD and report
+             * unknown -- the shell's real code (0) is the result, exactly as
+             * before B1 (B1.7: byte-for-byte the normal path, no note, no
+             * adoption). */
+        } else if (killed) {
             kill(-pid, SIGKILL); /* escalate; the run is over either way */
             /* A checked BLOCKING reap is fine here: the child is being killed,
              * so waitpid returns once it is reaped (no unbounded-wait hazard).
@@ -890,6 +1122,30 @@ static jc_status run_command_watched(struct jc_app *app, const char *command,
             }
             if (exit_code != NULL) *exit_code = 124; /* timeout(1) convention */
         } else if (killed) {
+            /* M1192 B3 (D2): the CANCEL kill-arm is FIRST, distinct from the
+             * M885/timeout texts. A cancel-cmd that fired while the command
+             * was running reports the note (with the optional ": reason" tail)
+             * and exit 143 (128 + SIGTERM, the convention for a SIGTERM'd
+             * command) -- NOT 137 (the escalate path's SIGKILL) and NOT 124
+             * (the timeout). */
+            if (cmd_cancel_killed) {
+                char m[160];
+                if (app->cmd_cancel_reason[0] != '\0') {
+                    jc_snprintf(m, sizeof m,
+                        "\n[stopped: cancelled by the supervisor "
+                        "(control cancel-cmd): %s]\n",
+                        app->cmd_cancel_reason);
+                } else {
+                    jc_snprintf(m, sizeof m,
+                        "\n[stopped: cancelled by the supervisor "
+                        "(control cancel-cmd)]\n");
+                }
+                jc_sb_append(out, m);
+                if (app->cb != NULL && app->cb->on_status != NULL) {
+                    app->cb->on_status(app->cb->user, m + 1);
+                }
+                if (exit_code != NULL) *exit_code = 143; /* 128 + SIGTERM */
+            } else {
             /* Three kills share this path and must not share a diagnosis: told
              * "memory budget" for a byte-cap kill, a driven model re-ran the same
              * over-cap command 32 times in one turn, escalating its output instead
@@ -914,6 +1170,7 @@ static jc_status run_command_watched(struct jc_app *app, const char *command,
                 jc_sb_append(out, "\n[stopped: the run was interrupted]\n");
             }
             if (exit_code != NULL) *exit_code = 137; /* 128 + SIGKILL */
+            }
         } else if (exit_code != NULL) {
             /* A failed reap is UNKNOWN, never a status to decode. */
             if (!reaped) {
@@ -982,6 +1239,10 @@ jc_status jc_app_run_command_ex(struct jc_app *app, const char *command,
     size_t n;
     int status;
     int code;
+    pid_t ppid = -1;   /* M1192 B1 (D5): the shell's pid (popen path) */
+    int b1_done = 0;   /* M1192 B1: the shell EXITED (reaped) in the read loop */
+    int b1_adopted = 0;/* M1192 B1: the held-call case (pipe still open) */
+    int b1_status = 0; /* M1192 B1: the shell's wait status */
 
     if (truncated != NULL) {
         *truncated = 0;
@@ -993,6 +1254,16 @@ jc_status jc_app_run_command_ex(struct jc_app *app, const char *command,
         return JC_ERR_INVALID;
     }
     app->cmd_stopped = 0;   /* M885: set below only by this command's stop */
+    /* M1192 B3 (B3.5): each command start clears the previous cancel state,
+     * so a cancel that already fired cannot leak into the next command (the
+     * kill-arm consumes app->cmd_cancel at its own kill site). cmd_in_flight
+     * is set 1 below only for a shell command that actually runs (the watched
+     * or popen path) and cleared again when it ends: the LEAD-form cancel
+     * refuses EXACTLY "no command is running" while it is 0 (between calls, or
+     * a non-shell command). */
+    app->cmd_cancel = 0;
+    app->cmd_cancel_reason[0] = '\0';
+    app->cmd_in_flight = 0;
 
     /* Prefer the client terminal delegate (the editor runs the command in its
      * own terminal); fall back to a local subprocess on any delegate failure. */
@@ -1019,10 +1290,18 @@ jc_status jc_app_run_command_ex(struct jc_app *app, const char *command,
      * installed it passes select a NULL timeout and still blocks exactly as
      * fread did -- see the note at the loop.) */
     if (app->config.mem_budget_mb > 0 || timeout_sec > 0) {
+        jc_status wr;
         long budget_kb = app->config.mem_budget_mb > 0
                        ? app->config.mem_budget_mb * 1024 : 0;
-        return run_command_watched(app, command, byte_limit, out, exit_code,
-                                   truncated, budget_kb, timeout_sec);
+        /* M1192 B3: the watched path is the cancellable contract (D7). A
+         * shell command is in flight here, so a LEAD-form cancel is accepted
+         * (it sets app->cmd_cancel, consumed by the kill-arm); the popen path
+         * below is NOT cancelable (D8) and leaves cmd_in_flight 0. */
+        app->cmd_in_flight = 1;
+        wr = run_command_watched(app, command, byte_limit, out,
+                       exit_code, truncated, budget_kb, timeout_sec);
+        app->cmd_in_flight = 0;   /* M1192 B3: the command is done */
+        return wr;
     }
 
     /* Local path: combine stderr into stdout so the model sees diagnostics.
@@ -1056,7 +1335,13 @@ jc_status jc_app_run_command_ex(struct jc_app *app, const char *command,
             return JC_ERR_INVALID;   /* refused, never run cut short (M721) */
         }
     }
-    pipe = jc_proc_popen(shell, "r");
+    /* M1192 B1 (D5): the pid-returning variant -- the read loop below needs
+     * the shell's pid so it can waitpid(WNOHANG) and notice the shell's exit
+     * before the pipe's EOF (B1.1). pclose reaps the same pid from its own
+     * table, so on the normal path (shell not reaped early) pclose still works
+     * exactly as before; on the B1 path the shell is already reaped and pclose
+     * is skipped (see below). */
+    pipe = jc_proc_popen_pid(shell, "r", &ppid);
     if (pipe == NULL) {
         return JC_ERR_IO;
     }
@@ -1088,6 +1373,23 @@ jc_status jc_app_run_command_ex(struct jc_app *app, const char *command,
             }
             sel = select(fd + 1, &rfds, NULL, NULL, tvp);
             jc_control_poll_during_call(app, 0); /* M801: answer `status` mid-call */
+            /* M1192 B1 (B1.1): the same shell-exit check as the watched path,
+             * after EVERY wake (data, the 200 ms tick/ctl timeout, EINTR).
+             * A live shell (still running, or `wait`ing) -> WNOHANG 0, the loop
+             * continues unchanged; an EXITED shell with the pipe still open ->
+             * drain ~200 ms and adopt (the job group here is adopt_pgid = 0:
+             * this path keeps the shell in jichi's group, and the job stays in
+             * that group, so there is no group to signal -- see def-399);
+             * EOF (normal) -> break with the shell already reaped (b1_reaped),
+             * and pclose is skipped below. */
+            if (ppid > 0 && jc_app_b1_shell_exited(ppid, &b1_status)) {
+                int dr = jc_app_b1_drain_fd(fd, out, byte_limit, truncated);
+                b1_done = 1;
+                if (dr == 0) {
+                    b1_adopted = 1;
+                }
+                break;
+            }
             if (sel < 0) {
                 if (errno == EINTR) {
                     continue;   /* a signal (SIGWINCH, SIGINT) is not an error */
@@ -1122,7 +1424,40 @@ jc_status jc_app_run_command_ex(struct jc_app *app, const char *command,
             }
         }
     }
+    if (b1_adopted) {
+        /* M1192 B1 (B1.3/B1.4, popen half): the shell is already reaped (its
+         * status is in `b1_status`) and a job still holds the pipe's write end.
+         * Hand the read end to the background registry WHILE IT IS OPEN, then
+         * pclose: its fclose closes the parent's copy and clears the g_popen
+         * slot, and its waitpid on an already-reaped shell returns -1 via
+         * ECHILD immediately (no hang) -- ignored (the brief's D5 note), the
+         * captured status is the result. The job group to store is
+         * adopt_pgid = 0, meaning "no job group to signal": this path keeps
+         * the shell in jichi's group (new_pgroup is not set), and a `cmd &`
+         * job stays in that same group, so a group kill would kill jichi
+         * itself. jc_bg_kill then signals only the drainer by its pid, and
+         * the job is best-effort stopped -- SIGPIPE on its next write after
+         * the drainer dies -- so a silent job is not stopped by
+         * kill_background until it writes or exits. The same limit the
+         * pre-B1 abort path always had on this path; def-399 records it. */
+        int fd2 = fileno(pipe);
+        int shell_code = jc_app_b1_adopt(app, fd2, 0, b1_status, out);
+        if (exit_code != NULL) {
+            *exit_code = shell_code;
+        }
+        (void)jc_proc_pclose(pipe); /* already reaped: ECHILD -> -1, ignored */
+        return JC_OK;
+    }
     status = jc_proc_pclose(pipe);
+    if (b1_done) {
+        /* M1192 B1 (popen normal half): the shell EXITED and the pipe hit EOF
+         * with the last writer gone -- the ordinary completion. The in-loop
+         * check already reaped it (its status is in `b1_status`), so pclose's
+         * waitpid ECHILD'd and returned -1: IGNORE the -1 (the brief's D5
+         * note) and decode the captured status. No note, no adoption -- this
+         * path stays byte-for-byte the normal one (B1.7). */
+        status = b1_status;
+    }
     if (WIFEXITED(status)) {
         code = WEXITSTATUS(status);
     } else if (WIFSIGNALED(status)) {
@@ -1620,10 +1955,13 @@ void jc_app_batch_progress(struct jc_app *app, int done, int total, int live)
         return;
     }
     now = jc_now_millis();
-    if (app->batch_hb_last_ms != 0 &&
-        (now - (double)app->batch_hb_last_ms) < (double)interval_ms) {
+    /* M1194-d379: batch_hb_last_ms is now double, so no narrowing cast on the
+     * store; the interval bound (interval_ms, a DURATION) stays long and the
+     * comparison promotes it to double. */
+    if (app->batch_hb_last_ms != 0.0 &&
+        (now - app->batch_hb_last_ms) < (double)interval_ms) {
         return;
     }
-    app->batch_hb_last_ms = (long)now;
+    app->batch_hb_last_ms = now;
     app->on_batch_progress(app->on_batch_progress_user, done, total, live);
 }

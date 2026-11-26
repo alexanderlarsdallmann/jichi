@@ -66,13 +66,62 @@ hwm_kb() {
     sed -n 's/^maxrss_kb \([0-9][0-9]*\)$/\1/p' "$1" 2>/dev/null | head -1
 }
 
-# A 50 MiB sparse body: disk cost ~0, the mock streams ~50 MiB over loopback.
+# A 50 MiB body: the mock streams ~50 MiB over loopback. Sparse where the
+# system has truncate(1) (disk cost ~0); written out with dd where it has
+# not (NetBSD, OpenBSD). The dd block size is spelled as a plain number:
+# POSIX knows the multipliers k and b only, and NetBSD 10.1 answers
+# "dd: block size `1M': illegal number". With that spelling and its error
+# sent to /dev/null no body file was made there, the search backend had
+# nothing to send, and the driver reported "web search request failed" as
+# if jichi had failed.
 # A null body: it needs no particular content -- only its SIZE matters.
 if command -v truncate >/dev/null 2>&1; then
     truncate -s 50M "$tmp/big.bin"
 else
-    dd if=/dev/zero of="$tmp/big.bin" bs=1M count=50 2>/dev/null
+    dd if=/dev/zero of="$tmp/big.bin" bs=1048576 count=50 2>/dev/null
 fi
+
+# The instrument must exist before anything is concluded from it. Every
+# scenario below reads a tool failure as jichi's answer to an oversized
+# reply; without the body file the same words come from an empty backend.
+BIG_BYTES=$(wc -c < "$tmp/big.bin" 2>/dev/null | tr -d ' ')
+if [ "$BIG_BYTES" != 52428800 ]; then
+    _hc_i=0
+    while [ "$_hc_i" -lt 12 ]; do
+        t_fail "instrument: the 50 MiB body file was not made (it has '${BIG_BYTES:-no}' bytes, expected 52428800) -- no check of this driver can mean anything without it"
+        _hc_i=$((_hc_i + 1))
+    done
+    t_done
+fi
+
+# WHAT THE MEMORY TEETH MEASURE, and one allocator setting for it. The teeth
+# ask how much memory the turn HOLDS while it collects a reply. The collect
+# buffer grows by doubling, and each step frees the block before it. glibc
+# gives a large freed block back to the kernel at once, so the high-water
+# mark is the live buffer: about 32 MiB under the 32 MiB ceiling. jemalloc,
+# NetBSD's libc allocator, keeps freed pages for a decay time (its manual
+# gives 10 s as the default; that was not measured), so
+# the freed steps -- 16 + 8 + 4 + ... MiB -- are still resident when the last
+# block fills, and the high-water mark is about TWICE the live buffer:
+# measured in a NetBSD 10.1 guest as 65,772 KB of growth with the ceiling in
+# force, and 116,904 KB with the ceiling raised to 1 GiB. No fixed limit
+# separates those two from Linux's 32 MiB and 51 MiB. With the decay set to 0
+# the same guest reads 32,800 KB with the ceiling and 65,644 KB without: the
+# 40 MiB limit separates them again, on glibc and on NetBSD's jemalloc.
+# MALLOC_CONF is jemalloc's variable; glibc and OpenBSD's malloc do not read
+# it. It changes when freed pages go back, not what jichi allocates. What it
+# leaves unmeasured is said plainly: on a jemalloc system a turn that collects
+# N MiB can show a resident peak near 2 N for the decay time.
+#
+# FREEBSD IS NOT COVERED BY THIS, and nothing in this driver makes it so.
+# Its libc allocator is jemalloc too, but 22 runs of this driver in a
+# FreeBSD 15.1 guest read a baseline of 0 in eight, and a turn between
+# 19,012 and 78,536 KB in the other fourteen -- two of them below the 32 MiB
+# the turn wrote. ru_maxrss is not an exact high-water mark there, so checks
+# 4 and 8 pass or fail on FreeBSD by the moment of sampling, with this
+# setting (four readable runs: 59,680 to 64,900 KB of growth) as without it.
+MALLOC_CONF=dirty_decay_ms:0,muzzy_decay_ms:0
+export MALLOC_CONF
 
 # tool_msg DIR -- the last "role":"tool" content string in the captured chat
 # requests (the tool result the model saw), like audiogen.sh's M500 half.
@@ -183,6 +232,12 @@ if [ "$A_RC" -eq 0 ] && grep -q "SEARCH_DONE" "$tmp/outA"; then
 else
     t_fail "A: the turn did not complete (rsshwm rc $A_RC): $(head_bytes 120 "$tmp/outA")"
 fi
+# A BASELINE OF 0 IS NOT A MEASUREMENT (TW24, 2026-11-25). Where wait4 gives no
+# ru_maxrss (OmniOS r151058 reports 0 for a child that touched 8 MiB), every
+# reading is 0, the growth is 0 minus 0, and checks 4 and 8 passed having
+# measured nothing. A process that ran a whole turn has a peak; 0 means the
+# instrument is absent. The two checks then say so with a visible SKIP: not a
+# pass, and not a failure of the product either.
 # Check 4 -- the memory tooth: the transfer's HIGH-WATER growth over the
 # baseline turn must stay under 40 MiB (the 50 MiB body, the ceiling's margin).
 # ru_maxrss is the kernel's own peak: the 50 ms statm sampler (M1092) missed
@@ -192,6 +247,7 @@ fi
 # (growth ~51 MiB > 40 MiB).
 case "$BASE_KB" in
     '' ) t_fail "A: the baseline turn recorded no high-water mark (rsshwm rc $BASE_RC) -- a check that read nothing must not pass" ;;
+    0  ) t_skip_one "A: this system reports no high-water mark (ru_maxrss is 0 for a process that ran a whole turn) -- the memory tooth cannot be read here, and 0 minus 0 must not pass as 'no growth'" ;;
     *  ) if [ -z "$A_KB" ]; then
              t_fail "A: the turn recorded no high-water mark (rsshwm rc $A_RC) -- a check that read nothing must not pass"
          else
@@ -271,6 +327,7 @@ fi
 # queried a backend).
 case "$BASE_KB" in
     '' ) t_fail "B: the baseline turn recorded no high-water mark (rsshwm rc $BASE_RC) -- a check that read nothing must not pass" ;;
+    0  ) t_skip_one "B: this system reports no high-water mark (ru_maxrss is 0 for a process that ran a whole turn) -- the memory tooth cannot be read here, and 0 minus 0 must not pass as 'no growth'" ;;
     *  ) if [ -z "$B_KB" ]; then
              t_fail "B: the turn recorded no high-water mark (rsshwm rc $B_RC) -- a check that read nothing must not pass"
          else

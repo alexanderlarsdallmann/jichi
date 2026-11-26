@@ -648,6 +648,7 @@ cJSON *jc_tool_normalize_args(const char *name, const cJSON *schema,
                     cJSON_AddStringToObject(o, "tool", name ? name : "");
                     cJSON_AddStringToObject(o, "kind", "elided_placeholder");
                     cJSON_AddBoolToObject(o, "ok", 0); /* unrepairable by design */
+                    app->placeholder_total++;  /* def-377 W1.4: the total, where written */
                 }
                 jc_app_telem_end(app, o);
             }
@@ -1302,6 +1303,7 @@ void jc_tool_register_builtins(struct jc_tool_registry *r)
     jc_tool_registry_register(r, jc_tool_ls());
     jc_tool_registry_register(r, jc_tool_search());
     jc_tool_registry_register(r, jc_tool_fetch());
+    jc_tool_registry_register(r, jc_tool_check_model()); /* M1198 (G3) */
     jc_tool_registry_register(r, jc_tool_codebase_search());
     jc_tool_registry_register(r, jc_tool_write());
     jc_tool_registry_register(r, jc_tool_edit());
@@ -1467,6 +1469,7 @@ static const char *const JC_ALL_TOOL_NAMES[] = {
     "ask_for_help",
     "ask_user",
     "board",
+    "check_model",
     "codebase_search",
     "edit_file",
     "fetch_url",
@@ -1554,6 +1557,19 @@ int jc_tool_is_core(const char *name)
         }
     }
     return 0;
+}
+
+/* The "kept by the core profile" predicate: what a core-profile run really
+ * advertises. That is the 7-name core set PLUS `load_skill`, which
+ * jc_tool_allowed (above) exempts unconditionally -- "always exempt, so the
+ * agent can switch skills". `load_skill` was never a core name: it is exempt,
+ * not core, and the core allowlist stays 7 (test_tool pins that). But a report
+ * that counts what core KEEPS must count the exemption, which the `context
+ * tools` footer now does through this one predicate (M1196 follow-up). */
+int jc_tool_kept_by_core(const char *name)
+{
+    return jc_tool_is_core(name) ||
+           (name != NULL && strcmp(name, "load_skill") == 0);
 }
 
 /* M846 (PAR-2): the ONE place that decides a built-in tool carries a shell
@@ -1969,6 +1985,7 @@ jc_status jc_tool_execute(const struct jc_tool_registry *r,
                             cJSON_AddStringToObject(o, "tool", t->name);
                             cJSON_AddStringToObject(o, "kind", "elided_placeholder");
                             cJSON_AddBoolToObject(o, "ok", 0); /* unrepairable */
+                            app->placeholder_total++;  /* def-377 W1.4: the total, where written */
                         }
                         jc_app_telem_end(app, o);
                     }

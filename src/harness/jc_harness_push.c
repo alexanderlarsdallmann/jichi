@@ -45,6 +45,11 @@
 #include "jc_str.h"
 #include "jc_vec.h"
 #include "jc_proc.h"
+#include "jc_utf8.h"   /* jc_utf8_trunc_len: no byte-counted %.Ns cut (utf8_cut_lint) */
+
+/* A commit id's first 8 characters for a refusal, cut at a UTF-8 boundary
+ * (utf8_cut_lint: no new byte-counted %.Ns cut). An id is hex, so this is 8. */
+#define PUSH_SHA8(s) ((int)(strlen(s) > 8 ? jc_utf8_trunc_len((s), 8) : strlen(s)))
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -69,8 +74,14 @@
  * can be up to the per-file limit (and the reference's incident was 9.7 MB),
  * so the blob capture cap is generous; the object listing and ls-remote are
  * bounded by the history size. A cap here is a floor for the driver's
- * fixtures, not a measured fit (init's GIT_OUT_CAP, mirror's MIRROR_OUT_CAP). */
+ * fixtures, not a measured fit (init's GIT_OUT_CAP, mirror's MIRROR_OUT_CAP).
+ * #ifndef-guarded so a measuring build (def-350's boundary cell) can lower
+ * PUSH_OUT_CAP with -DPUSH_OUT_CAP; every build that passes no defines gets
+ * 8 MiB, byte-identical. (M1208 S4: a lowered cap driver can prove the
+ * truncation-refusal logic.) */
+#ifndef PUSH_OUT_CAP
 #define PUSH_OUT_CAP   (8 * 1024 * 1024)   /* rev-list / batch-check / ls-remote */
+#endif
 #define PUSH_SMALL_CAP (256 * 1024)        /* get-url / for-each-ref / cat-file -s */
 #define PUSH_BLOB_CAP  (64 * 1024 * 1024)  /* git cat-file blob <sha> */
 #define PUSH_TIMEOUT   120L
@@ -97,6 +108,9 @@
 #ifndef PUSH_MAX_EXCL
 #define PUSH_MAX_EXCL 48
 #endif
+/* The words one git child may carry: list_pushed's worst case (2 fixed + the
+ * tips + the exclusions + 2 fixed) with room to spare. */
+#define GIT_CHILD_MAX_ARGS (PUSH_MAX_TIPS + PUSH_MAX_EXCL + 8)
 
 /* def-350: report the cap VALUES this build was compiled with. The argv-
  * boundary build (make smoke-push-boundary) lowers them to 1/1 and announces
@@ -471,13 +485,20 @@ git_child(struct jc_sb *out, const char *mirror,
           const char *const args[], int nargs,
           const char *stdin_data, jc_size cap)
 {
-    char *argv[64];
+    /* The LARGEST caller is list_pushed: "rev-list" "--objects", up to
+     * PUSH_MAX_TIPS tips, up to PUSH_MAX_EXCL exclusions, "--not"
+     * "--remotes=origin". The bound here is derived from those two limits:
+     * as a bare 40 it sat UNDER them, so a push was refused at 36 remote
+     * tips although the limits promise 24 + 48. The array holds "git", the
+     * five neutralising -c pairs, up to ten extra -c pairs, -C <mirror>, the
+     * subcommand's words and the NULL. */
+    char *argv[1 + 10 + 20 + 2 + GIT_CHILD_MAX_ARGS + 1];
     struct jc_vec envv;
     int k = 0;
     int i;
     int j;
 
-    if (nargs > 40 || n_extra_c > 10) {
+    if (nargs > GIT_CHILD_MAX_ARGS || n_extra_c > 10) {
         return -1;
     }
     argv[k++] = (char *)"git";
@@ -1346,7 +1367,7 @@ build_exclusion(struct sha_set *excl, const char *mirror,
                 jc_sb_free(&out);
                 if (rc == 0) {
                     if (set_add(excl, sha) != 0) {
-                        return -1;
+                        return -2;   /* the set is full (or no memory) */
                     }
                 }
                 jc_sb_init(&out);
@@ -1384,7 +1405,7 @@ build_exclusion(struct sha_set *excl, const char *mirror,
                     sha[40] = '\0';
                     if (set_add(excl, sha) != 0) {
                         jc_sb_free(&out);
-                        return -1;
+                        return -2;   /* the set is full (or no memory) */
                     }
                 }
                 if (nl == NULL) {
@@ -1398,12 +1419,32 @@ build_exclusion(struct sha_set *excl, const char *mirror,
     return 0;
 }
 
+/* Check if the capture ends with the truncation marker (M929: the marker is
+ * appended at the end of the capture by jc_proc_capture on overflow). A
+ * suffix test cannot false-positive on a path containing the string. */
+static int
+capture_is_truncated(const struct jc_sb *sb)
+{
+    const char *marker = "\n... [output truncated]";
+    const char *p;
+    if (sb->data == NULL || sb->len == 0) {
+        return 0;
+    }
+    /* The marker is at the end, so check if the capture ends with it. */
+    if (sb->len < (jc_size)strlen(marker)) {
+        return 0;
+    }
+    p = sb->data + sb->len - strlen(marker);
+    return (memcmp(p, marker, strlen(marker)) == 0) ? 1 : 0;
+}
+
 /* List the file versions the push adds: `git rev-list --objects <tips>
  * ^<excl> --not --remotes=origin` (the reference's exact form: the `^`
  * exclusions are the remote's CURRENT tips from the ls-remote; `--not
  * --remotes=origin` adds the tracking refs). Returns the capture (the caller
  * frees it); `*ok` is 1 when the rev-list ran (the capture may be empty when
- * nothing is new), 0 on a git failure (fail-closed). */
+ * nothing is new), 0 on a git failure OR if the capture was truncated
+ * (fail-closed: an object past the cut would go out unscanned). */
 static struct jc_sb
 list_pushed(char **tips, int ntips, const struct sha_set *excl,
             const char *mirror, const char *e_global, const char *e_system,
@@ -1445,10 +1486,29 @@ list_pushed(char **tips, int ntips, const struct sha_set *excl,
                 PUSH_OUT_CAP);
     *ok = (rc == 0);
     if (rc != 0) {
+        /* Git failure: free the capture and return empty. */
         jc_sb_free(&out);
         jc_sb_init(&out);
+    } else if (capture_is_truncated(&out)) {
+        /* The capture was truncated: an object past the cut would go out
+         * unscanned. Set ok=0, but DO NOT free the capture so the caller
+         * can inspect it (e.g., to log the truncation). */
+        *ok = 0;
     }
     return out;
+}
+
+/* Helper for callers to check if a capture that failed (*ok == 0) was due to
+ * truncation (S4: the capture overflowed PUSH_OUT_CAP). Returns 1 if the
+ * capture ends with the truncation marker, 0 otherwise. */
+static int
+capture_was_truncated(const struct jc_sb *sb)
+{
+    if (sb->data == NULL || sb->len == 0) {
+        return 0;
+    }
+    /* Check if the capture ends with the truncation marker. */
+    return capture_is_truncated(sb);
 }
 
 /* The same range as list_pushed, but piped (as the reference does) through
@@ -1460,7 +1520,7 @@ list_pushed(char **tips, int ntips, const struct sha_set *excl,
 static struct jc_sb
 list_pushed_bc(char **tips, int ntips, const struct sha_set *excl,
                const char *mirror, const char *e_global,
-               const char *e_system, int *ok)
+               const char *e_system, int *ok, int *stage)
 {
     struct jc_sb raw;
     struct jc_sb bc;
@@ -1469,9 +1529,20 @@ list_pushed_bc(char **tips, int ntips, const struct sha_set *excl,
     int rc;
     int raw_ok;
 
+    *stage = 0;
     raw = list_pushed(tips, ntips, excl, mirror, e_global, e_system, &raw_ok);
     jc_sb_init(&bc);
     if (!raw_ok) {
+        /* The raw capture failed or was truncated.  Check if the raw
+         * capture was truncated: if so, free bc and return raw so the
+         * caller can inspect the truncation marker; otherwise, free raw
+         * and return empty bc. */
+        if (capture_is_truncated(&raw)) {
+            *stage = 1;
+            jc_sb_free(&bc);
+            *ok = 0;
+            return raw;
+        }
         jc_sb_free(&raw);
         *ok = 0;
         return bc;
@@ -1493,8 +1564,16 @@ list_pushed_bc(char **tips, int ntips, const struct sha_set *excl,
     rc = git_m2(&bc, mirror, e_global, e_system, bargv, 2, raw.data,
                 PUSH_OUT_CAP);
     if (rc != 0) {
-        jc_sb_free(&bc);
-        jc_sb_init(&bc);
+        /* The batch-check capture failed: an object past the cut would go out
+         * unscanned. Set ok=0 and retain the capture so the caller can
+         * inspect it (e.g., to log the failure reason). */
+        *ok = 0;
+    } else if (capture_is_truncated(&bc)) {
+        /* The batch-check capture was truncated: an object past the cut
+         * would go out unscanned. Set ok=0 and retain the capture so the
+         * caller can inspect it (e.g., to log the truncation). */
+        *stage = 2;
+        *ok = 0;
     }
     jc_sb_free(&raw);
     return bc;
@@ -1519,6 +1598,7 @@ key_scan(const char *mirror, const char *stored_url, const char *br,
     char env_url[512];
     struct jc_hp_blob_list bl;
     int key_ok;
+    int xrc;
     int commits;
     int n;
     int i;
@@ -1547,20 +1627,44 @@ key_scan(const char *mirror, const char *stored_url, const char *br,
                "never a pass, behaviour 14)");
         return 1;
     }
-    if (build_exclusion(&excl, mirror, stored_url, e_global, e_system,
-                        env_url, a, git_token_file, harness_path) != 0) {
+    xrc = build_exclusion(&excl, mirror, stored_url, e_global, e_system,
+                          env_url, a, git_token_file, harness_path);
+    if (xrc == -2) {
+        /* Not a failed ls-remote: say what it is, so the reader looks at the
+         * remote's tips and not at the network. */
+        refuse("the key scan: the remote has more than %d tips that the "
+               "mirror holds, more than the scan's exclusion set carries; "
+               "the push is refused (fail-closed: it cannot list what the "
+               "push adds)", PUSH_MAX_EXCL);
+        return 1;
+    }
+    if (xrc != 0) {
         refuse("the key scan could not list the remote's current tips "
                "(`git ls-remote` of the stored URL failed); the push is "
                "refused (fail-closed: it cannot list what the push adds)");
         return 1;
     }
-    out = list_pushed_bc(tips, ntips, &excl, mirror, e_global, e_system,
-                         &key_ok);
-    if (key_ok == 0) {
-        refuse("the key scan cannot list what the push adds "
-               "(`git rev-list --objects` failed); the push is refused "
-               "(fail-closed)");
-        return 1;
+    {
+        int stage;
+        out = list_pushed_bc(tips, ntips, &excl, mirror, e_global, e_system,
+                             &key_ok, &stage);
+        if (key_ok == 0) {
+            if (stage == 1) {
+                refuse("the object listing overflowed the capture cap: "
+                       "the push is refused (fail-closed: an object past the cut "
+                       "would go out unscanned)");
+            } else if (stage == 2) {
+                refuse("the batch-check listing overflowed the capture cap: "
+                       "the push is refused (fail-closed: an object past the cut "
+                       "would go out unscanned)");
+            } else {
+                refuse("the batch-check could not process the pushed file versions; "
+                       "the push is refused (fail-closed: an object past the cut "
+                       "would go out unscanned)");
+            }
+            jc_sb_free(&out);
+            return 1;
+        }
     }
     memset(&bl, 0, sizeof bl);
     bl.a = a;
@@ -1576,6 +1680,50 @@ key_scan(const char *mirror, const char *stored_url, const char *br,
                "push is refused (fail-closed)");
         jc_sb_free(&out);
         return 1;
+    }
+    /* A secret is a secret wherever it stands in what the push sends. The
+     * scan read file CONTENTS only; a key in a file's NAME or in a commit
+     * MESSAGE went out (the reference hook has the same gap). Both are read
+     * here, before the contents.
+     * (1) the names: the listing itself carries every pushed path. */
+    if (bytes_contains(out.data, out.len, model_key) ||
+        bytes_contains(out.data, out.len, git_token)) {
+        refuse("the key scan: the NAME of a pushed file contains a secret "
+               "(the model key or the git token); the push is refused");
+        jc_sb_free(&out);
+        return 1;
+    }
+    /* (2) the commits: author, committer and message of each pushed commit
+     * (`git cat-file commit`). A commit that cannot be read refuses. */
+    for (i = 0; i < cseen.n; i++) {
+        struct jc_sb cm;
+        const char *cargv[3];
+        int crc;
+        jc_sb_init(&cm);
+        cargv[0] = (char *)"cat-file";
+        cargv[1] = (char *)"commit";
+        cargv[2] = cseen.items[i];
+        crc = git_m2(&cm, mirror, e_global, e_system, cargv, 3, NULL,
+                     PUSH_BLOB_CAP);
+        if (crc != 0) {
+            refuse("the key scan: the pushed commit %.*s could not be read "
+                   "(cat-file rc=%d); the push is refused (fail-closed)",
+                   PUSH_SHA8(cseen.items[i]), cseen.items[i], crc);
+            jc_sb_free(&cm);
+            jc_sb_free(&out);
+            return 1;
+        }
+        if (bytes_contains(cm.data, cm.len, model_key) ||
+            bytes_contains(cm.data, cm.len, git_token)) {
+            refuse("the key scan: the pushed commit %.*s contains a secret "
+                   "in its message or its author lines (the model key or "
+                   "the git token); the push is refused",
+                   PUSH_SHA8(cseen.items[i]), cseen.items[i]);
+            jc_sb_free(&cm);
+            jc_sb_free(&out);
+            return 1;
+        }
+        jc_sb_free(&cm);
     }
     n = bl.n;
     for (i = 0; i < n; i++) {
@@ -1675,12 +1823,27 @@ size_check(const char *mirror, const char *stored_url, const char *br,
                "the push is refused (fail-closed)");
         return 1;
     }
-    out = list_pushed_bc(tips, ntips, &excl, mirror, e_global, e_system,
-                         &size_ok);
-    if (size_ok == 0) {
-        refuse("the size check cannot list what the push adds; the push is "
-               "refused (fail-closed)");
-        return 1;
+    {
+        int stage;
+        out = list_pushed_bc(tips, ntips, &excl, mirror, e_global, e_system,
+                             &size_ok, &stage);
+        if (size_ok == 0) {
+            if (stage == 1) {
+                refuse("the object listing overflowed the capture cap: "
+                       "the push is refused (fail-closed: an object past the cut "
+                       "would go out unscanned)");
+            } else if (stage == 2) {
+                refuse("the batch-check listing overflowed the capture cap: "
+                       "the push is refused (fail-closed: an object past the cut "
+                       "would go out unscanned)");
+            } else {
+                refuse("the batch-check could not process the pushed file versions; "
+                       "the push is refused (fail-closed: an object past the cut "
+                       "would go out unscanned)");
+            }
+            jc_sb_free(&out);
+            return 1;
+        }
     }
     memset(&bl, 0, sizeof bl);
     bl.a = a;
@@ -2354,19 +2517,23 @@ jc_hp_cred_env(const char *token_file, const char *user_rule,
     {
         int is_file;
         const char *rule;
+        int n_e0;
+        int n_e1;
+        int n_e2;
         is_file = (strstr(url, "://") == NULL) ||
                   (strncmp(url, "file://", 7) == 0);
         rule = is_file ? "none" : "oauth2";
-        if (jc_snprintf(env_out[0], 512, "JICHI_HARNESS_GIT_TOKEN_FILE=%s",
-                        token_file) < 0) {
+        n_e0 = jc_snprintf(env_out[0], 512,
+                           "JICHI_HARNESS_GIT_TOKEN_FILE=%s", token_file);
+        if (n_e0 < 0 || n_e0 >= 512) {
             env_out[0][0] = '\0';
         }
-        if (jc_snprintf(env_out[1], 512, "JICHI_HARNESS_CRED_RULE=%s", rule)
-            < 0) {
+        n_e1 = jc_snprintf(env_out[1], 512, "JICHI_HARNESS_CRED_RULE=%s", rule);
+        if (n_e1 < 0 || n_e1 >= 512) {
             env_out[1][0] = '\0';
         }
-        if (jc_snprintf(env_out[2], 512, "JICHI_HARNESS_CRED_URL=%s", url)
-            < 0) {
+        n_e2 = jc_snprintf(env_out[2], 512, "JICHI_HARNESS_CRED_URL=%s", url);
+        if (n_e2 < 0 || n_e2 >= 512) {
             env_out[2][0] = '\0';
         }
     }
@@ -2536,7 +2703,11 @@ hp_range_shas(const struct jc_sb *rev, struct jc_arena *a,
         } else {
             is_sha = 0;
         }
-        if (is_sha && (p[40] == ' ' || p[40] == '\0')) {
+        /* A COMMIT's line is the bare id: the byte after it is the newline.
+         * With only ' ' and NUL accepted here, every commit but a last
+         * unterminated one was dropped from the range, so no caller ever saw
+         * a commit's id. */
+        if (is_sha && (p[40] == ' ' || p[40] == '\n' || p[40] == '\0')) {
             int dup = 0;
             char *s = (char *)jc_arena_calloc(a, 41);
             if (s == NULL) {
@@ -2641,6 +2812,12 @@ jc_hp_records_scan(struct jc_arena *a, const char *mirror,
      * belt-and-suspenders, as in M1056). */
     rev = list_pushed(&tip, 1, &excl, mirror, e_global, e_system, &ok);
     if (ok == 0) {
+        /* Check if the capture was truncated (S4). If so, the caller should
+         * refuse with the specific message. But this caller just returns -1;
+         * the caller of this function will refuse. */
+        if (capture_was_truncated(&rev)) {
+            /* The caller of this function should handle truncation. */
+        }
         jc_sb_free(&rev);
         return -1;
     }
@@ -2699,6 +2876,12 @@ jc_hp_tip_delta_scan(struct jc_arena *a, const char *mirror,
     }
     rev = list_pushed(&tip, 1, &excl, mirror, e_global, e_system, &ok);
     if (ok == 0) {
+        /* Check if the capture was truncated (S4). If so, the caller should
+         * refuse with the specific message. But this caller just returns -1;
+         * the caller of this function will refuse. */
+        if (capture_was_truncated(&rev)) {
+            /* The caller of this function should handle truncation. */
+        }
         jc_sb_free(&rev);
         return -1;
     }

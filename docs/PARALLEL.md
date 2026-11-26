@@ -357,6 +357,50 @@ Set it above what a child genuinely needs. It exists to stop a *wedged* child ha
 swarm, so it should be generous rather than tight — the token/time budgets
 ([AUTONOMY.md](AUTONOMY.md)) are the right place to bound cost.
 
+### Supervising a running worker: `parallelSupervise` (M1194, def-377)
+
+`parallelTaskTimeout` answers "is this child *alive*?". It cannot answer "is this child
+*making progress*?" — a child that runs fine to its deadline can still have stopped editing,
+and the lead has no way to see that until the batch ends. The **`parallelSupervise`** object
+adds a *supervision flag*: the parent watches each worker's progress signal (its edit count
+and its copied-placeholder count, on the `sig` line) and raises a flag when a rule fires.
+**The default action is `report` (observe-only): a flag stops nothing** — it is written to
+the status board, the `status` reply, and a `worker_flag` telemetry event
+([TELEMETRY.md](TELEMETRY.md)), so a supervisor can *see* a stalled worker without the pool
+intervening. The two opt-in `action` values do intervene: `wrapup` hands the flagged child one
+instruction through its inject pipe ("Stop here. Your next answer is your last ...") and then
+the soft stop; `stop` sends the soft stop alone. Either way the child ends with its report at
+its next tool boundary. A child that is still inside a command when `graceSec` has run out has
+no such boundary and is killed (the hard stop).
+
+```json
+{ "parallelSupervise": { "noEditSec": 3600, "placeholders": 2, "action": "report", "graceSec": 60 } }
+```
+
+All values are in **seconds** (the unit the supervision design settled on; `noEditSec: 3600`
+is the measured 60 minutes). It is a **separate** knob from `parallelTaskTimeout`: a
+timeout-stopped child is *kept* and never merged, while a flagged child under `report` is
+neither — it keeps running.
+
+| key | default | rule / role | the measurement behind it |
+|-----|---------|-------------|---------------------------|
+| `noEditSec` | `3600` | **R1** — flag the task, after its first edit, once its edit count is unchanged this many seconds. Never inside a running tool call. | 60 min: 7 of 563 stalled. |
+| `placeholders` | `2` | **R2** — flag the task once its copied-placeholder total reaches this many. | 4 of 880 looped on placeholders (3 of 245 in the tighter sample). |
+| `action` | `report` | `report` (observe-only), `wrapup`, or `stop`. An unknown value is a **named config error** and the batch runs as `report` — never a silent default. | — |
+| `graceSec` | `60` | the fence that bounds a soft stop's fallback to the hard stop: under `wrapup` or `stop`, a child still inside a command this many seconds after the flag is killed. | — |
+
+**Why R1 is gated on the first edit, not on launch.** A child that only *reads*
+for its first hour is normal and must not be flagged — that was the measured cause
+of 10 first-hour false positives in the supervision sample. So R1's clock starts
+at the task's **first edit** (`edits >= 1`), and the edit count is measured to be
+*unchanged* for `noEditSec` seconds after that.
+
+Under `report` (the default) a flagged task is marked on its board line, carries the flag in
+the `status` reply, and fires one `worker_flag` telemetry event per task per batch. Nothing
+stops. Under `wrapup` or `stop` the same record is made, and the child is then ended as
+described above; its ending is the `supervised` one in the `worker_outcome` event
+([TELEMETRY.md](TELEMETRY.md)).
+
 ### `fork failed: <reason>`
 
 jichi could not create the child process at all. The message now carries the system reason,

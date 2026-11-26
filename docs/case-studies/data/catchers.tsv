@@ -1,0 +1,218 @@
+id	drive	date	defect	area	caught_by	missed_by	fixed_in	source
+C001	hardening-1	2026-10-17	Rule inference widened "never run make ci" to every build (L-19)	product code	first real use	not recorded	M966	FIND:7-25; H1F:363-364
+C002	hardening-1	2026-10-18	Rule inference read "commit the work" as "do not commit" (L-21)	product code	supervisor re-check	not recorded	M966	FIND:148-172; H1F:363-364
+C003	hardening-1	2026-10-18	Background output repeated at the 256 KiB cap edge (L-20)	product code	supervisor re-check	not recorded	M963	FIND:117-146; H1F:365
+C004	hardening-1	2026-10-18	Spool cap held only at a drain, not between drains (L-22)	product code	supervisor re-check	bg_spool_cap.sh (its teeth drain on purpose mid-write)	deferred as L-22; not fixed in the drive	FIND:174-193; H1F:365
+C005	hardening-1	2026-10-18	Lead's path fence refused a worker's spilled long answer (L-23)	product code	first real use	not recorded	open at the drive's end	FIND:231-258; H1F:366
+C006	hardening-1	2026-10-18	No heartbeat during an in-process subagent wait (L-24)	product code	first real use	not recorded	open at the drive's end	FIND:260-278; H1F:367
+C007	hardening-1	2026-10-18	Tool description invited a timeout on test suites (L-25)	product code	first real use	the lead prompt's caps rule (the tool text won)	M976	FIND:280-302; H1F:368
+C008	hardening-1	2026-10-18	Supervisor's lead prompt told the lead to cap every command	gate/harness scripts	supervisor re-check	not recorded	prompt corrected 2026-10-18 11:24	H1F:324 (S2); H1R 2.4
+C009	hardening-1	2026-10-18	Harness mirror failed to fetch kept attempts, 137 times	gate/harness scripts	supervisor re-check	not recorded	mirror.sh fixed, live at the 2026-10-20 restart	H1F:313 (I3); SL1:620-623
+C010	hardening-1	2026-10-18	Drive image's clang lacked the ASan runtime	gate/harness scripts	supervisor re-check	not recorded	not fixed; gcc SAN used as a stand-in	SL1:938-942; H1F:316 (I6)
+C011	hardening-1	2026-10-18	Test case 13 leaked its two minimal apps (LeakSanitizer)	tests	make ci: sanitizers/valgrind/leaks	the lead's READY check (full smoke, no sanitizer); the supervisor's SAN runs predated the case	1580c5ef	SL1:924-934; H1F:278
+C012	hardening-1	2026-10-19	A bare-statement JC_REQUIRE let a test call fputs(NULL)	tests	make ci: release/32-bit/other stage	the 6 unit runs, SAN and valgrind stages of the same gate	7acde6c8	SL1:953-967 (the M729 unwritable-TMPDIR stage); FIND:304-316; H1F:279
+C013	hardening-1	2026-10-19	20 more bare-statement JC_REQUIRE guards that guard nothing	tests	supervisor re-check	not recorded	open at the drive's end (L-26)	FIND:304-322; H1F:369
+C014	hardening-1	2026-10-19	Spool cap rewrite raced the child; its last line was lost (L-27)	product code	make ci: unit or smoke tier	batch 0's gates (passed the test 7 times); the team's fast gate	M984	FIND:195-229 (FAULT unit build, test_bg.c:213); H1F:280; H1R 2.2
+C015	hardening-1	2026-10-19	nul_edit_refused check 2 passed without its guard	tests	supervisor re-check	the team's teeth (its earlier red was a segfault)	eb13b659	SL1:1140-1150, 1163; RS19:41-43
+C016	hardening-1	2026-10-19	apply_patch's NUL guard had no test that could fail	tests	supervisor re-check	the unit suite (15649/0 with the guard disabled)	M985	RS19:41-43; SL1:2872-2873
+C017	hardening-1	2026-10-19	A test pinned its own binary; the mutant sweep could not reach it	tests	make ci: release/32-bit/other stage	the unit, FAULT and smoke stages of the same gate	113e5f7f	SL1:1601-1614 (mutant sweep); H1F:282; RS19:31
+C018	hardening-1	2026-10-19	M981's driver check 4 passed without its fix	tests	supervisor re-check	not recorded	before batch 2 landed (6eb260e6)	RS19:41-43; SL1:1880-1890
+C019	hardening-1	2026-10-19	E-01's call-site layer was pinned by no test	tests	supervisor re-check	not recorded	cf0820c2	RS19:41-43; SL1:1965-1972, 2047-2056
+C020	hardening-1	2026-10-19	E-03's background-job check had been dropped from its driver	tests	supervisor re-check	not recorded	cf0820c2	RS19:41-43; SL1:2047-2052
+C021	hardening-1	2026-10-19	A new unit test slept 35 s; make test about 5x slower	tests	supervisor re-check	not recorded	fixed before it was committed	RS19:46; SL1:2083-2092
+C022	hardening-1	2026-10-19	Gate script emptied TMPDIR; clang stage ran in fallback mode	gate/harness scripts	supervisor re-check	sh -n (a syntax check only)	gate.sh refuses an empty TMPDIR	SL1:2215-2235; H1R 2.3
+C023	hardening-1	2026-10-19	Configure probes read an unusable TMPDIR as "feature absent"	build/toolchain	supervisor re-check	not recorded	not recorded in the sources read	SL1:2231-2234; H1F:378
+C024	hardening-1	2026-10-19	A new run-tool test skipped its teardown (LeakSanitizer)	tests	make ci: sanitizers/valgrind/leaks	the lead's keep-going smoke (no sanitizer run)	batch 3 (landed 6fecbdb6)	SL1:2237-2247
+C025	hardening-1	2026-10-19	A test used a 10 ms sleep as synchronisation	tests	make ci: sanitizers/valgrind/leaks	the unit and SAN stages of the same gate	batch 3 (landed 6fecbdb6)	SL1:2295-2310 (valgrind stage)
+C026	hardening-1	2026-10-19	setup --from-global freed a buffer twice	product code	independent review	not recorded	aca1abb0	SL1:2877-2879 (the lead's own the 27B model review)
+C027	hardening-1	2026-10-20	Unchecked ftruncate, seen only by a fortified -O2 build	product code	other	make ci (it had no fortified -O2 stage)	M996 (a new make ci stage)	SL1:2518-2524 (the drive's pinned -O2 build); H1F:375-376; H1R 2.5
+C028	hardening-1	2026-10-20	jichi setup leaked its config backup copy (L-29)	product code	supervisor re-check	make ci's valgrind stage (it does not run setup)	open at the drive's end	FIND:349-369; SL1:2880-2885
+C029	hardening-1	2026-10-20	Image and prompt set a placeholder author and a no-reply trailer	gate/harness scripts	the operator	every gate (no identity check existed)	history rewrite of 811 commits; M999 lint	H1R 2.3; H1F:331 (S9); FIND:95-115
+C030	hardening-1	2026-10-20	A driver scanned every process for "sleep 20"	tests	make ci: unit or smoke tier	not recorded	M998	FIND:75-93; H1F:286
+C031	hardening-1	2026-10-20	A red-first test hung the unit suite on a FIFO	tests	supervisor re-check	the worker's own unit run (it read "timed out" as a build problem)	not recorded in the sources read	H1R 2.2; H1F:395-396
+C032	hardening-1	2026-10-20	Progress and board writers followed a symlinked leaf outside	product code	independent review	test_progress.c's widened checks	M997	FIND:27-45; SL1:3679-3693 (review 4, items P1-P2 at 3689, 3692)
+C033	hardening-1	2026-10-20	test_path's FIFO case never reached the leaf-FIFO branch	tests	independent review	not recorded	M997	FIND:46-50; SL1:3694
+C034	hardening-1	2026-10-20	ROADMAP entry claimed SECURITY.md text that did not exist	records	independent review	not recorded	M997	FIND:51-53; SL1:3696
+C035	hardening-1	2026-10-21	M992's unit teeth were vacuous	tests	supervisor re-check	not recorded	not recorded in the sources read	SL1:4734; H1F:356 (P10)
+C036	hardening-1	2026-10-21	M1016's heap cases over-allocated, so ASan could not see	tests	supervisor re-check	not recorded	not recorded in the sources read	SL1:5472-5478; H1F:356 (P10)
+C037	hardening-1	2026-10-21	Follower recorded a refused head as gated and skipped it	gate/harness scripts	supervisor re-check	not recorded	the follower retries a refused head	SL1:5552; H1R 2.1
+C038	hardening-1	2026-10-21	docs_counts_lint could not read a count of 1000 or more	tests	supervisor re-check	the lead (it deleted ROADMAP entries to turn the lint green)	M1023	H1R 2.2; H1F:349 (P3), 385
+C039	hardening-1	2026-10-21	Notes were used up by runs that could not reach the model	gate/harness scripts	first real use	not recorded	gateway-up.sh parks a run before it reads the inbox	H1F:312 (I2); H1R 2.1
+C040	hardening-1	2026-10-21	Review follower marked failed reviews as reviewed	gate/harness scripts	supervisor re-check	not recorded	review-follow.sh marks only rc 0	SL1:6082-6086; H1R 2.3
+C041	hardening-1	2026-10-21	A C99 loop declaration reached master in a fuzz target	tests	independent review	make ci (builds the fuzz targets only without -Werror)	not recorded in the sources read	SL1:6086-6091; H1R 2.3
+C042	hardening-1	2026-10-21	Drive services would have stopped at logout (linger off)	gate/harness scripts	supervisor re-check	not recorded	the operator turned on linger	H1F:314 (I4); H1R 2.4
+C043	hardening-1	2026-10-22	Failure classifier filed test output with "refused" as DENIED	product code	supervisor re-check	not recorded	M1041	SL1:6636-6642; H1F:380
+C044	hardening-1	2026-10-22	M1040 turned off all secret redaction without a search key	product code	supervisor re-check	the team's drivers (they ran a jichi built before the change)	M1040-b, M1040-c, before its batch landed	H1R 2.2; H1F:382-383; SL1:6843
+C045	hardening-1	2026-10-22	M1041's driver stayed green with the fix removed	tests	supervisor re-check	not recorded	not recorded in the sources read	SL1:6845
+C046	hardening-1	2026-10-22	M1041 reclassified read-only refusals from denied to other	product code	supervisor re-check	not recorded	not recorded in the sources read	SL1:6846-6847
+C047	hardening-1	2026-10-22	Prompt template made parallel workers' reports overwrite	gate/harness scripts	supervisor re-check	not recorded	per-task report names; later M1044	H1R 2.3; H1F:339 (S17)
+C048	hardening-1	2026-10-23	-C was ignored by subcommands dispatched before the chdir	product code	supervisor re-check	not recorded	not recorded in the sources read	SL1:7000-7006; H1F:384
+C049	hardening-1	2026-10-23	queued_injects counted lines, not notes	product code	supervisor re-check	not recorded	not recorded in the sources read	SL1:7123-7127; H1F:381
+C050	hardening-1	2026-10-23	A --verify that never ran reported "verify green", exit 0	product code	first real use	not recorded	M1048 (harness drive, batch G18)	FIND:371-406; H1R 2.5
+C051	harness	2026-10-23	clean kept the harness main object; SAN never instrumented it	build/toolchain	independent review	make ci (the g++ object survived into the SAN stage)	094518c5	SL2:66-70 (the lead's the 27B model review, F1); HAF:290
+C052	harness	2026-10-23	The team's log quoted a citation that pointed nowhere	records	make ci: unit or smoke tier	the lead's READY check (doc lints not run on that commit)	the next commit (H0 landed at e9dcfe70)	HAR 2.2.1; HAF:252 (P1)
+C053	harness	2026-10-23	The drive's first commit carried no agent trailers	records	supervisor re-check	not recorded	not rewritten (the no-rewrite rule)	SL2:93; HAF:255 (P4)
+C054	harness	2026-10-24	PLATFORM_RETEST.md debt column was 26 low on every row	records	independent review	every check (none read the column)	c5c2160f (a cross-foot check)	SL2:129-131; HAF:312
+C055	harness	2026-10-24	G18 fix dropped the words "stopped at its cap"	product code	make ci: unit or smoke tier	the fix's own tests; the supervisor's teeth (3 other drivers)	885522fd	SL2:163-169; HAF:211; HAR 2.2.3
+C056	harness	2026-10-24	G18: three more stop paths still claimed verify green	product code	independent review	not recorded	not recorded in the sources read	SL2:197-199 (the lead's the 27B model review); HAF:311
+C057	harness	2026-10-24	A refusal could print the secret; URL userinfo was accepted	product code	supervisor re-check	the unit suite (16276/0 with the secret echoed)	e3ac20ef	SL2:276-278; HAF:291
+C058	harness	2026-10-24	A new unit test segfaulted under an unwritable TMPDIR	tests	make ci: release/32-bit/other stage	every unit stage of the same gate (gcc, -O2, clang, C++, SAN)	28a4a95e	SL2:265-267 (the M729 stage); HAF:292
+C059	harness	2026-10-24	A test opened files in text mode ("w"), not portable	tests	make ci: unit or smoke tier	not recorded	28a4a95e	SL2:284-287 (portability_lint 37); HAF:292
+C060	harness	2026-10-24	init: segfault, pin left non-executable, long prefix wrong	product code	independent review	not recorded	aec06186, d63d2150	HAF:293 (the lead's the 27B model review); HAR 2.2.2
+C061	harness	2026-10-24	Mutant sweep never swapped the new jichi-harness binary	tests	make ci: release/32-bit/other stage	not recorded	dc0dc0b3, b055c761 (one row in HAF:294)	HAF:210, 294; HAR 2.2.4
+C062	harness	2026-10-24	Options lint did not read the new program's source	tests	make ci: unit or smoke tier	not recorded	dc0dc0b3, b055c761 (one row in HAF:294)	HAF:294 (docs_flags); HAR 2.2.4
+C063	harness	2026-10-24	New harness code did not compile as C++	product code	make ci: compilers/warnings	the team's quick checks (no C++ build)	d63d2150 (C++-clean, HAF:293)	HAF:210; HAR 2.2.4; docs/internal/2026-11-22-drive-case-studies/harness-2026-10-23/numbers.out:405-406
+C064	harness	2026-10-24	init cut strings by byte count, splitting UTF-8 characters	product code	make ci: unit or smoke tier	not recorded	b2f6cbf5	HAF:295 (utf8_cut_lint)
+C065	harness	2026-10-24	Mirror fetch port: wrong source, hook check, kept refs skipped	product code	supervisor re-check	not recorded	93b0f30c, 41751ceb	SL2:512-516, 559-570; HAF:296
+C066	harness	2026-10-24	Alternates let a plain fetch run a configured command	product code	supervisor re-check	not recorded	mirrors with alternates refused	HAF:298
+C067	harness	2026-10-24	Delivered notes stayed in the inbox and were sent again	gate/harness scripts	first real use	not recorded	notes moved to inbox-delivered/ from 2026-10-24 05:58	HAR 2.3.2; HAF:274 (S-b)
+C068	harness	2026-10-25	Push port: no ls-remote credentials over HTTPS; PUSH_KEPT lost	product code	independent review	the local rehearsal (local paths, no credential helper)	551017e6 and M1056's H3 fixes	SL2:700-719 (review R:89e7fe3f.P1); HAF:299
+C069	harness	2026-10-25	list_pushed's argv had no room for its NULL terminator	product code	independent review	not recorded	29df6d33	SL2:790-791 (Q:f9f3e8d9.F1, the lead's review); HAF:299
+C070	harness	2026-10-25	Credential helper's host guard had no isolating test	tests	supervisor re-check	harness_mirror_push (28/28 with the guard disabled)	7527f5a8	SL2:818, 842; HAF:299
+C071	harness	2026-10-25	GIT_CONFIG isolation of the serve child had no behavioural test	tests	supervisor re-check	its driver (13 of 13 green with the guard disabled)	e18750af	HAF:297; HAR 2.5
+C072	harness	2026-10-25	clean left harness library objects; a stage linked stale ones	build/toolchain	make ci: release/32-bit/other stage	not recorded	9eaa27df	SL2:881-891 (the boundary stage's own guard); HAF:300
+C073	harness	2026-10-25	A driver cell's fixture did not plant the case it tested	tests	make ci: unit or smoke tier	not recorded	db97e4f7	HAF:209 (89e7fe3f cell 21); SL2:712
+C074	harness	2026-10-25	A driver cell rev-parsed a ref that did not exist	tests	make ci: unit or smoke tier	not recorded	not recorded in the sources read	HAF:209 (551017e6 cell 27)
+C075	harness	2026-10-25	A red-first driver failed for the wrong reason (--config)	tests	supervisor re-check	not recorded	one command shape; every red prints "not built yet"	SL2:913-916; HAF:262 (P11)
+C076	harness	2026-10-25	run passed --model to the gateway unchecked (a cost risk)	product code	supervisor re-check	not recorded	93559b6e	HAF:301; SL2:928
+C077	harness	2026-10-25	run used struct timeval without <sys/time.h>	product code	make ci: unit or smoke tier	not recorded	not recorded in the sources read	SL2:935 (portability_lint 28)
+C078	harness	2026-10-26	Run port wrote argv[14] one past the end of its array	product code	supervisor re-check	make ci (its SAN stage ran jichi-harness only as --version)	argv[15]; SAN stage over every harness driver	SL2:1328-1337; HAF:302
+C079	harness	2026-10-26	Mirror and push read d_name after closedir (use-after-free)	product code	supervisor re-check	every make ci since H3 landed	fixed with H4	SL2:1340-1345; HAF:303
+C080	harness	2026-10-26	A stdin test could never fail: its fixture fed /dev/null	tests	independent review	not recorded	the wrapper's redirect dropped	SL2:998-1000; HAF:304
+C081	harness	2026-10-26	A driver's grep lacked "--", so it read the pattern as an option	tests	independent review	the supervisor's side by side (it blamed the fixture size)	the "--" added	SL2:1352-1361 (review R:5d198b65.P1); HAR 2.3.1
+C082	harness	2026-10-26	Handoff heading glued to the previous line of the prompt	product code	independent review	the supervisor's side by side (compared the file only); every gate	M1058-b (e05c512a)	SL2:1591-1602; HAR 2.3.3
+C083	harness	2026-10-26	Handoff port: 1-byte arena overrun, leaks, non-empty err file	product code	independent review	not recorded	63b60945	HAF:306
+C084	harness	2026-10-26	Drive port lost the TEAM_PUSH switch	product code	independent review	the supervisor's port check (SV:1838)	teamPush setting and cell D3f	SL2:1618-1621; HAF:282 (S-j), 307
+C085	harness	2026-10-26	Test D5's mock delay ended before the 10 s poll	tests	independent review	not recorded	delay raised to 20000 ms (SV:2157)	SL2:1646-1648; HAF:307
+C086	harness	2026-10-26	Lead's control socket went deaf during an in-process subagent	product code	first real use	not recorded	M1103 (hardening-2 drive)	SL2:1246-1254; HAF:314
+C087	harness	2026-10-26	Refusal said elided arguments "cannot be recovered"; untrue	product code	first real use	not recorded	def-359 (a DEFERRED row)	HAF:263 (P12); HAR 2.5
+C088	harness	2026-10-26	Kept line lacked a newline; recover printed "<shadow>"	product code	supervisor re-check	not recorded	not recorded in the sources read	SL2:1128-1130; HAF:316
+C089	harness	2026-10-27	Smoke runner killed harness_drive at a 120 s limit	tests	supervisor re-check	the supervisor's own reading of the first kill (as expected)	a measured 600 s limit	SL2:1737-1743; HAF:212
+C090	harness	2026-11-22	Six H3 commits carry no agent trailers at all	records	other	the supervisor's H3 landing check	not rewritten (the no-rewrite rule)	HAR 2.4.1; HAF:255 (P4); docs/internal/2026-11-22-drive-case-studies/harness-2026-10-23/ERRATA.md:40-43
+C091	hardening-2	2026-10-27	Credential helper refused every real HTTPS request (a slash)	product code	first real use	harness_mirror_push (its fixtures wrote the path with a slash)	M1061	FIND:408-455; HAR 2.4.4; H2F:444
+C092	hardening-2	2026-10-27	A dead kept-alive connection was reported as "never sent"	product code	first real use	not recorded	M1062 (final form M1062-c)	FIND:457-512; H2F:327 (S-1), 445
+C093	hardening-2	2026-10-27	M1062's first fix misreported a cold DNS timeout, 15x slower	product code	supervisor re-check	the fix's own driver (6/6) and the unit suite	M1062-c	SL3:323-337; H2F:296
+C094	hardening-2	2026-10-27	Harness run moved inbox notes that no run had read	product code	supervisor re-check	not recorded	M1063	FIND:514-544; H2F:446
+C095	hardening-2	2026-10-27	Harness fetch reports went unstamped or to the loop's stdout	product code	supervisor re-check	not recorded	M1064	FIND:546-561; H2F:447
+C096	hardening-2	2026-10-27	git_commit silently dropped an undeclared "trailer" argument	product code	supervisor re-check	not recorded	M1067	SL3:225-231; FIND:600-620
+C097	hardening-2	2026-10-27	A worker's teeth disabled the guard; an absence check was vacuous	tests	supervisor re-check	the worker's own teeth	M1060 (07aab29d)	SL3:126-130; H2F:435 (S-22)
+C098	hardening-2	2026-10-27	Batch broke license, man-page, doc-claim and portability lints	records	make ci: unit or smoke tier	the lead's chosen pre-READY lint list	fixed before the next gate (2a4d4f33)	H2F:286, 347 (S-12); H2R 2.3
+C099	hardening-2	2026-10-28	A malloc result was assigned without a cast; C++ refused it	product code	make ci: compilers/warnings	the lead's fast gate (gcc only)	not recorded in the sources read	H2F:288; H2R 2.3
+C100	hardening-2	2026-10-28	A recorded model exchange used as a test had drifted	tests	make ci: unit or smoke tier	the supervisor's pre-gate check (did not run reading_trace)	not recorded in the sources read	H2F:289; H2R 2.3
+C101	hardening-2	2026-10-28	Two worker commits had no trailer block	records	supervisor re-check	not recorded	not amended; named in LOG-3	SL3:939-953; H2F:402
+C102	hardening-2	2026-10-28	Constraint-scanner rework lost four real orders	product code	supervisor re-check	not recorded	M1069-b, M1069-c, M1069-d	SL3:1288-1302; H2F:448
+C103	hardening-2	2026-10-28	Re-pins never reached the long-running loop process	gate/harness scripts	supervisor re-check	not recorded	restart-loop.sh; the re-pin script reports stale loop code	H2R 2.4; H2F:335 (S-9)
+C104	hardening-2	2026-10-28	M1064's first attempt broke another check	product code	fast gate (unit/drivers run by the team)	not recorded	attempt reverted; a second attempt landed	H2F:436 (S-23)
+C105	hardening-2	2026-10-29	A dummy line made the mutant sweep pick a driver it cannot test	tests	make ci: release/32-bit/other stage	smoke_lint check 5 (the line was written to satisfy it)	M1087, M1088	H2F:290, 348 (S-13); H2R 2.8
+C106	hardening-2	2026-10-29	A test's own oracle leaked memory (ASan/LSan)	tests	make ci: sanitizers/valgrind/leaks	the lead's fast gate (gcc only)	batch 9 (landed 2026-10-29 21:25)	H2F:291, 348; H2R 2.8
+C107	hardening-2	2026-11-01	Atomic rewrite split a hard-linked AGENTS.md/CLAUDE.md pair	product code	supervisor re-check	not recorded	M1104-c	H2F:450; ROAD:55144; SL3:5712-5722
+C108	hardening-2	2026-11-01	config set backup wrote through a planted link; FIFO blocked	product code	supervisor re-check	the milestone's own tests	M1107-e	H2F:349 (S-14), 451
+C109	hardening-2	2026-11-01	A milestone's own unit test used freed memory	tests	make ci: release/32-bit/other stage	the supervisor's verify (no SAN or -O2 leg)	M1107-d	H2F:292 (the -O2 unit stage), 349
+C110	hardening-2	2026-11-01	A FIFO as local/config.json hung jichi at start-up	product code	supervisor re-check	not recorded	M1114	H2F:453; ROAD:55214; SL3:6873-6882
+C111	hardening-2	2026-11-01	Full smoke runs outgrew the 30-minute command limit	gate/harness scripts	first real use	the limit's comment (said a full smoke takes about 7 min)	runTimeout 7200 s (2026-11-04)	H2R 2.9; H2F:409-411; docs/internal/2026-11-22-drive-case-studies/hardening-2026-10-27/ERRATA.md:39-42
+C112	hardening-2	2026-11-02	Two docs drivers carried an unneeded program check	tests	make ci: release/32-bit/other stage	the supervisor's pre-gate sweep (skipped the mutant stage)	M1118-b	H2F:293, 350 (S-15); H2R 2.8
+C113	hardening-2	2026-11-02	Park watcher read the gateway's 401 answer as healthy	gate/harness scripts	first real use	not recorded	park-resume v2 (a live tool-calling probe)	H2F:332 (S-6); H2R 2.5
+C114	hardening-2	2026-11-02	Failed model_call rows named the lead's model, no model_id	product code	supervisor re-check	not recorded	registered (SV:1852.1); not fixed in the drive	FIND:622-635; H2F:458
+C115	hardening-2	2026-11-02	A stream cut at depth 0 ended the run without a retry	product code	supervisor re-check	not recorded	M1125	FIND:649-661; H2F:438 (S-25)
+C116	hardening-2	2026-11-03	Redirect guard counted connections; refused legitimate feeds	product code	supervisor re-check	the milestone's own tests	M1124	H2R 2.6; H2F:351 (S-16), 454
+C117	hardening-2	2026-11-03	jichi-harness broke the release, size and LTO builds at -Werror	product code	supervisor re-check	make ci (built none of those modes)	M1129	H2R 2.6; H2F:351, 456; ROAD:55268-55269
+C118	hardening-2	2026-11-03	32-bit builds broke -Werror at two test sites	tests	supervisor re-check	make ci (built no 32-bit target)	M1129	H2R 2.6; H2F:456; ROAD:55268-55269
+C119	hardening-2	2026-11-03	A Teredo fix's test refused all of 2001::/16	product code	supervisor re-check	not recorded	M1123-f2	H2F:455; SL3:9249-9261
+C120	hardening-2	2026-11-05	M1125 also retried an in-stream over-context error	product code	independent review	make ci (green); the test tier's fixture allowed 0 retries	M1142	H2R 2.7; H2F:352 (S-17)
+C121	hardening-2	2026-11-05	sweep-verdict.sh read "no changed drivers" as not clean	gate/harness scripts	supervisor re-check	the script's tests (a few real records, invented cases)	withdrawn by SV:0747; a second git count	H2F:358 (S-18a); DG3:7-9; H2R 2.2
+C122	hardening-2	2026-11-05	gate-watch.sh withdrew a batch on a line naming another commit	gate/harness scripts	supervisor re-check	the script's tests (a few real records, invented cases)	11:48 fix (one sentence, no other READY line)	H2F:359 (S-18b); H2R 2.2
+C123	hardening-2	2026-11-05	The withdrawal fix missed "submissions at <sha>"	gate/harness scripts	supervisor re-check	the 11:48 fix's tests (invented sentences)	13:47 fix	H2F:360 (S-18c); H2R 2.2
+C124	hardening-2	2026-11-05	A second count used the directory, not the sweep's selector	gate/harness scripts	supervisor re-check	the 07:50 fix's tests	14:47 fix (mirrors uses_bin)	H2F:361 (S-18d); DG3:18-19; H2R 2.2
+C125	hardening-2	2026-11-05	Gate watcher's busy check counted its own timer	gate/harness scripts	supervisor re-check	not recorded	fixed 01:58, before any READY	H2F:364-366; H2R 2.2
+C126	hardening-2	2026-11-05	push.sh read the remote's refs before pushing	gate/harness scripts	supervisor re-check	not recorded	fixed 02:30	H2F:364-366; H2R 2.2
+C127	hardening-2	2026-11-05	redfirst.sh counted the smoke runner as a test driver	gate/harness scripts	supervisor re-check	not recorded	fixed 03:29	H2F:364-366; H2R 2.2
+C128	hardening-2	2026-11-05	Team head: a doc named a nonexistent /command; a stray file	records	make ci: unit or smoke tier	not recorded	not recorded in the sources read	DG3:1 (gate rehearsal: slash_commands_lint, snapshot_lint); H2F:303-304
+C129	hardening-2	2026-11-05	doctor's 3 s probe failed a slow but working TLS handshake	product code	first real use	not recorded	M1144 (harness-port drive)	H2F:337 (S-11), 459; ROAD:55436
+C130	hardening-2	2026-11-22	The push timer did not survive the workstation's reboot	gate/harness scripts	other	the supervisor's reboot checklist and later check-ins	a reboot-proof push timer (2026-11-05)	docs/internal/2026-11-22-drive-case-studies/hardening-2026-10-27/ERRATA.md:23-37; H2R 2.1
+C131	harness-port	2026-11-06	review.sh counted the word WRONG in prose as a verdict	gate/harness scripts	supervisor re-check	not recorded	review.sh edited (SL4:443-444)	SL4:357-358, 391; DG4:2
+C132	harness-port	2026-11-07	Harness leaked 384 B in build_exclusion (sanitizer)	product code	make ci: sanitizers/valgrind/leaks	not recorded	not recorded in the sources read	APPX:85 (red 2); HPD 4
+C133	harness-port	2026-11-07	push backlog kept 8 tips and dropped the 9th with exit 0	product code	independent review	not recorded	not recorded in the sources read	DG4:7; SL4:1028
+C134	harness-port	2026-11-07	args[64] overflow, seen only by the -O2 release stage	product code	make ci: release/32-bit/other stage	the team's fast gate (one compiler)	M1151	APPX:86 (red 3); HPR 3.5; ROAD:55480-55481
+C135	harness-port	2026-11-07	Whole prompt passed as one argument; Linux refused it	product code	first real use	every check (the runs died before any telemetry)	not recorded in the sources read	HPD 2; SL4:932-933
+C136	harness-port	2026-11-08	void* assigned to char* without a cast; C++ refused it	product code	make ci: compilers/warnings	the team's fast gate (one compiler)	not recorded in the sources read	APPX:87 (red 4); DG4:13; HPR 3.5
+C137	harness-port	2026-11-09	Notify port's watch line differed by one trailing byte	product code	shadow / switch-over replay	not recorded	M1152-i	HPF:415; SL4:2014-2016
+C138	harness-port	2026-11-09	Commit 898440b2 was pushed without its trailers	records	other	not recorded	accepted by the operator (ledger-accept)	APPX:74, 89-90 (reds 6, 7); DG4:19-20
+C139	harness-port	2026-11-09	A gate driver ran git merge with no git identity on the host	tests	make ci: unit or smoke tier	the team's container (it has an identity)	not recorded in the sources read	APPX:91 (red 8); DG4:21
+C140	harness-port	2026-11-09	watch gate missed its --log default; every tick refused	product code	independent review	not recorded	M1156	DG4:22; SL4:2012-2014, 2048
+C141	harness-port	2026-11-11	Pool clock narrowed to long wraps on 32-bit after 24.86 days	product code	independent review	not recorded	M1194	ANDR 6.2; HPR 1.5; HPF:269
+C142	harness-port	2026-11-11	Landlock attribute packed little-endian; fails on big-endian	product code	independent review	a "follow-ups" note left only in a commit message	not recorded in the sources read	ANDR 6.2; HPR 1.5, 2.5
+C143	harness-port	2026-11-11	Gate watcher's systemd-run start command could never run	product code	independent review	its stand-in tests; 300 agreeing dry-shadow ticks	M1188	ANDR 6.3; ROAD:55574-55576
+C144	harness-port	2026-11-11	push run-drive printed a podman line that could not run	product code	independent review	not recorded	M1189	ROAD:55578-55580 (design review F5)
+C145	harness-port	2026-11-11	jichi-harness never applied jichi's memory protection	product code	independent review	docs/HARNESS.md (claimed it did)	M1190	ROAD:55582-55584 (design review F8)
+C146	harness-port	2026-11-11	mkdtemp hidden where the build sets a lower _XOPEN_SOURCE	build/toolchain	independent review	not recorded	M1176 (confirmed on FreeMiNT 2026-11-13)	ANDR 6.4; HPP 1; ROAD:55534
+C147	harness-port	2026-11-11	Seven public pages contradicted the code	records	independent review	not recorded	not recorded in the sources read	ANDR 6.5
+C148	harness-port	2026-11-11	Two helpers of a gate driver could never pass	tests	supervisor re-check	the red-first check (red half only); the next worker (4 h)	not recorded in the sources read	SL4:3250-3258; HPR 3.1
+C149	harness-port	2026-11-11	A driver read an unset variable, so fixture dates were wrong	tests	supervisor re-check	not recorded	${_gc_d}Z (SV:0938)	SL4:3184-3188
+C150	harness-port	2026-11-12	A test's strncat could truncate (-O2 unit build)	tests	make ci: release/32-bit/other stage	not recorded	M1160	APPX:92 (red 9, the pre-gate sweep's -O2 unit stage); ROAD:55480-55481
+C151	harness-port	2026-11-12	clang: an unused value in jc_hp_gateledger.c	product code	make ci: compilers/warnings	the team's fast gate (one compiler)	not recorded in the sources read	APPX:93 (red 10); HPR 3.5
+C152	harness-port	2026-11-12	Port's ci step printed the stage child's rc, not make ci's	product code	independent review	driver cell G15 (its stub always exits 0)	board card 42 (milestone not named in the sources read)	DG4:30; SL4:4175-4192
+C153	harness-port	2026-11-12	A smoke tool used offsetof without <stddef.h>	tests	platform retest	the three Ubuntu x86-64 gates (fast gate, pre-gate sweep, make ci)	M1161	ANPR Finding 1; HPP 1; ROAD:55484
+C154	harness-port	2026-11-12	jc_read_file failed /proc reads on musl (seek refused)	product code	platform retest	the three Ubuntu x86-64 gates (fast gate, pre-gate sweep, make ci)	M1162	ANPR Finding 2; HPP 1; ROAD:55487
+C155	harness-port	2026-11-12	A set-but-unused variable broke FreeBSD's clang 19 build	product code	platform retest	the three Ubuntu x86-64 gates (fast gate, pre-gate sweep, make ci); gcc 15.2 is silent too	M1163	ANPR Finding 3; ROAD:55490
+C156	harness-port	2026-11-12	FreeBSD: SIGXFSZ, struct ifreq, a Linux-only helper unguarded	build/toolchain	platform retest	the three Ubuntu x86-64 gates (fast gate, pre-gate sweep, make ci)	M1163	ANPR Finding 3; HPP 1; ROAD:55490
+C157	harness-port	2026-11-12	A unit test waited a fixed 4 s for a writer	tests	platform retest	the three Ubuntu x86-64 gates (fast gate, pre-gate sweep, make ci) (the writer takes 0.88 s there)	M1164	ANPR Finding 5; HPP 1; ROAD:55493
+C158	harness-port	2026-11-12	A test assumed no API key in the caller's environment	tests	platform retest	the three Ubuntu x86-64 gates (fast gate, pre-gate sweep, make ci)	M1168	ANPR Results; ROAD:55508
+C159	harness-port	2026-11-12	gzip argv had no NULL terminator; notes dropped silently	product code	platform retest	every x86-64 gate since H5 (the slot happened to hold NULL)	M1165, M1165-b	HAR 2.4.3; HAF:308; ANPR Open; ROAD:55496-55500
+C160	harness-port	2026-11-12	va_list passed by value in the C89 snprintf fallback	product code	platform retest	every x86-64 gate for two weeks (no binary there held the fallback)	M1172	HPR 3.6, 3.7; ANPR Open; ROAD:55518
+C161	harness-port	2026-11-12	FreeBSD rig's error filter matched -Werror and hid the error	tests	supervisor re-check	not recorded	M1166	ANPR Finding 3; ROAD:55502
+C162	harness-port	2026-11-12	Arch rig labelled a run that executed "did not execute"	tests	supervisor re-check	not recorded	M1166	ANPR (architecture sweep); ROAD:55502
+C163	harness-port	2026-11-12	Board rig took a smoke driver's count as the unit count	tests	supervisor re-check	the rig's own summary ("7 checks, 0 failures")	M1166	APPX:127-128; HPR 3.2, 3.3; ROAD:55502
+C164	harness-port	2026-11-12	offsetof lint used /usr/bin/grep without its fallback	tests	fast gate (unit/drivers run by the team)	not recorded	M1169	ROAD:55511-55512 (the team's keep-going smoke)
+C165	harness-port	2026-11-12/13	Unit tests used fixed 2 s wait windows (one-core board)	tests	platform retest	the three Ubuntu x86-64 gates (fast gate, pre-gate sweep, make ci)	0.14.0 (milestone not named in the sources read)	HPP 1, 4 (LicheeRV Nano)
+C166	harness-port	2026-11-13	fchdir and environ declared twice; -Werror on NetBSD, illumos	build/toolchain	platform retest	the three Ubuntu x86-64 gates (fast gate, pre-gate sweep, make ci); clang never reports it	M1173	HPP 1; ROAD:55522
+C167	harness-port	2026-11-13	Unit tests assumed Linux /proc formats and glibc parsing	tests	platform retest	the three Ubuntu x86-64 gates (fast gate, pre-gate sweep, make ci)	M1174, M1175	HPP 1; ROAD:55526-55530
+C168	harness-port	2026-11-13	Old glibc header order and an old libcurl constant broke builds	build/toolchain	platform retest	the three Ubuntu x86-64 gates (fast gate, pre-gate sweep, make ci)	M1177	HPP 1; ROAD:55538
+C169	harness-port	2026-11-13	Signal names DOS does not have broke the FreeDOS build	build/toolchain	platform retest	the three Ubuntu x86-64 gates (fast gate, pre-gate sweep, make ci)	M1177	HPP 1; ROAD:55538
+C170	harness-port	2026-11-13	Gate watcher's busy filter could not see a running gate	product code	shadow / switch-over replay	524 agreeing shadow ticks; a stand-in printing names flush left	M1178	AN5 1-2; HPR 1.4; ROAD:55542
+C171	harness-port	2026-11-13	Withdrawal check read past its line to the end of the LOG	product code	other	not recorded	M1178	AN5 1, 3 (found writing the reading course)
+C172	harness-port	2026-11-13	A LOG of 1 MiB or more was read as no LOG, silently	product code	other	not recorded	M1178	AN5 1, 4 (found writing the reading course)
+C173	harness-port	2026-11-13	Gate ledger freed a pointer it never set	product code	other	every test (the output was correct)	M1178	AN5 1, 5 (found writing the reading course)
+C174	harness-port	2026-11-13	gate run pasted its commit argument into a shell command	product code	other	not recorded	M1178	AN5 1, 6 (found writing the reading course)
+C175	harness-port	2026-11-13	mirror push sent kept refs past the secret scan	product code	independent review	not recorded	M1179	AN3 1, 5 (the reading-course review)
+C176	harness-port	2026-11-13	drive.end parsed too kindly: wrong offsets accepted	product code	independent review	not recorded	M1179	AN3 2, 5
+C177	harness-port	2026-11-13	A failing page command (exit 127) went unreported	product code	independent review	not recorded	M1179	AN3 3, 5
+C178	harness-port	2026-11-13	Host zig upgrade left a library missing; the e2e tier failed	build/toolchain	make ci: release/32-bit/other stage	not recorded	the host's packages (no commit)	APPX:94 (red 11); DG4:33
+C179	harness-port	2026-11-13	Commit dff8e49a was pushed without its trailers	records	other	not recorded	accepted by the operator (ledger-accept)	APPX:74, 95 (red 12); DG4:36
+C180	harness-port	2026-11-13	A cross-compiler install removed the 32-bit libraries	build/toolchain	make ci: release/32-bit/other stage	not recorded	M1184 (half-installed multilib prints SKIP)	APPX:96 (red 13); ROAD:55558
+C181	harness-port	2026-11-13	repomap_peak's 448 KB limit sat inside its own spread	tests	make ci: unit or smoke tier	every earlier green gate (the driver was unchanged)	M1186	APPX:97 (red 14); ROAD:55566
+C182	harness-port	2026-11-14	sweep-verdict.sh accepted only one spelling of a summary	gate/harness scripts	supervisor re-check	not recorded	M1187	APPX:98 (red 15); ROAD:55570
+C183	harness-port	2026-11-14	Red-first replay never built jichi-harness; 20 of 30 REDs hollow	gate/harness scripts	supervisor re-check	not recorded	fixed 2026-11-14	APPX:162-164; HPR 3.1; SL4:5725-5773
+C184	harness-port	2026-11-15	Release text claimed M1181's commits were in REL2	records	independent review	the REL5 review	not recorded in the sources read	SL4:6051-6054; DG4:51
+C185	harness-port	2026-11-15	Review B3 gaps in M1192: in_cmd emission, driver cells 1 and 5	product code	independent review	not recorded	M1195	HPF:270; DG4:58
+C186	harness-port	2026-11-15	v0.14.1 tag and commit overstated the platform retest	records	supervisor re-check	the checked changelog (its scope was not copied)	dated correction (PLATFORM_RETESTS.md section 8)	SL4:6669, 6685-6690; HPP 8
+C187	harness-port	2026-11-16	Commits c0cfc743 and c2201d9c failed the commit ledger	records	other	not recorded	accepted by the operator 2026-11-16 20:56	HPF:450-455
+C188	harness-port	2026-11-18	Pre-gate sweep built too little; the mutant sweep tested nothing	gate/harness scripts	make ci: release/32-bit/other stage	not recorded	host sweep.sh builds all smoke-tools; M1197-b	HPF:322 (red 1, the hollow-green guard); DG4:67
+C189	harness-port	2026-11-18	A test used /usr/bin/grep without its fallback	tests	make ci: unit or smoke tier	the brief (it told the worker to use /usr/bin/grep)	34756498	HPF:323 (red 2, portability_lint 36); DG4:73
+C190	harness-port	2026-11-19	Makefile read 9 of 26 harness .d files; objects went stale	build/toolchain	supervisor re-check	the team's fast gate (its red was read as a code interaction)	M1204	SL4:8897-8917; HPF:281, 517-521
+C191	harness-port	2026-11-19	A 512-byte command slot cut silently; 88 sites checked only < 0	product code	supervisor re-check	the lead's keep-going (read cell 114 as a flake); the host gate (short TMPDIR)	M1205, M1206	SL4:9036-9052; HPF:282-283
+C192	harness-port	2026-11-19	Commits 1d398f07, eee0036e and 822bc184 had no trailers	records	other	not recorded	accepted by the operator 2026-11-20 00:08	HPF:324, 456-460; DG4:77
+C193	harness-port	2026-11-19	The ja mirror's driver count was one behind	records	independent review	not recorded	bd93ec85	LOG4:10929-10933 (the lead's the 27B model review); HPF:534
+C194	harness-port	2026-11-20	Land port's push skipped push.git's pre-push hooks	product code	shadow / switch-over replay	not recorded	card [101] (fe2325a5)	HPF:414; SL4:9447-9458
+C195	harness-port	2026-11-20	Push port did not refresh push.git as the script does	product code	supervisor re-check	978 of 978 agreeing shadow syncs (against a test remote)	M1211 (not on master at 2026-11-22)	HPF:417; SL4:9685-9697
+C196	harness-port	2026-11-20	Workers' later requests went to the lead's model	product code	supervisor re-check	telemetry labels (they named the worker's model)	M1207, M1209	SL4:9706-9721; HPF:522-528; HAR 2.4.2
+C197	harness-port	2026-11-20	Repin port leaked an environment slot on every spawn	product code	independent review	not recorded	wave 2c of M1203	SL4:9958 (the lead's the 27B model review); HPF:531
+C198	harness-port	2026-11-21	Repin port: --version, an aliased buffer, a stack scope bug	product code	independent review	not recorded	M1203-i	DG4:82; HPF:279, 311, 416
+C199	harness-port	2026-11-21	Two nudge retries still sent a child's request to the lead	product code	independent review	not recorded	M1209	LOG4:12105-12118 (the review of M1207); HPF:286
+C200	harness-port	2026-11-21	A timeout of 0 meant a 30 s kill in process capture	product code	shadow / switch-over replay	not recorded	M1203-i (a7420de5) for repin; gate half is card [116]	SL4:10203-10215; HPF:418, 559-561
+C201	harness-port	2026-11-21	Gate port's container stage had a shell syntax error	product code	shadow / switch-over replay	not recorded	not recorded in the sources read	SL4:10213; HPF:418
+C202	harness-port	2026-11-21	Notify's live config pointed at the wrong directory (46 s)	gate/harness scripts	supervisor re-check	two rehearsals	corrected 2026-11-21 12:25:03	SL4:10175; HPF:415
+C203	harness-port	2026-11-21	Three sanitizer defects: two overflows and a use-after-free	product code	supervisor re-check	not recorded	M1210	SL4:10200, 10229 (the supervisor's SAN smoke run); HPF:287
+C204	harness-port	2026-11-21	Five safety limits failed open when exceeded (S1-S5)	product code	supervisor re-check	not recorded	M1208	SL4:10248-10262 (the limits census); HPF:285
+C205	harness-port	2026-11-21	A driver building its own SAN binary escaped the mutant swap	tests	make ci: release/32-bit/other stage	not recorded	77bf0826 (a new exclusion kind)	HPF:325 (red 4); DG4:88
+C206	harness-port	2026-11-21	leakcheck.sh matched a passing test line's text	tests	supervisor re-check	the gate note (it named only Makefile:1893)	0f8f05fe; card [123]	HPF:326 (red 5); SL4:10409-10428
+C207	harness-port	2026-11-21	A plan note cited driver checks before they existed	records	make ci: unit or smoke tier	not recorded	batch withdrawn, folded into SEC	HPF:327 (red 6, doc_claims_lint); DG4:92
+C208	harness-port	2026-11-21	Gate notes dropped the detail lines a reader needs	gate/harness scripts	supervisor re-check	not recorded	fixed 2026-11-21 23:36	HPF:343-344, 476-477
+C209	harness-port	2026-11-21	review.sh's absolute edit scope refused every reviewer write	gate/harness scripts	supervisor re-check	not recorded	fixed 2026-11-21	HPF:350-351
+C210	harness-port	2026-11-21	Oneshot units killed git gc; 56.4 GB of tmp_pack garbage	gate/harness scripts	supervisor re-check	not recorded	gc.autoDetach=false; 54.84 GiB removed	HPF:564-567
+C211	harness-port	2026-11-22	Supervisor's nightly SAN script reported a false NEW	gate/harness scripts	supervisor re-check	not recorded	run.sh fixed 2026-11-22	HPF:348-349; SL4:10557-10575
+C212	harness-port	2026-11-22	Fix d2 overflowed a 64-byte stack buffer on long values	product code	independent review	the fix's driver (its value is 5 bytes)	ad351732	SL4:10824-10830; LOG4:13775-13790
+C213	harness-port	2026-11-22	S4: the raw capture was freed, so the refusal was generic	product code	red-first test	not recorded	2b73aa49	LOG4:12590-12620 (run 0089)
+C214	harness-port	2026-11-22	S4 driver: make did not rebuild after a -D flag change	tests	red-first test	not recorded	make clean between the two builds	LOG4:12598-12602 (run 0089)
+C215	harness-port	2026-11-22	Commit 53a10e8c was pushed without its trailers	records	other	not recorded	accepted by the operator 2026-11-22 06:47	HPF:328, 461-465; DG4:96
+C216	harness-port	2026-11-22	Repin copies lost their exec bit; cmp cannot see modes	product code	shadow / switch-over replay	7 of 7 identical say lines; cmp-equal builds	M1203-i5	HPF:280, 416
+C217	harness-port	2026-11-22	Case-study sheet.py miscounted loop starts and batches	records	other	not recorded	not fixed (noted 2026-11-22)	HPF:130-138

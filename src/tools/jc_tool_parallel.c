@@ -104,6 +104,52 @@ static void newdir_root(const char *live, const char *rel, char *out, jc_size ca
     }
 }
 
+/* A dynamically grown list of all new directories found, used for the hold
+ * decision over ALL directories (not just the first 16 rendered). This is a
+ * static buffer that's reset on each call - safe because the scan is only
+ * called once per write task during the merge loop (single-threaded context). */
+static struct newdir *s_nd_all = NULL;
+static int s_nd_all_cap = 0;
+static int s_nd_all_n = 0;
+/* M1208 C3: when allocation fails, all directories are held (fail-closed). */
+static int s_nd_all_failed = 0;
+
+/* Free the dynamic all-directories list. Called at the end of parallel_run
+ * after all tasks have been processed. */
+static void newdirs_free_all(void)
+{
+    if (s_nd_all != NULL) {
+        free(s_nd_all);
+    }
+    s_nd_all = NULL;
+    s_nd_all_cap = 0;
+    s_nd_all_n = 0;
+    s_nd_all_failed = 0;  /* M1208 C3: reset the failure flag */
+}
+
+/* Grow the all-directories list to hold at least `n` entries. Returns 0 on
+ * success, -1 on allocation failure. */
+static int newdirs_grow_all(int n)
+{
+    int new_cap = s_nd_all_cap;
+    if (new_cap < 32) {
+        new_cap = 32;
+    }
+    while (new_cap < n) {
+        new_cap *= 2;
+    }
+    if (new_cap == s_nd_all_cap) {
+        return 0;
+    }
+    s_nd_all = (struct newdir *)realloc(s_nd_all, (size_t)new_cap * sizeof(struct newdir));
+    if (s_nd_all == NULL) {
+        s_nd_all_failed = 1;  /* M1208 C3: allocation failed, all dirs are held */
+        return -1;
+    }
+    s_nd_all_cap = new_cap;
+    return 0;
+}
+
 /* Group a task's added paths by their new-directory root; count and size each
  * group from the child's worktree; mark the ones over the bounds held. Returns the
  * number of groups; `*more` is set when there were more than `cap`. */
@@ -116,6 +162,7 @@ static int newdirs_scan(const char *live, const char *wt,
     jc_size k;
 
     *more = 0;
+    s_nd_all_n = 0;  /* reset for this scan */
     for (k = 0; k < changes->len; k++) {
         const struct jc_change *c =
             (const struct jc_change *)jc_vec_at((struct jc_vec *)changes, k);
@@ -130,38 +177,94 @@ static int newdirs_scan(const char *live, const char *wt,
         if (r[0] == '\0') {
             continue;
         }
-        for (j = 0; j < n && strcmp(nd[j].root, r) != 0; j++) {
+        /* Check if this root already exists in the all-directories list */
+        for (j = 0; j < s_nd_all_n && strcmp(s_nd_all[j].root, r) != 0; j++) {
             ;
         }
-        if (j == n) {
-            if (n == cap) {
-                *more = 1;
+        if (j == s_nd_all_n) {
+            /* New directory: grow the list if needed */
+            if (newdirs_grow_all(s_nd_all_n + 1) != 0) {
+                /* M1208 C3: allocation failed - fail-closed, mark all new dirs as held */
+                s_nd_all_failed = 1;
+                /* Continue without adding to s_nd_all - the path will be checked
+                 * via newdir_held_path which handles the failed state */
                 continue;
             }
-            memset(&nd[n], 0, sizeof nd[n]);
-            jc_snprintf(nd[n].root, sizeof nd[n].root, "%s", r);
-            n++;
+            memset(&s_nd_all[s_nd_all_n], 0, sizeof s_nd_all[s_nd_all_n]);
+            jc_snprintf(s_nd_all[s_nd_all_n].root, sizeof s_nd_all[s_nd_all_n].root, "%s", r);
+            s_nd_all_n++;
         }
-        nd[j].files++;
+        s_nd_all[j].files++;
         jc_snprintf(full, sizeof full, "%s/%s", wt, c->path);
         if (stat(full, &st) == 0) {
-            nd[j].bytes += (long)st.st_size;
+            s_nd_all[j].bytes += (long)st.st_size;
         }
     }
-    for (j = 0; j < n; j++) {
-        nd[j].held = (nd[j].files > JC_PAR_NEWDIR_HOLD_FILES ||
-                      nd[j].bytes > JC_PAR_NEWDIR_HOLD_BYTES) ? 1 : 0;
+
+    /* Mark all directories as held based on the bounds */
+    for (j = 0; j < s_nd_all_n; j++) {
+        s_nd_all[j].held = (s_nd_all[j].files > JC_PAR_NEWDIR_HOLD_FILES ||
+                            s_nd_all[j].bytes > JC_PAR_NEWDIR_HOLD_BYTES) ? 1 : 0;
     }
+
+    /* Sort: held directories first, then non-held, both in alphabetical order */
+    for (j = 0; j < s_nd_all_n - 1; j++) {
+        int min_idx = j;
+        int k;
+        for (k = j + 1; k < s_nd_all_n; k++) {
+            /* Held comes first; within same held status, alphabetical order */
+            int j_held = s_nd_all[j].held;
+            int k_held = s_nd_all[k].held;
+            if (!j_held && k_held) {
+                min_idx = k;
+            } else if (j_held == k_held && strcmp(s_nd_all[min_idx].root, s_nd_all[k].root) > 0) {
+                min_idx = k;
+            }
+        }
+        if (min_idx != j) {
+            struct newdir tmp = s_nd_all[j];
+            s_nd_all[j] = s_nd_all[min_idx];
+            s_nd_all[min_idx] = tmp;
+        }
+    }
+
+    /* Copy first `cap` (16) entries to the output array for rendering */
+    n = s_nd_all_n < cap ? s_nd_all_n : cap;
+    for (j = 0; j < n; j++) {
+        nd[j] = s_nd_all[j];
+    }
+
+    /* Set more flag if there were more than cap directories */
+    if (s_nd_all_n > cap) {
+        *more = 1;
+    }
+
     return n;
 }
 
-/* Is `path` under a held new directory? */
-static int newdir_held_path(const struct newdir *nd, int n, const char *path)
+/* Is `path` under a held new directory? Checks the dynamic all-directories list
+ * which contains ALL directories (not just the first 16 rendered).
+ * `live` is the live tree path used to identify new directories. */
+static int newdir_held_path(const struct newdir *nd, int n, const char *live, const char *path)
 {
     int j;
-    for (j = 0; j < n; j++) {
-        jc_size l = (jc_size)strlen(nd[j].root);
-        if (nd[j].held && strncmp(path, nd[j].root, l) == 0 && path[l] == '/') {
+    (void)nd;  /* the nd parameter is only for rendering; use s_nd_all for checks */
+    (void)n;
+    
+    /* M1208 C3: if allocation failed, all new directories are held. Check if this
+     * path is in a new directory (i.e., its root would be identified by newdir_root). */
+    if (s_nd_all_failed) {
+        char root[256];
+        newdir_root(live, path, root, sizeof root);
+        if (root[0] != '\0') {
+            return 1;  /* path is in a new directory, which is held */
+        }
+        return 0;
+    }
+    
+    for (j = 0; j < s_nd_all_n; j++) {
+        jc_size l = (jc_size)strlen(s_nd_all[j].root);
+        if (s_nd_all[j].held && strncmp(path, s_nd_all[j].root, l) == 0 && path[l] == '/') {
             return 1;
         }
     }
@@ -310,11 +413,49 @@ struct ptask {
     int                       stop_fd;    /* parent's inject write end, -1 closed */
     struct jc_sb              injq;       /* per-task inject queue (text, "\n"-separated) */
     jc_size                   injq_len;   /* total queued text bytes (the cap is on THIS) */
-    long                      last_ms;    /* set at fork; on every progress line (behaviour 12) */
+    double                    last_ms;    /* M1194-d379: ms stamp, set at fork; on every progress line */
     int                       sup_stop;   /* a stop-task was accepted for this task */
     char                      sup_stop_reason[160]; /* the stop-task's reason ("" if none) */
 
-    long                      launch_ms;  /* monotonic stamp at fork (watchdog) */
+    int                       in_cmd;    /* M1192 B3: the child is INSIDE a shell
+                                          * command (its tool line carried in_cmd) */
+    /* def-377 W1: the child's progress signal, parsed from its "sig" lines. A3
+     * builds the flag/status on top of these; the SIG case below is the store.
+     * `last_ms` (widened by def-379) is the stamp of the LAST line of any kind. */
+    int                       sig_edits;      /* W1.3: successful edit calls so far */
+    double                    sig_dup24;        /* W1.6: near-dup share, last 24 calls */
+    int                       sig_seen;         /* a sig line has been parsed */
+    double                    sig_edits_ms;     /* parent's stamp of the LAST edits change (W1.1: since_edit_s is parent-side) */
+    /* def-377 W2.1/W3.1 (A3): the pool keeps the LATEST sig per task. A2's four
+     * fields above are the store for the SIG case; placeholders/compactions are
+     * also on the SIG wire (W1.4/W1.5) and R2 (W3.1) reads the placeholder count
+     * from here, so they are stored too -- minimal, beside A2's fields. */
+    int                       sig_placeholders; /* W1.4: total copied placeholders */
+    int                       sig_compactions;  /* W1.5: total compact events */
+    /* def-377 W2.4/W3.2 (A3): the flag, ONCE per task per batch (0 -> 1). R1/R2
+     * set it at the 200 ms wake; worker_flag fires on the 0->1 transition. */
+    int                       flag;
+    int                       flag_reason;  /* W6.3: 1 R1 / 2 R2, at the fire */
+    /* def-377 W4 (M1194, A4): the actions on a flagged task. The config's
+     * parallelSupervise.action (report/wrapup/stop) is read ONCE, per task, at
+     * the flag's fire (W4.1: no spawn_parallel argument; W4.4: an unknown
+     * value already warned at parse, so report is the floor). `grace_pending`
+     * is the tok lines still to arrive before the soft stop is taken (W4.2:
+     * the grace call); `sup_sent` the sentinel was handed to the child's
+     * inject pipe; `sup_stop_ms` the monotonic ms the soft stop was REQUESTED
+     * (the `stop` action's grace fence start, read at the 200 ms wake);
+     * `sup_defer_ms` the monotonic ms of the FIRST deferred wake (the child
+     * was in a command, nothing was sent -- the DEFERRAL fence start,
+     * decoupled from `sup_sent`, the design note of the A4d-2 wave on
+     * 3d47b603; 0 = never deferred); `soft_stopped` the child's done line
+     * arrived on the sentinel (looped=5). */
+    int                       sup_action;   /* JC_PAR_SUP_* (the config's, at fire) */
+    int                       grace_pending;
+    int                       sup_sent;
+    double                    sup_stop_ms;  /* 0 = no soft stop requested yet   */
+    double                    sup_defer_ms; /* 0 = never deferred               */
+    int                       soft_stopped;
+    double                    launch_ms;  /* M1194-d379: monotonic ms stamp at fork (watchdog) */
     double                    tok_budget;  /* per-child token slice (0 => none) */
     int                       tool_budget; /* per-child tool-call slice (-1 none) */
     int                       max_calls;   /* M861: the task's own max_tool_calls
@@ -369,12 +510,178 @@ struct ptask {
     char                      changed[JC_DELEG_MSG_MAX];
 };
 
+/* def-377 W1.6: sizes for the child's normalised near-duplicate ring. Fixed
+ * buffers, no per-call malloc: `child_cb` is a stack struct in the forked child. */
+#define JC_DUP_RING      24    /* the window: the last 24 tool calls       */
+#define JC_DUP_TOOL_MAX  48    /* a tool name (== cur_tool's width)         */
+#define JC_DUP_KEY_MAX   160   /* masked + truncated args / result length   */
+#define JC_DUP_NORM_MAX  256   /* work buffer for the normalisation passes  */
+
+/* def-377 W1.6: one ring slot = a normalised (tool, args, result) triple. */
+struct child_cb_slot {
+    char tool[JC_DUP_TOOL_MAX];
+    char args[JC_DUP_KEY_MAX];
+    char res[JC_DUP_KEY_MAX];
+};
+
 /* Child-side callback state: serializes progress to the result pipe. */
 struct child_cb {
     int    wfd;
     double total;
     int    tools;   /* tool calls this child made (merged into the budget) */
+    /* def-377 W1: the child's progress signal, sent at every tool result. */
+    const struct jc_app *app;   /* this child's COW app (reads the two totals) */
+    const char *ws;             /* this child's worktree abs path ("" if none)  */
+    int    edits;               /* W1.3: successful edit-tool calls so far      */
+    double dup24;               /* W1.6: last computed near-duplicate share     */
+    char   dup_tool[JC_DUP_TOOL_MAX]; /* in-flight tool name (on_tool_start)   */
+    char   dup_args[JC_DUP_KEY_MAX];  /* in-flight normalised args             */
+    struct child_cb_slot ring[JC_DUP_RING];
+    int    ring_n;   /* slots filled so far (capped at JC_DUP_RING) */
+    int    ring_i;   /* next slot to write (ring_n % JC_DUP_RING)   */
 };
+
+static int is_hexl(char c)
+{
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+}
+
+/* def-377 W1.6: one normalisation pass over `in` into `out` (each bounded to
+ * JC_DUP_NORM_MAX). `mode` selects the mask; `ws` is used only by mode 0. No
+ * malloc: fixed work buffers, the child's hot path. */
+static void dup_pass(const char *in, char *out, int mode, const char *ws)
+{
+    jc_size o = 0;
+    const char *p = in;
+
+    while (*p != '\0') {
+        if (mode == 0 && ws != NULL && ws[0] != '\0' &&
+            strncmp(p, ws, strlen(ws)) == 0) {
+            if (o + 4 < JC_DUP_NORM_MAX) {
+                memcpy(out + o, "<wt>", 4);
+                o += 4;
+            }
+            p += strlen(ws);
+            continue;
+        }
+        if (mode == 1 && strncmp(p, "/tmp/", 5) == 0) {
+            const char *q = p + 5;
+            if (o + 5 < JC_DUP_NORM_MAX) {
+                memcpy(out + o, "<tmp>", 5);
+                o += 5;
+            }
+            while ((*q >= 'A' && *q <= 'Z') || (*q >= 'a' && *q <= 'z') ||
+                   (*q >= '0' && *q <= '9') || *q == '_' || *q == '.' ||
+                   *q == '-') {
+                q++;
+            }
+            p = q;
+            continue;
+        }
+        if (mode == 2 && is_hexl(*p)) {
+            const char *q = p;
+            int run = 0;
+            int prev_hex = (p > in) && is_hexl(p[-1]);
+            int next_hex;
+            while (is_hexl(*q)) {
+                q++;
+                run++;
+            }
+            next_hex = is_hexl(*q);
+            if (!prev_hex && !next_hex && run >= 8) {
+                if (o + 5 < JC_DUP_NORM_MAX) {
+                    memcpy(out + o, "<sha>", 5);
+                    o += 5;
+                }
+                p = q;
+                continue;
+            }
+        }
+        if (mode == 3 && *p >= '0' && *p <= '9') {
+            const char *q = p;
+            while (*q >= '0' && *q <= '9') {
+                q++;
+            }
+            if (o + 3 < JC_DUP_NORM_MAX) {
+                memcpy(out + o, "<n>", 3);
+                o += 3;
+            }
+            p = q;
+            continue;
+        }
+        if (o + 1 < JC_DUP_NORM_MAX) {
+            out[o] = *p;
+            o += 1;
+        }
+        p++;
+    }
+    out[o] = '\0';
+}
+
+/* def-377 W1.6: normalise one component (args or result text) of a tool call
+ * the way scan.py's norm_call masks it -- the worktree path, /tmp names, hex
+ * ids of 8+ hex digits, and runs of digits -- so a cycling worker's
+ * near-identical calls collapse to one key. `ws` is masked whole (scan.py
+ * masks the drive's worktree path). Only the first JC_DUP_NORM_MAX-1 chars of
+ * `in` are processed; the result is truncated to `out_cap`. */
+static void dup_norm(const char *in, const char *ws, char *out, jc_size out_cap)
+{
+    char a[JC_DUP_NORM_MAX];
+    char b[JC_DUP_NORM_MAX];
+    jc_size n = (jc_size)strlen(in);
+    jc_size m;
+
+    if (n >= JC_DUP_NORM_MAX) {
+        n = JC_DUP_NORM_MAX - 1;
+    }
+    memcpy(a, in, n);
+    a[n] = '\0';
+    dup_pass(a, b, 0, ws);   /* worktree path   */
+    dup_pass(b, a, 1, ws);   /* /tmp names      */
+    dup_pass(a, b, 2, ws);   /* hex ids (8+)    */
+    dup_pass(b, a, 3, ws);   /* runs of digits  */
+    m = (jc_size)strlen(a);
+    if (m >= out_cap) {
+        m = out_cap - 1;
+    }
+    memcpy(out, a, m);
+    out[m] = '\0';
+}
+
+/* def-377 W1.3: is `name` one of the edit tools (the MS1 option (a) proxy)? */
+static int child_is_edit_tool(const char *name)
+{
+    return strcmp(name, "write_file") == 0 ||
+           strcmp(name, "edit_file") == 0 ||
+           strcmp(name, "apply_patch") == 0 ||
+           strcmp(name, "multi_edit") == 0;
+}
+
+/* def-377 W1.6: the near-duplicate share of the last JC_DUP_RING (24) tool
+ * calls = (calls in the window whose normalised (tool,args,result) triple
+ * equals an EARLIER one in the window) / window size. 0.0 for < 2 calls. A
+ * worker doing fresh work honestly reads 0.0. */
+static double child_dup24(const struct child_cb *cc)
+{
+    int n = cc->ring_n;
+    int dup = 0;
+    int i, j;
+
+    if (n < 2) {
+        return 0.0;
+    }
+    for (i = 0; i < n; i++) {
+        for (j = 0; j < i; j++) {
+            if (strcmp(cc->ring[i].tool, cc->ring[j].tool) == 0 &&
+                strcmp(cc->ring[i].args, cc->ring[j].args) == 0 &&
+                strcmp(cc->ring[i].res,  cc->ring[j].res)  == 0) {
+                dup++;
+                break;   /* each call counted once */
+            }
+        }
+    }
+    return (double)dup / (double)n;
+}
 
 /* M860 (N26, CTL-5): this process's batch counter and next seq band. A batch's
  * id is "<base>-b<k>" -- its base dir, transcripts, manifest, end records and
@@ -445,12 +752,84 @@ static void child_on_tool(void *u, const char *name, const char *args,
 {
     struct child_cb *cc = (struct child_cb *)u;
     cJSON *o = cJSON_CreateObject();
-    (void)args;
     (void)id;
     cc->tools++;
+    /* def-377 W1.6: record the in-flight call (tool + normalised args) so the
+     * matching on_tool_result can complete its ring slot. */
+    jc_snprintf(cc->dup_tool, sizeof cc->dup_tool, "%s", name != NULL ? name : "");
+    dup_norm(args != NULL ? args : "", cc->ws, cc->dup_args, sizeof cc->dup_args);
     cJSON_AddStringToObject(o, "t", "tool");
     cJSON_AddStringToObject(o, "name", name != NULL ? name : "?");
+    /* M1192 B3: the parent's cancel-cmd handler must know whether this child
+     * is INSIDE a shell command. Emit in_cmd:1 for a shell tool (the command
+     * is about to run and will hold the child); a non-shell tool leaves the
+     * field out (the parser degrades it to 0). The matching in_cmd:0 is the
+     * on_tool_result line (child_on_tool_result). */
+    if (name != NULL && jc_tool_name_runs_shell(name)) {
+        cJSON_AddNumberToObject(o, "in_cmd", 1);
+    }
     child_emit(cc->wfd, o);
+}
+
+/* M1192 B3 + def-377 W1: the child's tool-END callback. def-377 W1.2: it emits
+ * a `sig` progress line at EVERY tool result (shell or not) carrying the child's
+ * edits/placeholders/compactions/dup24 counters; the M1192 B3 in_cmd:0 line
+ * stays, shell tools only, AFTER the sig (the parent's cancel-cmd handler must
+ * know the command has finished and the child is between calls again). */
+static void child_on_tool_result(void *u, const char *name, const char *result,
+                                 int is_error, const char *id)
+{
+    struct child_cb *cc = (struct child_cb *)u;
+    cJSON *o;
+    (void)id;
+    /* def-377 W1.3: a successful edit-tool call counts as progress. */
+    if (name != NULL && is_error == 0 && child_is_edit_tool(name)) {
+        cc->edits++;
+    }
+    /* def-377 W1.6: complete the ring slot (tool + args from on_tool_start,
+     * result from here) and refresh the near-duplicate share. */
+    {
+        char res[JC_DUP_KEY_MAX];
+        struct child_cb_slot *sl = &cc->ring[cc->ring_i];
+        dup_norm(result != NULL ? result : "", cc->ws, res, sizeof res);
+        jc_snprintf(sl->tool, sizeof sl->tool, "%s",
+                    cc->dup_tool[0] != '\0' ? cc->dup_tool : (name != NULL ? name : ""));
+        jc_snprintf(sl->args, sizeof sl->args, "%s", cc->dup_args);
+        jc_snprintf(sl->res,  sizeof sl->res,  "%s", res);
+        if (cc->ring_n < JC_DUP_RING) {
+            cc->ring_n++;
+        }
+        cc->ring_i = (cc->ring_i + 1) % JC_DUP_RING;
+        cc->dup24 = child_dup24(cc);
+        /* def-377 W1 R:1 (audited commit 69ed2720): clear the in-flight pair
+         * once its slot is written. A REFUSED call fires on_tool_result with
+         * NO preceding on_tool_start (the fence/policy/privilege/approval
+         * denials in jc_agent.c), so its slot would otherwise complete with
+         * the PREVIOUS call's in-flight tool/args. With the pair cleared, an
+         * unpaired result falls back to its own name with EMPTY args. */
+        cc->dup_tool[0] = '\0';
+        cc->dup_args[0] = '\0';
+    }
+    /* def-377 W1.2: a sig line at EVERY tool result (shell or not).
+     * placeholders/compactions are read from this child's COW app. */
+    o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "t", "sig");
+    cJSON_AddNumberToObject(o, "edits", (double)cc->edits);
+    cJSON_AddNumberToObject(o, "placeholders",
+                            (double)(cc->app != NULL ? cc->app->placeholder_total : 0));
+    cJSON_AddNumberToObject(o, "compactions",
+                            (double)(cc->app != NULL ? cc->app->compaction_total : 0));
+    cJSON_AddNumberToObject(o, "dup24", cc->dup24);
+    child_emit(cc->wfd, o);
+    /* M1192 B3 (unchanged concern): the shell-command in_cmd:0 end line, shell
+     * tools only. */
+    if (name != NULL && jc_tool_name_runs_shell(name)) {
+        cJSON *s = cJSON_CreateObject();
+        cJSON_AddStringToObject(s, "t", "tool");
+        cJSON_AddStringToObject(s, "name", name);
+        cJSON_AddNumberToObject(s, "in_cmd", 0);
+        child_emit(cc->wfd, s);
+    }
 }
 
 static void child_on_usage(void *u, double in_tok, double out_tok,
@@ -797,10 +1176,17 @@ static void run_child(struct jc_app *app, struct ptask *t, int task_no, int wfd,
     if (inject_rd >= 0) {
         if (dup2(inject_rd, JC_CTL_INJECT_FD) >= 0) {
             (void)close(inject_rd);
-            app->pool_inject_fd_valid = 1;
+            app->pool_inject_fd = JC_CTL_INJECT_FD;
         } else {
-            (void)close(inject_rd);
+            /* The fixed number is out of reach: the open-file limit is 912 or
+             * less (OpenBSD's default is 512; `ulimit -n` anywhere). Until
+             * 2026-11-26 this arm closed the pipe and said nothing, so the
+             * worker never read a note and never saw a supervision stop, while
+             * the parent kept answering "ok". The pipe's own read end serves:
+             * the high number was a convenience, not a need. */
+            app->pool_inject_fd = inject_rd;
         }
+        app->pool_inject_fd_valid = 1;
     }
 
     /* M860: this child's own id, the base of any batch it starts -- kept here,
@@ -980,8 +1366,19 @@ static void run_child(struct jc_app *app, struct ptask *t, int task_no, int wfd,
         cc.wfd = wfd;
         cc.total = 0.0;
         cc.tools = 0;
+        /* def-377 W1: seed the child's progress-signal state. */
+        cc.app = app;
+        cc.ws = t->wt;
+        cc.edits = 0;
+        cc.dup24 = 0.0;
+        cc.ring_n = 0;
+        cc.ring_i = 0;
+        cc.dup_tool[0] = '\0';
+        cc.dup_args[0] = '\0';
+        memset(cc.ring, 0, sizeof cc.ring);
         memset(&cb, 0, sizeof(cb));
         cb.on_tool_start = child_on_tool;
+        cb.on_tool_result = child_on_tool_result;  /* M1192 B3 + def-377 W1 sig */
         cb.on_usage = child_on_usage;
         cb.user = &cc;
         /* M861 (N28): the task's own tool-call budget, binding in this child
@@ -1331,16 +1728,52 @@ static void process_lines(struct jc_app *app, struct ptask *t, int idx)
             /* M1149 (behaviour 12): every progress line refreshes the child's
              * last-activity stamp, so the published idle_s is the seconds
              * since the last one -- it grows for a child whose lines stop. */
-            t->last_ms = (long)jc_now_millis();
+            t->last_ms = jc_now_millis();
             jc_snprintf(t->cur_tool, sizeof(t->cur_tool), "%s", m.tool);
+            t->in_cmd = m.in_cmd;   /* M1192 B3: the shell-command state */
             board_line(app, idx, t->model_name, JC_BOARD_RUN, m.tool,
                        t->tokens);
             break;
         }
         case JC_PMSG_TOK:
-            t->last_ms = (long)jc_now_millis();
+            t->last_ms = jc_now_millis();
             t->tokens = m.tokens;
+            /* def-377 W4.2 (M1194, A4; the true case, A4b): a `tok` line is
+             * one COMPLETED model call for this task. While the soft stop is
+             * pending, it is the grace counter's tick: the FIRST `tok` after
+             * the sentinel was sent is the child's ONE grace call (the call
+             * whose prompt carried the sentinel, folded at its boundary -- see
+             * the fence comment on pool_supervise_grace). Standing the fence
+             * down (grace_pending -> 0) on it is safe: the child's kind was
+             * STAMPED at the fold, so the done line (looped=5) rides it
+             * whether the child ends cooperatively (final answer, no loop top)
+             * or breaks at the next loop top (jc_agent.c). A `tok` completed
+             * BEFORE the fold (a pre-existing in-flight call) is consumed
+             * before sup_sent is set here, so it cannot stand the fence down. */
+            if (t->sup_sent && !t->done) {
+                t->grace_pending = 0;
+            }
             break;
+        case JC_PMSG_SIG: {
+            /* def-377 W1/W2.1: a sig line IS a progress line (behaviour 12) --
+             * refresh last_ms. Store the child's signal; refresh sig_edits_ms
+             * only when the edits count changes (W1.1: since_edit_s = now -
+             * this). The flag rule, status fields, board and telemetry are
+             * A3's -- this case keeps to the store only. */
+            t->last_ms = jc_now_millis();
+            if (m.sig_edits != t->sig_edits) {
+                t->sig_edits = m.sig_edits;
+                t->sig_edits_ms = jc_now_millis();
+            }
+            t->sig_dup24 = m.sig_dup24;
+            /* def-377 W2.1 (A3): the latest sig per task -- placeholders and
+             * compactions too (W1.4/W1.5), so R2 (W3.1) can read the placeholder
+             * count at the wake. */
+            t->sig_placeholders = m.sig_placeholders;
+            t->sig_compactions = m.sig_compactions;
+            t->sig_seen = 1;
+            break;
+        }
         case JC_PMSG_DONE: {
             t->answer = m.answer;
             t->error = m.error;
@@ -1477,9 +1910,25 @@ static void kill_live(struct ptask *tasks, int n)
 static struct ptask *s_pool_tasks;
 static int s_pool_ntasks;
 static int s_pool_done;
-static long s_pool_now_ms;
+static double s_pool_now_ms;   /* M1194-d379: widened to double (a clock value, not a bound) */
 static struct jc_pool_snap s_pool_snap;
 static struct jc_pool_ops s_pool_ops;
+
+/* M1192 B3: the forked child's SIGUSR1 handler. It writes ONLY the child's
+ * app->cmd_cancel flag (a volatile int, written atomically in this
+ * single-writer/single-reader context -- the project's signal rule: nothing
+ * else in a handler). The watched command's select loop consumes it at the
+ * kill site and takes the cancel kill-arm (exit 143 + the note). jc_app is
+ * included via jc_agent.h/jc_app.h above. */
+static struct jc_app *jc_child_cmd_cancel_app;
+
+static void jc_child_cmd_cancel_handler(int sig)
+{
+    (void)sig;
+    if (jc_child_cmd_cancel_app != NULL) {
+        jc_child_cmd_cancel_app->cmd_cancel = 1;
+    }
+}
 
 /* The M854 ending for a task, from the parent's fields ("" while live). */
 static const char *pool_task_ending(const struct ptask *t)
@@ -1521,6 +1970,25 @@ static void pool_refresh_snap(void)
         }
         k->wt = t->wt;
         k->ending = pool_task_ending(t);
+        k->in_cmd = t->in_cmd;   /* M1192 B3 */
+        /* def-377 W2.2 (M1194): the child's progress signals. edits/placeholders/
+         * compactions/dup24/flag are the latest sig per task (0/absent for a
+         * task with no sig yet). since_edit_s is the PARENT's computation from
+         * sig_edits_ms: a task that never edited shows 0 (the 0/absent branch);
+         * once it has (edits >= 1) the seconds since the last edits change grow
+         * -- the same W1.1 convention, surfaced here, NOT gated by in_cmd (the
+         * display is always honest). */
+        k->edits = t->sig_edits;
+        k->placeholders = t->sig_placeholders;
+        k->compactions = t->sig_compactions;
+        k->dup24 = t->sig_dup24;
+        k->flag = t->flag;
+        if (t->sig_edits >= 1 && t->sig_edits_ms > 0.0) {
+            double se = now_s - (double)t->sig_edits_ms / 1000.0;
+            k->since_edit_s = (se > 0.0) ? se : 0.0;
+        } else {
+            k->since_edit_s = 0.0;
+        }
     }
 }
 
@@ -1550,6 +2018,52 @@ static jc_status pool_op_stop(int task, const char *reason,
                     "%s", reason);
     } else {
         t->sup_stop_reason[0] = '\0';
+    }
+    return JC_OK;
+}
+
+/* cancel-cmd (M1192 B3): signal the task's child with SIGUSR1 (the child's
+ * handler sets its own cmd_cancel, so its watched command takes the cancel
+ * kill-arm with exit 143 + the note). The EXACT refusals mirror pool_op_stop;
+ * the pool NEVER signals a pid it did not fork (B3.10) -- tasks[task].pid is
+ * the fork site's pid. "not in a command" is refused only when the child has
+ * POSITIVELY reported a tool that has ended (cur_tool set, in_cmd 0); when the
+ * child has started no tool yet (cur_tool empty) we signal anyway, because it
+ * is entering its first command and the child drops a cancel that lands before
+ * the command starts (D6). */
+static jc_status pool_op_cancel(int task, const char *reason,
+                                char *why, jc_size whycap)
+{
+    struct ptask *t;
+    (void)reason;
+    if (s_pool_tasks == NULL) {
+        jc_snprintf(why, whycap, "no batch is live");
+        return JC_ERR_INVALID;
+    }
+    if (task < 0 || task >= s_pool_ntasks) {
+        jc_snprintf(why, whycap,
+                    "task %d is not live (%d tasks)", task, s_pool_ntasks);
+        return JC_ERR_INVALID;
+    }
+    t = &s_pool_tasks[task];
+    if (t->done) {
+        jc_snprintf(why, whycap,
+                    "task %d is not live (%d tasks)", task, s_pool_ntasks);
+        return JC_ERR_INVALID;
+    }
+    if (t->in_cmd == 0 && t->cur_tool[0] != '\0') {
+        /* The child reported a tool and it has finished: between calls. */
+        jc_snprintf(why, whycap,
+                    "task %d is not in a command (tool: %s)",
+                    task, t->cur_tool);
+        return JC_ERR_INVALID;
+    }
+    if (kill(t->pid, SIGUSR1) != 0) {
+        /* A live task's pid should be killable; if not (it died this tick),
+         * the "not live" refusal is the closest honest name. */
+        jc_snprintf(why, whycap,
+                    "task %d is not live (%d tasks)", task, s_pool_ntasks);
+        return JC_ERR_INVALID;
     }
     return JC_OK;
 }
@@ -1669,6 +2183,7 @@ static void pool_register(struct jc_app *app)
 {
     s_pool_ops.stop = pool_op_stop;
     s_pool_ops.inject = pool_op_inject;
+    s_pool_ops.cancel = pool_op_cancel;   /* M1192 B3 */
     s_pool_ops.snap = &s_pool_snap;
     app->control->pool_ops = &s_pool_ops;
 }
@@ -1679,6 +2194,228 @@ static void pool_unregister(struct jc_app *app)
         app->control->pool_ops = NULL;
     }
     s_pool_tasks = NULL;
+}
+
+/* def-379 (M1194-d379): the pool watchdog's deadline test as a pure helper, so a
+ * unit test can SET the stamps (the gate's 32-bit stage cannot see the wrap by
+ * waiting). `launch_ms`/`now_ms` are monotonic readings in the pool's widened
+ * type (double); `timeout_ms` is the bound (stays long, D379.2). Returns 1 when
+ * the task is past its deadline. Promoted to double: the OLD `(long)` arithmetic
+ * read 0 past the 2^31 ms wrap on 32-bit (notes/M1194.md MS3) and the timeout
+ * stopped firing; the double difference keeps it firing. Exported (not static) so
+ * tests/test_pool_clock.c can call it directly -- this is the one export the
+ * helper needs; the prototype lives in include/jc_app.h. */
+int jc_pool_past_deadline(double launch_ms, double now_ms, long timeout_ms)
+{
+    return (now_ms - launch_ms) > (double)timeout_ms;
+}
+
+/* def-377 W2.4 (M1194): the parent's `worker_flag` telemetry event, fired ONCE
+ * per task per batch when the flag goes 0 -> 1. A new event type the PARENT
+ * emits (the child never sees it); the reader counts it by reason and prints a
+ * summary line. The shape mirrors pre_discard: jc_app_telem_begin stamps
+ * depth/turn/run (M583 seam D4), `task` is the 1-based pool index (the board
+ * number every sibling pool telemetry uses -- A3.R:1), `reason` names which
+ * rule fired (R1 no_edit / R2 placeholders), `edits`/`placeholders` are the
+ * counts at the moment of firing. */
+static void emit_worker_flag(struct jc_app *app, int task, int reason, int edits)
+{
+    cJSON *o = jc_app_telem_begin(app, "worker_flag");
+    if (o != NULL) {
+        cJSON_AddNumberToObject(o, "task", (double)task);
+        cJSON_AddStringToObject(o, "reason", reason == 1 ? "no_edit" : "placeholders");
+        cJSON_AddNumberToObject(o, "edits", (double)edits);
+    }
+    jc_eventlog_end(app->telemetry, o);
+}
+
+/* def-377 W4.2 (M1194, A4; the comment is the TRUE safety case, rewritten by
+ * A4b after the R:2 review of this block): the SOFT-STOP SENTINEL, written
+ * through a task's inject pipe the same way pool_op_inject writes a human's
+ * note (the SAME drain path, NOT the supervisor's stop-task verb). The child's
+ * boundary FOLD recognises it and arms the stop; the run ends at the next
+ * model-call boundary with its report (looped=5, "supervised").
+ *
+ * THE WORD IS "JICHI-CONTROL:supervise-stop:<seq>", one line. Recognition is
+ * EXACT-LINE at the fold, on the RAW queued text (jc_sup_stop_line,
+ * src/chat/jc_sup_stop.c): the line must be the control prefix followed by
+ * EXACTLY one seq digit (1 = wrapup, 2 = stop) and NOTHING else -- no leading
+ * or trailing word, no second digit. It is NOT a substring: the R:1 review of
+ * the A4 wave found the recognizer was a strstr, so a task prompt containing
+ * the word mid-prose self-armed a child, and a human inject that mentioned it
+ * armed one. That class is closed by (a) the exact-line rule and (b) the
+ * arm being at the FOLD only -- the child re-scans NO history, so a task
+ * prompt (user-role, no "[operator] " prefix, never folded through the drain),
+ * a tool result (tool-role), and any mid-prose mention are never re-matched.
+ * The only way a human inject arms the stop is to TYPE the exact line as the
+ * whole inject -- and that is by design, the same trust boundary as any other
+ * [operator] message: whoever can queue a note into the child can steer it.
+ *
+ * THE SEQ IS NOT MATCHED BY THE CHILD. It is self-describing decoration
+ * (1 for wrapup, 2 for stop) that the parent writes and a log reader sees; the
+ * child's exact-line check accepts either digit and takes the same action for
+ * both (end the run with its report). The reviewer was right that "the child
+ * matches the seq the parent handed it" was false -- it reads no seq. Keeping
+ * the digit rather than deleting it costs nothing (the prefix macro stays)
+ * and keeps the two actions distinguishable in the transcript.
+ *
+ * THE SENTINEL IS FOLDED, NOT CONSUMED. It lands in the child's history as an
+ * "[operator] " user message the grace model call sees -- that is intended,
+ * and it is the vehicle: the wrapup text (sent as a separate line in the SAME
+ * inject) and the sentinel ride the same prompt, so the model is told to
+ * report AND the control line is visible in its transcript. What the stop is
+ * NOT taken from is a history re-scan: the fold is the one recognition site,
+ * and the stop reads the armed flag (and the kind the fold stamped), never
+ * the folded message again. (The A4 comment's "consumed, not folded" was the
+ * R:2c error: the drain folds it, the model sees it, it persists.) */
+#define JC_PAR_SUP_STOP_SENTINEL "JICHI-CONTROL:supervise-stop:"
+
+/* W4.2 grace + W4.3 blocked child + the `stop` action's fence, decided ONCE
+ * per flagged task at the 200 ms wake (the watchdog's clock; the pool reads
+ * nothing per wake but its own stamps). Phases, keyed off `sup_sent` (and
+ * `in_cmd` while it is 0 -- the A4d-2 design on 3d47b603: the fence needs
+ * its OWN start, decoupled from `sup_sent`):
+ *   0, in a command: the DEFERRAL. The child has no tool-round boundary at
+ *          which the drain folds the sentinel, so the send is a RETRY, not a
+ *          done: the FIRST deferral stamps `sup_defer_ms` (the deferral
+ *          fence's start) and sets NOTHING else (`sup_sent` stays 0, so the
+ *          send is re-attempted at every wake; `grace_pending` stays 0, so
+ *          the child's own command-completion `tok` cannot stand anything
+ *          down). A command that OUTLIVES the grace (still in_cmd when
+ *          `now - sup_defer_ms >= grace_ms`) has no boundary to reach at all
+ *          -- the deferral fence kill_one's (W4.3's fallback for a child
+ *          with NO BOUNDARY). R:7's boundary, named: a command SHORTER than
+ *          the grace ends, in_cmd -> 0, the retry wake SENTS, `sup_defer_ms`
+ *          is cleared, the sent-stop fence below runs -- R:7's
+ *          short-command variant stays CLOSED. R:7's OTHER variant (a NEW
+ *          long command after the grace call has run) is not changed: there
+ *          `sup_sent` is 1, the deferral fence never fires, and the
+ *          sent-stop fence owns it.
+ *   0, NOT in a command: hand the child its soft stop (below) -- the send
+ *          supersedes any deferral (`sup_defer_ms` cleared) -- and arm the
+ *          sent-stop fence (`sup_sent` 0 -> 1, `sup_stop_ms` stamped).
+ *   1:     the FENCE. `grace_pending` (1) is CLEARED in process_lines when a
+ *          `tok` line (one per completed model call) arrives for the task, so
+ *          the fence stands down on the FIRST `tok` after sending -- that is
+ *          the child's ONE grace call. It does NOT stand down on a `tok`
+ *          completed BEFORE the arm: the child folds the sentinel at its next
+ *          model-call BOUNDARY (one of jc_agent.c's two `jc_control_boundary`
+ *          sites, the pre-request M438 fold or the post-round fold), which is
+ *          BEFORE that boundary's model call and AFTER the previous model
+ *          call's `tok` was already consumed. No model call can complete
+ *          between this wake's send and the child's fold, so the first `tok`
+ *          the fence sees post-send is the grace call's. (If the child is
+ *          mid-model-call when the send lands, that in-flight call's `tok`
+ *          precedes the child's next boundary and is therefore before the
+ *          fold, not after it -- the fence still waits for the grace call.)
+ *          If no such boundary is reached within graceSec -- W4.3: the child
+ *          is BLOCKED inside a long command and has no boundary to fold the
+ *          sentinel -- kill_one (M1149's path; work kept as a ref, not
+ *          merged). Returns 1 when the task was hard-stopped here and the
+ *          caller must count it done; 0 otherwise. */
+static int pool_supervise_grace(struct jc_app *app, struct ptask *t, int i,
+                                double now_ms)
+{
+    double grace_ms;
+
+    if (t->flag == 0 || t->sup_action == JC_PAR_SUP_REPORT || !t->launched ||
+        t->done) {
+        return 0;
+    }
+    grace_ms = (double)app->config.parallel_sup_grace_sec * 1000.0;
+    if (grace_ms <= 0.0) {
+        grace_ms = (double)JC_PAR_SUP_GRACE_SEC * 1000.0;  /* the config default */
+    }
+    if (t->sup_sent == 0) {
+        /* The DEFERRAL fence (W4.3's restored fallback, the A4d-2 design on
+         * 3d47b603): the child is STILL in the command that the send was
+         * deferred on, and it has outlived the grace, so no tool-round
+         * boundary will reach the sentinel -- kill_one (M1149's path; work
+         * kept as a ref, not merged). The check sits BEFORE the send arm,
+         * and the `in_cmd != 0` term is load-bearing for the BOUNDARY wake:
+         * the wake where the deferred command JUST ended (in_cmd -> 0) with
+         * `sup_defer_ms` stamped on a prior wake and grace already elapsed
+         * since. There the child is COOPERATIVE -- its command ended and it
+         * reached the boundary -- so it should get the soft stop, not the
+         * kill: without the term the `>= grace` check would be true on that
+         * wake and kill_one a child that just ended its command; with the
+         * term the check cannot fire, and the send wins that wake. The old
+         * "a fence that fired on the wake where the send just happened"
+         * framing is an unreachable state, not the reason for the term:
+         * after a send `sup_sent` is 1 (the deferral fence, gated on
+         * sup_sent == 0, never runs again), and a command that outlived the
+         * grace was already killed by this same fence on a mid-command wake,
+         * before any send existed. Only a child with NO BOUNDARY -- still
+         * in_cmd when grace elapsed -- is killed. */
+        if (t->sup_sent == 0 && t->in_cmd != 0 && t->sup_defer_ms > 0.0 &&
+            now_ms - t->sup_defer_ms >= grace_ms) {
+            kill_one(t);
+            return 1;
+        }
+        /* The wakes after the fire, until the send. W4.3: a blocked child
+         * (in_cmd set, inside a long command) is NOT reached by the soft
+         * stop or the wrapup text -- it has no tool-round boundary at which
+         * the drain folds -- so the deferral is a RETRY: the FIRST one
+         * stamps sup_defer_ms (the deferral fence's start, above) and sets
+         * NOTHING else, so the send is re-attempted at every wake and its
+         * own command-completion `tok` stands nothing down. An unblocked
+         * child gets its soft stop NOW. */
+        if (t->in_cmd == 0) {
+            char s[JC_CONTROL_LINE_MAX];
+            if (t->sup_action == JC_PAR_SUP_WRAPUP) {
+                /* W4.2: ONE inject, the same drain path as pool_op_inject (the
+                 * parent owns the task's pipe, so no queue cap applies to itself),
+                 * NOT the supervisor's stop-task verb. */
+                jc_snprintf(s, sizeof(s), "%s\n",
+                            "Stop here. Your next answer is your last: report "
+                            "what you changed, what works, what does not");
+                jc_sb_append(&t->injq, s);
+                t->injq_len += (jc_size)strlen(s);
+            }
+            /* The SOFT-STOP SENTINEL (both actions): the child's boundary drain
+             * recognises it, sets pool_sup_stopped, and the loop-top check ends
+             * the run with its report (looped=5, "supervised"). */
+            jc_snprintf(s, sizeof(s), "%s%d\n",
+                        JC_PAR_SUP_STOP_SENTINEL,
+                        (t->sup_action == JC_PAR_SUP_STOP) ? 2 : 1);
+            jc_sb_append(&t->injq, s);
+            t->injq_len += (jc_size)strlen(s);
+            pool_drain_inject(t);
+            board_line(app, i, t->model_name, JC_BOARD_RUN,
+                       "soft stop requested", t->tokens);
+            /* The send supersedes any deferral: the deferral fence's start
+             * is cleared (its command is over -- the sent-stop fence below
+             * owns this task now) and the sent-stop fence arms at the
+             * ACTUAL send. */
+            t->sup_defer_ms = 0.0;
+            t->sup_sent = 1;
+            t->sup_stop_ms = now_ms;
+            t->grace_pending = 1;   /* W4.2: one model call of grace */
+        } else {
+            if (t->sup_defer_ms <= 0.0) {
+                t->sup_defer_ms = now_ms;   /* the FIRST deferral: the fence's start */
+            }
+            /* Sets NOTHING else: sup_sent stays 0 (retry at the next wake),
+             * grace_pending stays 0 (the command's tok stands nothing down).
+             * A command LONGER than the grace is kill_one'd by the deferral
+             * fence above (W4.3); R:7's short-command variant ends, retries,
+             * and sends (boundary named in the function comment). */
+            board_line(app, i, t->model_name, JC_BOARD_RUN,
+                       "soft stop deferred (child in a command); retrying at each wake",
+                       t->tokens);
+        }
+        return 0;
+    }
+    /* The sent-stop fence: the child reached a boundary (grace_pending == 0)
+     * or the grace call is still in flight -- either way its own loop-top
+     * check ends it. Only a child that NEVER reached a boundary within the
+     * grace (blocked, W4.3) is hard-stopped here. */
+    if (t->grace_pending > 0 &&
+        now_ms - t->sup_stop_ms >= grace_ms) {
+        kill_one(t);
+        return 1;
+    }
+    return 0;
 }
 
 /* The fork pool: keep <= cap children live, gather each child's pipe with a
@@ -1707,6 +2444,9 @@ static void run_pool(struct jc_app *app, struct ptask *tasks, int ntasks,
         struct timeval tv;
         int maxfd = -1;
         int rc;
+        /* def-379: the wake's own clock stamp (double): the W4 grace fence and
+         * the flag rule both read it. */
+        double now_ms;
 
         /* M804: `pause` in the pool means "launch no new task" -- already-running
          * children keep going (so their pipes are read and their per-child watchdog
@@ -1785,6 +2525,28 @@ static void run_pool(struct jc_app *app, struct ptask *tasks, int ntasks,
                 continue;
             }
             if (pid == 0) {
+                /* M1192 B3: the child installs a SIGUSR1 handler that sets ONLY
+                 * app->cmd_cancel (a volatile sig_atomic_t write, nothing else
+                 * -- the project's signal rule) so a supervisor's cancel-cmd
+                 * (the parent's pool_op_cancel kills tasks[i].pid with SIGUSR1)
+                 * reaches the child's in-flight watched command at its next
+                 * select wake and takes the cancel kill-arm (exit 143 + the
+                 * note). sa_flags stays 0 (the M918 convention, jc_platform.h:
+                 * this build's -D_POSIX_C_SOURCE=200112L defines no SA_RESTART,
+                 * and the watched loop reads cmd_cancel right after select()
+                 * whether it returned EINTR or a timeout, so EINTR is harmless
+                 * and even makes the cancel land a wake sooner). This is a
+                 * FORKED child, so cmd_cancel is child-local and the lead's
+                 * flag is untouched. */
+                {
+                    struct sigaction sa;
+                    memset(&sa, 0, sizeof(sa));
+                    sa.sa_handler = jc_child_cmd_cancel_handler;
+                    sa.sa_flags = 0;
+                    (void)sigemptyset(&sa.sa_mask);
+                    (void)sigaction(SIGUSR1, &sa, NULL);
+                    jc_child_cmd_cancel_app = app;
+                }
                 /* M1149: the child keeps the inject pipe's READ end; run_child
                  * dup2's it onto the fixed fd JC_CTL_INJECT_FD and sets
                  * app->pool_inject_fd_valid (the child's boundary drain). Close
@@ -1805,7 +2567,7 @@ static void run_pool(struct jc_app *app, struct ptask *tasks, int ntasks,
             t->pid = pid;
             t->fd = fds[0];
             t->launched = 1;
-            t->launch_ms = (long)jc_now_millis();
+            t->launch_ms = jc_now_millis();
             t->last_ms = t->launch_ms;  /* M1149: idle_s baseline (behaviour 12) */
             jc_sb_init(&t->out);
             /* Resolve the model name for the board and announce the launch. */
@@ -1849,7 +2611,9 @@ static void run_pool(struct jc_app *app, struct ptask *tasks, int ntasks,
          * (kill_one: SIGTERM, the 300 ms grace, SIGKILL, reap), then refresh
          * the published snapshot and drain the inject queues. The stop lands
          * here, not in serve_pending's context, exactly as the deferred abort
-         * is handled. */
+         * is handled. `now_ms` is the wake's own stamp: the W4 grace fence
+         * below and the flag rule both read it (def-379: a double clock). */
+        now_ms = jc_now_millis();
         for (i = 0; i < ntasks; i++) {
             struct ptask *t = &tasks[i];
             if (t->sup_stop && t->launched && !t->done) {
@@ -1866,9 +2630,88 @@ static void run_pool(struct jc_app *app, struct ptask *tasks, int ntasks,
                 live--;
             }
         }
+        /* def-377 W4 (M1194, A4): the actions on a flagged task -- wrapup/stop
+         * hand the child its soft stop and run the grace fence at THIS wake
+         * (the 200 ms clock the watchdog reads); a hard stop here counts the
+         * task done exactly as the supervisor stop above. */
+        for (i = 0; i < ntasks; i++) {
+            struct ptask *t = &tasks[i];
+            if (pool_supervise_grace(app, t, i, now_ms)) {
+                if (t->error == NULL && t->answer == NULL) {
+                    t->error = jc_strdup(
+                        "stopped by worker supervision (soft stop not "
+                        "reached in time)");
+                }
+                board_line(app, i, t->model_name, JC_BOARD_FAIL,
+                           "stopped by worker supervision", t->tokens);
+                done++;
+                live--;
+            }
+        }
+        /* def-377 W3.1/W3.2 (M1194): the flag rule, evaluated AT THIS 200 ms
+         * wake (the same wake the watchdog already loops tasks). R1 fires
+         * NEVER inside one running tool call -- it is the only rule gated on
+         * t->in_cmd == 0 (a 45-min `make ci` inside one command is not a
+         * cycling worker; W3.2). R1: the edits count has been UNCHANGED for
+         * noEditSec seconds AFTER the first edit (the gate is sig_edits >= 1,
+         * NOT the first sig). R2: the total copied placeholders reach the
+         * config's placeholders threshold -- a TOTAL-count rule (W3.2),
+         * evaluated whether or not the child is inside a running tool call
+         * (A3.R:2: the spec pins in_cmd == 0 to R1 only). The flag goes
+         * 0 -> 1 ONCE per task per batch; worker_flag fires on that
+         * transition (W2.4). Observe-only: with the default action (report) a
+         * flag stops NOTHING -- no stop path here. */
+        {
+            long no_edit_s = app->config.parallel_sup_no_edit_sec;
+            int ph_thr = app->config.parallel_sup_placeholders;
+            if (no_edit_s > 0 || ph_thr > 0) {
+                for (i = 0; i < ntasks; i++) {
+                    struct ptask *t = &tasks[i];
+                    int reason = 0;
+                    if (t->launched && !t->done && !t->flag && t->in_cmd == 0) {
+                        if (no_edit_s > 0 && t->sig_seen &&
+                            t->sig_edits >= 1 && t->sig_edits_ms > 0.0) {
+                            double since_edit_ms = now_ms - t->sig_edits_ms;
+                            if (since_edit_ms >= (double)no_edit_s * 1000.0) {
+                                reason = 1;   /* R1 */
+                            }
+                        }
+                    }
+                    if (reason == 0 && t->launched && !t->done && !t->flag &&
+                        ph_thr > 0 && t->sig_seen &&
+                        t->sig_placeholders >= ph_thr) {
+                        reason = 2;   /* R2: a total-count rule, not in_cmd-gated */
+                    }
+                    if (reason != 0) {
+                        t->flag = 1;
+                        t->flag_reason = reason;   /* W6.3: which rule, at the fire */
+                        /* def-377 W4.1/W4.4 (M1194, A4): consume the config's
+                         * parallelSupervise.action ONCE at the fire. report
+                         * (the default) does nothing more; wrapup/stop drive
+                         * pool_supervise_grace (at the next wake: the soft
+                         * stop, the grace call, the kill_one fence). An unknown
+                         * action already WARNed at parse, so report is the floor. */
+                        t->sup_action = app->config.parallel_sup_action;
+                        /* W2.4: the child's flag FIRED, once per task/batch.
+                         * A3.R:1: the 1-based board index, like every sibling
+                         * pool telemetry (no_merge_kept, test_edit_hold,
+                         * new_dir_hold). */
+                        emit_worker_flag(app, i + 1, reason, t->sig_edits);
+                        /* W2.3: a flagged task shows its flag on the board line --
+                         * a RUN line naming which rule fired. Observe-only: the
+                         * default report policy stops nothing, so the task keeps
+                         * running; this is a marker, not a terminal state. */
+                        board_line(app, i, t->model_name, JC_BOARD_RUN,
+                                   reason == 1 ? "flagged (no_edit)"
+                                               : "flagged (placeholders)",
+                                   t->tokens);
+                    }
+                }
+            }
+        }
         if (app->control != NULL && app->control->listen_fd >= 0) {
             s_pool_done = done;
-            s_pool_now_ms = (long)jc_now_millis();
+            s_pool_now_ms = jc_now_millis();
             pool_refresh_snap();
             pool_drain_injects();
         }
@@ -1895,11 +2738,11 @@ static void run_pool(struct jc_app *app, struct ptask *tasks, int ntasks,
          * stream must not hang the whole swarm. Kill any task past its deadline
          * and report it failed; siblings keep running. */
         if (timeout_ms > 0) {
-            long now = (long)jc_now_millis();
+            double now = jc_now_millis();   /* M1194-d379: widened to double */
             for (i = 0; i < ntasks; i++) {
                 struct ptask *t = &tasks[i];
                 if (t->launched && !t->done &&
-                    now - t->launch_ms > timeout_ms) {
+                    jc_pool_past_deadline(t->launch_ms, now, timeout_ms)) {
                     kill_one(t);
                     if (t->error == NULL && t->answer == NULL) {
                         /* M325: name the knob and the limit that fired. This was
@@ -2793,6 +3636,7 @@ static jc_status parallel_run(const cJSON *args, struct jc_tool_result *out,
                                 dd_paths[0] != '\0' ? dd_paths : "(see git status)");
                     tu_err_policy(out, msg);
                     ptask_free_members(tasks, ntasks); /* M1006-b: no error leak */
+                    newdirs_free_all();
                     return JC_OK;
                 }
                 if (de != NULL) {
@@ -3453,7 +4297,7 @@ static jc_status parallel_run(const cJSON *args, struct jc_tool_result *out,
                 continue;
             }
             /* M888: a path under a held new directory stays out of the merge. */
-            if (newdir_held_path(nd, nnd, c->path)) {
+            if (newdir_held_path(nd, nnd, app->root, c->path)) {
                 n_held_paths++;
                 continue;
             }
@@ -3849,6 +4693,39 @@ static jc_status parallel_run(const cJSON *args, struct jc_tool_result *out,
                              t->sup_stop_reason[0] != '\0' ? ": " : "",
                              t->sup_stop_reason[0] != '\0' ? t->sup_stop_reason : "");
         }
+        /* def-377 W6.3 (M1194, A4): the flag's REASON on the task's own line in
+         * the batch report. The numbers are A2's ptask fields (the latest sig:
+         * sig_edits, the parent's stamp sig_edits_ms of the last edits change,
+         * sig_placeholders, sig_compactions). Mirrors the worker_flag telemetry
+         * reason so the driver that reads the report names WHY the task was
+         * flagged, e.g. "flagged: no code change for 74 min after progress; 2
+         * copied placeholders". Report-only: a flag under the default action
+         * stops nothing, so this line is the whole of the action for `report`. */
+        if (t->flag) {
+            double now_ms = jc_now_millis();   /* def-379: a double clock */
+            int nmin = 0;
+            jc_sb_append(&agg, "[jichi] flagged: ");
+            if (t->flag_reason == 1) {
+                if (t->sig_edits_ms > 0.0) {
+                    nmin = (int)((now_ms - t->sig_edits_ms) / 60000.0);
+                }
+                jc_sb_append_fmt(&agg,
+                    "no code change for %d min after progress", nmin);
+            } else {
+                jc_sb_append_fmt(&agg, "copied placeholders reached the "
+                                       "threshold");
+            }
+            if (t->sig_placeholders > 0) {
+                jc_sb_append_fmt(&agg, "; %d copied placeholder%s",
+                                 t->sig_placeholders,
+                                 (t->sig_placeholders == 1) ? "" : "s");
+            }
+            if (t->sig_compactions > 0) {
+                jc_sb_append_fmt(&agg, "; %d compaction%s", t->sig_compactions,
+                                 (t->sig_compactions == 1) ? "" : "s");
+            }
+            jc_sb_append(&agg, "\n");
+        }
         /* M863 (N44 (a)): a child that ran work-discarding git commands, and
          * the states jichi kept before them, for the lead and the operator. */
         if (t->npinned > 0) {
@@ -3946,8 +4823,79 @@ static jc_status parallel_run(const cJSON *args, struct jc_tool_result *out,
     jc_sb_free(&reports);
     jc_sb_free(&vfails);
 
+    /* def-377 W6.2 (M1194, A4): ONE worker_outcome event per LAUNCHED task, at
+     * the batch's END, after the merge/preserve decision is final (t->merged and
+     * t->preserve_why are set). R:4 (the A4 audit, naming 243363e5): a
+     * never-forked task (`launched == 0`, an invalid/pipe-failed/skipped one)
+     * carries no run id and emits no row, so this is per-LAUNCHED task, not per
+     * task.
+     *
+     * KEYING (R:4, the truth): the parent-side sink is NOT marked per task --
+     * `jc_eventlog`'s `task`/`task_run` are only set on the CHILD's COW copy in
+     * run_child (:1135), so each parent-side row here carries only the LEAD's
+     * `sid`/`run` envelope plus the explicit `task` number (1-based, like every
+     * sibling pool telemetry). The join to the child's own telemetry is the new
+     * `task_run` field: the SAME string the child's COW eventlog is marked with
+     * (run_child's jc_eventlog_set_task_run(run_id, task_no, ...) ->
+     * "<run_id>-t<task_no>", the child's run id), reproduced byte-for-byte here
+     * from this batch's run_id and the task's 1-based index. It is bounded to
+     * the eventlog's own task_run width (jc_eventlog.h: char task_run[64]) so it
+     * matches the child's truncated value exactly -- a reader greps the child's
+     * done line's task_run and finds this row by it.
+     *
+     * The row carries the ENDING (the stop name, the loop kind W6.1 renders,
+     * whether the flag fired) and MERGED-OR-KEPT-WITH-WHY (merged, or
+     * preserve_why / no result). A parent that was killed before this point
+     * emits no row: the worker_flag + done lines already name the tasks that
+     * fired, and a dead parent is a cost with no reader. */
+    {
+        int wi;
+        for (wi = 0; wi < ntasks; wi++) {
+            struct ptask *t = &tasks[wi];
+            cJSON *o;
+            char task_run[64];   /* R:4: the child's run id (see block comment) */
+            if (!t->launched) {
+                continue;   /* never forked: no run id, no row */
+            }
+            /* Mirror the child's COW eventlog task_run exactly (run_child's
+             * jc_eventlog_set_task_run: "%s-t%d" with this batch's run_id and
+             * the 1-based task number), bounded to the eventlog's 64 so the
+             * two agree byte-for-byte. */
+            jc_snprintf(task_run, sizeof task_run, "%s-t%d", run_id, wi + 1);
+            o = jc_app_telem_begin(app, "worker_outcome");
+            if (o != NULL) {
+                cJSON_AddNumberToObject(o, "task", (double)(wi + 1));
+                cJSON_AddStringToObject(o, "task_run", task_run);
+                cJSON_AddStringToObject(o, "stop",
+                                        t->stop[0] != '\0' ? t->stop : "none");
+                cJSON_AddNumberToObject(o, "looped", (double)t->looped);
+                cJSON_AddNumberToObject(o, "flag", (double)t->flag);
+                cJSON_AddNumberToObject(o, "tool_calls",
+                                        (double)t->tool_calls);
+                cJSON_AddNumberToObject(o, "tokens", t->tokens);
+                if (t->write && t->wt[0] != '\0') {
+                    if (t->merged) {
+                        cJSON_AddStringToObject(o, "kept", "merged");
+                    } else {
+                        cJSON_AddStringToObject(o, "kept", "kept");
+                        cJSON_AddStringToObject(o, "why",
+                            t->preserve_why != NULL ? t->preserve_why
+                                                    : "unknown");
+                    }
+                } else {
+                    /* read-only: nothing to merge; the answer IS the outcome */
+                    cJSON_AddStringToObject(o, "kept", "readonly");
+                }
+                jc_eventlog_end(app->telemetry, o);
+            }
+        }
+    }
+
     /* Free per-task parsed strings + pipe buffers. */
     ptask_free_members(tasks, ntasks);
+
+    /* Free the dynamic all-directories list used by newdirs_scan. */
+    newdirs_free_all();
 
     out->content = jc_sb_finish(&agg);
     out->is_error = (n_ok == 0) ? 1 : 0;

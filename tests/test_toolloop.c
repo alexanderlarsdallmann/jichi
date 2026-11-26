@@ -37,6 +37,17 @@ void test_toolloop(void)
     JC_CHECK(jc_fail_classify(
         "[stopped: output exceeded the 65536-byte capture limit and the command "
         "was killed]", 137, "run_terminal_command", 0) == JC_FAIL_KILLED);
+    /* TW24.F19: a command killed by SIGKILL whose shell says NOTHING about it.
+     * Linux's sh prints "Killed", and the class was read from that word;
+     * FreeBSD's and NetBSD's sh print nothing and only report 128 + 9, so the
+     * same death was filed as an ordinary failure there and the delegation
+     * report lost its advice. The status decides, for the shell tools only. */
+    JC_CHECK(jc_fail_classify("(no output)\n[exit status: 137]", 137,
+                              "run_terminal_command", 0) == JC_FAIL_KILLED);
+    JC_CHECK(jc_fail_classify("(no output)\n[exit status: 1]", 1,
+                              "run_terminal_command", 0) == JC_FAIL_NONZERO_EXIT);
+    JC_CHECK(jc_fail_classify("it failed", 137, "read_file", 0)
+             != JC_FAIL_KILLED);
 
     JC_CHECK(jc_fail_classify("error: string not found in file", -1, "read_file", 0)
              == JC_FAIL_NOT_FOUND);

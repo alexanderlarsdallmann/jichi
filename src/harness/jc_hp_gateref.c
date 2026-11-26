@@ -429,6 +429,7 @@ jc_gateref_driver_verdict(const char *text, int rc, char *word_out,
 {
     int ok;
     int no;
+    int n_w;
 
     if (text == NULL || word_out == NULL || ok_out == NULL || no_out == NULL ||
         word_cap == 0) {
@@ -437,15 +438,18 @@ jc_gateref_driver_verdict(const char *text, int rc, char *word_out,
     ok = gref_count_prefix(text, "ok");
     no = gref_count_prefix(text, "not ok");
     if (gref_skip_match(text) && no == 0 && ok == 0) {
-        if (jc_snprintf(word_out, word_cap, "SKIP") < 0) {
+        n_w = jc_snprintf(word_out, word_cap, "SKIP");
+        if (n_w < 0 || n_w >= (int)word_cap) {
             return -1;
         }
     } else if (rc != 0 || no > 0) {
-        if (jc_snprintf(word_out, word_cap, "RED") < 0) {
+        n_w = jc_snprintf(word_out, word_cap, "RED");
+        if (n_w < 0 || n_w >= (int)word_cap) {
             return -1;
         }
     } else {
-        if (jc_snprintf(word_out, word_cap, "GREEN") < 0) {
+        n_w = jc_snprintf(word_out, word_cap, "GREEN");
+        if (n_w < 0 || n_w >= (int)word_cap) {
             return -1;
         }
     }
@@ -464,6 +468,7 @@ jc_gateref_unit_verdict(const char *text, int rc, char *word_out,
 {
     char sm[1024];
     int f = 0;
+    int n_w;
 
     if (text == NULL || word_out == NULL || sm_out == NULL || word_cap == 0) {
         return -1;
@@ -505,17 +510,20 @@ jc_gateref_unit_verdict(const char *text, int rc, char *word_out,
         sm_out[sl] = '\0';
     }
     if (sm[0] == '\0') {
-        if (jc_snprintf(word_out, word_cap,
-                        "NO SUMMARY (rc=%d: the suite did not finish -- "
-                        "a crash or a build error)", rc) < 0) {
+        n_w = jc_snprintf(word_out, word_cap,
+                          "NO SUMMARY (rc=%d: the suite did not finish -- "
+                          "a crash or a build error)", rc);
+        if (n_w < 0 || n_w >= (int)word_cap) {
             return -1;
         }
     } else if (f > 0) {
-        if (jc_snprintf(word_out, word_cap, "RED") < 0) {
+        n_w = jc_snprintf(word_out, word_cap, "RED");
+        if (n_w < 0 || n_w >= (int)word_cap) {
             return -1;
         }
     } else {
-        if (jc_snprintf(word_out, word_cap, "GREEN") < 0) {
+        n_w = jc_snprintf(word_out, word_cap, "GREEN");
+        if (n_w < 0 || n_w >= (int)word_cap) {
             return -1;
         }
     }
@@ -685,12 +693,14 @@ gref_clear_rec(const char *dir, int depth, int *nodes)
         char epath[2048];
         struct stat st;
         int attempts;
+        int n_ep;
 
         if (*nodes <= 0) {
             return -1;
         }
         (*nodes)++;
-        if (jc_snprintf(epath, sizeof epath, "%s/%s", dir, names[i]) < 0) {
+        n_ep = jc_snprintf(epath, sizeof epath, "%s/%s", dir, names[i]);
+        if (n_ep < 0 || n_ep >= (int)sizeof epath) {
             return -1;
         }
         if (lstat(epath, &st) != 0) {
@@ -857,6 +867,10 @@ gref_run(const char *workdir, const char *cmd, int cap, char *out)
     char slot[GREF_NKEYS][128];
     struct jc_vec envv;
     struct jc_sb capture;
+    /* At FUNCTION scope: argv[2] points at it until the child is spawned, far
+     * below the block that fills it (declared in that block it was used after
+     * its scope; clang -O2 reused the slot and the shell got other bytes). */
+    char joined[16384];
     int i;
     int rc;
 
@@ -864,10 +878,7 @@ gref_run(const char *workdir, const char *cmd, int cap, char *out)
         out[0] = '\0';
     }
     if (workdir != NULL && workdir[0] != '\0') {
-        char joined[16384];
-        int n = jc_snprintf(joined, sizeof joined, "cd %s && %s",
-                            workdir, cmd);
-        if (n < 0 || (size_t)n >= sizeof joined) {
+        if (jc_gateref_build_cmd(workdir, cmd, joined, sizeof joined) < 0) {
             return -1;
         }
         cmd = joined;
@@ -879,7 +890,8 @@ gref_run(const char *workdir, const char *cmd, int cap, char *out)
     jc_vec_init(&envv, sizeof(char *));
     for (i = 0; i < GREF_NKEYS; i++) {
         char *s;
-        if (jc_snprintf(slot[i], sizeof slot[i], "%s=", gref_keys[i]) < 0) {
+        int n_sk = jc_snprintf(slot[i], sizeof slot[i], "%s=", gref_keys[i]);
+        if (n_sk < 0 || n_sk >= (int)sizeof slot[i]) {
             jc_vec_free(&envv);
             return -1;
         }
@@ -985,7 +997,8 @@ gref_env(struct jc_arena *a, struct jc_vec *out,
     jc_vec_init(out, sizeof(char *));
     for (i = 0; i < GREF_NKEYS; i++) {
         char *s;
-        if (jc_snprintf(slot, sizeof slot, "%s=", gref_keys[i]) < 0) {
+        int n_se = jc_snprintf(slot, sizeof slot, "%s=", gref_keys[i]);
+        if (n_se < 0 || n_se >= (int)sizeof slot) {
             jc_vec_free(out);
             return -1;
         }
@@ -1025,11 +1038,13 @@ gref_git(const char *repo, const char *args, int cap, char *out)
 {
     char cmd[8192];
     int rc;
+    int n_cg;
 
     if (out != NULL && cap > 0) {
         out[0] = '\0';
     }
-    if (jc_snprintf(cmd, sizeof cmd, "git -C '%s' %s", repo, args) < 0) {
+    n_cg = jc_snprintf(cmd, sizeof cmd, "git -C '%s' %s", repo, args);
+    if (n_cg < 0 || n_cg >= (int)sizeof cmd) {
         return -1;
     }
     rc = gref_run(NULL, cmd, cap, out);
@@ -1046,10 +1061,12 @@ static int
 gref_clone_setup(const char *wpath, const char *repo, const char *jdir)
 {
     char cmd[8192];
+    int n_cc;
 
-    if (jc_snprintf(cmd, sizeof cmd,
-                    "git clone -q --no-local --no-checkout '%s' '%s'",
-                    repo, jdir) < 0) {
+    n_cc = jc_snprintf(cmd, sizeof cmd,
+                       "git clone -q --no-local --no-checkout '%s' '%s'",
+                       repo, jdir);
+    if (n_cc < 0 || n_cc >= (int)sizeof cmd) {
         return -1;
     }
     return gref_run(wpath, cmd, 0, NULL);
@@ -1064,9 +1081,11 @@ gref_revlist(const char *repo, const char *base, const char *head,
              int cap, char *out)
 {
     char args[512];
+    int n_ar;
 
-    if (jc_snprintf(args, sizeof args,
-                    "rev-list --reverse %s..%s", base, head) < 0) {
+    n_ar = jc_snprintf(args, sizeof args,
+                       "rev-list --reverse %s..%s", base, head);
+    if (n_ar < 0 || n_ar >= (int)sizeof args) {
         return -1;
     }
     return gref_git(repo, args, cap, out);
@@ -1078,9 +1097,11 @@ static int
 gref_diff_files(const char *repo, const char *csha, int cap, char *out)
 {
     char args[256];
+    int n_df;
 
-    if (jc_snprintf(args, sizeof args,
-                    "diff-tree --no-commit-id --name-only -r %s", csha) < 0) {
+    n_df = jc_snprintf(args, sizeof args,
+                       "diff-tree --no-commit-id --name-only -r %s", csha);
+    if (n_df < 0 || n_df >= (int)sizeof args) {
         return -1;
     }
     return gref_git(repo, args, cap, out);
@@ -1094,11 +1115,13 @@ gref_subject(const char *repo, const char *csha, int cap, char *out)
     char args[256];
     char full[GREF_LINE_MAX];
     int rc;
+    int n_sb;
 
     if (out != NULL && cap > 0) {
         out[0] = '\0';
     }
-    if (jc_snprintf(args, sizeof args, "log -1 --format=%%s %s", csha) < 0) {
+    n_sb = jc_snprintf(args, sizeof args, "log -1 --format=%%s %s", csha);
+    if (n_sb < 0 || n_sb >= (int)sizeof args) {
         return -1;
     }
     rc = gref_git(repo, args, (int)sizeof full, full);
@@ -1149,6 +1172,36 @@ gref_run_outfile(struct jc_arena *a, const char *workdir, const char *cmd,
         rc = -1;
     }
     return rc;
+}
+
+/* jc_gateref_build_cmd: the WORKDIR + CMD joined command string (for unit testing).
+ * `out` receives `cd '<workdir>' && <cmd>` when workdir is non-empty,
+ * or `<cmd>` when workdir is NULL/empty. Returns 0 on success, -1 on overflow.
+ * CHANGED in M1221: workdir is single-quoted to prevent word-splitting. */
+int
+jc_gateref_build_cmd(const char *workdir, const char *cmd,
+                     char *out, size_t cap)
+{
+    int n;
+
+    if (out != NULL && cap > 0) {
+        out[0] = '\0';
+    }
+    if (workdir != NULL && workdir[0] != '\0') {
+        n = jc_snprintf(out, cap, "cd '%s' && %s", workdir, cmd);
+        if (n < 0 || (size_t)n >= cap) {
+            return -1;
+        }
+    } else {
+        if (out != NULL && cap > 0 && cmd != NULL) {
+            size_t i;
+            for (i = 0; i < cap - 1 && cmd[i] != '\0'; i++) {
+                out[i] = cmd[i];
+            }
+            out[i] = '\0';
+        }
+    }
+    return 0;
 }
 
 /* jc_hp_gateref_run: the stage entry. The contract is in the .h. The record
@@ -1264,55 +1317,68 @@ jc_hp_gateref_run(const char *config_path,
     /* :16-25 the setup: the --work home (else mkdtemp /tmp/jhp-ref-XXXXXX),
      * the out / records / tmp sub-dirs, the scratch clone at exactly HEAD. */
     if (work != NULL && work[0] != '\0') {
-        if (jc_snprintf(wpath, sizeof wpath, "%s", work) < 0 ||
+        int n_w1 = jc_snprintf(wpath, sizeof wpath, "%s", work);
+        if (n_w1 < 0 || n_w1 >= (int)sizeof wpath ||
             gref_mkdir_p(wpath) != 0) {
             rc = 1;
             goto invalid_setup;
         }
     } else {
         char tmpl[32];
-        if (jc_snprintf(tmpl, sizeof tmpl, "%s", "/tmp/jhp-ref-XXXXXX") < 0 ||
+        int n_t1;
+        int n_w2;
+        n_t1 = jc_snprintf(tmpl, sizeof tmpl, "%s", "/tmp/jhp-ref-XXXXXX");
+        if (n_t1 < 0 || n_t1 >= (int)sizeof tmpl ||
             mkdtemp(tmpl) == NULL) {
             rc = 1;
             goto invalid_setup;
         }
-        if (jc_snprintf(wpath, sizeof wpath, "%s", tmpl) < 0 ||
+        n_w2 = jc_snprintf(wpath, sizeof wpath, "%s", tmpl);
+        if (n_w2 < 0 || n_w2 >= (int)sizeof wpath ||
             gref_mkdir_p(wpath) != 0) {
             rc = 1;
             goto invalid_setup;
         }
     }
     if (out_dir != NULL && out_dir[0] != '\0') {
-        if (jc_snprintf(odir, sizeof odir, "%s", out_dir) < 0 ||
+        int n_o1 = jc_snprintf(odir, sizeof odir, "%s", out_dir);
+        if (n_o1 < 0 || n_o1 >= (int)sizeof odir ||
             gref_mkdir_p(odir) != 0) {
             rc = 1;
             goto invalid_setup;
         }
     } else {
-        if (jc_snprintf(odir, sizeof odir, "%s/out", wpath) < 0 ||
+        int n_o2 = jc_snprintf(odir, sizeof odir, "%s/out", wpath);
+        if (n_o2 < 0 || n_o2 >= (int)sizeof odir ||
             gref_mkdir_p(odir) != 0) {
             rc = 1;
             goto invalid_setup;
         }
     }
     if (records != NULL && records[0] != '\0') {
-        if (jc_snprintf(rpath, sizeof rpath, "%s", records) < 0 ||
+        int n_r1 = jc_snprintf(rpath, sizeof rpath, "%s", records);
+        if (n_r1 < 0 || n_r1 >= (int)sizeof rpath ||
             gref_mkdir_p(rpath) != 0) {
             rc = 1;
             goto invalid_setup;
         }
     } else {
-        if (jc_snprintf(rpath, sizeof rpath, "%s/records", wpath) < 0 ||
+        int n_r2 = jc_snprintf(rpath, sizeof rpath, "%s/records", wpath);
+        if (n_r2 < 0 || n_r2 >= (int)sizeof rpath ||
             gref_mkdir_p(rpath) != 0) {
             rc = 1;
             goto invalid_setup;
         }
     }
-    if (jc_snprintf(tmpd, sizeof tmpd, "%s/tmp", wpath) < 0 ||
-        gref_mkdir_p(tmpd) != 0 ||
-        jc_snprintf(jdir, sizeof jdir, "%s/j", wpath) < 0) {
-        rc = 1;
-        goto invalid_setup;
+    {
+        int n_td = jc_snprintf(tmpd, sizeof tmpd, "%s/tmp", wpath);
+        int n_jd = jc_snprintf(jdir, sizeof jdir, "%s/j", wpath);
+        if (n_td < 0 || n_td >= (int)sizeof tmpd ||
+            gref_mkdir_p(tmpd) != 0 ||
+            n_jd < 0 || n_jd >= (int)sizeof jdir) {
+            rc = 1;
+            goto invalid_setup;
+        }
     }
     /* The per-check DRIVER + UNIT children receive TMPDIR=<work>/tmp (the
      * reference's redfirst.sh:41/:50); the 16 key names are set empty in the
@@ -1371,9 +1437,11 @@ jc_hp_gateref_run(const char *config_path,
     /* :27 the range (ONE keyless git READ child); a fault (the range does not
      * exist) is the INVALID line + rc 1. */
     if (gref_revlist(repo, base, head, (int)sizeof range, range) != 0) {
-        if (jc_snprintf(line, sizeof line,
-                        "  redfirst: no commits in %s..%s: INVALID\n",
-                        base, head) < 0) {
+        int n_lc;
+        n_lc = jc_snprintf(line, sizeof line,
+                           "  redfirst: no commits in %s..%s: INVALID\n",
+                           base, head);
+        if (n_lc < 0 || n_lc >= (int)sizeof line) {
             rc = 1;
             goto fail;
         }
@@ -1393,6 +1461,7 @@ jc_hp_gateref_run(const char *config_path,
             char drv[2048], fu[2048], au[2048];
             int is_ref = 0;
             size_t cplen = 0;
+            int n_s8;
 
             while (tok[cplen] != '\0' && tok[cplen] != ' ' &&
                    tok[cplen] != '\n') {
@@ -1420,7 +1489,8 @@ jc_hp_gateref_run(const char *config_path,
                 continue; /* :30/:33 not red-first */
             }
             n++; /* :34 EVERY red-first commit, before the build */
-            if (jc_snprintf(s8, sizeof s8, "%.8s", csha) < 0) {
+            n_s8 = jc_snprintf(s8, sizeof s8, "%.8s", csha);
+            if (n_s8 < 0 || n_s8 >= (int)sizeof s8) {
                 rc = 1;
                 goto fail;
             }
@@ -1431,9 +1501,11 @@ jc_hp_gateref_run(const char *config_path,
              * CHECKOUT FAILED line + the reference's continue. */
             {
                 char cmd[4096];
-                if (jc_snprintf(cmd, sizeof cmd,
-                                "git -C '%s' checkout -q --detach -f "
-                                "'%s'", jdir, csha) < 0) {
+                int n_co;
+                n_co = jc_snprintf(cmd, sizeof cmd,
+                                   "git -C '%s' checkout -q --detach -f "
+                                   "'%s'", jdir, csha);
+                if (n_co < 0 || n_co >= (int)sizeof cmd) {
                     rc = 1;
                     goto fail;
                 }
@@ -1449,8 +1521,10 @@ jc_hp_gateref_run(const char *config_path,
                 char bcmd[4096];
                 char olog[2048];
                 int brc;
-                if (jc_snprintf(olog, sizeof olog, "%s/%s-build.log", odir,
-                                s8) < 0) {
+                int n_bl;
+                n_bl = jc_snprintf(olog, sizeof olog, "%s/%s-build.log", odir,
+                                   s8);
+                if (n_bl < 0 || n_bl >= (int)sizeof olog) {
                     rc = 1;
                     goto fail;
                 }
@@ -1480,6 +1554,8 @@ jc_hp_gateref_run(const char *config_path,
                     char w[64];
                     int ok = 0, no = 0;
                     int drc;
+                    int n_dp;
+                    int n_od;
                     size_t blen = 0;
 
                     while (blen < sizeof b - 1 &&
@@ -1492,13 +1568,15 @@ jc_hp_gateref_run(const char *config_path,
                     while (dp[0] == ' ') {
                         dp++;
                     }
-                    if (jc_snprintf(dpath, sizeof dpath,
-                                    "tests/smoke/%s.sh", b) < 0) {
+                    n_dp = jc_snprintf(dpath, sizeof dpath,
+                                       "tests/smoke/%s.sh", b);
+                    if (n_dp < 0 || n_dp >= (int)sizeof dpath) {
                         rc = 1;
                         goto fail;
                     }
-                    if (jc_snprintf(oout, sizeof oout, "%s/%s-%s.txt", odir,
-                                    s8, b) < 0) {
+                    n_od = jc_snprintf(oout, sizeof oout, "%s/%s-%s.txt", odir,
+                                       s8, b);
+                    if (n_od < 0 || n_od >= (int)sizeof oout) {
                         rc = 1;
                         goto fail;
                     }
@@ -1536,8 +1614,10 @@ jc_hp_gateref_run(const char *config_path,
                 char w[2048];
                 char sm[1024];
                 int urc;
-                if (jc_snprintf(oout, sizeof oout, "%s/%s-unit.txt", odir,
-                                s8) < 0) {
+                int n_ou;
+                n_ou = jc_snprintf(oout, sizeof oout, "%s/%s-unit.txt", odir,
+                                   s8);
+                if (n_ou < 0 || n_ou >= (int)sizeof oout) {
                     rc = 1;
                     goto fail;
                 }

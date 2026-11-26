@@ -28,6 +28,10 @@ grep -ohE 'jc_json_dup_str\(root, "[A-Za-z][A-Za-z0-9]*"' "$CFG" \
     | grep -oE '"[A-Za-z][A-Za-z0-9]*"' | tr -d '"' >> "$tmp/read"
 grep -ohE '(jc_json_get_obj|cJSON_GetObjectItem)\(root, "[A-Za-z][A-Za-z0-9]*"' "$CFG" \
     | grep -oE '"[A-Za-z][A-Za-z0-9]*"' | tr -d '"' >> "$tmp/read"
+# The fence keys are read through their own helper since def-415's core (an
+# unreadable value closes the fence): pathFence, selfReview.
+grep -ohE 'cfg_read_fence_key\(root, "[A-Za-z][A-Za-z0-9]*"' "$CFG" \
+    | grep -oE '"[A-Za-z][A-Za-z0-9]*"' | tr -d '"' >> "$tmp/read"
 sort -u "$tmp/read" > "$tmp/read.u"
 # the table: lines like `    { "key", JC_CFGTRUST_...`
 grep -oE '^ *\{ "[A-Za-z][A-Za-z0-9]*", *JC_CFGTRUST_' "$TRUST" \

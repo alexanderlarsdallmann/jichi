@@ -402,6 +402,11 @@ parse_drive(const cJSON *j, struct jc_harness_config *out, struct jc_arena *a)
     if (v != NULL) {
         out->drive_lead_model = dup_in_arena(a, v);
     }
+    /* drive.landingPolicy (M1202 D1): a WORD read as-is, NOT a lenient bool --
+     * the gate decides the DEFAULT HOLD (D2), not the loader. The host_*
+     * idiom: opt_str, NULL when the key is absent (no error), so the loader
+     * invents nothing. */
+    out->drive_landing_policy = dup_in_arena(a, opt_str(j, "landingPolicy"));
 
     limits = cJSON_GetObjectItem(j, "limits");
     if (limits != NULL) {
@@ -425,6 +430,20 @@ parse_drive(const cJSON *j, struct jc_harness_config *out, struct jc_arena *a)
      * an absent key keeps push-on, a `false` (or `0`) switches it off. When
      * FALSE the loop's save_team still fetches but skips the push. */
     out->drive_team_push = jc_json_get_bool_lenient(j, "teamPush", 1);
+
+    /* The page/park block (M1213, H12, wave 1): the shimmable host commands
+     * the page / page-watch / probe verbs consume. All optional, opt_str
+     * as-is, NULL when absent -- the other host fields' idiom. The loader
+     * does NOT refuse them: the commands decide. */
+    out->drive_loop_unit = dup_in_arena(a, opt_str(j, "loopUnit"));
+    out->drive_container_name = dup_in_arena(a, opt_str(j, "containerName"));
+    /* The park/restart intervals (M1213, H12, T3, wave 2): all optional,
+     * opt_str as-is, NULL when absent -- the other host fields' idiom.
+     * The loader does NOT refuse them: the command decides. */
+    out->drive_post_start = dup_in_arena(a, opt_str(j, "postStart"));
+    out->drive_wait_interval = dup_in_arena(a, opt_str(j, "waitInterval"));
+    out->drive_ready_interval = dup_in_arena(a, opt_str(j, "readyInterval"));
+    out->drive_not_ready_interval = dup_in_arena(a, opt_str(j, "notReadyInterval"));
 
     return JC_OK;
 }
@@ -732,6 +751,54 @@ jc_harness_config_load(const char *path, struct jc_harness_config *out,
                 dup_in_arena(a, opt_str(host, "redfirstRun"));
             out->host_redfirst_unit_run =
                 dup_in_arena(a, opt_str(host, "redfirstUnitRun"));
+            /* The re-pin's shimmable surfaces (M1203, H11, wave 2): the
+             * redfirst idiom -- opt_str as-is, NULL when absent. The loader
+             * does NOT refuse them: the command decides (the note's CHANGED
+             * lines name the reference's form as the absent-field default). */
+            out->host_repin_build_dir =
+                dup_in_arena(a, opt_str(host, "repinBuildDir"));
+            out->host_repin_clone =
+                dup_in_arena(a, opt_str(host, "repinClone"));
+            out->host_repin_models =
+                dup_in_arena(a, opt_str(host, "repinModels"));
+            out->host_repin_doctor =
+                dup_in_arena(a, opt_str(host, "repinDoctor"));
+            out->host_repin_live_doctor =
+                dup_in_arena(a, opt_str(host, "repinLiveDoctor"));
+            out->host_repin_build_run =
+                dup_in_arena(a, opt_str(host, "repinBuildRun"));
+            out->host_repin_out =
+                dup_in_arena(a, opt_str(host, "repinOut"));
+            out->host_repin_pins_dir =
+                dup_in_arena(a, opt_str(host, "pinsDir"));
+            out->host_repin_bin_dir =
+                dup_in_arena(a, opt_str(host, "binDir"));
+            out->host_repin_backup_dir =
+                dup_in_arena(a, opt_str(host, "backupDir"));
+            /* The page/park block (M1213, H12, wave 1): the shimmable host
+             * commands the page / page-watch / probe verbs consume. All
+             * optional, opt_str as-is, NULL when absent -- the other host
+             * fields' idiom. The loader does NOT refuse them: the commands
+             * decide. */
+            out->host_page_unit_state =
+                dup_in_arena(a, opt_str(host, "pageUnitState"));
+            out->host_page_unit_failed =
+                dup_in_arena(a, opt_str(host, "pageUnitFailed"));
+            out->host_page_gateway_probe =
+                dup_in_arena(a, opt_str(host, "pageGatewayProbe"));
+            out->host_page_model_probe =
+                dup_in_arena(a, opt_str(host, "pageModelProbe"));
+            out->host_page_gateway =
+                dup_in_arena(a, opt_str(host, "pageGateway"));
+            /* The park/restart shimmable surfaces (M1213, H12, T3, wave 2): the
+             * pageCommand idiom -- opt_str as-is, NULL when absent. The
+             * loader does NOT refuse them: the command decides. */
+            out->host_page_unit_run =
+                dup_in_arena(a, opt_str(host, "pageUnitRun"));
+            out->host_page_container_gone =
+                dup_in_arena(a, opt_str(host, "pageContainerGone"));
+            out->host_page_pid_list =
+                dup_in_arena(a, opt_str(host, "pagePidList"));
             /* The orchestrator's land / repin steps (M1159 wave 4): the
              * redfirstUnitRun idiom -- opt_str as-is, NULL when absent.
              * host.gateHome REUSES the existing host_gate_home (the

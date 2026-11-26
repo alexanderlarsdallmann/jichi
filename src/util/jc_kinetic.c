@@ -105,7 +105,45 @@ static const char *resolve_lead(const char *p)
     for (;;) {
         jc_size n;
         if (*p == '\0' || kn_word_end(*p)) return NULL;
-        if (++guard > 64) return NULL; /* pathological input */
+        /* Note: guard > 64 is a pathological input limit. The fix makes it
+         * fail-closed: when guard > 64, we continue to skip assignments/wrappers
+         * and return the first non-assignment, non-wrapper token (if any).
+         * This is conservative: a command we cannot fully parse is treated as
+         * kinetic (the caller will refuse it via kinetic policy). */
+        if (++guard > 64) {
+            /* Guard exhausted: skip assignments and wrappers, return command. */
+            for (;;) {
+                if (*p == '\0' || kn_word_end(*p)) return NULL;
+                if (is_assignment(p)) {
+                    skip_word_and_ws(&p);
+                    continue;
+                }
+                n = word_len(p);
+                if (n == 0) return NULL;
+                if (word_eq(p, n, "env")) {
+                    skip_word_and_ws(&p);
+                    while (*p != '\0') {
+                        skip_ws(&p);
+                        if (is_assignment(p) || *p == '-') {
+                            skip_word_and_ws(&p);
+                            continue;
+                        }
+                        break;
+                    }
+                    continue;
+                }
+                if (is_wrapper(p, n)) {
+                    skip_word_and_ws(&p);
+                    /* Skip options between an interpreter and its script arg. */
+                    while (*p == '-') {
+                        skip_word_and_ws(&p);
+                    }
+                    continue;
+                }
+                /* Found the command word past the guard limit. */
+                return p;
+            }
+        }
 
         if (is_assignment(p)) {
             skip_word_and_ws(&p);

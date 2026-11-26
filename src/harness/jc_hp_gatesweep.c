@@ -719,7 +719,8 @@ jc_gatesweep_gitread_env(struct jc_arena *a, struct jc_vec *out)
     for (i = 0; i < GSW_NKEYS; i++) {
         char *s;
         char *cp;
-        if (jc_snprintf(slot[i], sizeof slot[i], "%s=", gsw_keys[i]) < 0) {
+        int n_sk = jc_snprintf(slot[i], sizeof slot[i], "%s=", gsw_keys[i]);
+        if (n_sk < 0 || n_sk >= (int)sizeof slot[i]) {
             return -1;
         }
         cp = jc_arena_strdup(a, slot[i]);
@@ -748,6 +749,10 @@ gsw_run(const char *workdir, const char *cmd, const char *extra[],
                                   capture: child_apply_env reads them at exec) */
     struct jc_vec envv;
     struct jc_sb capture;
+    /* At FUNCTION scope: argv[2] points at it until the child is spawned, far
+     * below the block that fills it (declared in that block it was used after
+     * its scope; clang -O2 reused the slot and the shell got other bytes). */
+    char joined[16384];
     int k = 0;
     int i;
     int rc;
@@ -760,10 +765,7 @@ gsw_run(const char *workdir, const char *cmd, const char *extra[],
          * cd "$W/$v"); the port's child inherits the parent's cwd, so the
          * workdir is prefixed as a cd (the same sh, the keyless env). */
         if (workdir != NULL && workdir[0] != '\0') {
-            char joined[16384];
-            int n = jc_snprintf(joined, sizeof joined, "cd %s && %s",
-                                workdir, cmd);
-            if (n < 0 || (size_t)n >= sizeof joined) {
+            if (jc_gatesweep_build_cmd(workdir, cmd, joined, sizeof joined) < 0) {
                 return -1;
             }
             cmd = joined;
@@ -777,7 +779,8 @@ gsw_run(const char *workdir, const char *cmd, const char *extra[],
     jc_vec_init(&envv, sizeof(char *));
     for (i = 0; i < GSW_NKEYS; i++) {
         char *s;
-        if (jc_snprintf(slot[i], sizeof slot[i], "%s=", gsw_keys[i]) < 0) {
+        int n_sr = jc_snprintf(slot[i], sizeof slot[i], "%s=", gsw_keys[i]);
+        if (n_sr < 0 || n_sr >= (int)sizeof slot[i]) {
             continue;
         }
         s = slot[i];
@@ -888,9 +891,11 @@ gsw_collect_drivers(const char *clone_dir, struct jc_arena *a,
     DIR *dp;
     struct dirent *e;
     int rc = 0;
+    int n_dd;
 
     jc_vec_clear(out);
-    if (jc_snprintf(ddir, sizeof ddir, "%s/tests/smoke", clone_dir) < 0) {
+    n_dd = jc_snprintf(ddir, sizeof ddir, "%s/tests/smoke", clone_dir);
+    if (n_dd < 0 || n_dd >= (int)sizeof ddir) {
         return -1;
     }
     dp = opendir(ddir);
@@ -1026,13 +1031,14 @@ gsw_clear_rec(const char *dir, int depth, int *nodes)
         char epath[2048];
         struct stat st;
         int attempts;
+        int n_ep;
 
         if (*nodes <= 0) {
             return -1;
         }
         (*nodes)++;
-        if (jc_snprintf(epath, sizeof epath, "%s/%s", dir, names[i])
-            < 0) {
+        n_ep = jc_snprintf(epath, sizeof epath, "%s/%s", dir, names[i]);
+        if (n_ep < 0 || n_ep >= (int)sizeof epath) {
             return -1;
         }
         /* lstat: a symlink is NEVER followed (its own state decides;
@@ -1173,6 +1179,36 @@ gsw_podman_default(char *out, size_t cap, const char *clone_dir,
         records);
 }
 
+/* jc_gatesweep_build_cmd: the WORKDIR + CMD joined command string (for unit testing).
+ * `out` receives `cd '<workdir>' && <cmd>` when workdir is non-empty,
+ * or `<cmd>` when workdir is NULL/empty. Returns 0 on success, -1 on overflow.
+ * CHANGED in M1221: workdir is single-quoted to prevent word-splitting. */
+int
+jc_gatesweep_build_cmd(const char *workdir, const char *cmd,
+                       char *out, size_t cap)
+{
+    int n;
+
+    if (out != NULL && cap > 0) {
+        out[0] = '\0';
+    }
+    if (workdir != NULL && workdir[0] != '\0') {
+        n = jc_snprintf(out, cap, "cd '%s' && %s", workdir, cmd);
+        if (n < 0 || (size_t)n >= cap) {
+            return -1;
+        }
+    } else {
+        if (out != NULL && cap > 0 && cmd != NULL) {
+            size_t i;
+            for (i = 0; i < cap - 1 && cmd[i] != '\0'; i++) {
+                out[i] = cmd[i];
+            }
+            out[i] = '\0';
+        }
+    }
+    return 0;
+}
+
 int
 jc_hp_gatesweep_run(const char *config_path, const char *s,
                     const char *work, const char *records,
@@ -1246,7 +1282,7 @@ jc_hp_gatesweep_run(const char *config_path, const char *s,
     } else {
         char tmpl[32];
         n = jc_snprintf(tmpl, sizeof tmpl, "%s", "/tmp/jhp-sweep-XXXXXX");
-        if (n < 0) {
+        if (n < 0 || n >= (int)sizeof tmpl) {
             fprintf(stderr, "jichi-harness: gate run --stage sweep: could "
                             "not make the work home\n");
             rc = 1;
@@ -1310,9 +1346,10 @@ jc_hp_gatesweep_run(const char *config_path, const char *s,
         }
         for (k = 0; k < nscratch; k++) {
             char sp[2048];
+            int n_sp;
 
-            if (jc_snprintf(sp, sizeof sp, "%s/%s", wpath, gsw_scratch[k])
-                < 0) {
+            n_sp = jc_snprintf(sp, sizeof sp, "%s/%s", wpath, gsw_scratch[k]);
+            if (n_sp < 0 || n_sp >= (int)sizeof sp) {
                 rc = 1;
                 goto fail;
             }
@@ -1375,7 +1412,9 @@ jc_hp_gatesweep_run(const char *config_path, const char *s,
     } else {
         char stub[2048];
         FILE *f;
-        if (jc_snprintf(stub, sizeof stub, "%s/jichi", jdir) < 0) {
+        int n_st;
+        n_st = jc_snprintf(stub, sizeof stub, "%s/jichi", jdir);
+        if (n_st < 0 || n_st >= (int)sizeof stub) {
             rc = 1;
             goto fail;
         }
@@ -1392,16 +1431,21 @@ jc_hp_gatesweep_run(const char *config_path, const char *s,
         }
     }
 
-    /* :16-17 the build (the reference's `make -j8 WERROR=1 jichi
-     * smoke-tools > "$OUT/build.log" 2>&1 || { echo "build failed: INVALID";
-     * exit 1; }`), then the port's build line (the note's CHANGED: the
-     * `  build: <sha8>` line, not the binary's --version). */
+    /* :16-17 the build (the reference's `make -j8 WERROR=1 all smoke-tools
+     * > "$OUT/build.log" 2>&1 || { echo "build failed: INVALID";
+     * exit 1; }`; B1, M1197-b: the reference's line 16 build is now
+     * `all smoke-tools`, not `jichi smoke-tools`, so a driver that installs
+     * the FULL PROGRAM SET -- docs_install, M1197 -- is swept, not skipped:
+     * `jichi` alone leaves jichi-convert unbuilt and the driver t_skip's,
+     * which the 2026-11-18 04:20 c54767bf gate went RED over), then the
+     * port's build line (the note's CHANGED: the `  build: <sha8>` line,
+     * not the binary's --version). */
     b_cmd = (build_run != NULL && build_run[0] != '\0')
                 ? build_run
                 : (cfg.host_build_run != NULL &&
                    cfg.host_build_run[0] != '\0')
                       ? cfg.host_build_run
-                      : "make -j8 WERROR=1 jichi smoke-tools";
+                      : "make -j8 WERROR=1 all smoke-tools";
     {
         char env_tmp[2064];
         const char *env1[2];
@@ -1745,7 +1789,8 @@ jc_hp_gatesweep_run(const char *config_path, const char *s,
             ccmd = NULL;
         }
         if (ccmd != NULL) {
-            if (jc_snprintf(cdir, sizeof cdir, "%s/ctr", wpath) < 0) {
+            int n_cd1 = jc_snprintf(cdir, sizeof cdir, "%s/ctr", wpath);
+            if (n_cd1 < 0 || n_cd1 >= (int)sizeof cdir) {
                 rc = 1;
                 goto fail;
             }
@@ -1800,7 +1845,8 @@ jc_hp_gatesweep_run(const char *config_path, const char *s,
                     }
                 }
             } else {
-                if (jc_snprintf(cdir, sizeof cdir, "%s/ctr", wpath) < 0) {
+                int n_cd2 = jc_snprintf(cdir, sizeof cdir, "%s/ctr", wpath);
+                if (n_cd2 < 0 || n_cd2 >= (int)sizeof cdir) {
                     rc = 1;
                     goto fail;
                 }

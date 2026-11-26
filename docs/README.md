@@ -156,6 +156,8 @@ Running jichi unattended, and being able to say afterwards what it did.
 - [`DAEMON.md`](DAEMON.md) — Daemon (warm process)
 - [`GATE_INTEGRITY.md`](GATE_INTEGRITY.md) — Gate integrity: protecting the instrument, not just the product
 - [`HARDENING.md`](HARDENING.md) — Hardening & extension (M130–M134)
+- [`LIMITS.md`](LIMITS.md) — Limits: every default limit in jichi, where its number came from, and what `0` means for each
+- [`LIMITS_TABLE.md`](LIMITS_TABLE.md) — Limits: the complete census, one entry per limit (507, 2026-11-21)
 - [`LEARNING.md`](LEARNING.md) — Learning loop (mentor)
 - [`OBSERVABILITY.md`](OBSERVABILITY.md) — Observability: what an autonomous jichi leaves behind, and how to read it
 - [`DISTRIBUTED.md`](DISTRIBUTED.md) — jichi distributed: what works today, what does not, and what it would cost (an analysis, not a feature)
@@ -223,7 +225,7 @@ The curriculum, the reading guides, and the craft tutorials.
 - [`DRIVE_LOG.md`](DRIVE_LOG.md) — *Does this work when somebody uses it?* The counterpart to the page above, and the one that found the defects the gates could not: every gate in this tree is offline, so none of them can see what a caller is told. A recipe, the discipline of getting ground truth FIRST, and the log of drives — which is also the corpus two deferred questions are waiting on.
 - [`HAIKU.md`](HAIKU.md) — 自治の八句 — eight haiku for jichi
 - [`ILLUSTRATION.md`](ILLUSTRATION.md) — Pictures in this documentation: what may be captured and what may be generated. A generated screenshot is a fabricated record; the capture recipe, the LocalAI setup, and an honest measurement of what the image model actually produced (M680)
-- [`BIBLIOGRAPHY.md`](BIBLIOGRAPHY.md) — The reading jichi's documentation points at — 194 checked entries on the craft, C, C++, Zig, Rust, Python, Racket, Guile, Elixir, Haskell, Clojure, Ada/SPARK, interfaces and human–computer interaction (M636, M650, M670, M671, M677, M754)
+- [`BIBLIOGRAPHY.md`](BIBLIOGRAPHY.md) — The reading jichi's documentation points at — 233 checked entries on the craft, C, C++, Zig, Rust, Python, Racket, Guile, Elixir, Haskell, Clojure, Ada/SPARK, interfaces, human–computer interaction, and object-oriented and logic programming (M636, M650, M670, M671, M677, M754)
 - [`INTERFACE_TUTORIAL.md`](INTERFACE_TUTORIAL.md) — Interfaces — designing them, including the ones made of text — a tutorial
 - [`TUI_PRINCIPLES.md`](TUI_PRINCIPLES.md) — The TUI's principles, on one page — what five documents decided, each rule with its source, and where they disagree (M756)
 - [`LEARNER_STUDY.md`](LEARNER_STUDY.md) — A learner study — the protocol: five tasks, think-aloud, no coaching, consent first; not yet run (M756)
@@ -233,11 +235,15 @@ The curriculum, the reading guides, and the craft tutorials.
 - [`CURRICULUM.md`](CURRICULUM.md) — The curriculum — learning software development with an agent at your side
 - [`DATA_STRUCTURES.md`](DATA_STRUCTURES.md) — Choosing a data structure — jichi has one, and that is an argument (M636f)
 - [`ALGORITHMS.md`](ALGORITHMS.md) — Algorithms, read in the program you are using — four of jichi's own (hashing, edit distance, the SSE state machine, BM25), each measured on this tree; an ungraded reading page (M755)
+- [`DEBUGGING.md`](DEBUGGING.md) — Debugging — finding out what is so: the order of work, a worked example with a sanitizer, a debugger, valgrind, a trace and a bisection, what each instrument cannot see, and what to do when the fault is not in the program
+- [`DEBUGGABLE_DESIGN.md`](DEBUGGABLE_DESIGN.md) — Built to be debugged — design that lets a failure be found: stop at the fault, say so, make the mistake impossible; ten things to build in, with what each costs
 - [`FILE_HANDLING.md`](FILE_HANDLING.md) — Handling files — what jichi does, where it is wrong, and what else there is (M636f)
 - [`DOMAIN_MODELLING_TUTORIAL.md`](DOMAIN_MODELLING_TUTORIAL.md) — Domain modelling — a tutorial
 - [`ORG_MODE.md`](ORG_MODE.md) — Emacs org-mode for a software project
 - [`PROJECT_RECORDS.md`](PROJECT_RECORDS.md) — Keeping a project's records in plain text
 - [`ADA_AND_C.md`](ADA_AND_C.md) — Ada, SPARK and C — proving what this project tests
+- [`OBJECT_ORIENTED_TUTORIAL.md`](OBJECT_ORIENTED_TUTORIAL.md) — Objects — object-oriented programming, and what it means in a C89 codebase — a tutorial
+- [`LOGIC_PROGRAMMING_TUTORIAL.md`](LOGIC_PROGRAMMING_TUTORIAL.md) — Logic — logic programming, Prolog, and what they mean beside a C89 agent — a tutorial
 - [`PSEUDOCODE_TUTORIAL.md`](PSEUDOCODE_TUTORIAL.md) — Pseudocode — writing it, and turning it into real code — a tutorial
 - [`READING_OPEN_SOURCE.md`](READING_OPEN_SOURCE.md) — Reading open-source C — with the agent as your reading partner
 - [`READING_THE_STANDARD.md`](READING_THE_STANDARD.md) — Reading the C standard — a method, with jichi as the instrument
@@ -286,9 +292,12 @@ Why jichi is the way it is, including everything that went wrong. This ships on 
 - [`LICENSING.md`](LICENSING.md) — Copyright and licensing — who owns jichi, and under what terms
 - [`JOURNEY.md`](JOURNEY.md) — The journey — from first step to master's rest
 - [`NOTICES.md`](NOTICES.md) — The bracketed tags — the registry
+- [`PATTERN_LANGUAGE.md`](PATTERN_LANGUAGE.md) — A pattern language — what a pattern is, why the second word matters, and twelve of this tree's recurring forms read as one, with a map of how they lean on each other and how to find your own
 - [`PHILOSOPHY.md`](PHILOSOPHY.md) — The philosophy of jichi
 - [`PROJECT_TIMELINE.md`](PROJECT_TIMELINE.md) — jichi — project timeline, development & testing retrospective
+- [`MILESTONE_HIGHLIGHTS.md`](MILESTONE_HIGHLIGHTS.md) — Milestone highlights: the bands from M0, the history to M296, and the public cuts (moved from the README on 2026-11-23)
 - [`ROADMAP.md`](ROADMAP.md) — Roadmap
+- [`SELF_GUIDANCE.md`](SELF_GUIDANCE.md) — Guiding yourself — the learner without a teacher: the two seats, honesty with yourself, patience as a method, and the questions a teacher would have asked
 - [`SELF_IMPROVEMENT.md`](SELF_IMPROVEMENT.md) — Self-improvement & runtime band (M100+) — design & reference
 - [`SESSION_RUNBOOK.md`](SESSION_RUNBOOK.md) — Session runbook — the order of execution, and why each step is in it
 

@@ -85,9 +85,12 @@ jichi setup --import ~/.continue/config.yaml
 jichi setup --import ./opencode.jsonc --config-target global --force
 ```
 
-`--assets` writes non-destructively (existing files are skipped) unless `--force`;
-`--dry-run` shows `+` (new) / `~` (overwrite) / `=` (skipped). Diagnostics go to
-stderr so stdout stays clean for piping.
+`-o` and `--assets` write non-destructively (an existing file is skipped, with
+`= <path> (exists; use --force)`) unless `--force`; `--dry-run` writes nothing and
+shows `+` (new) / `~` (overwrite) / `=` (skipped). Until 2026-11-23, `-o` replaced
+an existing file without `--force` and wrote even under `--dry-run`, including in
+the published v0.14.1 (`tests/smoke/convert_output.sh` now holds it). Diagnostics go
+to stderr so stdout stays clean for piping.
 
 After importing, review the config, set the `apiKeyEnv` variable it references, and
 run `jichi doctor` (or `jichi doctor --output json` for a

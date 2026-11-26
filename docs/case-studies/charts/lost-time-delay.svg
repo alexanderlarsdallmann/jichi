@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 398" width="920" height="398" role="img">
+<title>Delay to master while the team kept working: hours by cause</title><desc>wall clock in which master, a push or a fix waited; the team went on working meanwhile</desc>
+<style>
+.s{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.tm{fill:#898781}
+.g{stroke:#e1e0d9}.ax{stroke:#c3c2b7}.wash{fill:#898781;fill-opacity:.16}
+.d0{fill:#2a78d6;stroke:#2a78d6}.d1{fill:#eb6834;stroke:#eb6834}.d2{fill:#1baf7a;stroke:#1baf7a}
+.d3{fill:#eda100;stroke:#eda100}.ring{stroke:#fcfcfb}
+.l0{fill:none;stroke:#2a78d6}.l1{fill:none;stroke:#eb6834}.l2{fill:none;stroke:#1baf7a}.l3{fill:none;stroke:#eda100}.good{fill:#0ca30c}.crit{fill:#d03b3b;stroke:#d03b3b}
+.ink{fill:#52514e}.down{fill:#898781;fill-opacity:.5}
+text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+@media (prefers-color-scheme: dark){
+.s{fill:#1a1a19}.t1{fill:#f0efec}.t2{fill:#c3c2b7}.g{stroke:#2c2c2a}.ax{stroke:#383835}
+.d0{fill:#3987e5;stroke:#3987e5}.d1{fill:#d95926;stroke:#d95926}.d2{fill:#199e70;stroke:#199e70}
+.d3{fill:#c98500;stroke:#c98500}.ring{stroke:#1a1a19}
+.l0{stroke:#3987e5}.l1{stroke:#d95926}.l2{stroke:#199e70}.l3{stroke:#c98500}.ink{fill:#c3c2b7}}
+</style>
+<rect class="s" x="0" y="0" width="920" height="398" rx="8"/>
+<text class="t1" x="24.0" y="30.0" font-size="15" text-anchor="start" font-weight="600">Delay to master while the team kept working: hours by cause</text>
+<text class="t2" x="24.0" y="50.0" font-size="12" text-anchor="start" font-weight="400">wall clock in which master, a push or a fix waited; the team went on working meanwhile</text>
+<line class="ax" x1="300" y1="64" x2="300" y2="358" stroke-width="1"/>
+<text class="t2" x="290.0" y="90.0" font-size="12" text-anchor="end" font-weight="400">gate red, re-gate (includes the fix work)</text>
+<path class="d0" d="M300.0,76.0 H816.0 Q820.0,76.0 820.0,80.0 V92.0 Q820.0,96.0 816.0,96.0 H300.0 Z" stroke-width="0"><title>gate red, re-gate (includes the fix work): 128.88 h in 17 set-backs</title></path>
+<text class="t1" x="828.0" y="90.0" font-size="12" text-anchor="start" font-weight="400">128.9 h</text>
+<text class="t2" x="290.0" y="122.0" font-size="12" text-anchor="end" font-weight="400">supervisor absent</text>
+<path class="d0" d="M300.0,108.0 H385.9 Q389.9,108.0 389.9,112.0 V124.0 Q389.9,128.0 385.9,128.0 H300.0 Z" stroke-width="0"><title>supervisor absent: 22.27 h in 2 set-backs</title></path>
+<text class="t1" x="397.9" y="122.0" font-size="12" text-anchor="start" font-weight="400">22.3 h</text>
+<text class="t2" x="290.0" y="154.0" font-size="12" text-anchor="end" font-weight="400">record slip</text>
+<path class="d0" d="M300.0,140.0 H375.2 Q379.2,140.0 379.2,144.0 V156.0 Q379.2,160.0 375.2,160.0 H300.0 Z" stroke-width="0"><title>record slip: 19.63 h in 5 set-backs</title></path>
+<text class="t1" x="387.2" y="154.0" font-size="12" text-anchor="start" font-weight="400">19.6 h</text>
+<text class="t2" x="290.0" y="186.0" font-size="12" text-anchor="end" font-weight="400">waiting for the operator</text>
+<path class="d0" d="M300.0,172.0 H336.7 Q340.7,172.0 340.7,176.0 V188.0 Q340.7,192.0 336.7,192.0 H300.0 Z" stroke-width="0"><title>waiting for the operator: 10.09 h in 4 set-backs</title></path>
+<text class="t1" x="348.7" y="186.0" font-size="12" text-anchor="start" font-weight="400">10.1 h</text>
+<text class="t2" x="290.0" y="218.0" font-size="12" text-anchor="end" font-weight="400">lead mistake (rewrite, dirty tree, wrong dispatch)</text>
+<path class="d0" d="M300.0,204.0 H325.2 Q329.2,204.0 329.2,208.0 V220.0 Q329.2,224.0 325.2,224.0 H300.0 Z" stroke-width="0"><title>lead mistake (rewrite, dirty tree, wrong dispatch): 7.24 h in 4 set-backs</title></path>
+<text class="t1" x="337.2" y="218.0" font-size="12" text-anchor="start" font-weight="400">7.2 h</text>
+<text class="t2" x="290.0" y="250.0" font-size="12" text-anchor="end" font-weight="400">other</text>
+<path class="d0" d="M300.0,236.0 H325.1 Q329.1,236.0 329.1,240.0 V252.0 Q329.1,256.0 325.1,256.0 H300.0 Z" stroke-width="0"><title>other: 7.22 h in 1 set-backs</title></path>
+<text class="t1" x="337.1" y="250.0" font-size="12" text-anchor="start" font-weight="400">7.2 h</text>
+<text class="t2" x="290.0" y="282.0" font-size="12" text-anchor="end" font-weight="400">gate-script false verdict</text>
+<path class="d0" d="M300.0,268.0 H317.9 Q321.9,268.0 321.9,272.0 V284.0 Q321.9,288.0 317.9,288.0 H300.0 Z" stroke-width="0"><title>gate-script false verdict: 5.43 h in 3 set-backs</title></path>
+<text class="t1" x="329.9" y="282.0" font-size="12" text-anchor="start" font-weight="400">5.4 h</text>
+<text class="t2" x="290.0" y="314.0" font-size="12" text-anchor="end" font-weight="400">network/VPN</text>
+<path class="d0" d="M300.0,300.0 H309.9 Q313.9,300.0 313.9,304.0 V316.0 Q313.9,320.0 309.9,320.0 H300.0 Z" stroke-width="0"><title>network/VPN: 3.45 h in 2 set-backs</title></path>
+<text class="t1" x="321.9" y="314.0" font-size="12" text-anchor="start" font-weight="400">3.5 h</text>
+<text class="t2" x="290.0" y="346.0" font-size="12" text-anchor="end" font-weight="400">worker failure (cut off, stuck, no write access)</text>
+<path class="d0" d="M300.0,332.0 H307.6 Q311.6,332.0 311.6,336.0 V348.0 Q311.6,352.0 307.6,352.0 H300.0 Z" stroke-width="0"><title>worker failure (cut off, stuck, no write access): 2.87 h in 1 set-backs</title></path>
+<text class="t1" x="319.6" y="346.0" font-size="12" text-anchor="start" font-weight="400">2.9 h</text>
+<text class="tm" x="820.0" y="386.0" font-size="11" text-anchor="end" font-weight="400">hours, each stretch counted once per cause</text>
+</svg>

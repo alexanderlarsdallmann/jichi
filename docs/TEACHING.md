@@ -321,7 +321,7 @@ sits stuck rather than spend the "cost", and being permanently stuck is the
 commonest way a lone learner abandons a course.
 
 **4. `--expect-fail` exists because trust is not transferable.** jichi's own 90
-graded tasks are proven red-first in CI. An assignment authored anywhere else
+graded tasks are proven two-sided by `make ci` wherever their toolchains are installed. An assignment authored anywhere else
 inherits none of that, so the red half is available as one command. *Rejected:*
 trusting authors to check. The first assignment authored outside the curriculum
 shipped with an already-green gate.

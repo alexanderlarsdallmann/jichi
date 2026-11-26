@@ -45,7 +45,7 @@ static void test_verb_list_eight(void)
     char buf[192];
     jc_control_verb_list(buf, sizeof(buf), "|");
     JC_CHECK(strcmp(buf, "status|inject|pause|resume|abort|mode"
-                          "|stop-task|inject-task") == 0);
+                          "|stop-task|inject-task|cancel-cmd") == 0);
 }
 
 static void test_stop_task_parse(void)

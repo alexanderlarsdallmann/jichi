@@ -32,7 +32,7 @@
  * state, 2026-09-24) the sixth -- cut, and never published on its own --
  * and 0.12.0 (the M740 state, 2026-09-24) the seventh, 0.13.0 (the M1122
  * state, 2026-11-03) the eighth, 0.14.0 (the M1171 state, 2026-11-13) the
- * ninth, and 0.14.1 (the M1191 state, 2026-11-14) the tenth. See
+ * ninth, and 0.14.1 (the M1191 state, 2026-11-14) the tenth, and 0.15.0 (the M1223 state, 2026-11-25) the eleventh. See
  * CHANGELOG.md's honesty note.
  */
 #ifndef JC_VERSION_H
@@ -42,7 +42,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define JC_VERSION "0.14.1"
+#define JC_VERSION "0.15.0"
 
 #ifdef __cplusplus
 }

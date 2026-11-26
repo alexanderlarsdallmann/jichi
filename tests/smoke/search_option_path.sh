@@ -26,7 +26,7 @@
 
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 5
+t_plan 6
 smoke_home
 tmp=$(smoke_tmp)
 
@@ -214,5 +214,61 @@ else
 fi
 
 rm -rf "$tmp"
+
+# --- 6: the same link, under a grep that does not follow a named link with -r ---
+# Cell 5 is green on GNU grep and RED on FreeBSD 15.1 (the threadwork review's
+# row of 2026-11-26): BSD grep's -r does not follow a symbolic link that is
+# named as an operand. `grep -rn needle link.txt` prints nothing there and exits
+# 1, and search_code told the model "(no matches)" for a file that holds the
+# line. Measured in the guest: -rn on the link, rc 1 and no output; -n on the
+# link, the line. The stand-in below is a `grep` first on PATH that behaves
+# that way and hands everything else to the real one, so the defect is red on
+# Linux too. The fix searches a regular file without -r.
+ws6="$tmp/ws6"; freshws "$ws6"
+printf 'SYM6PAT SYM6RES\n' > "$ws6/real.txt"
+ln -s real.txt "$ws6/sym6.txt"
+a6="$tmp/a6"; rm -rf "$a6"; mkdir -p "$a6/cap" "$a6/bin"
+_realgrep=$(command -v grep)
+{
+    printf '%s\n' '#!/bin/sh'
+    printf '%s\n' '# a stand-in for BSD grep: with -r, an operand that is a symbolic link is skipped'
+    printf '%s\n' 'r=0; ops=0; link=0'
+    printf '%s\n' 'for a in "$@"; do'
+    printf '%s\n' '    if [ $ops = 1 ]; then [ -L "$a" ] && link=1; continue; fi'
+    printf '%s\n' '    case $a in --) ops=1 ;; --*) ;; -*r*) r=1 ;; esac'
+    printf '%s\n' 'done'
+    printf '%s\n' 'if [ $r = 1 ] && [ $link = 1 ]; then exit 1; fi'
+    printf 'exec "%s" "$@"\n' "$_realgrep"
+} > "$a6/bin/grep"
+chmod +x "$a6/bin/grep"
+cat > "$a6/r.mm" <<'EOM'
+wire openai
+rule
+  count 1
+  tool search_code {"pattern":"SYM6PAT","path":"sym6.txt"}
+rule
+  count 2
+  text TASKDONE
+EOM
+mm_start_unbounded "$a6/r.mm" "$a6/cap"
+mkcfg "$a6/cfg.json" ""
+( cd "$ws6" && with_deadline 30 env PATH="$a6/bin:$PATH" "$BIN" --config "$a6/cfg.json" -q --no-session --auto \
+    -p "AUTOPROMPT" < /dev/null > "$a6/out.jsonl" 2> /dev/null )
+rc6=$?
+mm_stop
+# The instrument first: the stand-in must refuse what BSD grep refuses. The
+# recursive flag is in a variable because posix_utils_lint check 23 rightly
+# refuses that flag on a named file anywhere in this tier; here it is the
+# very thing under test.
+_bsdflags=-rn
+( cd "$ws6" && "$a6/bin/grep" $_bsdflags SYM6PAT -- sym6.txt > "$a6/probe.out" 2>&1 ); prc6=$?
+found6=$(grep -h "SYM6RES" "$a6"/cap/req.2 2>/dev/null | grep -c . || true)
+if [ "$prc6" -ne 1 ] || [ -s "$a6/probe.out" ]; then
+    t_fail "6 instrument: the stand-in grep did not skip the link under -r (rc=$prc6)"
+elif [ "$rc6" -eq 0 ] && [ "${found6:-0}" -ge 1 ]; then
+    t_ok "6 a link to a regular file is searched under a grep whose -r skips named links (BSD grep)"
+else
+    t_fail "6 under a BSD-like grep the link's target was not searched: rc=$rc6, found=${found6:-0} -- search_code said no matches for a line that is there"
+fi
 
 t_done

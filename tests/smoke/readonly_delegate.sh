@@ -22,7 +22,7 @@
 # --dump-requests collides by name across the forked parallel child.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 6
+t_plan 7
 smoke_home
 
 REFUSAL="tool disabled in read-only mode"
@@ -132,6 +132,45 @@ if grep -q "$REFUSAL" "$tmpB/cap"/req.* 2>/dev/null; then
     t_ok "B parallel: the read-only refusal is on the wire"
 else
     t_fail "B parallel: no read-only refusal returned to the model (rc=$rcB): $(head_bytes 120 "$tmpB/err")"
+fi
+
+# --- Scenario C (def-415): spawn_subagent {"readonly": "ture"} ----------------------
+# A model that misspells the value still asked for a fence. Until 2026-11-26 the
+# argument was present-and-unreadable, read as 0, an EXPLICIT "writable": the
+# child's write to guarded.txt landed. The decision of 2026-11-17: an unreadable
+# value on a fence key closes the fence. Same shape as scenario A, one value
+# changed; the check is the effect on the file.
+wsC=$(smoke_tmp)
+tmpC=$(smoke_tmp)
+printf 'original\n' > "$wsC/guarded.txt"
+cp "$wsC/guarded.txt" "$tmpC/guarded.orig"
+cat > "$tmpC/r.mm" <<'EOF'
+wire openai
+rule
+  count 1
+  tool spawn_subagent {"task":"Review guarded.txt and report back.","readonly":"ture"}
+rule
+  count 2
+  tool write_file {"path":"guarded.txt","content":"update\n"}
+rule
+  count 3
+  text reviewed, nothing to change
+rule
+  text PARENT_DONE
+EOF
+mm_start_unbounded "$tmpC/r.mm" "$tmpC/cap"
+write_config "$tmpC/config.json" "$MM_PORT"
+(cd "$wsC" && with_deadline 120 "$BIN" --config "$tmpC/config.json" --no-session \
+    --auto -p "Delegate a read-only review of guarded.txt, then note it done." \
+    < /dev/null > "$tmpC/out" 2> "$tmpC/err"); rcC=$?
+mm_stop
+nC=$(ls "$tmpC/cap"/req.* 2>/dev/null | wc -l)
+if [ "$nC" -lt 3 ]; then
+    t_fail "C subagent, readonly \"ture\": only $nC requests (rc=$rcC) -- the child never ran, so the effect check would be vacuous"
+elif cmp -s "$wsC/guarded.txt" "$tmpC/guarded.orig" && grep -q "$REFUSAL" "$tmpC/cap"/req.* 2>/dev/null; then
+    t_ok "C subagent: {\"readonly\": \"ture\"} gives a read-only child (guarded.txt unchanged, the refusal on the wire)"
+else
+    t_fail "C subagent: {\"readonly\": \"ture\"} gave a WRITABLE child: guarded.txt now reads '$(head_bytes 40 "$wsC/guarded.txt" | tr -d '\n')'"
 fi
 
 t_done

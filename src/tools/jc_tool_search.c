@@ -48,6 +48,29 @@ const char *jc_search_grep_prefix(int have_dash_i)
     return have_dash_i ? "GREP_OPTIONS= grep -rnIE" : "GREP_OPTIONS= grep -rnE";
 }
 
+/* The prefix for a path that IS a regular file (through a link or not): the
+ * same flags without -r.
+ *
+ * WHY. With -r, what grep does to a symbolic link named as an operand differs
+ * by implementation. GNU grep follows it. FreeBSD's grep does not: in a FreeBSD
+ * 15.1 guest `grep -rn needle link.txt` printed nothing and exited 1 for a link
+ * to a file that held the line, and `grep -n needle link.txt` printed it. Under
+ * -r, search_code therefore answered "(no matches)" for a file that contains
+ * the pattern -- the same lie as M461 and M714, from a third direction. A
+ * regular file needs no recursion, and without -r every grep opens the operand
+ * the way open(2) does, through the link.
+ *
+ * THE OUTPUT FORM. For one named file GNU grep prints `line:text` with or
+ * without -r, so nothing changes on Linux. FreeBSD's grep prints
+ * `name:line:text` under -r (it treats -r as -H) and `line:text` without, so on
+ * FreeBSD a file path's result loses its name prefix and reads as it always did
+ * on Linux. Both measured, 2026-11-26. A /dev/null second operand would have
+ * made every grep print the name, and would have changed the Linux form. */
+const char *jc_search_grep_prefix_file(int have_dash_i)
+{
+    return have_dash_i ? "GREP_OPTIONS= grep -nIE" : "GREP_OPTIONS= grep -nE";
+}
+
 static void append_quoted(struct jc_sb *sb, const char *s);
 
 /* M956: the probe asks grep to COMPILE the pattern and reports grep's exit
@@ -199,6 +222,7 @@ static jc_status search_run(const cJSON *args, struct jc_tool_result *out,
     size_t n;
     int truncated = 0;
     int status;
+    int path_is_file = 0;   /* stat() below: a regular file, searched without -r */
 
     if (pattern == NULL) {
         tu_err(out, "error: 'pattern' argument is required");
@@ -255,13 +279,25 @@ static jc_status search_run(const cJSON *args, struct jc_tool_result *out,
      * stat(path, &st) removes the class. */
     {
         struct stat st;
-        if (stat(path, &st) == 0 &&
+        int rc_stat = stat(path, &st);
+        if (rc_stat == 0 &&
             !S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode)) {
             tu_err(out, "error: search path is not a regular file or directory "
                         "(it is a device, FIFO or socket); search_code cannot "
                         "search it");
             return JC_OK;
         }
+        /* A path that cannot be stat'ed (missing, or a link whose target is
+         * gone) is answered HERE, with the sentence grep's failure gets below,
+         * and not left to grep's exit status: GNU grep exits 2 for a dangling
+         * link, FreeBSD's `grep -r` prints nothing and exits 1, and the model
+         * was then told "(no matches)" for a path that is not there. */
+        if (rc_stat != 0) {
+            tu_err(out, "error: search failed -- grep exited with an error "
+                        "reading the path (the pattern itself is valid)");
+            return JC_OK;
+        }
+        path_is_file = S_ISREG(st.st_mode) ? 1 : 0;
     }
     if (context < 0) {
         context = 0;
@@ -284,7 +320,9 @@ static jc_status search_run(const cJSON *args, struct jc_tool_result *out,
      * job in a way every grep understands. `-rnI -e -C<n>` are all accepted by
      * GNU, FreeBSD, NetBSD and OpenBSD greps -- checked against each usage
      * string, not assumed. */
-    jc_sb_append(&cmd, jc_search_grep_prefix(grep_has_dash_i()));
+    jc_sb_append(&cmd, path_is_file
+                           ? jc_search_grep_prefix_file(grep_has_dash_i())
+                           : jc_search_grep_prefix(grep_has_dash_i()));
     if (context > 0) {
         char copt[24];
         jc_snprintf(copt, sizeof(copt), " -C%d", context);

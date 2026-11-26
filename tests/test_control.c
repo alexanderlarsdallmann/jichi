@@ -30,11 +30,11 @@ static void test_verb_list(void)
     jc_control_verb_list(buf, sizeof(buf), "|");
     JC_CHECK(strcmp(buf,
                     "status|inject|pause|resume|abort|mode"
-                    "|stop-task|inject-task") == 0);
+                    "|stop-task|inject-task|cancel-cmd") == 0);
     jc_control_verb_list(buf, sizeof(buf), "/");
     JC_CHECK(strcmp(buf,
                     "status/inject/pause/resume/abort/mode"
-                    "/stop-task/inject-task") == 0);
+                    "/stop-task/inject-task/cancel-cmd") == 0);
     jc_control_verb_list(tiny, sizeof(tiny), "|");
     JC_CHECK(strlen(tiny) < sizeof(tiny));   /* truncates, stays terminated */
 }

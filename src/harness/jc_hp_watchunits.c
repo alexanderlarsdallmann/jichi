@@ -87,6 +87,60 @@ watchunits_say_line(const char *fmt, ...)
     fflush(stdout);
 }
 
+/* TW24 F21: the two values of the ExecStart line are printed VERBATIM (no
+ * tokenizing or shell-quoting), so each must already be a word systemd reads
+ * as itself. systemd splits a command line at white space, expands
+ * %-specifiers and $-variables, and reads quotes and backslashes; a path with
+ * one of those would start the command with a DIFFERENT path than the one
+ * the operator named. Returns 1 when `s` is non-empty and carries none. */
+static int
+watchunits_exec_word_ok(const char *s)
+{
+    const unsigned char *p;
+    if (s == NULL || s[0] == '\0') {
+        return 0;
+    }
+    for (p = (const unsigned char *)s; *p != '\0'; p++) {
+        if (*p <= ' ' || *p == 0x7f || *p == '%' || *p == '$' ||
+            *p == '"' || *p == '\'' || *p == '\\') {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* TW24 F21: the config path as the UNIT must name it. A systemd user unit
+ * starts in the user's home directory and this unit sets no
+ * WorkingDirectory, so a path typed relative to where the operator stood
+ * would be looked up in the home directory at every start. A relative path
+ * is joined to the current directory (getcwd: the directory the path was
+ * typed in); an absolute one is copied. No symlink is resolved -- the unit
+ * keeps the operator's name for the file. Returns 1 on success, 0 when the
+ * current directory cannot be read or the result does not fit. */
+static int
+watchunits_abs_config(const char *path, char *out, size_t cap)
+{
+    size_t dl;
+    size_t pl = strlen(path);
+    if (path[0] == '/') {
+        if (pl + 1 > cap) {
+            return 0;
+        }
+        memcpy(out, path, pl + 1);
+        return 1;
+    }
+    if (getcwd(out, cap) == NULL) {
+        return 0;
+    }
+    dl = strlen(out);
+    if (dl + 1 + pl + 1 > cap) {
+        return 0;
+    }
+    out[dl] = '/';
+    memcpy(out + dl + 1, path, pl + 1);
+    return 1;
+}
+
 /* The harness's own executable path for the unit's ExecStart (readlink
  * /proc/self/exe, the M1053 idiom; this file carries its own copy, one
  * owner per file). Returns 1 on success. */
@@ -140,6 +194,7 @@ build_watch_service(const char *harness, const char *cfg_path,
     static const char exec_fmt[] =
         "ExecStart=%s watch gate --config %s\n";
     size_t off;
+    int n_ex;
 
     off = strlen(c1a) + strlen(c1b) + strlen(c1c) + strlen(body_a);
     if (off + 1 + strlen(harness) + 1 + strlen(cfg_path) + 2 >= cap) {
@@ -150,7 +205,8 @@ build_watch_service(const char *harness, const char *cfg_path,
     memcpy(dst + strlen(c1a) + strlen(c1b), c1c, strlen(c1c));
     memcpy(dst + strlen(c1a) + strlen(c1b) + strlen(c1c), body_a,
            strlen(body_a));
-    if (jc_snprintf(dst + off, cap - off, exec_fmt, harness, cfg_path) < 0) {
+    n_ex = jc_snprintf(dst + off, cap - off, exec_fmt, harness, cfg_path);
+    if (n_ex < 0 || n_ex >= (int)(cap - off)) {
         return 0;
     }
     return 1;
@@ -214,6 +270,7 @@ jc_hp_watchunits_run(const char *config_path, const char *out_dir,
 {
     struct jc_harness_config cfg;
     char harness[PATH_CAP];
+    char cfgabs[PATH_CAP];
     char svc[UNITS_TEXT_CAP];
     char tmr[UNITS_TEXT_CAP];
     char svcpath[PATH_CAP + 32];
@@ -253,7 +310,29 @@ jc_hp_watchunits_run(const char *config_path, const char *out_dir,
             "name the watch command; refused");
         return 1;
     }
-    if (!build_watch_service(harness, config_path, svc, sizeof svc)) {
+    if (!watchunits_abs_config(config_path, cfgabs, sizeof cfgabs)) {
+        watchunits_refuse_line("could not make the --config path absolute (the "
+            "current directory cannot be read, or the path is too long); "
+            "the unit starts in the home directory, so its ExecStart must "
+            "name the config by an absolute path; refused");
+        return 1;
+    }
+    if (!watchunits_exec_word_ok(cfgabs)) {
+        watchunits_refuse_line("the --config path %s cannot go into the unit's "
+            "ExecStart as it is: it holds white space, %%, $, a quote or a "
+            "backslash, which systemd reads specially, and the unit writer "
+            "prints its values verbatim; refused (move or rename the config)",
+            cfgabs);
+        return 2;
+    }
+    if (!watchunits_exec_word_ok(harness)) {
+        watchunits_refuse_line("the harness's own path %s cannot go into the "
+            "unit's ExecStart as it is: it holds white space, %%, $, a quote "
+            "or a backslash, which systemd reads specially; refused (install "
+            "the harness under a path without them)", harness);
+        return 1;
+    }
+    if (!build_watch_service(harness, cfgabs, svc, sizeof svc)) {
         watchunits_refuse_line("could not build the jhp-gate-watch.service "
             "text (the paths are too long); refused");
         return 1;

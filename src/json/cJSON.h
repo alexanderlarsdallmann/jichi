@@ -7,8 +7,9 @@
  *
  * PROVENANCE: NOT upstream cJSON, and not third-party code. This is an original
  * C89 implementation of the subset of the cJSON API that jichi needs; see
- * cJSON.c for the full note. Only the API is shared, so upstream cJSON
- * (github.com/DaveGamble/cJSON) can replace this header and cJSON.c as a pair.
+ * cJSON.c for the full note. Only the API is shared, with a few extensions of
+ * jichi's own, so upstream cJSON (github.com/DaveGamble/cJSON) is no longer a
+ * drop-in replacement for this header and cJSON.c.
  *
  * Numbers are stored as double (valuedouble), with valueint as a truncated int,
  * matching upstream behaviour.

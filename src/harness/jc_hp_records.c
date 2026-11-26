@@ -77,6 +77,11 @@
 #include "jc_snprintf.h"
 #include "jc_str.h"    /* struct jc_sb, jc_sb_init / jc_sb_free */
 #include "jc_vec.h"
+#include "jc_utf8.h"   /* jc_utf8_trunc_len: no byte-counted %.Ns cut (utf8_cut_lint) */
+
+/* An object id's first 8 characters for a refusal, cut at a UTF-8 boundary
+ * (utf8_cut_lint: no new byte-counted %.Ns cut). An id is hex, so this is 8. */
+#define REC_SHA8(s) ((int)(strlen(s) > 8 ? jc_utf8_trunc_len((s), 8) : strlen(s)))
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -91,8 +96,13 @@
  * blob) and a blob can be large (the records are large by design), so the
  * blob capture cap is generous; the object listing is bounded by the
  * history size. A cap here is a floor for the driver's fixtures, not a
- * measured fit. */
+ * measured fit. #ifndef-guarded so a measuring build (def-350's boundary
+ * cell) can lower PUSH_OUT_CAP with -DPUSH_OUT_CAP; every build that passes
+ * no defines gets 8 MiB, byte-identical. (M1208 S4: a lowered cap driver
+ * can prove the truncation-refusal logic.) */
+#ifndef PUSH_OUT_CAP
 #define PUSH_OUT_CAP   (8 * 1024 * 1024)   /* rev-list / batch-check */
+#endif
 #define PUSH_SMALL_CAP (256 * 1024)        /* rev-parse */
 #define PUSH_BLOB_CAP  (64 * 1024 * 1024)  /* git cat-file blob <sha> */
 #define PUSH_TIMEOUT   120L                /* M1056's cap (jc_hp_git_run keeps it) */
@@ -433,6 +443,22 @@ git_sb(struct jc_sb *out, const char *workdir,
     return rc;
 }
 
+/* Was this capture cut at its cap? jc_proc_capture appends the marker at the
+ * END of a capture that overflowed (M929), so a suffix test cannot mistake a
+ * path that merely contains the text. The same test as M1056's
+ * capture_is_truncated in jc_harness_push.c. */
+static int
+rec_capture_cut(const struct jc_sb *sb)
+{
+    static const char marker[] = "\n... [output truncated]";
+    jc_size mlen = (jc_size)(sizeof marker - 1);
+
+    if (sb->data == NULL || sb->len < mlen) {
+        return 0;
+    }
+    return (memcmp(sb->data + sb->len - mlen, marker, mlen) == 0) ? 1 : 0;
+}
+
 /* One M2-neutral git read child, a1's exported jc_hp_git_run with no
  * credential flags / env (the tip rev-parse): the M2 -c flags, the
  * GIT_CONFIG_GLOBAL/SYSTEM=/dev/null slots, the caller's text buffer.
@@ -601,6 +627,16 @@ records_key_scan(const char *recs, const char *stored_url, const char *br,
             jc_sb_free(&rev);
             return 1;
         }
+        if (rec_capture_cut(&rev)) {
+            /* A file whose line fell behind the cut is not in the path map
+             * below, and an id missing from the map is skipped as "a commit
+             * or a tree": it would go out unread. Refuse instead. */
+            rrefuse("the object listing of %s/records overflowed the capture "
+                    "cap: a file past the cut would go out unscanned; the "
+                    "records push is refused (fail-closed)", br);
+            jc_sb_free(&rev);
+            return 1;
+        }
         jc_sb_init(&bc);
         {
             const char *bargv[2];
@@ -611,6 +647,15 @@ records_key_scan(const char *recs, const char *stored_url, const char *br,
             if (rc != 0) {
                 rrefuse("the key scan could not read the pushed file versions; the "
                         "records push is refused (fail-closed)");
+                jc_sb_free(&rev);
+                jc_sb_free(&bc);
+                return 1;
+            }
+            if (rec_capture_cut(&bc)) {
+                rrefuse("the batch-check listing of %s/records overflowed the "
+                        "capture cap: a file past the cut would go out "
+                        "unscanned; the records push is refused "
+                        "(fail-closed)", br);
                 jc_sb_free(&rev);
                 jc_sb_free(&bc);
                 return 1;
@@ -641,8 +686,39 @@ records_key_scan(const char *recs, const char *stored_url, const char *br,
             }
         }
         if (matched < 0) {
-            /* A commit / tree OID the export named (not a blob version):
-             * nothing to scan for a secret. */
+            /* A commit or a tree of the pushed range. It carries no file
+             * CONTENT, but a commit carries its message and author lines and
+             * a tree carries file NAMES, and a secret there went out. Read it
+             * pretty-printed (`git cat-file -p`) and search it; an object that
+             * cannot be read refuses (fail-closed). */
+            struct jc_sb ob;
+            const char *oargv[3];
+            int orc;
+            jc_sb_init(&ob);
+            oargv[0] = (char *)"cat-file";
+            oargv[1] = (char *)"-p";
+            oargv[2] = oid;
+            orc = git_sb(&ob, recs, e_global, e_system, oargv, 3, NULL,
+                         PUSH_OUT_CAP);
+            if (orc != 0) {
+                rrefuse("the key scan: the pushed object %.*s could not be "
+                        "read (cat-file rc=%d); the records push is refused "
+                        "(fail-closed)", REC_SHA8(oid), oid, orc);
+                jc_sb_free(&ob);
+                return 1;
+            }
+            if (jc_hp_bytes_contains(ob.data, (int)ob.len, model_key,
+                                     model_key_len) ||
+                jc_hp_bytes_contains(ob.data, (int)ob.len, git_token,
+                                     git_token_len)) {
+                rrefuse("the key scan: the pushed commit or directory %.*s "
+                        "contains a secret in a message or a file name (the "
+                        "model key or the git token); the records push is "
+                        "refused", REC_SHA8(oid), oid);
+                jc_sb_free(&ob);
+                return 1;
+            }
+            jc_sb_free(&ob);
             continue;
         }
         read = read + 1;   /* M1155 (SV:0438): a blob version was read below;

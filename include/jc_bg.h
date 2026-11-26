@@ -58,6 +58,23 @@ enum jc_bg_state { JC_BG_RUNNING = 0, JC_BG_EXITED, JC_BG_KILLED, JC_BG_FREE };
 struct jc_bg_proc {
     int            id;        /* 1-based handle (0 => free slot)           */
     long           pid;       /* child pgid/pid                            */
+    long           adopt_pgid; /* M1192 B1: >0 when adopted -- the shell
+                                 command's process group (its own pid: the
+                                 backgrounded job re-parents to init with the
+                                 shell still in that group, so kill(-pgid)
+                                 stops the whole job; 0 otherwise) */
+    int            adopted;   /* M1192 B1: 1 = B1-adopt entry. The drainer
+                                 we forked (p->pid) copies the shell
+                                 command's still-open output pipe into
+                                 p->spool; the JOB itself is not our child
+                                 (re-parented when the shell exited) and is
+                                 signaled via adopt_pgid. kill_background
+                                 kills BOTH. jc_bg_mgr_free SKIPS a still
+                                 RUNNING adopted entry (drainer + spool are
+                                 left for the next session's 24 h stale
+                                 sweep, exactly as the header's "spools
+                                 survive jichi dying" already claims) -- the
+                                 job outlives the command by design. */
     char           spool[512];/* its output spool file, '' when none (M940);
                                  M1146: 128 truncated the path for a deep HOME
                                  once pids were 7 digits (SV:0540); 512 holds a
@@ -92,6 +109,27 @@ void jc_bg_mgr_free(struct jc_bg_mgr *m);
  * success returns the new id (>0) and the slot is RUNNING; returns 0 when the
  * registry is full and -1 on a spawn error. */
 int jc_bg_start(struct jc_bg_mgr *m, const char *command);
+
+/* M1192 B1 (B1-adopt, D1): hand a shell command's still-open output pipe to
+ * the registry after the shell itself has exited with a job still holding it.
+ * Forks a DRAINER (fork-without-exec, def-34's pool/daemon precedent) that
+ * copies `read_fd` continuously into a jc_bg spool file -- the M940 rule: a
+ * pipe read only at tool boundaries stalls a chatty child, so the drainer
+ * writes the spool as the job produces it. On success: a new RUNNING slot
+ * whose p->pid is the DRAINER (our child, so jc_bg's reap path works) and
+ * whose p->adopt_pgid is the job group (`job_pgid`, kill(-pgid) territory --
+ * the job is NOT our child, it re-parents when the shell died, so the stored
+ * drainer pid alone would never stop it), whose p->spool is the drainer's
+ * spool, marked adopted; returns the new id (>0). The drainer exits (and the
+ * spool reaches EOF) when the write end closes. Returns 0 when the registry
+ * is full (the caller falls back to B1-min: close the read end, output
+ * discarded) and -1 on any error (spool open failure, fork failure -- the
+ * caller then closes `read_fd`, B1-min too; on success the caller keeps its
+ * copy only through the brief pre-adopt drain and closes it after, the
+ * drainer owns the reading). The spool file is created before the fork
+ * (0600, under spool_dir) exactly as jc_bg_start does. */
+int jc_bg_adopt(struct jc_bg_mgr *m, int read_fd, long job_pgid,
+                const char *label);
 
 /* Non-blocking: drain any pending output from every live child and reap those
  * that have exited. Safe to call often (tool-call boundaries). */

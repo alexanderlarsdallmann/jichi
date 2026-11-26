@@ -674,6 +674,167 @@ static void test_state_file_check(void)
     JC_CHECK(clear_state_check_fixture(base) == 0);
 }
 
+/* jc_path_from_argv0 fixture: <base>/{a,b,c,d}/prog, of which a/prog is a
+ * regular file nobody may execute, b/prog a directory, c/prog and d/prog
+ * executables; <base>/link -> c/prog. Removed by af_clear. */
+static void af_path(char *out, size_t cap, const char *base, const char *rel)
+{
+    jc_snprintf(out, cap, "%s/%s", base, rel);
+}
+
+static int af_file(const char *base, const char *rel, int mode)
+{
+    char p[512];
+    FILE *f;
+
+    af_path(p, sizeof p, base, rel);
+    f = fopen(p, "wb");
+    if (f == NULL) {
+        return -1;
+    }
+    fputs("#!/bin/sh\n", f);
+    fclose(f);
+    return chmod(p, (mode_t)mode);
+}
+
+static void af_clear(const char *base)
+{
+    static const char *const files[] = {
+        "a/prog", "c/prog", "d/prog", "link"
+    };
+    static const char *const dirs[] = { "b/prog", "a", "b", "c", "d" };
+    char p[512];
+    size_t i;
+
+    for (i = 0; i < sizeof files / sizeof files[0]; i++) {
+        af_path(p, sizeof p, base, files[i]);
+        (void)remove(p);
+    }
+    for (i = 0; i < sizeof dirs / sizeof dirs[0]; i++) {
+        af_path(p, sizeof p, base, dirs[i]);
+        (void)rmdir(p);
+    }
+    (void)rmdir(base);
+}
+
+static void test_from_argv0(void)
+{
+    char base[256];
+    char p[512];
+    char want[JC_PATH_MAX];
+    char pathenv[1200];
+    char out[JC_PATH_MAX];
+    char cwd[JC_PATH_MAX];
+    static const char *const dirs[] = { "a", "b", "c", "d", "b/prog" };
+    size_t i;
+    int ok = 1;
+
+    /* jc_path_mode_runnable, pure, with literal modes: a privileged process
+     * may be told yes by access(X_OK) for a file with no execute bit, so the
+     * bits themselves are the rule. Each class of mode, once. */
+    JC_CHECK(jc_path_mode_runnable(0100700UL) == 1); /* owner x            */
+    JC_CHECK(jc_path_mode_runnable(0100001UL) == 1); /* other x only       */
+    JC_CHECK(jc_path_mode_runnable(0100600UL) == 0); /* no x bit at all    */
+    JC_CHECK(jc_path_mode_runnable(0040755UL) == 0); /* a directory, x set */
+    JC_CHECK(jc_path_mode_runnable(0120777UL) == 0); /* a symlink's mode   */
+
+    /* Bad arguments, before any fixture. */
+    JC_CHECK(jc_path_from_argv0(NULL, "/bin", out, sizeof out) ==
+             JC_ERR_INVALID);
+    JC_CHECK(jc_path_from_argv0("", "/bin", out, sizeof out) ==
+             JC_ERR_INVALID);
+    JC_CHECK(jc_path_from_argv0("prog", "/bin", NULL, sizeof out) ==
+             JC_ERR_INVALID);
+
+    if (!JC_REQUIRE((size_t)jc_snprintf(base, sizeof base, "%sargv0_%ld",
+                                        jc_test_tmp("jichi_path_"),
+                                        (long)getpid()) < sizeof base)) {
+        return; /* the fixture path does not fit (M728) */
+    }
+    af_clear(base); /* a previous run's, under this pid */
+    if (!JC_REQUIRE(mkdir(base, 0700) == 0)) {
+        return; /* red, not a silent skip (M727) */
+    }
+    for (i = 0; i < sizeof dirs / sizeof dirs[0]; i++) {
+        af_path(p, sizeof p, base, dirs[i]);
+        if (mkdir(p, 0700) != 0) {
+            ok = 0;
+        }
+    }
+    if (af_file(base, "a/prog", 0600) != 0 ||
+        af_file(base, "c/prog", 0700) != 0 ||
+        af_file(base, "d/prog", 0700) != 0) {
+        ok = 0;
+    }
+    af_path(p, sizeof p, base, "c/prog");
+    if (jc_path_resolve(p, want, sizeof want) != JC_OK) {
+        ok = 0;
+    }
+    {
+        char l[512];
+        af_path(l, sizeof l, base, "link");
+        if (symlink(p, l) != 0) {
+            ok = 0;
+        }
+    }
+    if (!JC_REQUIRE(ok)) {
+        af_clear(base);
+        return;
+    }
+
+    /* A bare name walks PATH: a file nobody may execute (a) and a directory
+     * (b) are not the command; the first executable (c) wins over a later
+     * one (d). */
+    jc_snprintf(pathenv, sizeof pathenv, "%s/a:%s/b:%s/c:%s/d", base, base,
+                base, base);
+    JC_CHECK(jc_path_from_argv0("prog", pathenv, out, sizeof out) == JC_OK &&
+             strcmp(out, want) == 0);
+    /* Only the two that are not the command: nothing found. */
+    jc_snprintf(pathenv, sizeof pathenv, "%s/a:%s/b", base, base);
+    JC_CHECK(jc_path_from_argv0("prog", pathenv, out, sizeof out) ==
+             JC_ERR_NOTFOUND);
+    /* A name with a slash is a path, not a PATH search, and comes back
+     * canonical: the symlink resolves to c/prog. */
+    af_path(p, sizeof p, base, "link");
+    JC_CHECK(jc_path_from_argv0(p, "/nonexistent", out, sizeof out) ==
+             JC_OK && strcmp(out, want) == 0);
+    /* A path to the file nobody may execute is not the command either. */
+    af_path(p, sizeof p, base, "a/prog");
+    JC_CHECK(jc_path_from_argv0(p, NULL, out, sizeof out) ==
+             JC_ERR_NOTFOUND);
+    /* Found, but its canonical path does not fit: TOOBIG, out untouched. */
+    out[0] = 'x';
+    out[1] = '\0';
+    jc_snprintf(pathenv, sizeof pathenv, "%s/c", base);
+    JC_CHECK(jc_path_from_argv0("prog", pathenv, out, 4) == JC_ERR_TOOBIG &&
+             strcmp(out, "x") == 0);
+
+    /* Read against the CURRENT directory, which holds an executable `prog`:
+     * an empty PATH entry finds it; a relative path with a slash finds it;
+     * no PATH at all does NOT (NULL searches nothing, not the current
+     * directory). The directory is restored before any check is recorded. */
+    if (JC_REQUIRE(getcwd(cwd, sizeof cwd) != NULL)) {
+        af_path(p, sizeof p, base, "c");
+        if (JC_REQUIRE(chdir(p) == 0)) {
+            jc_status s_empty = jc_path_from_argv0("prog", "/nonexistent:",
+                                                   out, sizeof out);
+            int same_empty = (s_empty == JC_OK && strcmp(out, want) == 0);
+            jc_status s_rel = jc_path_from_argv0("./prog", NULL, out,
+                                                 sizeof out);
+            int same_rel = (s_rel == JC_OK && strcmp(out, want) == 0);
+            jc_status s_null = jc_path_from_argv0("prog", NULL, out,
+                                                  sizeof out);
+
+            JC_CHECK(chdir(cwd) == 0);
+            JC_CHECK(same_empty);
+            JC_CHECK(same_rel);
+            JC_CHECK(s_null == JC_ERR_NOTFOUND);
+        }
+    }
+
+    af_clear(base);
+}
+
 void test_path(void)
 {
     test_under_root();
@@ -681,4 +842,5 @@ void test_path(void)
     test_symlink_escape();
     test_normalize();
     test_state_file_check();
+    test_from_argv0();
 }

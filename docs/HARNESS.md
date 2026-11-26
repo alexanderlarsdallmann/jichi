@@ -53,8 +53,9 @@ The standing caveat: jichi's own protections stop at one boundary, and "A comman
 | `notify` | P2 | deliver a gate verdict: the inbox note, the live-run inject, the digest line, the operator hook (built, M1152 H8) |
 | `watch` | P3 | the gate watcher: `gate` (one tick on a READY line) + `units` (the generated timer/service) (built, M1153 H9a; the section below) |
 | `gate run` | P3 | the gate RUN: five stage bodies (--stage ledger/verdict/sweep/ci/redfirst), the orchestrator (M1159) that runs them in order and says the verdict, gate units (M1159) |
+| outage | P3 | `page` / `page-watch` / `probe` / `park` / `restart` (M1213, H12): a model outage -- the section below |
 | watchers | P3 | `status`, `gate`, `review`, `verify`, `probe` — not yet phased in a batch |
-| landing | P5 | `pending`, `approve`, `land`, `integrate` — not yet phased in a batch |
+| landing | P5 | `land`, `approve` (built, M1159+M1202, H10 — the section below) — `pending`, `integrate` not yet phased in a batch |
 
 At this commit `init` (M1053, H2), `doctor` (M1052, H1b), `mirror fetch` + `head` (batch H3b),
 `mirror push` + the `credential-helper` subcommand (batch H3c), `run` (M1057+M1058, H4: the lead
@@ -62,10 +63,11 @@ run and the handoff of the previous run's records), `drive` (M1059, H5: the oute
 `push` (M1147, H7: the scheduled host push — its five subcommands are in the section below)
 and `notify` (M1152, H8: the gate verdict delivered to its readers — the section below)
 and `watch` (M1153, H9a: the gate watcher — the section below)
-and `gate run` (M1154+M1157, H9b wave 1-3: the five stage bodies, each addressable on its own with
-`--stage`; the orchestrator that runs them in sequence is wave 4)
-are built — every P2 command plus `watch` and `gate run`'s stage bodies from P3; the port lands them
-batch by batch, H1 through H9b (wave 1-3), and this table is what a learner checks when one lands.
+and `gate run` (M1154+M1159, H9b: the five stage bodies, each addressable on its own with
+`--stage`, and the orchestrator that runs them in sequence and says the verdict)
+and the outage verbs `page` / `page-watch` / `probe` / `park` / `restart` (M1213, H12: a model outage -- the section below)
+are built — every P2 command plus `watch`, `gate run`'s full run, the outage verbs and `land`/`approve` from P5; the
+port lands them batch by batch, H1 through H10, and this table is what a learner checks when one lands.
 `doctor` takes the global `--config <file>` option; it reports on the harness configuration in the
 same shape as `jichi doctor` (the
 `%d ok, %d warning(s), %d problem(s)` summary line, exit 1 on a problem, and a `--output json`
@@ -221,6 +223,8 @@ process that can re-point `origin` between the URL guard's check and the push (d
 the helper answer for a different project: a `get` with another host or path is a refusal (exit 1,
 no `password=` line). `store` and `erase` read and discard stdin and print nothing. The token
 never appears on a command line, in a log, or in the mirror.
+
+The scans have a bounded input, and a bound that is reached is a REFUSAL, never a "partial scan, go ahead": the object listing and the batch-check listing each come back through a capped capture, and when a listing overflowed that cap (the reference constants: 8 MiB for the listing, so a push whose range is larger), the push used to proceed with every object past the cut invisible to BOTH the key scan and the size check -- a secret or an oversized blob could ride out unscanned. Each stage names itself in the refusal (which listing overflowed, and that the push is refused because an object past the cut would go out unscanned), the cap is not raised to make the range fit, and the refusal is the fence: a listing that overflows is one the drive's own pushes never need (the pushes stay small by their own bound), but a range past the cap is refused rather than sent partially scanned. The overflow shape itself is exercised by a test-only build the driver makes itself with a lowered cap -- every ordinary build is byte-identical (M1208 S4) -- and the test input stays in the driver, per SECURITY.md.
 
 Driver: `tests/smoke/harness_mirror_push` (red-first, 31 cells).
 
@@ -516,8 +520,7 @@ What it protects: a READY is gated by **the machine's own clock, not by a sessio
 awake**. On 2026-11-04 a green gate waited 16.5 hours because no session ran; the watcher is the
 standing fix. Its host plumbing (`systemctl`, `systemd-run`, `pgrep`) is shimmable, so this container
 tests it with stand-ins and the switch-over runs the real thing on the host beside `gate-watch.sh` —
-the supervisor's, per the plan's section 6, a day of ticks diffed on the same LOG. The model outage
-watcher (`watch model`) lands in a later batch (H12).
+the supervisor's, per the plan's section 6, a day of ticks diffed on the same LOG. The model outage verbs (`page` / `park` / `restart`) are built in this batch (H12, M1213 -- the section below): the port is a verb family, not a `watch model` subcommand.
 
 Driver: `tests/smoke/harness_gate_watch` (red-first, 20 cells; the four false verdicts of the plan's
 section 3 — 07:55 the regate arm, 11:32 and 13:32 the two false withdrawals, 13:47 the settled rule
@@ -553,6 +556,91 @@ gcc -O2 fortified; musl/BSD/old-gcc rows). What it protects: a fortified -O comp
 can never again reach the host gate as a NO SUMMARY — it fails in the container first, as
 a named line.
 
+## `land` and `approve`: the landing policy (M1159+M1202, H10)
+
+What it protects: **master moves only on a green gate, a fast-forward, re-read by the remote — the
+landing-side guard of the 07:14/11:32/13:32/13:55 false-verdict family.** A verdict is a claim about
+a commit; a landing is master actually moving. The two used to be one unsupervised step in the host
+scripts; now the gate run records every landing decision, and the move happens only through a path
+that re-reads the remote before and after.
+
+`jichi-harness land --config <f> --push-repo <d> --ci-log-dir <d> --gate-home <d> --main-checkout <d>
+[--land-log <f>] <SHA8>` is the port of the host's `land.sh`. It requires a green sweep verdict
+recorded for that `<SHA8>`, resolves it to a commit with git (it checks only that the value is not
+empty; `gate run` checks the 7-40 hex form before the gate calls it), checks that the commit is on
+the drive branch (an ancestor of push.git's tracking ref `refs/remotes/origin/<prefix>/main`, which
+it does not fetch first) and that master is an ancestor of it,
+and pushes it to master — master moves only as the fast-forward that check proves, never `--force`. After the push it re-reads the
+remote (`ls-remote`) and the main checkout's `origin/master` must name the `<SHA8>`; a refresh that
+did not land is a refusal, not a success. `approve` is the hand for a drive whose policy is `hold`:
+it reads the last `landing.decision` line for the `<SHA8>` (only a `pending` one may be approved),
+runs the same land step through the gate's capture, and records the decision with the time and the
+operator's name.
+
+**The policy word.** A drive's `landingPolicy` config key is a WORD, read as-is: `auto` (this
+drive, explicitly — the gate's land step runs on a green) or `hold` (the gate NEVER runs land; the
+verdict is green-held and the landing waits for a hand). Absent, or any word that is not byte-exact
+`auto` (case included), fails closed to `hold` — and the override stays the gate home's `HOLD`
+file: a green run that reaches the landing creates it when the policy is not `auto`, and a plain file,
+present, holds even an `auto` drive. Every landing decision is recorded to the
+commit's `<gate-home>/<SHA8>/landing.decision`, one appended line per green terminal (`pending`, `refused` + the
+named cause, `landed`, or `refused no-land-step`); a record failure never changes the verdict's rc.
+
+## `page`, `probe`, `park`, `restart`: a model outage (M1213, H12)
+
+When the gateway stops answering, a drive's model calls fail for as long as the outage lasts. On
+2026-11-02 that was 240 minutes: the run waited on a dead stream and nothing paged it, because the
+page was a supervising session's hand-work. These five host-side verbs are the C89 port of the
+drive's four host outage scripts. On the drive's host the scripts still do the work until the
+port's switch-over is recorded, and three gaps remain before the port can do all of it (below).
+
+- **`page`** (one check) and **`page-watch`** (the loop) read the model calls of the drive's last
+  two runs, at every depth: the lead, its subagents and its parallel workers share one gateway. They
+  keep at most 512 calls, in file order with the older run first, so on a busier pair of runs the
+  newest calls are not read (a known issue in CHANGELOG.md [0.15.0]). A stretch is OPEN when there
+  are failed calls after the last success; the page fires when the stretch has been open past
+  **1800 s** and the latest failure is within **600 s**, and `page-watch` pages only while the loop
+  unit is active (a parked or stopped drive is not paged; `page` reports the unit's state on its
+  armed line but does not gate on it). They judge at the time `--now <s>`
+  names, or at the clock's time without it (until the 0.15.0 release audit a missing `--now` meant
+  0, and neither verb ever paged unattended). The 1800 s bound is the measured
+  split: every non-block failure episode ended within 15.1 minutes, every gateway block lasted
+  240. The 600 s bound keeps a stretch that ended in a dead run from paging after a resume. Once per stretch: the state file holds the last success the previous page used, so a stretch
+  that recovers and fails again pages again, and the same open stretch never does. `page` writes
+  the PAGE line and runs the configured page command; a command that is absent is a say-line only,
+  and a command that fails is logged, never fatal. `page-watch` writes the PAGE line and its state
+  but does not run the page command or create the STOP file (a known issue in CHANGELOG.md
+  [0.15.0]).
+
+- **`probe`** is the READY check, in two halves: the gateway half is any HTTP code (a 401 means
+  reachable), and the model half runs the lead's model's own live check and is READY only when it
+  says tool-calling was observed. Both must answer: in two windows on 2026-11-02 the model
+  answered HTTP 503 "no healthy upstream" while the gateway answered, so a gateway-only probe would
+  have resumed into the outage. The model's key goes into the probe's own environment, never a log
+  line, and a probe line that carried the key's prefix is redacted.
+
+- **`park`** counts the STOP-ended lines, waits for the loop to end, and resumes only when the
+  loop ended FOR the STOP file (not for a deadline), the log's last line says so, and, where the
+  config names the check (`host.pageUnitFailed`), the unit is not failed. It then waits for the model to answer twice, 60 s apart -- a not-ready resets the
+  count and sleeps 300 s -- and starts the loop again. **`restart`** is the same gate plus the unit
+  start WITHOUT the ready loop: the operator runs it after a re-pin, when the loop must come up on
+  the new binary and the outage is assumed over.
+
+Three gaps remain before a drive needs no person awake when the gateway dies: `page-watch` must
+run the page command and create the STOP file, and something must start `park` (`page --park`
+creates the STOP file but does not run `park`). They are known issues in CHANGELOG.md [0.15.0]. The port differs from the reference in named places (the note is the authoritative list):
+the stretch is pure C, read with jichi's own JSON parser, so the driver runs without python3; the
+page's park half prints the park command and never runs it, and with `--park` it creates the STOP
+file (the host arms its own unit until the switch-over); a config that names no loop unit or, where the container
+must be waited on, no container name is refused by name, not run with a built-in. The host's
+plumbing (the unit, the container, the probes) is shimmable: this container tests it with
+stand-ins, and the supervisor runs the real thing on the host beside the reference scripts before a
+verb switches to its port -- the `restart` verb's unit start is the last to switch, because a wrong
+restart is a dead drive.
+
+Driver: `tests/smoke/harness_page` (red-first, 42 cells); the stretch's unit test is
+`test_pagestretch`.
+
 ## The settings (env, `JICHI_HARNESS_`)
 
 The harness's settings use the prefix `JICHI_HARNESS_`; each name says what its value holds, and a
@@ -585,8 +673,9 @@ One line each; section 7 of the plan is the full text.
 2026-11-12, `docs/DECISIONS.md` [`dec-2026-11-12-harness-linux`](DECISIONS.md)). Its units
 (`watch units`, `gate units`) and its protection's cost both assume systemd and the procfs
 routes it uses. A row on another platform is a defect detector, not compatibility work:
-the nine self-path sites that refuse when `/proc/self/exe` cannot be read stay as clear
-signals (the self-path option that would move them off Linux is the open deferral D-F8-4,
+the self-path sites that refuse when `/proc/self/exe` cannot be read (eleven at 0.15.0, nine when the decision was taken) stay as clear
+signals (the self-path option that would move them off Linux is deferral D-F8-4, decided on
+2026-11-17 as a trigger: it starts when someone needs to run a drive on a non-Linux host;
 `docs/DEFERRED.md` def-383). `docs/PLATFORMS.md` carries the one line this decision adds;
 no harness row is claimed there.
 
@@ -601,6 +690,77 @@ are random, never the real key or token. `mirror push` (H3c) holds the git token
 command to carry a value: it reads the model key from the file at run start and hands it to the
 spawn through the environment, never on argv — the parent unsets the key's name from its own
 environment first, so the file is the only source.
+
+## `jichi guide [topic]` and the built-in `jichi-guide` skill (M1196, G1)
+
+The learner's own command for "how do I set this up?" — offline, no provider,
+no network. It prints the compiled-in jichi guide: six topics (`setup`,
+`model`, `learner`, `agents`, `limits`, `commands`), each a short set of page
+sections.
+What it protects: a learner, or an agent told to configure jichi, gets the
+canonical setup/model/limits text from the binary itself instead of guessing
+from the docs tree, and the agent can `load_skill jichi-guide` at run time to
+read the same text (the skill is always present, even in a clean container).
+Project-specific skills live in `.jichi/skills/` and are listed by `jichi skills`;
+they add to the guide, never replace it.
+
+## The installed learner pages (M1197, G2)
+
+G1's guide is the entry point; G2 is the depth behind it — the pages the guide
+points at, shipped with the binary. `make install` copies the six learner pages
+(TUTORIAL_BEGINNER, SETUP_WIZARD, CONFIG_TUTORIAL, AGENTS_GUIDE, VOCABULARY,
+CURRICULUM) to `$(PREFIX)/share/doc/jichi/`, and `make uninstall` removes
+exactly those six files — nothing else, a file under any other name is left in
+place.
+
+The command surface: when your config has no `docs` array, `jichi docs` uses
+that installed directory as its one source (named `jichi-docs`), derived from
+the executable's own location — a `jichi` at `<prefix>/bin/jichi` reads
+`<prefix>/share/doc/jichi`. That location is the kernel's answer where it
+gives one (`/proc/self/exe`, or `/proc/self/path/a.out` on illumos), and
+otherwise the command as the shell found it (`argv[0]`, looked up in `PATH`
+when it is a bare name), which is all FreeBSD without procfs and OpenBSD
+offer. `jichi docs list` shows it, and
+`jichi docs search <query>` searches it (with one source the name argument is
+optional; `search` and `index` still need a configured `embed` model). A
+config that DOES name a `docs` source always wins, and the default never
+appears. When the installed directory does not exist (a build-tree run, or an
+uninstalled layout) the default is absent, not fabricated: the existing
+"(no documentation sources configured)" message stands. The default is read
+from a local path jichi installed itself — it never fetches a URL and carries
+no credential.
+
+What it protects: a learner, or an agent on a clean install, can read jichi's
+documentation from the binary's own prefix — no source tree on disk, no setup
+step, nothing to configure — which is the gap the G8 clean baseline measured
+("the docs are not installed", so the agent "found `describe` or the onboarding
+pack: no").
+
+## `jichi <verb> --help` and the guide's `commands` topic (M1199, G4)
+
+Two surfaces a learner or agent leans on to check a command before running it
+now agree with each other:
+
+- **Per-verb help.** `jichi init --help` prints the `init` section of the
+  top-level help, not the whole 250-line thing (and unknown word + `--help`
+  keeps printing the whole help). What it protects: the trial's learner guide
+  "caught and corrected three of its own errors against `--help`" because the
+  flag loop parsed `-h` BEFORE verb dispatch, so every `<verb> --help`
+  answered with the top-level block -- an agent verifying a flag was verifying
+  it against a surface that did not name the flag. The text is built once
+  (`build_help`) and the section is extracted from those same bytes, so the
+  per-verb help cannot drift from the full help; `per_verb_help` (smoke, 62
+  checks) holds every verb in the help to its own section.
+- **The `commands` topic.** The guide's sixth topic lists the TUI slash
+  commands a run actually uses (13, from `TUTORIAL_BEGINNER.md`'s "Handy
+  commands" table). What it protects: the G8 baseline found an agent REMOVED
+  a real `/undo` from its own guide because `--help` never showed it -- the
+  guide is the agent's ground truth for the TUI, and a ground truth that omits
+  a real command teaches the model the command does not exist. `guide_lint`
+  cell 11 resolves every listed `/name` against `TUI_CMDS` (the same ground
+  truth `slash_commands_lint` uses), so the list cannot name a command that
+  has no handler -- the M292 `/learn corrections` rot, this time gated.
+
 
 ## Read further
 

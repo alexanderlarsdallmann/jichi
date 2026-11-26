@@ -16,10 +16,10 @@ all. Those three gaps, and fifty more like them, are what follows.
 
 **Who it is for.** The same reader as the rest: a self-learner with a laptop,
 alone ([CURRICULUM.md](CURRICULUM.md)). So **free and freely-readable works are
-marked and come first within each group**: of the **194 entries** below (50 craft,
+marked and come first within each group**: of the **233 entries** below (55 craft,
 18 C, 12 C++, 8 Zig, 9 Rust, 8 Python, 8 Racket, 7 Guile, 9 Elixir, 9 Haskell,
-9 Clojure, 18 interfaces, 10 Ada/SPARK, 19 HCI), **127 carry a link to a text you can read for
-nothing** — including a complete C book, a complete Zig book, SICP, *The Scheme
+9 Clojure, 18 interfaces, 10 Ada/SPARK, 19 HCI, 14 object-oriented, 20 logic
+programming), **142 carry a link to a text you can read for nothing** — including a complete C book, a complete Zig book, SICP, *The Scheme
 Programming Language*, *Clojure for the Brave and True*, and every language
 standard that matters here in its last free working draft. A bibliography a
 learner cannot afford is a reading list for somebody else.
@@ -101,6 +101,26 @@ each one records the title, author and publisher that came back, which is the
 part a reader can actually re-check. The older markers are left as they are:
 they were true on their date, and that is what a dated marker means.
 
+---
+
+**The two sections added on 2026-11-21 (§15 and §16)** were checked on that date, from the drive host:
+
+- **ISBNs:** resolved with `https://openlibrary.org/search.json?q=<isbn>`. After each marker, the entry records the
+  title, authors and publisher that came back. Open Library's year is the WORK's first publication, not the edition's, so it is not
+  repeated in the markers.
+- **DOIs:** requested at `https://doi.org/<doi>`. Each answered HTTP 302 to the publisher; the publisher's page was not
+  read. Each DOI's title, authors and year were also confirmed through Crossref's public API
+  (`https://api.crossref.org/works/<doi>`). Two details came back:
+  - the SWI-Prolog paper was published online in 2011, in the 2012 volume;
+  - Crossref's record misspells the 1988 GC paper's title as "Garbarge collection". It is cited here as printed.
+- **Free links:** requested with the response status recorded. The page's `<title>` was read (for PDFs, the first
+  bytes), nothing more.
+- **Two links that did not confirm are left out, and said so:**
+  - Aït-Kaci's own WAM book page at `wambook.sourceforge.net` redirected to a generic SourceForge directory.
+  - MIT Press's open-access page for *The Art of Prolog* answered HTTP 403 to an automated request.
+
+  Both books are cited by ISBN only.
+
 ## 1. The craft
 
 Software development as a discipline — the part of the subject that outlives
@@ -161,6 +181,24 @@ which is the half that tells you which of today's certainties are fashions.
   Read it for: the machine your C actually runs on — linking, memory hierarchy, system-level I/O. The bridge between this section and the next.
 
 ---
+
+### Pattern languages (added 2026-11-25)
+
+[PATTERN_LANGUAGE.md](PATTERN_LANGUAGE.md) reads twelve of this tree's
+recurring forms as a pattern language. These are the works it names. One of
+them was read for that page; for the other four only the edition was
+verified, and the page says so.
+
+- **Using Pattern Languages for Object-Oriented Programs** — Kent Beck & Ward Cunningham, 1987. Technical Report CR-87-43, submitted to the OOPSLA-87 workshop on the Specification and Design for Object-Oriented Programming. <https://c2.com/doc/oopsla87.html> [read 2026-11-25]
+  Read it for: the idea carried from architecture into programming, in under nine hundred words, with its purpose intact — "Computer users should write their own programs." It defines a pattern language as an order that "leads a designer to ask (and answer) the right questions at the right time", which is the half the later catalogues dropped.
+- **Patterns of Software** — Richard P. Gabriel, 1996. Oxford University Press. ISBN 978-0-19-512123-0 [ISBN verified 2026-11-25]. Free PDF from the author: <https://www.dreamsongs.com/Files/PatternsOfSoftware.pdf> [probed 2026-11-25: HTTP 200]
+  Read it for: a programmer's essays on what the idea was meant to be and what became of it in our trade. Not read for [PATTERN_LANGUAGE.md](PATTERN_LANGUAGE.md); listed because it is the free book-length treatment.
+- **A Pattern Language** — Alexander, Ishikawa, Silverstein and others, 1977. Oxford University Press. ISBN 978-0-19-501919-3 [ISBN verified 2026-11-25]
+  Read it for: the original, about towns, buildings and rooms. Read one large pattern and follow its links downwards to see what *language* means before you read any pattern about software.
+- **The Timeless Way of Building** — Christopher Alexander, 1979. Oxford University Press. ISBN 978-0-19-502402-9 [ISBN verified 2026-11-25]
+  Read it for: the argument behind the catalogue — why a stock of forms shared among the people who build is how good places came about at all.
+- **Design Patterns** — Gamma, Helm, Johnson & Vlissides, 1995. Addison-Wesley. ISBN 978-0-201-63361-0 [ISBN verified 2026-11-25]
+  Read it for: the catalogue that made the word common among programmers. Read each pattern for its forces first and its form second; [PATTERN_LANGUAGE.md](PATTERN_LANGUAGE.md) says why.
 
 ### The design tutorials' own sources (added M650)
 
@@ -1169,6 +1207,97 @@ This paragraph restates; it does not decide anything new.
   test suite as one of the evaluators: a tier that passes has been read by one reader, and
   different readers find different defects.
 - The learner study of three to five people (twelve questions, item 8) is a discount-usability method (Nielsen). Nielsen & Landauer give its best case and Faulkner its variance, so what it can report is which problems exist, not how often they occur.
+
+## 15. Object-oriented programming — and the objects a C89 codebase builds by hand
+
+Read with [OBJECT_ORIENTED_TUTORIAL.md](OBJECT_ORIENTED_TUTORIAL.md). Two entries elsewhere on this page belong here
+too: Parnas's 1972 paper (§1), the idea under every interface, and Hanson's *C Interfaces and Implementations* (§2),
+the C way of building them.
+
+### Freely readable
+
+- **The Early History of Smalltalk** — Alan C. Kay, 1993. HOPL-II, *ACM SIGPLAN Notices* 28(3). [DOI 10.1145/155360.155364 — resolves at doi.org (302) and confirmed by Crossref, 2026-11-21] Open copy: <https://worrydream.com/EarlyHistoryOfSmalltalk/> [probed 2026-11-21: HTTP 200] — title "The Early History Of Smalltalk"
+  Read it for: OOP as messages between objects, in the words of the person who named it; the view that differs most from the class-centred one most courses teach.
+- **On Understanding Types, Data Abstraction, and Polymorphism** — Luca Cardelli and Peter Wegner, 1985. *ACM Computing Surveys* 17(4). [DOI 10.1145/6041.6042 — resolves at doi.org (302) and confirmed by Crossref, 2026-11-21] Open copy: <https://lucacardelli.name/Papers/OnUnderstanding.A4.pdf> [probed 2026-11-21: HTTP 200] — a PDF
+  Read it for: the vocabulary (kinds of polymorphism, abstract types) that makes "is this object-oriented?" an answerable question.
+- **Object-Oriented Programming With ANSI-C** — Axel-Tobias Schreiner, 1993. <https://www.cs.rit.edu/~ats/books/ooc.pdf> [probed 2026-11-21: HTTP 200] — a PDF
+  Read it for: a whole book on what the tutorial's §3 does in 150 lines, carried much further (classes, inheritance, exceptions, all in C).
+- **Object-oriented design patterns in the kernel, part 1** — Neil Brown, 2011-06-01. LWN.net. <https://lwn.net/Articles/444910/> [probed 2026-11-21: HTTP 200] — title "Object-oriented design patterns in the kernel, part 1 [LWN.net]"; author and date read from the page
+  Read it for: function-pointer tables at the scale of an operating system, by someone who works on it.
+- **Object-oriented design patterns in the kernel, part 2** — Neil Brown, 2011. LWN.net. <https://lwn.net/Articles/446317/> [probed 2026-11-21: HTTP 200] — title "Object-oriented design patterns in the kernel, part 2 [LWN.net]"
+  Read it for: the second half of the survey, including how C embeds one struct in another to imitate inheritance.
+- **An Architecture for Making Object-Oriented Systems Available from Prolog** — Jan Wielemaker and Anjo Anjewierden, 2002. <https://arxiv.org/abs/cs/0207053> [probed 2026-11-21: HTTP 200] — title "[cs/0207053] An Architecture for Making Object-Oriented Systems Available from Prolog"; authors and date (2002-07-12) read from the page
+  Read it for: XPCE's own design, by its authors: how a C object system is made available from a logic language.
+- **Logtalk** — Paulo Moura and contributors. <https://logtalk.org/> [probed 2026-11-21: HTTP 200] — title "Logtalk"
+  Read it for: objects, protocols and categories built on top of Prolog; the bridge from this section to the next.
+
+### In print
+
+- **Using Prototypical Objects to Implement Shared Behavior in Object-Oriented Systems** — Henry Lieberman, 1986. OOPSLA '86 proceedings. [DOI 10.1145/28697.28718 — resolves at doi.org (302) and confirmed by Crossref, 2026-11-21]
+  Read it for: delegation, the mechanism behind XPCE's `delegate_to`: an object forwards what it does not understand.
+- **Self: The Power of Simplicity** — David Ungar and Randall B. Smith, 1987. OOPSLA '87 proceedings. [DOI 10.1145/38765.38828 — resolves at doi.org (302) and confirmed by Crossref, 2026-11-21]
+  Read it for: objects without classes; the idea behind XPCE's per-object methods.
+- **SIMULA: an ALGOL-based simulation language** — Ole-Johan Dahl and Kristen Nygaard, 1966. *Communications of the ACM* 9(9). [DOI 10.1145/365813.365819 — resolves at doi.org (302) and confirmed by Crossref, 2026-11-21]
+  Read it for: where objects began. It describes SIMULA I, which had processes but not yet classes; Simula 67 added the classes and inheritance later languages copied.
+- **A Behavioral Notion of Subtyping** — Barbara H. Liskov and Jeannette M. Wing, 1994. *ACM TOPLAS* 16(6). [DOI 10.1145/197320.197383 — resolves at doi.org (302) and confirmed by Crossref, 2026-11-21]
+  Read it for: the rule that a subtype must keep its supertype's promises, which is the precise reason deep hierarchies fail.
+- **Design Patterns: Elements of Reusable Object-Oriented Software** — Erich Gamma, Richard Helm, Ralph Johnson and John Vlissides, 1994 (copyright 1995). Addison-Wesley. ISBN 978-0-201-63361-0 [ISBN verified 2026-11-21] — Open Library returned: "Design Patterns" / Erich Gamma, John Vlissides, Richard Helm / Addison-Wesley
+  Read it for: a shared name for each recurring design, and "favor object composition over class inheritance".
+- **Object-Oriented Software Construction**, 2nd edition — Bertrand Meyer, 1997. Prentice Hall. ISBN 978-0-13-629155-8 [ISBN verified 2026-11-21] — Open Library returned: "Object-oriented software construction" / Bertrand Meyer / ISE
+  Read it for: design by contract: an interface's promises written down as preconditions, postconditions and invariants.
+- **Object-Oriented Analysis and Design with Applications**, 3rd edition — Grady Booch et al., 2007. Addison-Wesley. ISBN 978-0-201-89551-3 [ISBN verified 2026-11-21] — Open Library returned: "Object-Oriented Analysis and Design with Applications" / Grady Booch / Tandem Library (a rebinder's record of the same ISBN)
+  Read it for: OOP as a way of analysing a problem, not only of coding a solution; pair it with [UML_TUTORIAL.md](UML_TUTORIAL.md).
+
+## 16. Logic programming — Prolog, Datalog, constraints, and how a Prolog is built
+
+Read with [LOGIC_PROGRAMMING_TUTORIAL.md](LOGIC_PROGRAMMING_TUTORIAL.md). SICP (§1) has a logic interpreter in Scheme
+in its §4.4, a good second route in.
+
+### Freely readable
+
+- **Predicate Logic as Programming Language** — Robert Kowalski, 1974. Proceedings of the IFIP Congress 1974. Open copy: <https://www.doc.ic.ac.uk/~rak/papers/IFIP%2074.pdf> [probed 2026-11-21: HTTP 200] — a PDF
+  Read it for: the paper that says a set of Horn clauses can be read as logic and run as a program.
+- **SWI-Prolog** — Jan Wielemaker, Tom Schrijvers, Markus Triska and Torbjörn Lager, 2012. *Theory and Practice of Logic Programming* 12(1-2). [DOI 10.1017/S1471068411000494 — resolves at doi.org (302) and confirmed by Crossref, 2026-11-21] Open copy: <https://arxiv.org/abs/1011.5332> [probed 2026-11-21: HTTP 200] — title "[1011.5332] SWI-Prolog"; authors read from the page
+  Read it for: the system the tutorial's §9 reads, described by the people who built it.
+- **The Power of Prolog** — Markus Triska. <https://www.metalevel.at/prolog> [probed 2026-11-21: HTTP 200] — title "The Power of Prolog"
+  Read it for: modern, declarative Prolog, with constraints from the start, by the author of `library(clpfd)`.
+- **Learn Prolog Now!** — Patrick Blackburn, Johan Bos and Kristina Striegnitz, 2006. College Publications. ISBN 978-1-904987-17-8 [ISBN verified 2026-11-21] — Open Library returned: "Learn prolog now!" / Patrick Blackburn, Johan Bos, Kristina Striegnitz / College Publications Online edition: <https://lpn.swi-prolog.org/> [probed 2026-11-21: HTTP 200] — title "Learn Prolog Now!"
+  Read it for: the gentlest complete introduction; the online edition runs its exercises in the browser.
+- **CHR: Constraint Handling Rules** (the manual's section) — the SWI-Prolog project. <https://www.swi-prolog.org/pldoc/man?section=chr> [probed 2026-11-21: HTTP 200] — title "SWI-Prolog -- CHR: Constraint Handling Rules"
+  Read it for: the syntax and options of the CHR the tutorial's §8 runs.
+- **SWI-Prolog Reference Manual** — the SWI-Prolog project. <https://www.swi-prolog.org/pldoc/refman/> [probed 2026-11-21: HTTP 200] — redirected to the manual's index
+  Read it for: the authority on every built-in the tutorial uses; the same text is in the source's `man/`.
+
+### In print
+
+- **A Machine-Oriented Logic Based on the Resolution Principle** — J. A. Robinson, 1965. *Journal of the ACM* 12(1). [DOI 10.1145/321250.321253 — resolves at doi.org (302) and confirmed by Crossref, 2026-11-21]
+  Read it for: resolution and unification, the two mechanisms every logic language runs on.
+- **Algorithm = Logic + Control** — Robert Kowalski, 1979. *Communications of the ACM* 22(7). [DOI 10.1145/359131.359136 — resolves at doi.org (302) and confirmed by Crossref, 2026-11-21]
+  Read it for: separating what a program computes from how it searches; the tutorial's one-sentence summary is this paper's title applied.
+- **The Birth of Prolog** — Alain Colmerauer and Philippe Roussel, 1993. HOPL-II, *ACM SIGPLAN Notices* 28(3). [DOI 10.1145/155360.155362 — resolves at doi.org (302) and confirmed by Crossref, 2026-11-21]
+  Read it for: how Prolog came out of natural-language processing in Marseille, from the people who built it.
+- **Theory and Practice of Constraint Handling Rules** — Thom Frühwirth, 1998. *The Journal of Logic Programming* 37(1-3). [DOI 10.1016/S0743-1066(98)10005-5 — resolves at doi.org (302) and confirmed by Crossref, 2026-11-21]
+  Read it for: CHR's definition and semantics, from its designer.
+- **Constraint Handling Rules** — Thom Frühwirth, 2009. Cambridge University Press. ISBN 978-0-521-87776-3 [ISBN verified 2026-11-21] — Open Library returned: "Constraint handling rules" / Thom Frühwirth / Cambridge University Press
+  Read it for: the book on CHR: programming in it, analysing confluence, and the implementation techniques SWI-Prolog's compiler uses.
+- **Garbage Collection for Prolog Based on WAM** — Karen Appleby, Mats Carlsson, Seif Haridi and Dan Sahlin, 1988. *Communications of the ACM* 31(6). [DOI 10.1145/62959.62968 — resolves at doi.org (302) and confirmed by Crossref, 2026-11-21]
+  Read it for: the design SWI-Prolog's `src/pl-gc.c` names as its basis.
+- **What You Always Wanted to Know About Datalog (And Never Dared to Ask)** — Stefano Ceri, Georg Gottlob and Letizia Tanca, 1989. *IEEE Transactions on Knowledge and Data Engineering* 1(1). [DOI 10.1109/69.43410 — resolves at doi.org (302) and confirmed by Crossref, 2026-11-21]
+  Read it for: Datalog, the terminating subset that makes logic a query language; the shape a lint or a policy engine would take.
+- **The Finite Domain Constraint Solver of SWI-Prolog** — Markus Triska, 2012. FLOPS 2012, LNCS 7294. [DOI 10.1007/978-3-642-29822-6_24 — resolves at doi.org (302) and confirmed by Crossref, 2026-11-21]
+  Read it for: the solver behind the tutorial's scheduling example.
+- **Warren's Abstract Machine: A Tutorial Reconstruction** — Hassan Aït-Kaci, 1991. MIT Press. ISBN 978-0-262-51058-5 [ISBN verified 2026-11-21] — Open Library returned: "Warren's Abstract Machine" / Hassan Aït-Kaci / MIT Press
+  Read it for: how a Prolog compiles to a machine, rebuilt step by step from David H. D. Warren's 1983 instruction set (SRI Technical Note 309, cited through this book, not checked separately).
+- **The Art of Prolog**, 2nd edition — Leon Sterling and Ehud Shapiro, 1994. MIT Press. ISBN 978-0-262-19338-2 [ISBN verified 2026-11-21] — Open Library returned: "The art of Prolog" / Leon Sterling, Ehud Yehuda Shapiro / MIT Press
+  Read it for: the standard text on programming in Prolog well, from the declarative reading to meta-interpreters.
+- **Programming in Prolog: Using the ISO Standard**, 5th edition — William F. Clocksin and Christopher S. Mellish, 2003. Springer. ISBN 978-3-540-00678-7 [ISBN verified 2026-11-21] — Open Library returned: "Programming in Prolog" / William F. Clocksin, Christopher S. Mellish / Springer
+  Read it for: the classic first book, updated to the ISO standard.
+- **Prolog Programming for Artificial Intelligence**, 4th edition — Ivan Bratko, 2011. Pearson. ISBN 978-0-321-41746-6 [ISBN verified 2026-11-21] — Open Library returned: "Prolog programming for artificial intelligence" / Ivan Bratko / Addison-Wesley Pub. Co
+  Read it for: search, planning and learning written in Prolog; logic programming as a tool for problems, not a curiosity.
+- **The Craft of Prolog** — Richard A. O'Keefe, 1990. MIT Press. ISBN 978-0-262-15039-2 [ISBN verified 2026-11-21] — Open Library returned: "The craft of Prolog" / Richard A. O'Keefe / MIT Press
+  Read it for: efficiency and style from an expert; read it after a first book, not instead of one.
+- **Foundations of Logic Programming**, 2nd edition — John W. Lloyd, 1987. Springer. ISBN 978-3-540-18199-6 [ISBN verified 2026-11-21] — Open Library returned: "Foundations of Logic Programming" / John W. Lloyd / Springer
+  Read it for: the theory (SLD resolution, negation as failure, the closed world) proved properly.
 
 ## How to read these with jichi at your side
 

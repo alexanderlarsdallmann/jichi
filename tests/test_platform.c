@@ -90,9 +90,11 @@ void test_platform(void)
      * A test that can only see the row it runs on cannot see that, which is
      * why there was no test here at all before this one. */
     JC_CHECK(jc_platform_row_verdict_for("Linux") == JC_PLATFORM_ROW_VERIFIED);
-    JC_CHECK(jc_platform_row_verdict_for("FreeBSD") == JC_PLATFORM_ROW_VERIFIED);
-    JC_CHECK(jc_platform_row_verdict_for("NetBSD") == JC_PLATFORM_ROW_VERIFIED);
-    JC_CHECK(jc_platform_row_verdict_for("OpenBSD") == JC_PLATFORM_ROW_VERIFIED);
+    /* 2026-11-24: the three BSDs went back to Partly verified when their latest
+     * runs failed some unit checks or smoke drivers (docs/PLATFORMS.md). */
+    JC_CHECK(jc_platform_row_verdict_for("FreeBSD") == JC_PLATFORM_ROW_PARTLY);
+    JC_CHECK(jc_platform_row_verdict_for("NetBSD") == JC_PLATFORM_ROW_PARTLY);
+    JC_CHECK(jc_platform_row_verdict_for("OpenBSD") == JC_PLATFORM_ROW_PARTLY);
 
     /* Partly verified is a MEASURED verdict, not a softer kind of unknown:
      * the matrix carries a row for each of these. */

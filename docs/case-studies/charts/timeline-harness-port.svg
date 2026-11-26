@@ -1,0 +1,248 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 252" width="920" height="252" role="img">
+<title>Harness port: a timeline</title><desc>Lead runs, gate runs (green or red), landings on master, and the spans the loop was down.</desc>
+<style>
+.s{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.tm{fill:#898781}
+.g{stroke:#e1e0d9}.ax{stroke:#c3c2b7}.wash{fill:#898781;fill-opacity:.16}
+.d0{fill:#2a78d6;stroke:#2a78d6}.d1{fill:#eb6834;stroke:#eb6834}.d2{fill:#1baf7a;stroke:#1baf7a}
+.d3{fill:#eda100;stroke:#eda100}.ring{stroke:#fcfcfb}
+.l0{fill:none;stroke:#2a78d6}.l1{fill:none;stroke:#eb6834}.l2{fill:none;stroke:#1baf7a}.l3{fill:none;stroke:#eda100}.good{fill:#0ca30c}.crit{fill:#d03b3b;stroke:#d03b3b}
+.ink{fill:#52514e}.down{fill:#898781;fill-opacity:.5}
+text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+@media (prefers-color-scheme: dark){
+.s{fill:#1a1a19}.t1{fill:#f0efec}.t2{fill:#c3c2b7}.g{stroke:#2c2c2a}.ax{stroke:#383835}
+.d0{fill:#3987e5;stroke:#3987e5}.d1{fill:#d95926;stroke:#d95926}.d2{fill:#199e70;stroke:#199e70}
+.d3{fill:#c98500;stroke:#c98500}.ring{stroke:#1a1a19}
+.l0{stroke:#3987e5}.l1{stroke:#d95926}.l2{stroke:#199e70}.l3{stroke:#c98500}.ink{fill:#c3c2b7}}
+</style>
+<rect class="s" x="0" y="0" width="920" height="252" rx="8"/>
+<text class="t1" x="24.0" y="30.0" font-size="15" text-anchor="start" font-weight="600">Harness port: 2026-11-05 23:04 to 2026-11-22 17:22 (16.8 days)</text>
+<line class="g" x1="111.8" y1="54" x2="111.8" y2="196" stroke-width="1"/>
+<text class="tm" x="111.8" y="212.0" font-size="11" text-anchor="middle" font-weight="400">11-06</text>
+<line class="g" x1="158.3" y1="54" x2="158.3" y2="196" stroke-width="1"/>
+<line class="g" x1="204.9" y1="54" x2="204.9" y2="196" stroke-width="1"/>
+<text class="tm" x="204.9" y="212.0" font-size="11" text-anchor="middle" font-weight="400">11-08</text>
+<line class="g" x1="251.4" y1="54" x2="251.4" y2="196" stroke-width="1"/>
+<line class="g" x1="297.9" y1="54" x2="297.9" y2="196" stroke-width="1"/>
+<text class="tm" x="297.9" y="212.0" font-size="11" text-anchor="middle" font-weight="400">11-10</text>
+<line class="g" x1="344.5" y1="54" x2="344.5" y2="196" stroke-width="1"/>
+<line class="g" x1="391.0" y1="54" x2="391.0" y2="196" stroke-width="1"/>
+<text class="tm" x="391.0" y="212.0" font-size="11" text-anchor="middle" font-weight="400">11-12</text>
+<line class="g" x1="437.5" y1="54" x2="437.5" y2="196" stroke-width="1"/>
+<line class="g" x1="484.1" y1="54" x2="484.1" y2="196" stroke-width="1"/>
+<text class="tm" x="484.1" y="212.0" font-size="11" text-anchor="middle" font-weight="400">11-14</text>
+<line class="g" x1="530.6" y1="54" x2="530.6" y2="196" stroke-width="1"/>
+<line class="g" x1="577.1" y1="54" x2="577.1" y2="196" stroke-width="1"/>
+<text class="tm" x="577.1" y="212.0" font-size="11" text-anchor="middle" font-weight="400">11-16</text>
+<line class="g" x1="623.7" y1="54" x2="623.7" y2="196" stroke-width="1"/>
+<line class="g" x1="670.2" y1="54" x2="670.2" y2="196" stroke-width="1"/>
+<text class="tm" x="670.2" y="212.0" font-size="11" text-anchor="middle" font-weight="400">11-18</text>
+<line class="g" x1="716.7" y1="54" x2="716.7" y2="196" stroke-width="1"/>
+<line class="g" x1="763.2" y1="54" x2="763.2" y2="196" stroke-width="1"/>
+<text class="tm" x="763.2" y="212.0" font-size="11" text-anchor="middle" font-weight="400">11-20</text>
+<line class="g" x1="809.8" y1="54" x2="809.8" y2="196" stroke-width="1"/>
+<line class="g" x1="856.3" y1="54" x2="856.3" y2="196" stroke-width="1"/>
+<text class="tm" x="856.3" y="212.0" font-size="11" text-anchor="middle" font-weight="400">11-22</text>
+<text class="t2" x="100.0" y="81.0" font-size="12" text-anchor="end" font-weight="400">Lead runs</text>
+<text class="t2" x="100.0" y="115.0" font-size="12" text-anchor="end" font-weight="400">Gate runs</text>
+<text class="t2" x="100.0" y="149.0" font-size="12" text-anchor="end" font-weight="400">Landings</text>
+<text class="t2" x="100.0" y="183.0" font-size="12" text-anchor="end" font-weight="400">Loop down</text>
+<rect class="d3" x="110.0" y="68" width="4.1" height="18" rx="2"><title>run 0001: 11-05 23:04 to 11-06 02:12, rc 0</title></rect>
+<rect class="d3" x="116.1" y="68" width="15.0" height="18" rx="2"><title>run 0002: 11-06 02:13 to 11-06 10:58, rc 0</title></rect>
+<rect class="d3" x="133.1" y="68" width="37.0" height="18" rx="2"><title>run 0003: 11-06 10:58 to 11-07 07:04, rc 0</title></rect>
+<rect class="d3" x="172.0" y="68" width="1.0" height="18" rx="2"><title>run 0004: 11-07 07:04 to 11-07 07:04, rc 127</title></rect>
+<rect class="d3" x="172.1" y="68" width="1.0" height="18" rx="2"><title>run 0005: 11-07 07:04 to 11-07 07:04, rc 127</title></rect>
+<rect class="d3" x="172.1" y="68" width="1.0" height="18" rx="2"><title>run 0006: 11-07 07:05 to 11-07 07:05, rc 127</title></rect>
+<rect class="d3" x="172.4" y="68" width="1.0" height="18" rx="2"><title>run 0007: 11-07 07:15 to 11-07 07:15, rc 127</title></rect>
+<rect class="d3" x="172.4" y="68" width="1.0" height="18" rx="2"><title>run 0008: 11-07 07:15 to 11-07 07:15, rc 127</title></rect>
+<rect class="d3" x="172.4" y="68" width="1.0" height="18" rx="2"><title>run 0009: 11-07 07:16 to 11-07 07:16, rc 127</title></rect>
+<rect class="d3" x="172.8" y="68" width="1.0" height="18" rx="2"><title>run 0010: 11-07 07:26 to 11-07 07:26, rc 127</title></rect>
+<rect class="d3" x="172.8" y="68" width="1.0" height="18" rx="2"><title>run 0011: 11-07 07:26 to 11-07 07:26, rc 127</title></rect>
+<rect class="d3" x="172.8" y="68" width="1.0" height="18" rx="2"><title>run 0012: 11-07 07:27 to 11-07 07:27, rc 127</title></rect>
+<rect class="d3" x="173.1" y="68" width="1.0" height="18" rx="2"><title>run 0013: 11-07 07:37 to 11-07 07:37, rc 127</title></rect>
+<rect class="d3" x="173.1" y="68" width="1.0" height="18" rx="2"><title>run 0014: 11-07 07:37 to 11-07 07:37, rc 127</title></rect>
+<rect class="d3" x="173.1" y="68" width="1.0" height="18" rx="2"><title>run 0015: 11-07 07:38 to 11-07 07:38, rc 127</title></rect>
+<rect class="d3" x="173.5" y="68" width="5.1" height="18" rx="2"><title>run 0016: 11-07 07:48 to 11-07 11:28, rc 0</title></rect>
+<rect class="d3" x="180.6" y="68" width="1.0" height="18" rx="2"><title>run 0017: 11-07 11:29 to 11-07 12:16, rc 0</title></rect>
+<rect class="d3" x="182.1" y="68" width="8.7" height="18" rx="2"><title>run 0018: 11-07 12:16 to 11-07 17:47, rc 0</title></rect>
+<rect class="d3" x="192.8" y="68" width="1.0" height="18" rx="2"><title>run 0019: 11-07 17:47 to 11-07 19:14, rc 0</title></rect>
+<rect class="d3" x="195.6" y="68" width="1.0" height="18" rx="2"><title>run 0020: 11-07 19:14 to 11-07 19:56, rc 0</title></rect>
+<rect class="d3" x="197.0" y="68" width="1.0" height="18" rx="2"><title>run 0021: 11-07 19:57 to 11-07 20:12, rc 0</title></rect>
+<rect class="d3" x="197.5" y="68" width="3.7" height="18" rx="2"><title>run 0022: 11-07 20:12 to 11-07 23:08, rc 0</title></rect>
+<rect class="d3" x="203.2" y="68" width="13.2" height="18" rx="2"><title>run 0023: 11-07 23:09 to 11-08 07:00, rc 0</title></rect>
+<rect class="d3" x="218.5" y="68" width="29.9" height="18" rx="2"><title>run 0024: 11-08 07:01 to 11-08 23:27, rc 0</title></rect>
+<rect class="d3" x="250.3" y="68" width="5.4" height="18" rx="2"><title>run 0025: 11-08 23:27 to 11-09 03:17, rc 0</title></rect>
+<rect class="d3" x="257.8" y="68" width="12.8" height="18" rx="2"><title>run 0026: 11-09 03:18 to 11-09 10:57, rc 0</title></rect>
+<rect class="d3" x="272.6" y="68" width="7.4" height="18" rx="2"><title>run 0027: 11-09 10:57 to 11-09 15:49, rc 0</title></rect>
+<rect class="d3" x="282.1" y="68" width="1.0" height="18" rx="2"><title>run 0028: 11-09 15:49 to 11-09 17:07, rc 0</title></rect>
+<rect class="d3" x="284.6" y="68" width="2.6" height="18" rx="2"><title>run 0029: 11-09 17:08 to 11-09 19:29, rc 0</title></rect>
+<rect class="d3" x="289.2" y="68" width="14.1" height="18" rx="2"><title>run 0030: 11-09 19:29 to 11-10 03:47, rc 0</title></rect>
+<rect class="d3" x="305.3" y="68" width="5.6" height="18" rx="2"><title>run 0031: 11-10 03:47 to 11-10 07:41, rc 0</title></rect>
+<rect class="d3" x="312.8" y="68" width="6.5" height="18" rx="2"><title>run 0032: 11-10 07:41 to 11-10 12:05, rc 0</title></rect>
+<rect class="d3" x="321.4" y="68" width="13.5" height="18" rx="2"><title>run 0033: 11-10 12:06 to 11-10 20:05, rc 0</title></rect>
+<rect class="d3" x="336.9" y="68" width="12.2" height="18" rx="2"><title>run 0034: 11-10 20:05 to 11-11 03:26, rc 0</title></rect>
+<rect class="d3" x="351.1" y="68" width="1.0" height="18" rx="2"><title>run 0035: 11-11 03:26 to 11-11 04:50, rc 0</title></rect>
+<rect class="d3" x="353.9" y="68" width="2.1" height="18" rx="2"><title>run 0036: 11-11 04:51 to 11-11 06:58, rc 0</title></rect>
+<rect class="d3" x="358.0" y="68" width="26.1" height="18" rx="2"><title>run 0037: 11-11 06:58 to 11-11 21:29, rc 0</title></rect>
+<rect class="d3" x="386.1" y="68" width="13.7" height="18" rx="2"><title>run 0038: 11-11 21:29 to 11-12 05:34, rc 0</title></rect>
+<rect class="d3" x="401.8" y="68" width="15.7" height="18" rx="2"><title>run 0039: 11-12 05:35 to 11-12 14:43, rc 0</title></rect>
+<rect class="d3" x="419.5" y="68" width="1.0" height="18" rx="2"><title>run 0040: 11-12 14:43 to 11-12 14:43, rc 127</title></rect>
+<rect class="d3" x="419.6" y="68" width="1.0" height="18" rx="2"><title>run 0041: 11-12 14:44 to 11-12 15:22, rc 0</title></rect>
+<rect class="d3" x="420.8" y="68" width="1.0" height="18" rx="2"><title>run 0042: 11-12 15:23 to 11-12 16:31, rc 0</title></rect>
+<rect class="d3" x="428.2" y="68" width="5.0" height="18" rx="2"><title>run 0043: 11-12 19:12 to 11-12 22:50, rc 0</title></rect>
+<rect class="d3" x="435.3" y="68" width="11.3" height="18" rx="2"><title>run 0044: 11-12 22:50 to 11-13 05:42, rc 0</title></rect>
+<rect class="d3" x="448.6" y="68" width="2.2" height="18" rx="2"><title>run 0045: 11-13 05:42 to 11-13 07:52, rc 0</title></rect>
+<rect class="d3" x="452.8" y="68" width="9.9" height="18" rx="2"><title>run 0046: 11-13 07:52 to 11-13 14:00, rc 0</title></rect>
+<rect class="d3" x="467.4" y="68" width="6.2" height="18" rx="2"><title>run 0047: 11-13 15:25 to 11-13 19:40, rc 0</title></rect>
+<rect class="d3" x="482.4" y="68" width="2.5" height="18" rx="2"><title>run 0048: 11-13 23:08 to 11-14 01:27, rc 0</title></rect>
+<rect class="d3" x="486.9" y="68" width="6.5" height="18" rx="2"><title>run 0049: 11-14 01:27 to 11-14 05:49, rc 0</title></rect>
+<rect class="d3" x="495.3" y="68" width="2.2" height="18" rx="2"><title>run 0050: 11-14 05:49 to 11-14 08:00, rc 0</title></rect>
+<rect class="d3" x="499.6" y="68" width="7.0" height="18" rx="2"><title>run 0051: 11-14 08:01 to 11-14 12:40, rc 0</title></rect>
+<rect class="d3" x="508.6" y="68" width="2.3" height="18" rx="2"><title>run 0052: 11-14 12:41 to 11-14 14:55, rc 0</title></rect>
+<rect class="d3" x="513.0" y="68" width="13.2" height="18" rx="2"><title>run 0053: 11-14 14:55 to 11-14 22:44, rc 0</title></rect>
+<rect class="d3" x="528.2" y="68" width="1.0" height="18" rx="2"><title>run 0054: 11-14 22:45 to 11-14 23:21, rc 0</title></rect>
+<rect class="d3" x="529.3" y="68" width="13.2" height="18" rx="2"><title>run 0055: 11-14 23:21 to 11-15 07:11, rc 0</title></rect>
+<rect class="d3" x="544.5" y="68" width="7.2" height="18" rx="2"><title>run 0056: 11-15 07:11 to 11-15 11:55, rc 0</title></rect>
+<rect class="d3" x="553.7" y="68" width="2.4" height="18" rx="2"><title>run 0057: 11-15 11:56 to 11-15 14:11, rc 0</title></rect>
+<rect class="d3" x="558.1" y="68" width="1.0" height="18" rx="2"><title>run 0058: 11-15 14:12 to 11-15 15:05, rc 0</title></rect>
+<rect class="d3" x="559.9" y="68" width="9.4" height="18" rx="2"><title>run 0059: 11-15 15:05 to 11-15 20:58, rc 0</title></rect>
+<rect class="d3" x="571.3" y="68" width="25.6" height="18" rx="2"><title>run 0060: 11-15 20:58 to 11-16 11:13, rc 0</title></rect>
+<rect class="d3" x="598.9" y="68" width="15.5" height="18" rx="2"><title>run 0061: 11-16 11:14 to 11-16 20:17, rc 0</title></rect>
+<rect class="d3" x="616.5" y="68" width="1.0" height="18" rx="2"><title>run 0062: 11-16 20:17 to 11-16 21:01, rc 0</title></rect>
+<rect class="d3" x="617.9" y="68" width="8.8" height="18" rx="2"><title>run 0063: 11-16 21:01 to 11-17 02:35, rc 0</title></rect>
+<rect class="d3" x="628.7" y="68" width="17.3" height="18" rx="2"><title>run 0064: 11-17 02:35 to 11-17 12:31, rc 0</title></rect>
+<rect class="d3" x="647.9" y="68" width="12.0" height="18" rx="2"><title>run 0065: 11-17 12:31 to 11-17 19:44, rc 0</title></rect>
+<rect class="d3" x="661.9" y="68" width="1.0" height="18" rx="2"><title>run 0066: 11-17 19:44 to 11-17 21:08, rc 0</title></rect>
+<rect class="d3" x="664.6" y="68" width="1.5" height="18" rx="2"><title>run 0067: 11-17 21:08 to 11-17 22:57, rc 0</title></rect>
+<rect class="d3" x="668.2" y="68" width="1.6" height="18" rx="2"><title>run 0068: 11-17 22:57 to 11-18 00:49, rc 0</title></rect>
+<rect class="d3" x="671.8" y="68" width="4.7" height="18" rx="2"><title>run 0069: 11-18 00:49 to 11-18 04:17, rc 0</title></rect>
+<rect class="d3" x="678.5" y="68" width="7.3" height="18" rx="2"><title>run 0070: 11-18 04:17 to 11-18 09:04, rc 0</title></rect>
+<rect class="d3" x="687.8" y="68" width="19.3" height="18" rx="2"><title>run 0071: 11-18 09:05 to 11-18 20:05, rc 0</title></rect>
+<rect class="d3" x="709.1" y="68" width="2.7" height="18" rx="2"><title>run 0072: 11-18 20:05 to 11-18 22:29, rc 0</title></rect>
+<rect class="d3" x="713.8" y="68" width="4.7" height="18" rx="2"><title>run 0073: 11-18 22:30 to 11-19 01:58, rc 0</title></rect>
+<rect class="d3" x="720.5" y="68" width="5.3" height="18" rx="2"><title>run 0074: 11-19 01:58 to 11-19 05:44, rc 0</title></rect>
+<rect class="d3" x="727.9" y="68" width="18.1" height="18" rx="2"><title>run 0075: 11-19 05:45 to 11-19 16:07, rc 0</title></rect>
+<rect class="d3" x="748.0" y="68" width="1.9" height="18" rx="2"><title>run 0076: 11-19 16:08 to 11-19 18:10, rc 0</title></rect>
+<rect class="d3" x="752.0" y="68" width="1.0" height="18" rx="2"><title>run 0077: 11-19 18:10 to 11-19 18:54, rc 0</title></rect>
+<rect class="d3" x="753.4" y="68" width="1.0" height="18" rx="2"><title>run 0078: 11-19 18:54 to 11-19 19:11, rc 0</title></rect>
+<rect class="d3" x="753.9" y="68" width="4.6" height="18" rx="2"><title>run 0079: 11-19 19:11 to 11-19 22:35, rc 0</title></rect>
+<rect class="d3" x="760.5" y="68" width="4.5" height="18" rx="2"><title>run 0080: 11-19 22:35 to 11-20 01:56, rc 0</title></rect>
+<rect class="d3" x="767.0" y="68" width="2.0" height="18" rx="2"><title>run 0081: 11-20 01:56 to 11-20 04:01, rc 0</title></rect>
+<rect class="d3" x="771.0" y="68" width="5.9" height="18" rx="2"><title>run 0082: 11-20 04:01 to 11-20 08:06, rc 0</title></rect>
+<rect class="d3" x="779.0" y="68" width="1.0" height="18" rx="2"><title>run 0083: 11-20 08:06 to 11-20 08:53, rc 0</title></rect>
+<rect class="d3" x="780.5" y="68" width="33.8" height="18" rx="2"><title>run 0084: 11-20 08:53 to 11-21 03:22, rc 0</title></rect>
+<rect class="d3" x="816.3" y="68" width="8.4" height="18" rx="2"><title>run 0085: 11-21 03:22 to 11-21 08:44, rc 0</title></rect>
+<rect class="d3" x="826.7" y="68" width="16.8" height="18" rx="2"><title>run 0086: 11-21 08:44 to 11-21 18:25, rc 0</title></rect>
+<rect class="d3" x="845.5" y="68" width="1.0" height="18" rx="2"><title>run 0087: 11-21 18:25 to 11-21 19:03, rc 0</title></rect>
+<rect class="d3" x="846.7" y="68" width="10.2" height="18" rx="2"><title>run 0088: 11-21 19:03 to 11-22 01:21, rc 0</title></rect>
+<rect class="d3" x="859.0" y="68" width="6.2" height="18" rx="2"><title>run 0089: 11-22 01:22 to 11-22 05:35, rc 0</title></rect>
+<rect class="d3" x="867.2" y="68" width="1.0" height="18" rx="2"><title>run 0090: 11-22 05:36 to 11-22 06:27, rc 0</title></rect>
+<rect class="d3" x="868.8" y="68" width="1.0" height="18" rx="2"><title>run 0091: 11-22 06:27 to 11-22 06:40, rc 0</title></rect>
+<rect class="d3" x="869.3" y="68" width="1.8" height="18" rx="2"><title>run 0092: 11-22 06:40 to 11-22 08:39, rc 0</title></rect>
+<rect class="d3" x="873.1" y="68" width="1.0" height="18" rx="2"><title>run 0093: 11-22 08:39 to 11-22 09:12, rc 0</title></rect>
+<rect class="d3" x="874.2" y="68" width="3.3" height="18" rx="2"><title>run 0094: 11-22 09:12 to 11-22 11:55, rc 0</title></rect>
+<rect class="d3" x="879.4" y="68" width="2.5" height="18" rx="2"><title>run 0095: 11-22 11:55 to 11-22 14:14, rc 0</title></rect>
+<rect class="d3" x="883.9" y="68" width="4.1" height="18" rx="2"><title>run 0096: 11-22 14:14 to running, rc -</title></rect>
+<path class="crit" d="M127.9,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 6d23be29: red, 11-06 10:07</title></path>
+<circle class="good ring" cx="133.0" cy="111.0" r="4.0" stroke-width="2"><title>gate on e0fd1995: green, 11-06 10:57</title></circle>
+<path class="crit" d="M169.0,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on a4cb5d5a: red, 11-07 07:17</title></path>
+<path class="crit" d="M177.4,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 16819897: red, 11-07 11:37</title></path>
+<circle class="good ring" cx="195.7" cy="111.0" r="4.0" stroke-width="2"><title>gate on a4f6305c: green, 11-07 19:17</title></circle>
+<circle class="good ring" cx="219.0" cy="111.0" r="4.0" stroke-width="2"><title>gate on 9d6542b7: green, 11-08 07:17</title></circle>
+<path class="crit" d="M247.2,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 88df8eec: red, 11-08 23:37</title></path>
+<path class="crit" d="M253.0,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 6e5468fa: red, 11-09 02:37</title></path>
+<circle class="good ring" cx="257.8" cy="111.0" r="4.0" stroke-width="2"><title>gate on ff04aa84: green, 11-09 03:17</title></circle>
+<path class="crit" d="M268.8,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 9a966178: red, 11-09 10:47</title></path>
+<path class="crit" d="M269.8,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 352706ad: red, 11-09 11:17</title></path>
+<path class="crit" d="M271.1,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 352706ad: red, 11-09 11:57</title></path>
+<circle class="good ring" cx="277.8" cy="111.0" r="4.0" stroke-width="2"><title>gate on f0269dae: green, 11-09 13:37</title></circle>
+<circle class="good ring" cx="282.3" cy="111.0" r="4.0" stroke-width="2"><title>gate on 53a1ef4e: green, 11-09 15:57</title></circle>
+<path class="crit" d="M398.4,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on e12d9876: red, 11-12 05:37</title></path>
+<path class="crit" d="M412.6,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on c4067bd8: red, 11-12 12:57</title></path>
+<circle class="good ring" cx="420.3" cy="111.0" r="4.0" stroke-width="2"><title>gate on 7b23e620: green, 11-12 15:07</title></circle>
+<path class="crit" d="M445.2,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 86b52f09: red, 11-13 05:47</title></path>
+<circle class="good ring" cx="451.7" cy="111.0" r="4.0" stroke-width="2"><title>gate on 86b52f09: green, 11-13 07:17</title></circle>
+<path class="crit" d="M472.7,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on ba73eff3: red, 11-13 19:57</title></path>
+<path class="crit" d="M474.8,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on ba73eff3: red, 11-13 21:02</title></path>
+<path class="crit" d="M476.8,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on ba73eff3: red, 11-13 22:05</title></path>
+<circle class="good ring" cx="486.9" cy="111.0" r="4.0" stroke-width="2"><title>gate on 7f5ff7eb: green, 11-14 01:27</title></circle>
+<path class="crit" d="M492.1,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on ca33dd31: invalid, 11-14 05:57</title></path>
+<circle class="good ring" cx="500.5" cy="111.0" r="4.0" stroke-width="2"><title>gate on ca33dd31: green, 11-14 08:30</title></circle>
+<circle class="good ring" cx="508.5" cy="111.0" r="4.0" stroke-width="2"><title>gate on 10174de1: green, 11-14 12:37</title></circle>
+<circle class="good ring" cx="513.7" cy="111.0" r="4.0" stroke-width="2"><title>gate on 7d745972: green, 11-14 15:17</title></circle>
+<circle class="good ring" cx="529.8" cy="111.0" r="4.0" stroke-width="2"><title>gate on 816a56bf: green, 11-14 23:37</title></circle>
+<circle class="good ring" cx="532.4" cy="111.0" r="4.0" stroke-width="2"><title>gate on 27bea82d: green, 11-15 00:57</title></circle>
+<circle class="good ring" cx="537.0" cy="111.0" r="4.0" stroke-width="2"><title>gate on 49c42b6b: green, 11-15 03:17</title></circle>
+<circle class="good ring" cx="544.1" cy="111.0" r="4.0" stroke-width="2"><title>gate on ca8ae547: green, 11-15 06:57</title></circle>
+<circle class="good ring" cx="553.8" cy="111.0" r="4.0" stroke-width="2"><title>gate on bbaf6a7b: green, 11-15 11:57</title></circle>
+<circle class="good ring" cx="618.4" cy="111.0" r="4.0" stroke-width="2"><title>gate on 9f7151c0: green, 11-16 21:17</title></circle>
+<circle class="good ring" cx="628.4" cy="111.0" r="4.0" stroke-width="2"><title>gate on 29078736: green, 11-17 02:27</title></circle>
+<circle class="good ring" cx="630.7" cy="111.0" r="4.0" stroke-width="2"><title>gate on 81f9d35c: green, 11-17 03:37</title></circle>
+<circle class="good ring" cx="671.7" cy="111.0" r="4.0" stroke-width="2"><title>gate on 3e5c7f5c: green, 11-18 00:47</title></circle>
+<path class="crit" d="M675.0,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on c54767bf: red, 11-18 04:17</title></path>
+<circle class="good ring" cx="687.5" cy="111.0" r="4.0" stroke-width="2"><title>gate on 8c51afe5: green, 11-18 08:57</title></circle>
+<circle class="good ring" cx="709.5" cy="111.0" r="4.0" stroke-width="2"><title>gate on e6e1b386: green, 11-18 20:17</title></circle>
+<path class="crit" d="M710.5,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on fc059f34: red, 11-18 22:37</title></path>
+<circle class="good ring" cx="720.5" cy="111.0" r="4.0" stroke-width="2"><title>gate on 34756498: green, 11-19 01:57</title></circle>
+<path class="crit" d="M747.7,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on ac66935c: red, 11-19 17:47</title></path>
+<circle class="good ring" cx="767.0" cy="111.0" r="4.0" stroke-width="2"><title>gate on c7f72d4e: green, 11-20 01:57</title></circle>
+<circle class="good ring" cx="787.4" cy="111.0" r="4.0" stroke-width="2"><title>gate on 17dcf279: green, 11-20 12:27</title></circle>
+<circle class="good ring" cx="818.4" cy="111.0" r="4.0" stroke-width="2"><title>gate on 7f1a361a: green, 11-21 04:27</title></circle>
+<circle class="good ring" cx="826.8" cy="111.0" r="4.0" stroke-width="2"><title>gate on 0e301f54: green, 11-21 08:47</title></circle>
+<path class="crit" d="M842.1,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 61780cb6: red, 11-21 18:27</title></path>
+<path class="crit" d="M843.0,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 77bf0826: red, 11-21 18:57</title></path>
+<path class="crit" d="M849.2,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on 0f8f05fe: red, 11-21 22:07</title></path>
+<path class="crit" d="M863.1,107.5 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none" stroke-linecap="round"><title>gate on f432d966: red, 11-22 05:17</title></path>
+<circle class="good ring" cx="871.7" cy="111.0" r="4.0" stroke-width="2"><title>gate on 3a2dddec: green, 11-22 07:57</title></circle>
+<circle class="good ring" cx="884.0" cy="111.0" r="4.0" stroke-width="2"><title>gate on 558ecac8: green, 11-22 14:17</title></circle>
+<path class="ink" d="M134.8,139.0 l6,10 h-12 Z"><title>landing 1: H6 at 11-06 11:51, 25 commits</title></path>
+<path class="ink" d="M197.5,139.0 l6,10 h-12 Z"><title>landing 2: H7 at 11-07 20:12, 65 commits</title></path>
+<path class="ink" d="M221.3,139.0 l6,10 h-12 Z"><title>landing 3: H7+ at 11-08 08:27, 25 commits</title></path>
+<path class="ink" d="M260.3,139.0 l6,10 h-12 Z"><title>landing 4: H8 at 11-09 04:34, 36 commits</title></path>
+<path class="ink" d="M279.7,139.0 l6,10 h-12 Z"><title>landing 5: H9a at 11-09 14:36, 27 commits</title></path>
+<path class="ink" d="M284.2,139.0 l6,10 h-12 Z"><title>landing 6: H9a1 at 11-09 16:53, 5 commits</title></path>
+<path class="ink" d="M422.4,139.0 l6,10 h-12 Z"><title>landing 7: H9b at 11-12 16:10, 134 commits</title></path>
+<path class="ink" d="M453.6,139.0 l6,10 h-12 Z"><title>landing 8: PLAT at 11-13 08:17, 33 commits</title></path>
+<path class="ink" d="M488.8,139.0 l6,10 h-12 Z"><title>landing 9: REL2 at 11-14 02:27, 38 commits</title></path>
+<path class="ink" d="M502.4,139.0 l6,10 h-12 Z"><title>landing 10: REL3 at 11-14 09:28, 10 commits</title></path>
+<path class="ink" d="M510.4,139.0 l6,10 h-12 Z"><title>landing 11: REL4 at 11-14 13:36, 18 commits</title></path>
+<path class="ink" d="M515.6,139.0 l6,10 h-12 Z"><title>landing 12: DOCS at 11-14 16:16, 11 commits</title></path>
+<path class="ink" d="M531.8,139.0 l6,10 h-12 Z"><title>landing 13: REL5 at 11-15 00:38, 23 commits</title></path>
+<path class="ink" d="M534.3,139.0 l6,10 h-12 Z"><title>landing 14: REL6 at 11-15 01:56, 5 commits</title></path>
+<path class="ink" d="M538.9,139.0 l6,10 h-12 Z"><title>landing 15: REL7 at 11-15 04:16, 2 commits</title></path>
+<path class="ink" d="M546.0,139.0 l6,10 h-12 Z"><title>landing 16: REL8 at 11-15 07:57, 7 commits</title></path>
+<path class="ink" d="M555.8,139.0 l6,10 h-12 Z"><title>landing 17: M1192 at 11-15 12:59, 16 commits</title></path>
+<path class="ink" d="M621.2,139.0 l6,10 h-12 Z"><title>landing 18: M1194 at 11-16 22:45, 46 commits</title></path>
+<path class="ink" d="M630.5,139.0 l6,10 h-12 Z"><title>landing 19: M1193+M1195 at 11-17 03:31, 14 commits</title></path>
+<path class="ink" d="M632.7,139.0 l6,10 h-12 Z"><title>landing 20: M1193+M1195 at 11-17 04:38, 2 commits</title></path>
+<path class="ink" d="M673.7,139.0 l6,10 h-12 Z"><title>landing 21: G at 11-18 01:50, 54 commits</title></path>
+<path class="ink" d="M689.6,139.0 l6,10 h-12 Z"><title>landing 22: G at 11-18 10:00, 15 commits</title></path>
+<path class="ink" d="M711.7,139.0 l6,10 h-12 Z"><title>landing 23: G at 11-18 21:23, 24 commits</title></path>
+<path class="ink" d="M722.6,139.0 l6,10 h-12 Z"><title>landing 24: GD at 11-19 03:00, 10 commits</title></path>
+<path class="ink" d="M769.2,139.0 l6,10 h-12 Z"><title>landing 25: H10 at 11-20 03:05, 60 commits</title></path>
+<path class="ink" d="M789.5,139.0 l6,10 h-12 Z"><title>landing 26: G at 11-20 13:33, 21 commits</title></path>
+<path class="ink" d="M820.5,139.0 l6,10 h-12 Z"><title>landing 27: H11 at 11-21 05:32, 17 commits</title></path>
+<path class="ink" d="M828.9,139.0 l6,10 h-12 Z"><title>landing 28: DM at 11-21 09:53, 10 commits</title></path>
+<path class="ink" d="M873.9,139.0 l6,10 h-12 Z"><title>landing 29: SEC at 11-22 09:05, 55 commits</title></path>
+<path class="ink" d="M886.3,139.0 l6,10 h-12 Z"><title>landing 30: I5 at 11-22 15:28, 44 commits</title></path>
+<rect class="down" x="172.1" y="170" width="2.0" height="18" rx="2"><title>waiting: 11-07 07:05 to 11-07 07:15 (three quick failures in a row: waiting 10 minutes (runs died at exec, rc 127: the prompt as one argv over 128 KiB))</title></rect>
+<rect class="down" x="172.4" y="170" width="2.0" height="18" rx="2"><title>waiting: 11-07 07:16 to 11-07 07:26 (three quick failures in a row: waiting 10 minutes (runs died at exec, rc 127))</title></rect>
+<rect class="down" x="172.8" y="170" width="2.0" height="18" rx="2"><title>waiting: 11-07 07:27 to 11-07 07:37 (three quick failures in a row: waiting 10 minutes (runs died at exec, rc 127))</title></rect>
+<rect class="down" x="173.1" y="170" width="2.0" height="18" rx="2"><title>waiting: 11-07 07:38 to 11-07 07:48 (three quick failures in a row: waiting 10 minutes (runs died at exec, rc 127))</title></rect>
+<rect class="down" x="203.2" y="170" width="2.0" height="18" rx="2"><title>restart: 11-07 23:09 to 11-07 23:09 (RESTART onto the pinned a4f6305c jichi-harness (H6 + H7 harness code), on the operator's word)</title></rect>
+<rect class="down" x="284.6" y="170" width="2.0" height="18" rx="2"><title>restart: 11-09 17:07 to 11-09 17:08 (RESTART onto the pinned 53a1ef4e jichi-harness (H9a + H9a1), on the operator's word)</title></rect>
+<rect class="down" x="321.4" y="170" width="2.0" height="18" rx="2"><title>model outage park: 11-10 12:05 to 11-10 12:06 (the page watcher saw model calls failing for 31 minutes (10:39) and set the drive to stop after its current run; the run's own retry recovered, the run ended normally and the loop started again)</title></rect>
+<rect class="down" x="423.0" y="170" width="5.2" height="18" rx="2"><title>paused: 11-12 16:31 to 11-12 19:12 (PAUSE on the operator's word (&quot;pause after the next master lands, and discuss the next steps&quot;) after H9b landed; platform retests on the new master; resumed on the operator's word)</title></rect>
+<rect class="down" x="464.7" y="170" width="2.7" height="18" rx="2"><title>paused: 11-13 14:00 to 11-13 15:25 (PAUSE at the PLAT landing for the 0.14.0 release candidate and cut (the operator's word of 11-12 18:3x))</title></rect>
+<rect class="down" x="475.7" y="170" width="6.7" height="18" rx="2"><title>paused: 11-13 19:40 to 11-13 23:08 (STOP after the operator-approved short run 0047 (BATCH REL READY) while the release batch went through the gate; resumed on the operator's &quot;option 1&quot;)</title></rect>
+<rect class="down" x="508.6" y="170" width="2.0" height="18" rx="2"><title>restart: 11-14 12:40 to 11-14 12:41 (RESTART onto the new pin (7f5ff7eb harness code), on the operator's word)</title></rect>
+<rect class="down" x="598.9" y="170" width="2.0" height="18" rx="2"><title>restart: 11-16 11:13 to 11-16 11:14 (RESTART onto the pinned bbaf6a7b jichi-harness, on the operator's word (&quot;Start on 1, and yes to 2&quot;))</title></rect>
+<rect class="down" x="816.3" y="170" width="2.0" height="18" rx="2"><title>restart: 11-21 03:22 to 11-21 03:22 (RESTART onto the pinned 17dcf279 jichi-harness, on the operator's word (&quot;Then restart the drive loop!&quot;))</title></rect>
+<circle class="good ring" cx="110.0" cy="232.0" r="4.0" stroke-width="2"><title>green gate</title></circle>
+<text class="t2" x="120.0" y="236.0" font-size="12" text-anchor="start" font-weight="400">green gate (30)</text>
+<path class="crit" d="M250.0,228.0 l7,7 m0,-7 l-7,7" stroke-width="2" fill="none"/>
+<text class="t2" x="264.0" y="236.0" font-size="12" text-anchor="start" font-weight="400">red, invalid or stopped gate (22)</text>
+<path class="ink" d="M460.0,226.0 l6,10 h-12 Z"/>
+<text class="t2" x="472.0" y="236.0" font-size="12" text-anchor="start" font-weight="400">landing on master (30)</text>
+<rect class="down" x="640.0" y="227.0" width="14" height="10"/>
+<text class="t2" x="660.0" y="236.0" font-size="12" text-anchor="start" font-weight="400">loop parked, stopped or paused</text>
+</svg>

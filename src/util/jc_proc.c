@@ -317,6 +317,16 @@ int jc_proc_harden_state(void)
 #if defined(JC_HAVE_ENVIRON_SCRUB)
 /* `environ` is declared once, near the top of this file (M1173). */
 
+/* The names (pointers into the registry, which lives as long as the process)
+ * of the secret variables that were set and non-empty when the scrub zeroed
+ * them. Names only. NO FIXED BOUND: the registry is unbounded on purpose
+ * (M724 removed its cap after a 33rd key variable reached every child), so
+ * this is sized from the registry when the scrub runs: one slot for every
+ * name it will scrub. */
+static const char **g_scrubbed;
+static int g_scrubbed_n;
+static int g_scrubbed_cap;
+
 /* Zero the whole "NAME=value" string for `name`, so `ps -e` -- which reads the
  * live user stack on OpenBSD -- shows nothing for the slot. getenv then skips
  * the NUL-led entry; nothing re-reads the key after config load, so this is
@@ -332,11 +342,41 @@ static void scrub_env_name(const char *name)
     nl = strlen(name);
     for (e = environ; e != NULL && *e != NULL; e++) {
         if (strncmp(*e, name, nl) == 0 && (*e)[nl] == '=') {
+            /* Remember THAT it was set (never its value) before it goes:
+             * two messages ask later whether a vendor's variable was set
+             * and deliberately not sent, and after the scrub getenv says
+             * "unset" for it. See jc_proc_secret_env_was_set. */
+            if ((*e)[nl + 1] != '\0' && g_scrubbed != NULL &&
+                g_scrubbed_n < g_scrubbed_cap) {
+                g_scrubbed[g_scrubbed_n++] = name;
+            }
             memset(*e, 0, strlen(*e));
         }
     }
 }
 #endif
+
+int jc_proc_secret_env_was_set(const char *name)
+{
+    const char *v;
+#if defined(JC_HAVE_ENVIRON_SCRUB)
+    int i;
+    if (name == NULL || name[0] == '\0') {
+        return 0;
+    }
+    for (i = 0; i < g_scrubbed_n; i++) {
+        if (strcmp(g_scrubbed[i], name) == 0) {
+            return 1;
+        }
+    }
+#else
+    if (name == NULL || name[0] == '\0') {
+        return 0;
+    }
+#endif
+    v = getenv(name);
+    return (v != NULL && v[0] != '\0') ? 1 : 0;
+}
 
 void jc_proc_harden_secret_env(void)
 {
@@ -349,6 +389,21 @@ void jc_proc_harden_secret_env(void)
     if (keep != NULL && jc_bool_from_word(keep, &keep_yes) && keep_yes) {
         g_harden_state = JC_HARDEN_OFF_OPTOUT;
         return;
+    }
+    /* One slot per name that is about to be scrubbed (a duplicate export of
+     * one name can add a second entry, hence the slack of the same size). If
+     * the allocation fails nothing is remembered: the scrub still runs, and
+     * the two notes fall back to the generic wording, as before this record
+     * existed. */
+    if (g_scrubbed == NULL) {
+        int want = g_secret_env_n;
+        for (i = 0; g_secret_env_builtin[i] != NULL; i++) {
+            want++;
+        }
+        g_scrubbed = (const char **)malloc((size_t)(2 * want + 1) *
+                                           sizeof(const char *));
+        g_scrubbed_cap = (g_scrubbed != NULL) ? 2 * want + 1 : 0;
+        g_scrubbed_n = 0;
     }
     for (i = 0; g_secret_env_builtin[i] != NULL; i++) {
         scrub_env_name(g_secret_env_builtin[i]);
@@ -431,7 +486,7 @@ void jc_proc_child_sigreset(void)
 #define JC_POPEN_MAX 8
 static struct { FILE *f; pid_t pid; } g_popen[JC_POPEN_MAX];
 
-FILE *jc_proc_popen(const char *cmd, const char *mode)
+FILE *jc_proc_popen_pid(const char *cmd, const char *mode, pid_t *pid_out)
 {
     int fds[2];
     pid_t pid;
@@ -488,7 +543,18 @@ FILE *jc_proc_popen(const char *cmd, const char *mode)
     }
     g_popen[slot].f = f;
     g_popen[slot].pid = pid;
+    if (pid_out != NULL) {
+        *pid_out = pid;
+    }
     return f;
+}
+
+FILE *jc_proc_popen(const char *cmd, const char *mode)
+{
+    /* M1192 B1 (D5): the pid-hiding half. Every pre-B1 caller keeps this;
+     * the watched read loop wants the pid (jc_proc_popen_pid) so it can
+     * notice the shell's own exit before the pipe's EOF. */
+    return jc_proc_popen_pid(cmd, mode, NULL);
 }
 
 int jc_proc_pclose(FILE *f)

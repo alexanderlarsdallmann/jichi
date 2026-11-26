@@ -17,9 +17,12 @@ static int g_level = JC_LOG_WARN;
 static char g_prefix[96];   /* M864: a parallel child's id, or "" */
 
 /* ----- secret-redaction registry (defined early so jc_logf can consult it) - */
-#define JC_REDACT_MAX 32
-static const char *g_secrets[JC_REDACT_MAX];
-static int         g_nsecrets;
+/* S3 fix: registry is now a heap-allocated growable array (unbounded count).
+ * The process-outliving storage is the point - a secret must be scrubbed for
+ * the whole process (not tied to any arena). */
+static const char **g_secrets = NULL;
+static int         g_nsecrets = 0;
+static int         g_secrets_cap = 0;  /* allocated capacity */
 
 void jc_log_set_level(int level)
 {
@@ -171,7 +174,7 @@ int jc_redact_apply(const char *const *secrets, int nsecrets,
     return hits;
 }
 
-void jc_redact_register(const char *secret)
+int jc_redact_register(const char *secret)
 {
     char *cp;
     int i;
@@ -180,19 +183,29 @@ void jc_redact_register(const char *secret)
      * passes real pointers; NULL-clearing wipes the registry, which we must
      * not do). */
     if (secret == NULL) {
-        return;
+        return 0;
     }
 
     if (strlen(secret) < (size_t)JC_REDACT_MIN) {
-        return;
+        return 0;
     }
     for (i = 0; i < g_nsecrets; i++) {
         if (g_secrets[i] != NULL && strcmp(g_secrets[i], secret) == 0) {
-            return; /* already registered */
+            return 0; /* already registered */
         }
     }
-    if (g_nsecrets >= JC_REDACT_MAX) {
-        return; /* full: drop this secret (parity with the pre-M926 silent overflow) */
+    /* S3 fix: grow the registry as needed. The registry must hold secrets for
+     * the whole process lifetime (not tied to any arena), so we use malloc/realloc.
+     * Returns -1 on OOM (caller should refuse the registration). */
+    if (g_nsecrets >= g_secrets_cap) {
+        int new_cap = (g_secrets_cap == 0) ? 8 : g_secrets_cap * 2;
+        const char **new_secrets = (const char **)realloc((void *)g_secrets,
+                                                          (size_t)new_cap * sizeof(char *));
+        if (new_secrets == NULL) {
+            return -1; /* OOM: registration refused */
+        }
+        g_secrets = new_secrets;
+        g_secrets_cap = new_cap;
     }
     /* M926 (R05-F1): COPY, do not store the caller's pointer. The registry's
      * own contract (jc_log.h) says the stored string must outlive the
@@ -202,14 +215,16 @@ void jc_redact_register(const char *secret)
      * read freed memory (UAF) while the newest secret was never scrubbed. */
     cp = (char *)malloc(strlen(secret) + 1);
     if (cp == NULL) {
-        return;
+        return -1; /* OOM: registration refused */
     }
     strcpy(cp, secret);
     g_secrets[g_nsecrets++] = cp;
+    return 0; /* success */
 }
 
 /* jc_redact_reset() -- test isolation only; production never calls it.
- * Frees every registered secret copy and sets g_nsecrets = 0. */
+ * S3 fix: frees every registered secret copy and the registry array itself,
+ * setting both to empty/NULL. */
 void jc_redact_reset(void)
 {
     int i;
@@ -220,6 +235,11 @@ void jc_redact_reset(void)
         }
     }
     g_nsecrets = 0;
+    if (g_secrets != NULL) {
+        free((void *)g_secrets);
+        g_secrets = NULL;
+        g_secrets_cap = 0;
+    }
 }
 
 int jc_redact_secrets(const char *in, char *out, jc_size cap)

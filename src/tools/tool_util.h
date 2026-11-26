@@ -33,6 +33,10 @@ void tu_append_diagnostics(struct jc_tool_result *out, struct jc_app *app,
 /* Argument access (default/NULL if missing or wrong type). */
 const char *tu_arg_str(const cJSON *args, const char *key);
 int tu_arg_bool(const cJSON *args, const char *key, int dflt);
+/* A boolean that sets a FENCE in a model's tool arguments (def-415): an
+ * absent key gives 0 with *present 0; a readable value gives 0 or 1; a value
+ * that cannot be read as true or false gives 1, the fenced side. */
+int tu_arg_fence(const cJSON *args, const char *key, int *present);
 int tu_arg_int(const cJSON *args, const char *key, int dflt);
 
 /* Schema construction. */

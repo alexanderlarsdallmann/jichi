@@ -128,6 +128,8 @@ void jc_bg_mgr_init(struct jc_bg_mgr *m)
     for (i = 0; i < JC_BG_MAX; i++) {
         m->procs[i].id = 0;
         m->procs[i].pid = 0;
+        m->procs[i].adopt_pgid = 0;   /* M1192 B1 */
+        m->procs[i].adopted = 0;      /* M1192 B1 */
         m->procs[i].spool[0] = '\0';
         m->procs[i].spool_pos = 0;
         m->procs[i].state = JC_BG_FREE;
@@ -624,6 +626,8 @@ int jc_bg_start(struct jc_bg_mgr *m, const char *command)
     }
     close(sfd); /* the child holds its copy; we re-open per drain */
     p->pid = (long)pid;
+    p->adopt_pgid = 0;   /* M1192 B1: a started job is its own group child */
+    p->adopted = 0;      /* M1192 B1: not an adopted drainer */
     p->spool_pos = 0;
     p->state = JC_BG_RUNNING;
     p->exit_code = -1;
@@ -633,6 +637,144 @@ int jc_bg_start(struct jc_bg_mgr *m, const char *command)
     p->tail_done = 0;
     jc_sb_init(&p->buf);
     jc_snprintf(p->cmd, sizeof(p->cmd), "%s", command);
+    return p->id;
+}
+
+int jc_bg_adopt(struct jc_bg_mgr *m, int read_fd, long job_pgid,
+                const char *label)
+{
+    struct jc_bg_proc *p = NULL;
+    int i;
+    int sfd;
+    pid_t dpid;
+
+    if (m == NULL || read_fd < 0) {
+        return -1;
+    }
+    if (m->spool_dir[0] == '\0') {
+        return -1;
+    }
+    /* Same slot policy as jc_bg_start: prefer a FREE slot, else reclaim a
+     * finished one; a still-RUNNING slot (adopted or started) is never
+     * reused, so a full registry is 0 -> the caller's B1-min fallback. */
+    for (i = 0; i < JC_BG_MAX; i++) {
+        if (m->procs[i].state == JC_BG_FREE) {
+            p = &m->procs[i];
+            break;
+        }
+    }
+    if (p == NULL) {
+        for (i = 0; i < JC_BG_MAX; i++) {
+            if (m->procs[i].state == JC_BG_EXITED ||
+                m->procs[i].state == JC_BG_KILLED) {
+                p = &m->procs[i];
+                jc_sb_free(&p->buf); /* release the prior capture before reuse */
+                break;
+            }
+        }
+    }
+    if (p == NULL) {
+        return 0; /* all slots running: the caller drops to B1-min */
+    }
+    p->id = m->next_id++;
+    /* bg-<id>-<pid>.out: the shape sweep_stale_spools owns (and the driver's
+     * spool count measures). The <pid> is jichi's, as in jc_bg_start, so two
+     * concurrent jichi of one HOME never collide. */
+    {
+        int spool_len;
+        spool_len = jc_snprintf(p->spool, sizeof(p->spool),
+                                "%s/bg-%ld-%ld.out", m->spool_dir,
+                                (long)p->id, (long)getpid());
+        if (spool_len < 0 || (jc_size)spool_len >= sizeof(p->spool)) {
+            p->spool[0] = '\0';
+            return -1;
+        }
+    }
+    sfd = open(p->spool, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND | JC_O_BINARY,
+               0600);
+    if (sfd < 0) {
+        jc_snprintf(s_spool_err, sizeof(s_spool_err),
+                    "spool open failed (adopt): %s: %s (errno=%d)",
+                    p->spool, strerror(errno), errno);
+        p->spool[0] = '\0';
+        return -1;
+    }
+    dpid = fork();
+    if (dpid < 0) {
+        close(sfd);
+        unlink(p->spool);
+        p->spool[0] = '\0';
+        return -1;
+    }
+    if (dpid == 0) {
+        /* The DRAINER: fork-without-exec (def-34's pool/daemon precedent --
+         * no exec, so no exec-lint rule fires, and no signal reset needed:
+         * jichi's SIGCHLD=SIG_DFL, default SIGINT/SIGTERM reach it normally).
+         * It copies the shell command's still-open output pipe into the spool
+         * FILE continuously -- the M940 rule: a pipe read only at tool
+         * boundaries stalls a chatty job, and this job's next write after our
+         * brief drain must land in the spool, not a full pipe buffer. It
+         * exits when the write end finally closes (every held process ends)
+         * or when it is killed by kill_background. Close every inherited
+         * fd >= 3 except the pipe's read end and the spool: the parent
+         * closed the write end before calling us, so nothing else here can
+         * hold it. */
+        int fd;
+        for (fd = 3; fd < 1024; fd++) {
+            if (fd != read_fd && fd != sfd) {
+                close(fd);
+            }
+        }
+        {
+            char chunk[8192];
+            for (;;) {
+                ssize_t n = read(read_fd, chunk, sizeof(chunk));
+                if (n == 0) {
+                    break; /* EOF: the last writer of the pipe has exited */
+                }
+                if (n < 0) {
+                    if (errno == EINTR) {
+                        continue;
+                    }
+                    break; /* I/O error: stop rather than spin */
+                }
+                {
+                    ssize_t off = 0;
+                    while (off < n) {
+                        ssize_t w = write(sfd, chunk + off, (size_t)(n - off));
+                        if (w < 0) {
+                            if (errno == EINTR) {
+                                continue;
+                            }
+                            break; /* short on error: give up the rest */
+                        }
+                        off += w;
+                    }
+                }
+            }
+            close(read_fd);
+            close(sfd);
+            exit(0);
+        }
+    }
+    /* Parent: the DRAINER pid is the entry's p->pid (our child, so the
+     * standard reap path works and kill_background's grace loop bounds it);
+     * adopt_pgid is the job's process group (the drainer is in jichi's own
+     * group, NOT the job's), which the kill paths target separately. */
+    p->pid = (long)dpid;
+    p->adopt_pgid = job_pgid;
+    p->adopted = 1;
+    p->spool_pos = 0;
+    p->state = JC_BG_RUNNING;
+    p->exit_code = -1;
+    p->read_off = 0;
+    p->overflowed = 0;
+    p->tail_len = 0;
+    p->tail_done = 0;
+    jc_sb_init(&p->buf);
+    jc_snprintf(p->cmd, sizeof(p->cmd), "%s",
+                label != NULL ? label : "");
+    (void)close(sfd); /* the drainer holds the write end; we re-open per drain */
     return p->id;
 }
 
@@ -722,8 +864,23 @@ jc_status jc_bg_kill(struct jc_bg_mgr *m, int id)
     }
     if (p->state == JC_BG_RUNNING) {
         /* Signal the whole group; grandchildren (e.g. a dev server's workers)
-         * go too. */
-        kill(-(pid_t)p->pid, SIGTERM);
+         * go too. A started job (new_pgroup) IS its own group, so -pid reaches
+         * it. M1192 B1: an ADOPTED entry's p->pid is the drainer (in jichi's
+         * own group -- the drainer never called setsid), so the group signal
+         * goes to the stored adopt_pgid (the shell command's group: the
+         * backgrounded job re-parented to init but stays in it), and the
+         * drainer is signaled by its own pid. Both are signaled, so the job
+         * really stops; a kill(-adopt_pgid) alone would leak the drainer
+         * (still writing the spool) and a kill(-p->pid) alone would leak the
+         * whole job. */
+        if (p->adopted) {
+            if (p->adopt_pgid > 0) {
+                kill(-(pid_t)p->adopt_pgid, SIGTERM);
+            }
+            kill((pid_t)p->pid, SIGTERM);
+        } else {
+            kill(-(pid_t)p->pid, SIGTERM);
+        }
         for (waited = 0; waited < 10; waited++) {
             reap(p);
             if (p->state != JC_BG_RUNNING) {
@@ -732,7 +889,14 @@ jc_status jc_bg_kill(struct jc_bg_mgr *m, int id)
             jc_sleep_ms(50, NULL);
         }
         if (p->state == JC_BG_RUNNING) {
-            kill(-(pid_t)p->pid, SIGKILL);
+            if (p->adopted) {
+                if (p->adopt_pgid > 0) {
+                    kill(-(pid_t)p->adopt_pgid, SIGKILL);
+                }
+                kill((pid_t)p->pid, SIGKILL);
+            } else {
+                kill(-(pid_t)p->pid, SIGKILL);
+            }
             waitpid((pid_t)p->pid, NULL, 0);
             p->state = JC_BG_KILLED;
         }
@@ -746,9 +910,22 @@ jc_status jc_bg_kill(struct jc_bg_mgr *m, int id)
 void jc_bg_mgr_free(struct jc_bg_mgr *m)
 {
     int i;
+    /* M1192 B1 (load-bearing): an ADOPTED entry still RUNNING is NOT killed
+     * and its spool is NOT unlinked here. The job outlived its command by
+     * design (B1.6: the call returned when the shell exited); the drainer
+     * keeps writing the spool, and the frozen cell-1 green contract counts
+     * the bg-*.out spool AFTER jichi has fully exited -- a SIGTERM + unlink
+     * at exit would make B1-adopt satisfy it only by accident. The
+     * drainer re-parents to init (a harmless, self-terminating copier: it
+     * exits when the job's write end closes) and the spool is reclaimed by
+     * the next session's 24 h stale sweep, exactly as this header's own
+     * claim "the spool ... survives jichi dying" already says. Entries that
+     * EXITED/KILLED while adopted are still unlinked (their spool is done;
+     * the shape sweep owns stale ones), and started (non-adopted) entries
+     * are killed and unlinked exactly as before. */
     for (i = 0; i < JC_BG_MAX; i++) {
         struct jc_bg_proc *p = &m->procs[i];
-        if (p->state == JC_BG_RUNNING) {
+        if (p->state == JC_BG_RUNNING && !p->adopted) {
             kill(-(pid_t)p->pid, SIGTERM);
         }
     }
@@ -756,7 +933,7 @@ void jc_bg_mgr_free(struct jc_bg_mgr *m)
     jc_sleep_ms(80, NULL);
     for (i = 0; i < JC_BG_MAX; i++) {
         struct jc_bg_proc *p = &m->procs[i];
-        if (p->state == JC_BG_RUNNING) {
+        if (p->state == JC_BG_RUNNING && !p->adopted) {
             reap(p);
             if (p->state == JC_BG_RUNNING) {
                 kill(-(pid_t)p->pid, SIGKILL);
@@ -764,10 +941,8 @@ void jc_bg_mgr_free(struct jc_bg_mgr *m)
                 p->state = JC_BG_KILLED;
             }
         }
-        /* A killed child may have left a partial spool; a dead jichi leaves
-         * the rest behind. Both are ours to remove, so the next session's
-         * start (jc_bg_start opens O_TRUNC) never reads another run's bytes. */
-        if (p->spool[0] != '\0') {
+        /* The kill-arm comment holds for every entry we just handled. */
+        if (p->spool[0] != '\0' && !(p->adopted && p->state == JC_BG_RUNNING)) {
             unlink(p->spool);
             p->spool[0] = '\0';
         }

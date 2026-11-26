@@ -3212,7 +3212,7 @@ static const char *const FILE_ONB_ANALYST[] = {
         "sources, and any lspServers worth adding.\n",
     "\n",
     "Be concrete and cite files. This report seeds onboarding drafts; it is a "
-        "recommendation, not a change.\n",
+        "recommendation, not a change. Do not commit unless asked.\n",
     NULL
 };
 
@@ -3236,7 +3236,7 @@ static const char *const FILE_ONB_TUTORIAL[] = {
         "actual build files before stating them.\n",
     "\n",
     "Write the result to `docs/TUTORIAL.draft.md` (a draft for human review, not "
-        "the final doc).\n",
+        "the final doc). Do not commit unless asked.\n",
     NULL
 };
 
@@ -3258,7 +3258,8 @@ static const char *const FILE_ONB_FETCHER[] = {
     "Look for: framework/library docs the code depends on, a project wiki or "
         "docs site, and any RSS/Atom feed for release notes. For each, output a "
         "`docs` config entry ({name, path} or {name, url [, type: rss]}) plus one "
-        "line on why. The human adds the ones they want.\n",
+        "line on why. The human adds the ones they want. Do not commit unless "
+        "asked.\n",
     NULL
 };
 
@@ -3275,6 +3276,15 @@ static const char *const FILE_ONB_CMD[] = {
         "agent) can turn it into a tutorial and a config. Recommend only; do not "
         "modify project files.\n",
     "\n",
+    "At the end of the run, tell the person what it changed, what it verified, "
+        "and what it could not verify:\n",
+    "- What it changed: the file paths it wrote (e.g. "
+        "`.jichi/onboarding.analysis.md`).\n",
+    "- What it verified: which commands it ran and their result (e.g. "
+        "`jichi doctor`, `run_tests`).\n",
+    "- What it could not verify: name it, e.g. `the live model check was not "
+        "run because the model is not up`.\n",
+    "\n",
     "$ARGUMENTS\n",
     NULL
 };
@@ -3287,18 +3297,40 @@ static const char *const FILE_ONB_SKILL[] = {
     "---\n",
     "# Onboarding a project\n",
     "\n",
-    "1. **Analyze** -- run `/onboard` (or the project-analyst agent) to survey "
+    "Follow jichi's `setup` guide, in this order:\n",
+    "\n",
+    "1. **Read the interface** -- `jichi describe --output json` is the "
+        "contract for what jichi knows and can do; read it before you touch "
+        "anything.\n",
+    "2. **Set up** -- `jichi setup` (the wizard), or `jichi setup "
+        "--non-interactive --preset <p>` (list presets with `jichi setup "
+        "--list`). For a starter project, `jichi init <pack>` (list packs with "
+        "`jichi init --list`). `jichi setup --from-global` reuses the person's "
+        "global config.\n",
+    "3. **Trust the project config** -- `jichi trust` is the gate a run in a "
+        "new project meets; trust the config so later runs are not blocked on "
+        "it.\n",
+    "4. **Verify** -- `jichi doctor` from the project directory, and read "
+        "every line (a healthy run is all ticks). Also run the live check the "
+        "run offers, `check_model`: the verdict plus timings is all the model "
+        "gets; the key never reaches the model's shell.\n",
+    "5. **Run the project's tests** -- the configured `testCommand`, via "
+        "`run_tests`.\n",
+    "6. **The limits** -- three rules for any agent that uses jichi:\n",
+    "   - Never search for or read credentials.\n",
+    "   - Never read outside the project to learn about jichi (use `jichi "
+        "guide`, `jichi describe`, or `--help`).\n",
+    "   - Never commit for a person unasked.\n",
+    "\n",
+    "Then the project-specific drafts this pack seeds:\n",
+    "\n",
+    "7. **Analyze** -- run `/onboard` (or the project-analyst agent) to survey "
         "the stack, build/test, layout, and entry points into "
         "`.jichi/onboarding.analysis.md`.\n",
-    "2. **Config** -- from the analysis, seed a project config. Reuse your "
-        "global one with `jichi setup --from-global`, then add the "
-        "project's `testCommand` and any `docs` sources.\n",
-    "3. **Tutorial** -- have the tutorial-writer agent draft "
+    "8. **Tutorial** -- have the tutorial-writer agent draft "
         "`docs/TUTORIAL.draft.md`; review and rename to `docs/TUTORIAL.md`.\n",
-    "4. **Docs sources** -- the data-fetcher agent proposes external docs/URLs/"
+    "9. **Docs sources** -- the data-fetcher agent proposes external docs/URLs/"
         "RSS feeds worth indexing; add the ones you want to `docs`.\n",
-    "5. **Verify** -- `jichi --config <cfg> doctor` and a first "
-        "`run_tests`.\n",
     "\n",
     "Everything here is propose-only: drafts and recommendations land for review "
         "before anything is committed.\n",

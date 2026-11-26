@@ -1639,13 +1639,15 @@ int jc_platform_is_linux(void)
  * The capability questions have their own probes (jc_have_proc_rss). */
 static const char *const jc_sys_verified[] = {
     "Linux",
-    "FreeBSD",
-    "NetBSD",
-    "OpenBSD",
     NULL
 };
 
 static const char *const jc_sys_partly[] = {
+    /* 2026-11-24: back from Verified. Their latest runs fail some unit checks
+     * or smoke drivers; docs/PLATFORMS.md names each row's gap. */
+    "FreeBSD",
+    "NetBSD",
+    "OpenBSD",
     "SunOS",
     "CYGWIN_NT-",
     "MSYS_NT-",

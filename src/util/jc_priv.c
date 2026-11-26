@@ -22,12 +22,13 @@ static int pv_space(int c)
 const char *jc_priv_kind_name(enum jc_priv_kind k)
 {
     switch (k) {
-    case JC_PRIV_SUDO:   return "sudo";
-    case JC_PRIV_DOAS:   return "doas";
-    case JC_PRIV_PKEXEC: return "pkexec";
-    case JC_PRIV_SU:     return "su";
-    case JC_PRIV_RUN0:   return "run0";
-    default:             return "";
+    case JC_PRIV_SUDO:     return "sudo";
+    case JC_PRIV_DOAS:     return "doas";
+    case JC_PRIV_PKEXEC:   return "pkexec";
+    case JC_PRIV_SU:       return "su";
+    case JC_PRIV_RUN0:     return "run0";
+    case JC_PRIV_SUSPICIOUS: return "suspicious";
+    default:               return "";
     }
 }
 
@@ -229,7 +230,12 @@ static int command_lookup_flag(const char *p)
 
 /* At a segment start, resolve the leading command word, skipping env
  * assignments, an `env ...` prefix, and transparent wrappers. Returns the
- * launcher kind if that word is a privilege launcher, else NONE. */
+ * launcher kind if that word is a privilege launcher, else NONE.
+ *
+ * S2 fix: when guard > 64 (pathological input), the pre-fix behavior was
+ * fail-open (return NONE even if a launcher is hidden), but the fix makes it
+ * fail-closed: a suspicious segment (launcher hidden behind 64+ tokens) is
+ * detected and returned as SUSPICIOUS, and the caller refuses it. */
 static enum jc_priv_kind check_segment(const char *p, const char **out_tok)
 {
     int guard = 0;
@@ -238,7 +244,89 @@ static enum jc_priv_kind check_segment(const char *p, const char **out_tok)
         const char *tok;
         jc_size n;
         if (*p == '\0') return JC_PRIV_NONE;
-        if (++guard > 64) return JC_PRIV_NONE; /* pathological input */
+        /* Note: guard > 64 is a pathological input limit. The pre-fix behavior
+         * was fail-open (return NONE even if a launcher was hidden), but the
+         * fix makes it fail-closed: a suspicious segment is classified as
+         * SUSPICIOUS and the caller refuses it. */
+        if (++guard > 64) {
+            /* Guard exhausted: skip assignments and wrappers, look for launcher. */
+            for (;;) {
+                const char *ltok;
+                jc_size ln;
+                if (*p == '\0') return JC_PRIV_NONE;
+                if (is_assignment(p)) {
+                    skip_token_and_ws(&p);
+                    continue;
+                }
+                /* Measure the bareword. */
+                ltok = p;
+                ln = 0;
+                while (ltok[ln] != '\0' && !pv_space((unsigned char)ltok[ln]) &&
+                       ltok[ln] != '&' && ltok[ln] != '|' && ltok[ln] != ';' &&
+                       ltok[ln] != '\n' && ltok[ln] != '(' && ltok[ln] != ')' &&
+                       ltok[ln] != '{' && ltok[ln] != '}' && ltok[ln] != '`') {
+                    ln++;
+                }
+                if (ln == 0) return JC_PRIV_NONE;
+
+                /* `env` prefix: skip env and its VAR=val / -opt args, then re-resolve. */
+                if (ln == 3 && pv_lc((unsigned char)ltok[0]) == 'e' &&
+                    pv_lc((unsigned char)ltok[1]) == 'n' &&
+                    pv_lc((unsigned char)ltok[2]) == 'v') {
+                    skip_token_and_ws(&p);
+                    while (*p != '\0') {
+                        while (pv_space((unsigned char)*p)) p++;
+                        if (is_assignment(p) || *p == '-') {
+                            skip_token_and_ws(&p);
+                            continue;
+                        }
+                        break;
+                    }
+                    continue;
+                }
+                if (is_wrapper(ltok, ln)) {
+                    /* Skip the wrapper word, then its own option/value tokens. */
+                    int is_command = (ln == 7 && pv_lc((unsigned char)ltok[0]) == 'c' &&
+                                      pv_lc((unsigned char)ltok[1]) == 'o' &&
+                                      pv_lc((unsigned char)ltok[2]) == 'm' &&
+                                      pv_lc((unsigned char)ltok[3]) == 'm' &&
+                                      pv_lc((unsigned char)ltok[4]) == 'a' &&
+                                      pv_lc((unsigned char)ltok[5]) == 'n' &&
+                                      pv_lc((unsigned char)ltok[6]) == 'd');
+                    int is_timeout = (ln == 7 && pv_lc((unsigned char)ltok[0]) == 't' &&
+                                      pv_lc((unsigned char)ltok[1]) == 'i' &&
+                                      pv_lc((unsigned char)ltok[2]) == 'm' &&
+                                      pv_lc((unsigned char)ltok[3]) == 'e' &&
+                                      pv_lc((unsigned char)ltok[4]) == 'o' &&
+                                      pv_lc((unsigned char)ltok[5]) == 'u' &&
+                                      pv_lc((unsigned char)ltok[6]) == 't');
+                    skip_token_and_ws(&p);
+                    if (is_command && command_lookup_flag(p)) {
+                        return JC_PRIV_NONE;
+                    }
+                    skip_wrapper_args(&p, &guard, is_timeout);
+                    continue;
+                }
+                /* Found a token that's not an assignment, env, or wrapper.
+                 * Check if it's a launcher. If guard > 64, return SUSPICIOUS. */
+                {
+                    enum jc_priv_kind k = launcher_kind(ltok, ln);
+                    if (k != JC_PRIV_NONE) {
+                        if (out_tok != NULL) {
+                            *out_tok = ltok;
+                        }
+                        return JC_PRIV_SUSPICIOUS;
+                    }
+                    /* Not a launcher, but also not an assignment/wrapper/env.
+                     * This is the "command" word (could be a script, command, etc.).
+                     * Since guard > 64, we treat the segment as suspicious. */
+                    if (out_tok != NULL) {
+                        *out_tok = ltok;
+                    }
+                    return JC_PRIV_SUSPICIOUS;
+                }
+            }
+        }
 
         /* VAR=value assignments before the command. */
         if (is_assignment(p)) {

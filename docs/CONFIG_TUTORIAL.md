@@ -176,11 +176,13 @@ jichi models            # lists models; also a no-network sanity check of the fi
 ---
 
 ## 1. The API key: environment variables, step by step
+<!-- jichi-guide topic="model" name="model-apikeyenv" -->
 
 If your model server needs a key (a hosted gateway does; a local LM Studio or
 Ollama does not), you have to get that key to jichi. **Put it in an environment
 variable, not in the config file.** This section is the whole procedure, from one
 throwaway command to a permanent, safe setup.
+<!--/jichi-guide -->
 
 ### 1.1 Why not just write the key in the config?
 
@@ -1204,6 +1206,10 @@ roadmap as "documented", which is how they stayed hidden.
 - **`runTimeout`** — a default wall-clock limit for shell commands, so a hung command does not
   hold a turn forever. Off by default; a per-call `timeout` argument overrides it. Also
   `--run-timeout`.
+- **`0` does not mean the same thing everywhere.** For `runTimeout`, `0` means no limit. For a
+  hook's or a user tool's `timeout`, `0` means 30 seconds. For `parallelTaskTimeout` and
+  `daemonWorkerTimeout`, `0` means the built-in 300 seconds. Check before you rely on it:
+  [`LIMITS.md`](LIMITS.md) lists what `0` means for each limit.
 - **`wisdom`** — whether the TUI occasionally prints a short craft note. Cosmetic; `/wisdom`
   toggles it for a session.
 - **`scopedEditMax`** — scoped edit check N (0=off, default 2): the Nth edit of a worker-owned

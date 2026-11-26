@@ -29,7 +29,7 @@
 # knowledge folder's own .git the rules above it arrive.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 15
+t_plan 16
 smoke_home
 if ! command -v git > /dev/null 2>&1; then
     t_skip_all "git is not installed (the example's knowledge folder is a git repository)"
@@ -143,6 +143,18 @@ if [ "$offered" = '"name":"list_files" "name":"read_file" "name":"search_code" '
     t_ok "the model is offered exactly read_file, list_files and search_code"
 else
     t_fail "offered tools: $offered"
+fi
+# 8b: the system message carries no Available skills catalog. The deny list
+# removes load_skill from the advertised set (cell 8's shape), and a catalog
+# naming a skill the model cannot fetch is a dead reference in the system
+# prompt (the M292 /learn corrections class, one layer up). M1196 follow-up,
+# option A: the built-in stays in the skill set -- only the catalog line is
+# conditional on the advertised tool, so a run that CAN load_skill still sees
+# it (the full-profile control).
+if ! grep -q 'Available skills' "$tmp/cap/req.1" 2>/dev/null; then
+    t_ok "no Available skills catalog in the system message (load_skill is on the deny list)"
+else
+    t_fail "the system message carries the skills catalog although load_skill is denied: $(tr -d '\n' < "$tmp/cap/req.1" | grep -o 'Available skills[^"]*' | head -n 1)"
 fi
 # 8: the legitimate read works, so the refusals above are not a broken tool loop
 if grep -q '09:00 to 19:00' "$tmp/cap/req.8" 2>/dev/null; then

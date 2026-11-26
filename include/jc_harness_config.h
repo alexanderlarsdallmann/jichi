@@ -140,6 +140,9 @@ struct jc_harness_config {
     char *drive_branch_prefix;
     char *drive_end;
     char *drive_lead_model;
+    /* drive.landingPolicy (M1202 D1): the word auto or hold, read as-is; the
+     * DEFAULT HOLD (D2, PROVISIONAL) is decided by the gate, not the loader. */
+    char *drive_landing_policy;
     int limits_shell_fence;  /* read leniently (behaviour 8); 0 default */
     int limits_path_fence;
     int limits_disk_fence;
@@ -247,6 +250,46 @@ struct jc_harness_config {
      * which win over these config values. */
     char *host_redfirst_run;      /* host.redfirstRun (optional; absent = the reference's driver form) */
     char *host_redfirst_unit_run; /* host.redfirstUnitRun (optional; absent = make -j8 WERROR=1 test) */
+
+    /* The re-pin's shimmable surfaces (M1203, H11, wave 2): all optional,
+     * opt_str as-is, NULL when absent -- the M1147 redfirst idiom. The
+     * loader does NOT refuse them: the command decides (an absent field
+     * means the reference's own form: the podman+image doctor commands,
+     * `make -j8 WERROR=1 jichi jichi-harness`, a real git clone, and the
+     * <host.dir>/pin-build | pins | bin | backups | repin.out defaults the
+     * port names). The driver's flags win over these config values. */
+    char *host_repin_build_dir;   /* host.repinBuildDir (optional; absent = <host.dir>/pin-build) */
+    char *host_repin_clone;       /* host.repinClone (optional; absent = the reference's git clone form) */
+    char *host_repin_models;      /* host.repinModels (optional; absent = the named refusal) */
+    char *host_repin_doctor;      /* host.repinDoctor (optional; absent = the reference's podman+image form) */
+    char *host_repin_live_doctor; /* host.repinLiveDoctor (optional; absent = the reference's podman+image form; the <m> token is substituted per model) */
+    char *host_repin_build_run;   /* host.repinBuildRun (optional; absent = make -j8 WERROR=1 jichi jichi-harness) */
+    char *host_repin_out;         /* host.repinOut (optional; absent = <host.dir>/repin.out) */
+    char *host_repin_pins_dir;    /* host.pinsDir (optional; absent = <host.dir>/pins) */
+    char *host_repin_bin_dir;     /* host.binDir (optional; absent = <host.dir>/bin) */
+    char *host_repin_backup_dir;  /* host.backupDir (optional; absent = <host.dir>/backups) */
+
+    /* The page/park block (M1213, H12, wave 1): the shimmable host commands
+     * the page / page-watch / probe verbs consume. All optional, opt_str
+     * as-is, NULL when absent -- the other host fields' idiom. The loader
+     * does NOT refuse them: the commands decide. */
+    char *host_page_unit_state;   /* host.pageUnitState (optional; absent = systemctl --user is-active <U>) */
+    char *host_page_unit_failed;  /* host.pageUnitFailed (optional; absent = systemctl --user is-failed -q <U>; E4: rc 0 == FAILED) */
+    char *host_page_gateway_probe;/* host.pageGatewayProbe (optional; absent = the reference's podman+curl form) */
+    char *host_page_model_probe;  /* host.pageModelProbe (optional; absent = the reference's podman doctor --live form) */
+    char *host_page_gateway;      /* host.pageGateway (optional; absent = https://api.hrz.uni-giessen.de/v1/models) */
+    char *host_page_unit_run;     /* host.pageUnitRun (optional; absent = systemd-run --user --unit) */
+    char *host_page_container_gone; /* host.pageContainerGone (optional; absent = podman container exists) */
+    char *host_page_pid_list;     /* host.pagePidList (optional; absent = ps -eo pid,args grep) */
+    /* The park/restart intervals (M1213, H12, T3, wave 2): all optional, opt_str
+     * as-is, NULL when absent -- the other host fields' idiom. The loader
+     * does NOT refuse them: the command decides. */
+    char *drive_post_start;       /* drive.postStart (optional; absent = none) */
+    char *drive_wait_interval;    /* drive.waitInterval (optional; absent = 1) */
+    char *drive_ready_interval;   /* drive.readyInterval (optional; absent = 1) */
+    char *drive_not_ready_interval; /* drive.notReadyInterval (optional; absent = 1) */
+    char *drive_loop_unit;        /* drive.loopUnit (optional; absent = jhd-hardening-loop) */
+    char *drive_container_name;   /* drive.containerName (optional; absent = jhd-hardening) */
 
     /* The refusal's message, naming the problem (behaviours 3,4,6,7,10).
      * NULL on JC_OK. Carries no secret (a reference path is not a secret). */

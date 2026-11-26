@@ -290,12 +290,12 @@ int main(int argc, char **argv)
             rc |= write_out(dest, res.ir->assets[i]->contents, force, dry);
         }
     } else if (output != NULL) {
-        if (jc_write_file(output, res.json, strlen(res.json)) != JC_OK) {
-            fprintf(stderr, "error: could not write '%s'\n", output);
-            rc = 1;
-        } else {
-            fprintf(stderr, "Wrote %s\n", output);
-        }
+        /* The same guarded writer as the asset tree: an existing file is kept
+         * unless --force, and --dry-run writes nothing. This branch used to
+         * call jc_write_file directly and honoured neither, so
+         * `-o ~/.jichi` replaced a user's config silently
+         * (tests/smoke/convert_output.sh). */
+        rc |= write_out(output, res.json, force, dry);
         if (res.ir->asset_count > 0) {
             fprintf(stderr, "note: %d asset(s) not written; pass --assets "
                             "<dir> to emit the .jichi/ tree.\n",

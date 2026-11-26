@@ -411,6 +411,14 @@ int jc_tool_allow_intersect(const struct jc_vec *a_list,
  * run loop) advertised to small-context models. Pure; unit-tested (M74). */
 int jc_tool_is_core(const char *name);
 
+/* True when the core profile KEEPS `name`: the 7-name core set above, PLUS
+ * `load_skill`, which jc_tool_allowed exempts unconditionally ("always exempt,
+ * so the agent can switch skills"). So a core-profile run advertises 8 tools
+ * whenever load_skill is registered -- this is the one truth the `context
+ * tools` report must count against (M1196: the footer counted jc_tool_is_core
+ * alone and said 7). Pure. */
+int jc_tool_kept_by_core(const char *name);
+
 /* M846 (PAR-2): does this built-in tool carry a shell command the user wrote?
  * True for `run_terminal_command` and `run_tests` (M501 counts the latter as a
  * shell). The single source of truth for every gate that means "a shell command
@@ -461,6 +469,9 @@ const struct jc_tool *jc_tool_run_tests(void);
 const struct jc_tool *jc_tool_search(void);
 const struct jc_tool *jc_tool_fetch(void);
 const struct jc_tool *jc_tool_codebase_search(void);
+/* M1198 (G3): the sanctioned in-run live check of the active model.
+ * Read-only, full profile only (a network tool, like fetch_url). */
+const struct jc_tool *jc_tool_check_model(void);
 /* The static tool for backward compatibility (e.g. tests that only register
  * builtins). The schema won't include the model list. */
 const struct jc_tool *jc_tool_subagent(void);
@@ -549,6 +560,10 @@ void jc_subagent_model_menu(const struct jc_config *cfg, struct jc_sb *sb);
  * matrix and the one that refuted "every grep understands these flags" (M658).
  * Pure, and exposed so both branches can be tested where only one can occur. */
 const char *jc_search_grep_prefix(int have_dash_i);
+
+/* The same for a path that is a regular file: no -r, because BSD grep's -r does
+ * not follow a symbolic link named as an operand (measured on FreeBSD 15.1). */
+const char *jc_search_grep_prefix_file(int have_dash_i);
 
 #ifdef __cplusplus
 }

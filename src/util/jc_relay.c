@@ -431,34 +431,20 @@ jc_status relay_baton_render(const struct relay_baton_facts *f,
             return st;
         }
     }
-    if (f->commits != NULL && f->commits_n > 0) {
-        jc_size n = ((jc_size)f->commits_n > JC_RELAY_BATON_TOPN)
-                    ? JC_RELAY_BATON_TOPN : (jc_size)f->commits_n;
-        st = jc_sb_append(out, "- Commits in this leg:\n");
-        if (st != JC_OK) {
-            return st;
+    if (f->leg_start != NULL && f->leg_start[0] != '\0') {
+        /* One line, and only facts: where the leg started, where it stands,
+         * and how many commits lie between. "Since the leg started", not
+         * "made by the leg": a merge or another worker counts too. */
+        if (f->leg_commits >= 0) {
+            st = jc_sb_append_fmt(out, "- Since the leg started at %s: %ld "
+                                  "commit(s) (git log %s..%s)\n",
+                                  f->leg_start, f->leg_commits, f->leg_start,
+                                  f->commit != NULL ? f->commit : "HEAD");
+        } else {
+            st = jc_sb_append_fmt(out, "- The leg started at %s; the commits "
+                                  "since could not be counted\n",
+                                  f->leg_start);
         }
-        for (i = 0; i < n; i++) {
-            st = jc_sb_append_fmt(out, "  %s",
-                                  f->commits[i] != NULL ? f->commits[i] : "?");
-            if (st != JC_OK) {
-                return st;
-            }
-            if (i + 1 < n) {
-                st = jc_sb_append(out, "\n");
-                if (st != JC_OK) {
-                    return st;
-                }
-            }
-        }
-        if ((jc_size)f->commits_n > n) {
-            st = jc_sb_append_fmt(out, "\n  (+%ld more)",
-                                  f->commits_n - (long)n);
-            if (st != JC_OK) {
-                return st;
-            }
-        }
-        st = jc_sb_append(out, "\n");
         if (st != JC_OK) {
             return st;
         }

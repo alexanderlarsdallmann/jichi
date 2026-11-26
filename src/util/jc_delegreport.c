@@ -158,6 +158,26 @@ static const char *fail_advice_for(enum jc_fail_class c, int count)
     }
 }
 
+/* M1194 W6.1 (def-377): the loop KIND, in words, for a `max_iters` stop that
+ * was a loop stop (looped 1..4, M869) or a W4 soft stop (looped 5). The four
+ * existing kinds mirror jc_agent.c:5923-5924 (same_result/refused/placeholder/
+ * rotation); the fifth, `supervised`, names a soft stop (wrapup/stop) that
+ * ended the child with its report. Returned NULL for a real iteration cap
+ * (looped 0) or an unknown value. This is an ADDITIVE field: the summary line
+ * keeps `stop=max_iters` as its FIRST token (three drivers grep it; M885
+ * rejected a new stop name on the wire), and the kind follows it in words. */
+static const char *loop_kind_word(int looped)
+{
+    switch (looped) {
+    case 1:  return "same_result";
+    case 2:  return "refused";
+    case 3:  return "placeholder";
+    case 4:  return "rotation";
+    case 5:  return "supervised";   /* def-377 W4 (M1194): a soft stop */
+    default: return NULL;
+    }
+}
+
 void jc_delegreport_render(const struct jc_delegate_report *r,
                            struct jc_sb *out)
 {
@@ -185,6 +205,19 @@ void jc_delegreport_render(const struct jc_delegate_report *r,
 
     jc_sb_append(out, "\n\n[delegate] stop=");
     jc_sb_append(out, jc_delegreport_stop_name(r->stop));
+    /* M1194 W6.1 (def-377): the loop KIND, additive and AFTER the stop name.
+     * Only for a max_iters stop that was a loop stop (or a W4 soft stop); a
+     * real iteration cap (looped 0) renders nothing here. The first token
+     * (stop=max_iters) is unchanged -- an old reader greps it and ignores the
+     * kind that follows. */
+    {
+        const char *lk = (r->stop == JC_DELEG_MAX_ITERS)
+                              ? loop_kind_word(r->looped) : NULL;
+        if (lk != NULL) {
+            jc_snprintf(buf, sizeof buf, " \xc2\xb7 loop_kind=%s", lk);
+            jc_sb_append(out, buf);
+        }
+    }
     if (r->tool_calls >= 0) {
         jc_snprintf(buf, sizeof buf, " \xc2\xb7 %ld tool call%s", r->tool_calls,
                     (r->tool_calls == 1) ? "" : "s");
@@ -269,9 +302,23 @@ void jc_delegreport_render(const struct jc_delegate_report *r,
     }
     adv = advice_for(r->stop);
     if (r->stop == JC_DELEG_MAX_ITERS && r->looped > 0) {
-        adv = "it repeated the same call without progress and was stopped, its "
-              "work kept -- the same subtask will most likely loop the same way: "
-              "narrow it, or finish it yourself";
+        if (r->looped == 5) {
+            /* M1194 W4c (def-377, R:6): a SUPERVISED stop is the lead's policy
+             * stop (wrapup or stop), not a repetition -- saying "repeated the
+             * same call without progress" here is directly contradicted by the
+             * `loop_kind=supervised` word two lines up. The child was asked to
+             * stop and report, so it answered the report it was asked for. The
+             * merge is NOT claimed: the hard-stop fallback keeps the work as a
+             * ref, so the advice says only that it was kept, merged or as a ref. */
+            adv = "it was stopped by the lead's supervision policy (wrapup or "
+                  "stop) and answered the report it was asked for -- its work "
+                  "was kept (merged, or as a ref if the hard stop fired); read "
+                  "its report for what changed";
+        } else {
+            adv = "it repeated the same call without progress and was stopped, "
+                  "its work kept -- the same subtask will most likely loop the "
+                  "same way: narrow it, or finish it yourself";
+        }
     }
     if (r->stop == JC_DELEG_ABORTED && r->term) {
         /* M885 (N47, continued): a SIGTERM from outside is not the operator's

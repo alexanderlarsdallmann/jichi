@@ -20,6 +20,12 @@
 
 command -v sqlite3 > /dev/null 2>&1 ||
     t_skip "no sqlite3 on this host -- the example's sqlite backend cannot be exercised"
+# ...and one that has -safe (SQLite 3.37 and later): the example refuses to store
+# without that wall, so on an older sqlite3 there is nothing here to exercise.
+# NetBSD 10.2's sqlite3 is such a one; this driver failed its instrument check
+# there, which read as a defect of the example.
+sqlite3 -safe -batch :memory: 'SELECT 1;' > /dev/null 2>&1 ||
+    t_skip "this sqlite3 has no -safe option (older than 3.37) -- the example refuses to store without it"
 t_plan 4
 tmp=$(smoke_tmp)
 SCRIPT="$SMOKE_ROOT/examples/autonomous-loop/db-report.sh"

@@ -7,6 +7,7 @@
 #include "jc_md.h"
 #include "jc_yaml.h"
 #include "jc_str.h"
+#include "jc_log.h"
 #include "jc_snprintf.h"
 #include "jc_platform.h"
 
@@ -156,13 +157,22 @@ static void parse_one(struct jc_agentdef_set *s, const char *name,
              * presence-check-plus-fallback shape as M519's `"pathFence": 1` and
              * M530's `{"readonly": 1}`, now in the YAML path.
              *
-             * A value that is not a boolean word at all leaves has_readonly set
-             * but the value untouched-and-false, which is the conservative
-             * reading: the key was written, we could not understand it, and a
-             * fence is not something to grant by guessing. */
+             * def-415 (the decision of 2026-11-17): a value that is not a
+             * boolean word at all means READ-ONLY. Until 2026-11-26 it left
+             * has_readonly set with the value false, and this comment called
+             * that "the conservative reading". It was the open one: the key
+             * was written, we could not understand it, and the profile ran
+             * writable. An unreadable value on a fence key closes the fence. */
             int b = 0;
             def.has_readonly = 1;
-            def.readonly = jc_bool_from_word(str, &b) ? b : 0;
+            if (jc_bool_from_word(str, &b)) {
+                def.readonly = b;
+            } else {
+                def.readonly = 1;
+                jc_logf(JC_LOG_WARN,
+                        "agent profile: `readonly: %s` is not true or false; "
+                        "the profile is read as read-only", str);
+            }
         }
         {
             struct jc_yaml *tools = jc_yaml_get(doc.front, "tools");

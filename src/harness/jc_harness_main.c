@@ -24,7 +24,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>            /* M1202 wave 2b: approve's decision-line stamp */
 
+#include "jc_snprintf.h"     /* M1202 wave 2b: approve's decision-line assembly */
 #include "jc_version.h"
 #include "jc_license.h"
 #include "jc_buildrev.h"
@@ -48,6 +50,10 @@
 #include "jc_hp_gateref.h"     /* M1157 (H9b T9, wave 3): the redfirst stage body */
 #include "jc_hp_gate.h"        /* M1159 (H9b wave 4): the gate run orchestrator */
 #include "jc_hp_gateunits.h"   /* M1159 (H9b wave 4): the gate units template (D13) */
+#include "jc_harness_land.h"   /* M1202 (H10): the land command (the landing policy) */
+#include "jc_harness_repin.h"  /* M1203 (H11, wave 2): the repin command (the re-pin) */
+#include "jc_harness_page.h"   /* M1213 (H12, T2): the page / page-watch / probe verbs */
+#include "jc_harness_park.h"   /* M1213 (H12, T3): the park / restart verbs */
 
 /* The five commands the plan names for this program, in the order its
  * section 3 table introduces them: init, doctor, mirror, run, drive. The
@@ -119,10 +125,81 @@ static void usage_stream(const char *argv0, FILE *f)
     fprintf(f, "              ci and redfirst stages are BUILT (T2 / T3 / T5 /\n");
     fprintf(f, "              T8 / T9, waves 1-3); the orchestrator (the full\n");
     fprintf(f, "              gate run, wave 4) is BUILT: run gate run\n");
-    fprintf(f, "              --config <f> <SHA8> [BATCH] [flags]; the HOLD,\n");
-    fprintf(f, "              land and repin arms are not built yet and refuse\n");
-    fprintf(f, "              by name, exit 1; a bare 'gate' names the\n");
+    fprintf(f, "              --config <f> <SHA8> [BATCH] [flags]; the HOLD\n");
+    fprintf(f, "              (the drive.landingPolicy word auto reaches the\n");
+    fprintf(f, "              land step, else the gate CREATES the HOLD and\n");
+    fprintf(f, "              ends green-held), land and repin arms are BUILT\n");
+    fprintf(f, "              (M1202/H10); the landing decision is recorded\n");
+    fprintf(f, "              one line per green terminal in\n");
+    fprintf(f, "              <gate-home>/<SHA8>/landing.decision (approve\n");
+    fprintf(f, "              runs a PENDING landing); a bare 'gate' names the\n");
     fprintf(f, "              subcommands and exits 2\n");
+    fprintf(f, "  land        The landing policy: move the remote's master to\n");
+    fprintf(f, "              a SHA8 by a credential-wired fast-forward push,\n");
+    fprintf(f, "              under the standing rule (BUILT, M1202/H10): the\n");
+    fprintf(f, "              C89 port of the hardening drive's land.sh --\n");
+    fprintf(f, "              run land --config <f> --push-repo <d>\n");
+    fprintf(f, "              --ci-log-dir <d> --gate-home <d> --main-checkout\n");
+    fprintf(f, "              <d> [--land-log <f>] <SHA8>; a missing SHA8 is\n");
+    fprintf(f, "              a usage refusal, exit 2; every policy refusal\n");
+    fprintf(f, "              is exit 1; success is exit 0\n");
+    fprintf(f, "  repin       The re-pin: rebuild both binaries at a landed\n");
+    fprintf(f, "              commit in a fresh clone, keep the old pair\n");
+    fprintf(f, "              (backup + cmp), swap into the drive's bin/ by\n");
+    fprintf(f, "              rename, then run the harness doctor and the\n");
+    fprintf(f, "              per-model live doctors (BUILT, M1203/H11):\n");
+    fprintf(f, "              the C89 port of the hardening drive's repin.sh\n");
+    fprintf(f, "              -- run repin --config <f> [flags] <SHA8>; the\n");
+    fprintf(f, "              flags --push-repo --ci-log-dir --pins-dir\n");
+    fprintf(f, "              --bin-dir --backup-dir --build-dir --clone-run\n");
+    fprintf(f, "              --repin-out --harness-doctor --live-doctor\n");
+    fprintf(f, "              --build-run --models each OVERRIDE the config's\n");
+    fprintf(f, "              host field for this invocation; a missing SHA8\n");
+    fprintf(f, "              is a usage refusal, exit 2; every policy refusal\n");
+    fprintf(f, "              is exit 1; success (the swap + every doctor\n");
+    fprintf(f, "              clean) is exit 0\n");
+    fprintf(f, "  page        The model-failure pager (BUILT, M1213/H12, T2):\n");
+    fprintf(f, "              the C89 port of the hardening drive's page-watch.sh\n");
+    fprintf(f, "              PAGE_ONCE form -- run page --config <f>\n");
+    fprintf(f, "              [--state <f>] [--out <f>] [--now <s>] [--after-s <s>]\n");
+    fprintf(f, "              [--fresh-s <s>] [--park]; a missing --state/--out\n");
+    fprintf(f, "              is a usage refusal, exit 2\n");
+    fprintf(f, "  page-watch  The model-failure background loop (BUILT, M1213/H12,\n");
+    fprintf(f, "              T2): the C89 port of the hardening drive's\n");
+    fprintf(f, "              page-watch.sh loop -- run page-watch --config <f>\n");
+    fprintf(f, "              [--state <f>] [--out <f>] [--now <s>] [--after-s <s>]\n");
+    fprintf(f, "              [--fresh-s <s>] [--interval <s>]; a missing --state/--out\n");
+    fprintf(f, "              is a usage refusal, exit 2\n");
+    fprintf(f, "  probe       The lead model reachability check (BUILT, M1213/H12,\n");
+    fprintf(f, "              T2): the C89 port of park-resume.sh's ready()/mprobe():\n");
+    fprintf(f, "              run probe --config <f> [--model <name>] [--probe|--model-probe|--gateway-probe];\n");
+    fprintf(f, "              the --probe form gates the model half on gateway success\n");
+    fprintf(f, "              (the ready form, b19); a missing --model is the config's\n");
+    fprintf(f, "              leadModel else qwen27b; a usage refusal is exit 2\n");
+    fprintf(f, "  park        The park verb (BUILT, M1213/H12, T3): the C89 port of\n");
+    fprintf(f, "              park-resume.sh -- run park --config <f> [--state <f>]\n");
+    fprintf(f, "              [--out <f>] [--parked] [--interval <s>] [--wait-interval <s>]\n");
+    fprintf(f, "              [--ready-interval <s>] [--not-ready-interval <s>]\n");
+    fprintf(f, "              [--post-start <cmd>]; a missing --state/--out is a\n");
+    fprintf(f, "              usage refusal, exit 2\n");
+    fprintf(f, "  restart     The restart verb (BUILT, M1213/H12, T3): the C89 port of\n");
+    fprintf(f, "              restart-loop.sh -- run restart --config <f> [--state <f>]\n");
+    fprintf(f, "              [--out <f>] [--wait-interval <s>] [--post-start <cmd>];\n");
+    fprintf(f, "              a missing --state/--out is a usage refusal, exit 2\n");
+    fprintf(f, "  approve     The landing decision's approve (BUILT as a\n");
+    fprintf(f, "              SKELETON, M1202/H10 wave 2b, D3 -- the record +\n");
+    fprintf(f, "              refuse-until-approved + approve; the pending-\n");
+    fprintf(f, "              queue UI is OUT): runs the land step on a PENDING\n");
+    fprintf(f, "              landing (the gate's green-held decision) --\n");
+    fprintf(f, "              run approve <SHA8> --gate-home <d> [--config <f>]\n");
+    fprintf(f, "              [--land-run <cmd>] [--operator <name>]; the land\n");
+    fprintf(f, "              step is --land-run else the config's host.landRun,\n");
+    fprintf(f, "              else refused. A missing SHA8 or --gate-home is\n");
+    fprintf(f, "              a usage refusal, exit 2; a non-pending landing or\n");
+    fprintf(f, "              no land step is exit 1, naming 'approve: refused:\n");
+    fprintf(f, "              no pending landing for <SHA8>'; the land step's\n");
+    fprintf(f, "              rc 0 is exit 0 (the decision appended\n");
+    fprintf(f, "              'decision=approved ... operator=<name> land-rc=0')\n");
     fprintf(f, "Options:\n");
     fprintf(f, "  --config <file>  The harness configuration (global, before the command)\n");
     fprintf(f, "  --from <repo>    init: the source repo (the rehearsal's local stand-in)\n");
@@ -180,6 +257,74 @@ static int not_built(const char *cmd)
 {
     fprintf(stderr, "jichi-harness: %s: not built yet (see docs/HARNESS.md)\n", cmd);
     return 2;
+}
+
+/* The approve stamp's UTC-of-wall (M1202 wave 2b follow-up, F3): the gate's
+ * own hand-rolled timegm (jc_hp_gate.c's gf_utc_from_tm). glibc's timegm is
+ * not exposed under the build's global _POSIX_C_SOURCE, so the local wall
+ * clock is read back as UTC by the era arithmetic. One owner per file: the
+ * approve verb's own copy. */
+static long
+hm_utc_from_tm(const struct tm *tmv)
+{
+    long y = tmv->tm_year + 1900;
+    long m = tmv->tm_mon + 1;
+    long d = tmv->tm_mday;
+    long era, yoe, doy, doe, days;
+
+    y -= (m <= 2) ? 1 : 0;
+    era = (y >= 0 ? y : y - 399) / 400;
+    yoe = y - era * 400;
+    doy = (153L * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    days = era * 146097 + doe - 719468;
+    return (days * 86400L + tmv->tm_hour * 3600L
+            + tmv->tm_min * 60L + tmv->tm_sec);
+}
+
+/* The approve stamp (M1202 wave 2b follow-up, F3): the gate's gf_now shape --
+ * the drive's %Y-%m-%d %H:%M:%S plus the LOCAL offset (the +HHMM / -HHMM),
+ * assembled from the local wall clock (the offset = utc_of(wall) - t, the
+ * drive's stamp idiom, jc_harness_drive.c:117). The gate writes these same
+ * bytes into the pending line's time= field, so the approved line's time=
+ * carries the drive offset too (the hunk audit's F3: the verb's stamp lacked
+ * it). */
+static void
+hm_now(char *out, size_t cap)
+{
+    time_t t = time(NULL);
+    struct tm tmv;
+    struct tm tmc;
+    long off;
+    long mag;
+    int oh, om;
+    size_t n;
+
+    if (localtime_r(&t, &tmv) == NULL) {
+        out[0] = '\0';
+        return;
+    }
+    tmc = tmv;
+    off = hm_utc_from_tm(&tmc) - (long)t;
+    n = strftime(out, cap, "%Y-%m-%d %H:%M:%S", &tmv);
+    if (n == 0) {
+        out[0] = '\0';
+        return;
+    }
+    mag = (off < 0) ? -off : off;
+    oh = (int)(mag / 3600);
+    om = (int)((mag % 3600) / 60);
+    if (oh < 100 && cap > n + 7) {
+        out[n] = ' ';
+        out[n + 1] = (off < 0) ? '-' : '+';
+        out[n + 2] = (char)('0' + oh / 10);
+        out[n + 3] = (char)('0' + oh % 10);
+        out[n + 4] = (char)('0' + om / 10);
+        out[n + 5] = (char)('0' + om % 10);
+        out[n + 6] = '\0';
+    } else {
+        out[n] = '\0';
+    }
 }
 
 int main(int argc, char **argv)
@@ -295,6 +440,81 @@ int main(int argc, char **argv)
     const char *gate_repin_run = NULL;
     const char *gate_out = NULL;
     struct jc_vec gate_pos;
+    /* land's named paths (M1202, H10, wave 1): the five caller-named flags
+     * (CHANGED: land.sh hard-codes $P / the ci / gate paths; the port names
+     * them) + the land-log twin. The single positional is the SHA8 (land's
+     * b1 argv); it is refused as usage when absent (a fixed one-slot is all
+     * land takes). */
+    const char *land_push_repo = NULL;
+    const char *land_ci_log_dir = NULL;
+    const char *land_gate_home = NULL;
+    const char *land_main_checkout = NULL;
+    const char *land_log = NULL;
+    const char *land_sha8 = NULL;
+    /* approve's own args (M1202 wave 2b, D3: the record + refuse-until-
+     * approved + approve; the pending-queue UI is OUT). The single positional
+     * is the SHA8 (the land arm's b1 idiom); the flags are --gate-home
+     * (REQUIRED, the land arm's idiom), --config (the land arm's own flag),
+     * --land-run (the land step, else the config's host.landRun) and
+     * --operator (the word the approved record carries, default
+     * "the operator"). */
+    const char *approve_sha8 = NULL;
+    const char *approve_gate_home = NULL;
+    const char *approve_config = NULL;
+    const char *approve_land_run = NULL;
+    const char *approve_operator = NULL;
+    /* repin's named paths (M1203, H11, wave 2): the twelve caller-named flags
+     * (CHANGED: repin.sh hard-codes $H / $D / $P / $LOGDIR / $MODELS; the
+     * port names them -- the driver's orchestrator half reads them from the
+     * config's host.* fields). Each, when present, OVERRIDES the config's
+     * host field for that invocation. The single positional is the COMMIT
+     * (repin's b1 argv); it is refused as usage when absent (a fixed one-slot
+     * is all repin takes). */
+    const char *repin_sha = NULL;
+    const char *repin_push_repo = NULL;
+    const char *repin_ci_log_dir = NULL;
+    const char *repin_build_dir = NULL;
+    const char *repin_pins_dir = NULL;
+    const char *repin_bin_dir = NULL;
+    const char *repin_backup_dir = NULL;
+    const char *repin_clone_run = NULL;
+    const char *repin_out = NULL;
+    const char *repin_harness_doctor = NULL;
+    const char *repin_live_doctor = NULL;
+    const char *repin_build_run = NULL;
+    const char *repin_models = NULL;
+    /* page / page-watch / probe flags (M1213, H12, T2): the flags the driver
+     * passes to the verbs. The page/page-watch flags are shared: --state,
+     * --out, --now, --after-s, --fresh-s, --park for page; --interval for
+     * page-watch. The probe flags are --model, --probe, --model-probe,
+     * --gateway-probe. */
+    const char *page_state = NULL;
+    const char *page_out = NULL;
+    long page_now = 0;
+    int page_after_s = 0;
+    int page_fresh_s = 0;
+    int page_park = 0;
+    int page_interval = 0;
+    const char *probe_model = NULL;
+    int probe_probe = 0;
+    int probe_model_probe = 0;
+    int probe_gateway_probe = 0;
+    /* park / restart flags (M1213, H12, T3): the flags the driver passes to
+     * the verbs. The park flags are --state, --out, --parked, --interval,
+     * --wait-interval, --ready-interval, --not-ready-interval, --post-start.
+     * The restart flags are --state, --out, --wait-interval, --post-start. */
+    const char *park_state = NULL;
+    const char *park_out = NULL;
+    int park_parked = 0;
+    int park_interval = 0;  /* A2.1: the armed-poll interval, distinct from wait-ready */
+    int park_wait_interval = 0;
+    int park_ready_interval = 0;
+    int park_not_ready_interval = 0;
+    const char *park_post_start = NULL;
+    const char *restart_state = NULL;
+    const char *restart_out = NULL;
+    int restart_wait_interval = 0;
+    const char *restart_post_start = NULL;
     /* push's later positionals (the records dir, the backlog's TIPs) as a
      * growing jc_vec of `const char *` (M1151 defect b): the pre-fix fixed
      * push_extra[8] refused a 10th positional as `unexpected argument`.
@@ -399,6 +619,78 @@ int main(int argc, char **argv)
                  * orchestrator (wave 4) follow. A bare `gate` is a usage
                  * refusal naming the two (the watch subcommand idiom, M1153). */
                 not_built_cmd = "gate";
+                continue;
+            } else if (strcmp(a, "land") == 0) {
+                /* The landing policy (M1202, H10, wave 1): BUILT. Moves the
+                 * remote's master to a SHA8 by a credential-wired fast-forward
+                 * push, under the standing rule (land.sh ported). It takes a
+                 * single positional (the SHA8) + the five named path flags;
+                 * a missing SHA8 is a usage refusal (b1), not not-built. */
+                not_built_cmd = "land";
+                continue;
+            } else if (strcmp(a, "repin") == 0) {
+                /* The re-pin (M1203, H11, wave 2): BUILT. Re-pins the drive's
+                 * bin/ (jichi + jichi-harness) at the COMMIT after it landed
+                 * on master, then runs the doctors (repin.sh ported). It takes
+                 * a single positional (the COMMIT) + the twelve named path
+                 * flags; a missing COMMIT is a usage refusal (b1), not
+                 * not-built. */
+                not_built_cmd = "repin";
+                continue;
+            } else if (strcmp(a, "page") == 0) {
+                /* The model-failure pager (M1213, H12, T2): BUILT. The C89
+                 * port of the hardening drive's page-watch.sh PAGE_ONCE form.
+                 * It takes a single optional positional (the state path) and
+                 * several named flags (--state, --out, --now, --after-s,
+                 * --fresh-s, --park); a missing --state/--out value is a
+                 * usage refusal (exit 2), not not-built. */
+                not_built_cmd = "page";
+                continue;
+            } else if (strcmp(a, "page-watch") == 0) {
+                /* The model-failure background loop (M1213, H12, T2): BUILT.
+                 * The C89 port of the hardening drive's page-watch.sh loop.
+                 * It takes a single optional positional (the state path) and
+                 * several named flags (--state, --out, --now, --after-s,
+                 * --fresh-s, --interval); a missing --state/--out value is a
+                 * usage refusal (exit 2), not not-built. */
+                not_built_cmd = "page-watch";
+                continue;
+            } else if (strcmp(a, "probe") == 0) {
+                /* The lead model reachability check (M1213, H12, T2): BUILT.
+                 * The C89 port of park-resume.sh's ready()/mprobe(). It takes
+                 * a single optional positional (the model name) and several
+                 * named flags (--model, --probe, --model-probe,
+                 * --gateway-probe); a missing --config is a usage refusal
+                 * (exit 2), not not-built. */
+                not_built_cmd = "probe";
+                continue;
+            } else if (strcmp(a, "approve") == 0) {
+                /* The landing decision's approve (M1202, H10, wave 2b, D3):
+                 * BUILT as a SKELETON (the record + refuse-until-approved +
+                 * approve; the pending-queue UI is OUT). Runs the land step
+                 * on a PENDING landing (the gate's green-held record) and
+                 * writes the approved decision. Single positional (the SHA8)
+                 * + --gate-home / --config / --land-run / --operator; the
+                 * missing SHA8 / --gate-home are usage refusals (the land
+                 * arm's idiom), not not-built. */
+                not_built_cmd = "approve";
+                continue;
+            } else if (strcmp(a, "park") == 0) {
+                /* The park verb (M1213, H12, T3): BUILT. The C89 port of
+                 * park-resume.sh. Takes --config + optional positional (the
+                 * state path) and several named flags (--state, --out,
+                 * --parked, --interval, --wait-interval, --ready-interval,
+                 * --not-ready-interval, --post-start); a missing --state/--out
+                 * value is a usage refusal (exit 2), not not-built. */
+                not_built_cmd = "park";
+                continue;
+            } else if (strcmp(a, "restart") == 0) {
+                /* The restart verb (M1213, H12, T3): BUILT. The C89 port of
+                 * restart-loop.sh. Takes --config + optional positional (the
+                 * state path) and several named flags (--state, --out,
+                 * --wait-interval, --post-start); a missing --state/--out
+                 * value is a usage refusal (exit 2), not not-built. */
+                not_built_cmd = "restart";
                 continue;
             } else if (a[0] == '-' && a[1] != '\0') {
                 /* a global option with no value, or an unknown global option */
@@ -1018,6 +1310,606 @@ int main(int argc, char **argv)
                 continue;
             }
         }
+        /* land's own flags (M1202, H10, wave 1): the five caller-named paths
+         * (CHANGED: land.sh hard-codes $P / the ci dir / the gate home; the
+         * port names them, the orchestrator half of wave 2 will read them
+         * from the config) + the land-log twin. The single positional (the
+         * SHA8) is the bare word below; a second one refuses as unexpected. */
+        if (strcmp(not_built_cmd, "land") == 0) {
+            if (strcmp(a, "--push-repo") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --push-repo "
+                                    "needs a value <dir>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                land_push_repo = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--ci-log-dir") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --ci-log-dir "
+                                    "needs a value <dir>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                land_ci_log_dir = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--gate-home") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --gate-home "
+                                    "needs a value <dir>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                land_gate_home = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--main-checkout") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --main-checkout "
+                                    "needs a value <dir>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                land_main_checkout = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--land-log") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --land-log "
+                                    "needs a value <f>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                land_log = argv[i];
+                continue;
+            }
+        }
+        /* repin's own flags (M1203, H11, wave 2): the twelve caller-named
+         * paths/commands (CHANGED: repin.sh hard-codes $H/$D/$P/$LOGDIR/
+         * $MODELS; the port names them). Each, when present, OVERRIDES the
+         * config's host field for this invocation. The single positional (the
+         * COMMIT) is the bare word below; a second one refuses as unexpected. */
+        if (strcmp(not_built_cmd, "repin") == 0) {
+            if (strcmp(a, "--push-repo") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --push-repo "
+                                    "needs a value <dir>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                repin_push_repo = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--ci-log-dir") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --ci-log-dir "
+                                    "needs a value <dir>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                repin_ci_log_dir = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--pins-dir") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --pins-dir "
+                                    "needs a value <dir>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                repin_pins_dir = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--bin-dir") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --bin-dir "
+                                    "needs a value <dir>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                repin_bin_dir = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--backup-dir") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --backup-dir "
+                                    "needs a value <dir>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                repin_backup_dir = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--build-dir") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --build-dir "
+                                    "needs a value <dir>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                repin_build_dir = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--clone-run") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --clone-run "
+                                    "needs a value <cmd>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                repin_clone_run = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--repin-out") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --repin-out "
+                                    "needs a value <f>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                repin_out = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--harness-doctor") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --harness-doctor "
+                                    "needs a value <cmd>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                repin_harness_doctor = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--live-doctor") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --live-doctor "
+                                    "needs a value <cmd>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                repin_live_doctor = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--build-run") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --build-run "
+                                    "needs a value <cmd>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                repin_build_run = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--models") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --models "
+                                    "needs a value <list>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                repin_models = argv[i];
+                continue;
+            }
+        }
+        /* page's own flags (M1213, H12, T2): the flags the driver passes to the
+         * page verb. Each, when present, OVERRIDES the default. */
+        if (strcmp(not_built_cmd, "page") == 0) {
+            if (strcmp(a, "--config") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --config needs a value <file>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                config_path = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--state") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --state needs a value <f>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                page_state = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--out") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --out needs a value <f>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                page_out = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--now") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --now needs a value <s>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                page_now = atol(argv[i]);
+                continue;
+            }
+            if (strcmp(a, "--after-s") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --after-s needs a value <s>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                page_after_s = atoi(argv[i]);
+                continue;
+            }
+            if (strcmp(a, "--park") == 0) {
+                page_park = 1;
+                continue;
+            }
+            if (strcmp(a, "--fresh-s") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --fresh-s needs a value <s>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                page_fresh_s = atoi(argv[i]);
+                continue;
+            }
+        }
+        /* page-watch's own flags (M1213, H12, T2): --interval + the page flags. */
+        if (strcmp(not_built_cmd, "page-watch") == 0) {
+            if (strcmp(a, "--config") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --config needs a value <file>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                config_path = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--state") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --state needs a value <f>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                page_state = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--out") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --out needs a value <f>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                page_out = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--now") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --now needs a value <s>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                page_now = atol(argv[i]);
+                continue;
+            }
+            if (strcmp(a, "--after-s") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --after-s needs a value <s>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                page_after_s = atoi(argv[i]);
+                continue;
+            }
+            if (strcmp(a, "--park") == 0) {
+                page_park = 1;
+                continue;
+            }
+            if (strcmp(a, "--fresh-s") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --fresh-s needs a value <s>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                page_fresh_s = atoi(argv[i]);
+                continue;
+            }
+            if (strcmp(a, "--interval") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --interval needs a value <s>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                page_interval = atoi(argv[i]);
+                continue;
+            }
+        }
+
+        /* park flags (M1213, H12, T3): --config, --state, --out, --parked,
+         * --interval, --wait-interval, --ready-interval, --not-ready-interval,
+         * --post-start. */
+        if (strcmp(not_built_cmd, "park") == 0) {
+            if (strcmp(a, "--config") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --config needs a value <file>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                config_path = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--state") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --state needs a value <f>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                park_state = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--out") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --out needs a value <f>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                park_out = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--parked") == 0) {
+                park_parked = 1;
+                continue;
+            }
+            if (strcmp(a, "--interval") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --interval needs a value <s>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                if (park_validate_numeric(argv[i], "--interval") != 0) {
+                    return 2;
+                }
+                park_interval = atoi(argv[i]);
+                continue;
+            }
+            if (strcmp(a, "--wait-interval") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --wait-interval needs a value <s>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                if (park_validate_numeric(argv[i], "--wait-interval") != 0) {
+                    return 2;
+                }
+                park_wait_interval = atoi(argv[i]);
+                continue;
+            }
+            if (strcmp(a, "--ready-interval") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --ready-interval needs a value <s>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                if (park_validate_numeric(argv[i], "--ready-interval") != 0) {
+                    return 2;
+                }
+                park_ready_interval = atoi(argv[i]);
+                continue;
+            }
+            if (strcmp(a, "--not-ready-interval") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --not-ready-interval needs a value <s>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                if (park_validate_numeric(argv[i], "--not-ready-interval") != 0) {
+                    return 2;
+                }
+                park_not_ready_interval = atoi(argv[i]);
+                continue;
+            }
+            if (strcmp(a, "--post-start") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --post-start needs a value <s>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                if (park_validate_numeric(argv[i], "--post-start") != 0) {
+                    return 2;
+                }
+                park_post_start = argv[i];
+                continue;
+            }
+        }
+
+        /* restart flags (M1213, H12, T3): --config, --state, --out,
+         * --wait-interval, --post-start. */
+        if (strcmp(not_built_cmd, "restart") == 0) {
+            if (strcmp(a, "--config") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --config needs a value <file>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                config_path = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--state") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --state needs a value <f>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                restart_state = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--out") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --out needs a value <f>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                restart_out = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--wait-interval") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --wait-interval needs a value <s>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                if (park_validate_numeric(argv[i], "--wait-interval") != 0) {
+                    return 2;
+                }
+                restart_wait_interval = atoi(argv[i]);
+                continue;
+            }
+            if (strcmp(a, "--post-start") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --post-start needs a value <s>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                if (park_validate_numeric(argv[i], "--post-start") != 0) {
+                    return 2;
+                }
+                restart_post_start = argv[i];
+                continue;
+            }
+        }
+
+        /* probe's own flags (M1213, H12, T2): --model, --probe, --model-probe,
+         * --gateway-probe. */
+        if (strcmp(not_built_cmd, "probe") == 0) {
+            if (strcmp(a, "--config") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --config needs a value <file>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                config_path = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--model") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --model needs a value <name>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                probe_model = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--probe") == 0) {
+                probe_probe = 1;
+                continue;
+            }
+            if (strcmp(a, "--model-probe") == 0) {
+                probe_model_probe = 1;
+                continue;
+            }
+            if (strcmp(a, "--gateway-probe") == 0) {
+                probe_gateway_probe = 1;
+                continue;
+            }
+        }
+        /* approve's own flags (M1202 wave 2b, D3): --gate-home (REQUIRED),
+         * --config (the land arm's own flag idiom), --land-run (the land
+         * step, else the config's host.landRun) and --operator (the approved
+         * record's word, default "the operator"). The single positional (the
+         * SHA8) is the bare word below; a second one refuses as unexpected. */
+        if (strcmp(not_built_cmd, "approve") == 0) {
+            if (strcmp(a, "--gate-home") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: approve: --gate-home "
+                                    "needs a value <dir>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                approve_gate_home = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--config") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: approve: --config "
+                                    "needs a value <file>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                approve_config = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--land-run") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: approve: --land-run "
+                                    "needs a value <cmd>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                approve_land_run = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--operator") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: approve: --operator "
+                                    "needs a value <name>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                approve_operator = argv[i];
+                continue;
+            }
+        }
         /* Any other flag after a command is not recognised. Reaching this
          * under `push` (a flag after positionals) may have a live
          * push_extra allocation -- free it (a non-push run holds NULL). */
@@ -1167,6 +2059,60 @@ int main(int argc, char **argv)
                 return 1;
             }
             continue;
+        }
+        /* A bare word after `land`: the single positional, the SHA8 (b1's
+         * argv). A second one is not recognised (the driver's contract). */
+        if (strcmp(not_built_cmd, "land") == 0) {
+            if (land_sha8 == NULL) {
+                land_sha8 = a;
+                continue;
+            }
+            /* A second positional falls through to the unexpected refusal. */
+        }
+        /* A bare word after `repin`: the single positional, the COMMIT (b1's
+         * argv). A second one is not recognised (the driver's contract). */
+        if (strcmp(not_built_cmd, "repin") == 0) {
+            if (repin_sha == NULL) {
+                repin_sha = a;
+                continue;
+            }
+            /* A second positional falls through to the unexpected refusal. */
+        }
+        /* A bare word after `page`: the state path (optional positional).
+         * A second one is not recognised. */
+        if (strcmp(not_built_cmd, "page") == 0) {
+            if (page_state == NULL) {
+                page_state = a;
+                continue;
+            }
+            /* A second positional falls through to the unexpected refusal. */
+        }
+        /* A bare word after `page-watch`: the state path (optional positional).
+         * A second one is not recognised. */
+        if (strcmp(not_built_cmd, "page-watch") == 0) {
+            if (page_state == NULL) {
+                page_state = a;
+                continue;
+            }
+            /* A second positional falls through to the unexpected refusal. */
+        }
+        /* A bare word after `probe`: the model name (optional positional).
+         * A second one is not recognised. */
+        if (strcmp(not_built_cmd, "probe") == 0) {
+            if (probe_model == NULL) {
+                probe_model = a;
+                continue;
+            }
+            /* A second positional falls through to the unexpected refusal. */
+        }
+        /* A bare word after `approve`: the single positional, the SHA8 (the
+         * land arm's b1 idiom). A second one is not recognised. */
+        if (strcmp(not_built_cmd, "approve") == 0) {
+            if (approve_sha8 == NULL) {
+                approve_sha8 = a;
+                continue;
+            }
+            /* A second positional falls through to the unexpected refusal. */
         }
         fprintf(stderr, "jichi-harness: unexpected argument '%s' after "
                         "command '%s'\n", a, not_built_cmd);
@@ -1852,6 +2798,447 @@ int main(int argc, char **argv)
         jc_arena_free(a);
         jc_vec_free(&gate_pos);
         return rc;
+    }
+
+    /* The landing policy (M1202, H10, wave 1): the C89 port of land.sh. The
+     * dispatch gives it a fresh arena (the gate run idiom); the verb returns
+     * its rc (0 success, 1 every policy refusal, 2 the usage refusal). */
+    if (strcmp(not_built_cmd, "land") == 0) {
+        struct jc_arena *a;
+        int rc;
+        a = jc_arena_new(0);
+        if (a == NULL) {
+            return 1;
+        }
+        rc = jc_harness_land_run(config_path, land_push_repo,
+                                 land_ci_log_dir, land_gate_home,
+                                 land_main_checkout, land_log,
+                                 land_sha8, a);
+        jc_arena_free(a);
+        return rc;
+    }
+
+    /* The re-pin (M1203, H11, wave 2): the C89 port of repin.sh. The
+     * dispatch gives it a fresh arena (the land idiom); the verb returns its
+     * rc (0 the swap + every doctor clean, 1 every policy refusal / not-clean
+     * doctor, 2 the usage refusal). */
+    if (strcmp(not_built_cmd, "repin") == 0) {
+        struct jc_arena *a;
+        int rc;
+        a = jc_arena_new(0);
+        if (a == NULL) {
+            return 1;
+        }
+        rc = jc_harness_repin_run(config_path, repin_push_repo,
+                                  repin_ci_log_dir, repin_build_dir,
+                                  repin_pins_dir, repin_bin_dir,
+                                  repin_backup_dir, repin_clone_run,
+                                  repin_out, repin_harness_doctor,
+                                  repin_live_doctor, repin_build_run,
+                                  repin_models, repin_sha, a);
+        jc_arena_free(a);
+        return rc;
+    }
+
+    /* The model-failure pager (M1213, H12, T2): the C89 port of page-watch.sh's
+     * PAGE_ONCE form. The dispatch gives it a fresh arena (the repin idiom);
+     * the verb returns its rc (0 success, 1 policy refusal, 2 usage refusal). */
+    if (strcmp(not_built_cmd, "page") == 0) {
+        struct jc_arena *a;
+        int rc;
+        a = jc_arena_new(0);
+        if (a == NULL) {
+            return 1;
+        }
+        rc = jc_harness_page_run(config_path, page_state, page_out,
+                                 page_now, page_after_s, page_fresh_s,
+                                 page_park,
+                                 a);
+        jc_arena_free(a);
+        return rc;
+    }
+
+    /* The model-failure background loop (M1213, H12, T2): the C89 port of
+     * page-watch.sh's loop. The dispatch gives it a fresh arena (the page
+     * idiom); the verb returns 0 on SIGINT, never 1/2. */
+    if (strcmp(not_built_cmd, "page-watch") == 0) {
+        struct jc_arena *a;
+        int rc;
+        a = jc_arena_new(0);
+        if (a == NULL) {
+            return 1;
+        }
+        rc = jc_harness_page_watch_run(config_path, page_state, page_out,
+                                       page_now, page_after_s, page_fresh_s,
+                                       page_interval,
+                                       a);
+        jc_arena_free(a);
+        return rc;
+    }
+
+    /* The lead model reachability check (M1213, H12, T2): the C89 port of
+     * park-resume.sh's ready()/mprobe(). The dispatch gives it a fresh arena
+     * (the repin idiom); the verb returns its rc (0 ready, 1 refusal, 2 usage). */
+    if (strcmp(not_built_cmd, "probe") == 0) {
+        struct jc_arena *a;
+        int rc;
+        a = jc_arena_new(0);
+        if (a == NULL) {
+            return 1;
+        }
+        rc = jc_harness_probe_run(config_path, probe_model,
+                                  probe_probe, probe_model_probe,
+                                  probe_gateway_probe,
+                                  a);
+        jc_arena_free(a);
+        return rc;
+    }
+
+    /* The park verb (M1213, H12, T3): the C89 port of park-resume.sh.
+     * The dispatch gives it a fresh arena (the repin idiom); the verb
+     * returns its rc (0 success, 1 policy refusal, 2 usage refusal). */
+    if (strcmp(not_built_cmd, "park") == 0) {
+        struct jc_arena *a;
+        int rc;
+        a = jc_arena_new(0);
+        if (a == NULL) {
+            return 1;
+        }
+        rc = jc_harness_park_run(config_path, park_state, park_out,
+                                 park_parked, park_interval,
+                                 park_wait_interval, park_ready_interval,
+                                 park_not_ready_interval, park_post_start,
+                                 a);
+        jc_arena_free(a);
+        return rc;
+    }
+
+    /* The restart verb (M1213, H12, T3): the C89 port of restart-loop.sh.
+     * The dispatch gives it a fresh arena (the repin idiom); the verb
+     * returns its rc (0 success, 1 policy refusal, 2 usage refusal). */
+    if (strcmp(not_built_cmd, "restart") == 0) {
+        struct jc_arena *a;
+        int rc;
+        a = jc_arena_new(0);
+        if (a == NULL) {
+            return 1;
+        }
+        rc = jc_harness_restart_run(config_path, restart_state, restart_out,
+                                    restart_wait_interval, restart_post_start,
+                                    a);
+        jc_arena_free(a);
+        return rc;
+    }
+
+    /* The landing decision's approve (M1202, H10, wave 2b, D3): the SKELETON
+     * (the record + refuse-until-approved + approve; the pending-queue UI is
+     * OUT). Reads the gate's <gate-home>/<sha8>/landing.decision LAST line and,
+     * only when it is a PENDING landing, runs the land step it resolves
+     * (--land-run else the config's host.landRun else refused) through the
+     * SAME capture the gate's land step uses (jc_capture_cmd), appends the
+     * 'decision=approved ...' record, and returns the land step's rc (0 on
+     * success, else 1). A missing SHA8 / --gate-home is a usage refusal (the
+     * land arm's idiom, exit 2); the refusals are exit 1 naming themselves. */
+    if (strcmp(not_built_cmd, "approve") == 0) {
+        const char *cfg_path;
+        struct jc_arena *a;
+        struct jc_harness_config cfg;
+        const char *land_step;
+        char dec_path[4096];
+        char line[16384];
+        char *text = NULL;
+        char last[1024];     /* the record's LAST line (the pending words) */
+        char capture[16384]; /* the land step's combined output (telemetry) */
+        char stamp[64];
+        char extra[1024];
+        FILE *f;
+        jc_size len;
+        int rc;
+        int nsp; /* the M1178 cut bounds (SV:1235) */
+
+        a = jc_arena_new(0);
+        if (a == NULL) {
+            fprintf(stderr, "jichi-harness: approve: out of memory\n");
+            return 1;
+        }
+        /* The usage refusals (the land arm's idiom): missing SHA8 / --gate-
+         * home. --gate-home is REQUIRED (it names the record to read). */
+        if (approve_sha8 == NULL) {
+            jc_arena_free(a);
+            fprintf(stderr,
+                    "jichi-harness: approve: needs a <SHA8> "
+                    "(the pending landing to approve)\n");
+            usage(argv[0]);
+            return 2;
+        }
+        if (approve_gate_home == NULL) {
+            jc_arena_free(a);
+            fprintf(stderr,
+                    "jichi-harness: approve: --gate-home <dir> is required\n");
+            usage(argv[0]);
+            return 2;
+        }
+        /* The record to read: <gate-home>/<sha8>/landing.decision. */
+        nsp = jc_snprintf(dec_path, sizeof dec_path,
+                          "%s/%s/landing.decision", approve_gate_home,
+                          approve_sha8);
+        if (nsp < 0 || nsp >= (int)sizeof dec_path) {
+            jc_arena_free(a);
+            fprintf(stderr,
+                    "jichi-harness: approve: the landing.decision path is "
+                    "too long\n");
+            return 2;
+        }
+        /* (ii) refuse-until-approved FIRST: read the record's LAST line.
+         * Absent or not 'decision=pending' -> refuse. This fires before the
+         * land-step resolution, so a gate home whose last line is
+         * 'decision=landed' is refused even with no --land-run (cell 107). */
+        if (jc_read_file(dec_path, &text, &len, a) != JC_OK) {
+            jc_arena_free(a);
+            fprintf(stderr,
+                    "approve: refused: no pending landing for %s\n",
+                    approve_sha8);
+            return 1;
+        }
+        last[0] = '\0';
+        {
+            /* The record's LAST non-empty line, trimmed (the gate's
+             * gf_last_line semantics, a local re-derivation). */
+            size_t off, tlen;
+            const char *ls;
+            off = (size_t)len;
+            while (off > 0 && (text[off - 1] == '\n' ||
+                               text[off - 1] == '\r')) {
+                off--;
+            }
+            tlen = off;
+            ls = text + tlen;
+            while (ls > text && ls[-1] != '\n') {
+                ls--;
+            }
+            tlen = off - (size_t)(ls - text);
+            while (tlen > 0 && (ls[tlen - 1] == ' ' ||
+                                ls[tlen - 1] == '\t')) {
+                tlen--;
+            }
+            if (tlen >= sizeof last) {
+                tlen = sizeof last - 1;
+            }
+            memcpy(last, ls, tlen);
+            last[tlen] = '\0';
+        }
+        if (last[0] == '\0' ||
+            strncmp(last, "decision=pending", 16) != 0) {
+            jc_arena_free(a);
+            fprintf(stderr,
+                    "approve: refused: no pending landing for %s\n",
+                    approve_sha8);
+            return 1;
+        }
+        /* (iii) the land step command: --land-run flag else the config's
+         * host.landRun else refused: 'no land step is named'. */
+        cfg_path = approve_config;
+        if (cfg_path == NULL) {
+            cfg_path = config_path;
+        }
+        if (approve_land_run == NULL && cfg_path != NULL) {
+            /* Read the config for host.landRun. A broken/absent config is a
+             * REFUSAL (no land step named), not a usage error. */
+            if (jc_harness_config_load(cfg_path, &cfg, a) == JC_OK) {
+                if (cfg.host_land_run != NULL && cfg.host_land_run[0] != '\0') {
+                    approve_land_run = cfg.host_land_run;
+                }
+            } else {
+                jc_arena_free(a);
+                fprintf(stderr,
+                        "jichi-harness: approve: could not read config "
+                        "\"%s\" (no land step named)\n", cfg_path);
+                return 1;
+            }
+        }
+        land_step = approve_land_run;
+        if (land_step == NULL || land_step[0] == '\0') {
+            jc_arena_free(a);
+            fprintf(stderr,
+                    "approve: refused: no land step is named "
+                    "(host.landRun absent)\n");
+            return 1;
+        }
+        /* (iv) run the land step through the gate's capture idiom
+         * (jc_capture_cmd): `sh -c '<cmd> <s8>'`, combined output + rc.
+         * Assemble the line the gate's land step assembles (gf_capture_cmd):
+         * cmd + " " + sha8, THEN the <s> substitution pass (F4, the hunk
+         * audit: jc_hp_gate.h's contract -- "the caller has already appended
+         * the sha8 and substituted <s>"). The host's land step may be
+         * written in the idiom (a literal "<s>" token in the COMMAND, the
+         * gate's gf_subst_s shape); without the pass it would reach sh -c
+         * unsubstituted and the shell would parse "<s>" as an INPUT
+         * REDIRECTION from a file named "s" (cell 108). */
+        nsp = jc_snprintf(line, sizeof line, "%s %s", land_step,
+                          approve_sha8);
+        if (nsp < 0 || nsp >= (int)sizeof line) {
+            jc_arena_free(a);
+            fprintf(stderr,
+                    "jichi-harness: approve: the land step command is "
+                    "too long\n");
+            return 1;
+        }
+        {
+            char s[16384];
+            size_t i = 0;
+            size_t o = 0;
+            int slen = (int)strlen(approve_sha8);
+
+            /* gf_subst_s is static in jc_hp_gate.c (one owner per file);
+             * the same pass, inlined: every literal "<s>" (3 bytes)
+             * becomes the sha, the rest is copied byte-for-byte. The gate
+             * has NO input-length guard on the sha -- it substitutes
+             * whatever string it is given (gf_subst_s), so this pass does
+             * not either (R-1: the old (size_t)slen > 8 conjunct mis-named
+             * a 40-hex sha as "the land step command is too long"). The
+             * expansion pre-check counts the ACTUAL "<s>" tokens in the
+             * assembled line (the 512-token heuristic over-estimates for a
+             * 40-hex sha: 512 * 41 > 16384, so a realistic line with one
+             * token would be refused); the per-step o+slen+1 checks below
+             * are the authoritative bounds. */
+            {
+                size_t tc = 0;
+                size_t k;
+
+                for (k = 0; line[k] != '\0'; k++)
+                    if (line[k] == '<' &&
+                        strncmp(line + k, "<s>", 3) == 0)
+                        tc++;
+                if (strlen(line) + tc * ((size_t)slen + 1) > sizeof s) {
+                    jc_arena_free(a);
+                    fprintf(stderr,
+                            "jichi-harness: approve: the land step command "
+                            "is too long\n");
+                    return 1;
+                }
+            }
+            while (line[i] != '\0') {
+                if (line[i] == '<' &&
+                    strncmp(line + i, "<s>", 3) == 0) {
+                    if (o + (size_t)slen + 1 > sizeof s) {
+                        jc_arena_free(a);
+                        fprintf(stderr,
+                                "jichi-harness: approve: the land step "
+                                "command is too long\n");
+                        return 1;
+                    }
+                    memcpy(s + o, approve_sha8, (size_t)slen);
+                    o += (size_t)slen;
+                    i += 3;
+                } else {
+                    if (o + 2 > sizeof s) {
+                        jc_arena_free(a);
+                        fprintf(stderr,
+                                "jichi-harness: approve: the land step "
+                                "command is too long\n");
+                        return 1;
+                    }
+                    s[o++] = line[i];
+                    i++;
+                }
+            }
+            s[o] = '\0';
+            memcpy(line, s, o + 1);
+        }
+        rc = 1;
+        if (jc_capture_cmd(line, capture, sizeof capture, &rc)) {
+            /* (v) the land step ran: append the 'decision=approved ...'
+             * record. The batch word is pulled from the PENDING line's
+             * 'batch=<word>' field (already read above, before the capture);
+             * the policy word is ECHOED from the PENDING line's 'policy=<w>'
+             * field (the hunk audit's F2: the record hard-coded 'hold', so a
+             * non-default pending policy word -- e.g. 'AUTO' (D2's
+             * fail-closed echo, cell 112) or an operator's 'hold'-variant --
+             * would not survive the approve; absent -> 'hold', the D2
+             * default the gate writes when the key is absent, cell 111). */
+            const char *bp = strstr(last, "batch=");
+            size_t bn;
+            char batch[64];
+            char policy_word[64];
+            char operator_word[128];
+
+            batch[0] = '\0';
+            if (bp != NULL) {
+                bp += 6;
+                bn = strcspn(bp, " \n");
+                if (bn >= sizeof batch) {
+                    bn = sizeof batch - 1;
+                }
+                memcpy(batch, bp, bn);
+                batch[bn] = '\0';
+            }
+            policy_word[0] = '\0';
+            {
+                const char *pp = strstr(last, "policy=");
+
+                if (pp != NULL) {
+                    pp += 7;
+                    bn = strcspn(pp, " \n");
+                    if (bn >= sizeof policy_word) {
+                        bn = sizeof policy_word - 1;
+                    }
+                    memcpy(policy_word, pp, bn);
+                    policy_word[bn] = '\0';
+                }
+            }
+            if (policy_word[0] == '\0') {
+                memcpy(policy_word, "hold", 4);
+            }
+            operator_word[0] = '\0';
+            if (approve_operator != NULL && approve_operator[0] != '\0') {
+                int n_ow = jc_snprintf(operator_word, sizeof operator_word,
+                                       "%s", approve_operator);
+                if (n_ow < 0 || n_ow >= (int)sizeof operator_word) {
+                    operator_word[0] = '\0';
+                }
+            }
+            if (operator_word[0] == '\0') {
+                memcpy(operator_word, "the operator", 13);
+            }
+            /* The gate's other timestamps are the drive's stamp idiom
+             * (ISO %Y-%m-%d %H:%M:%S + the local offset, +0000 style): the
+             * pending line the verb just read carries it (gf_now), so the
+             * approved line does too (F3, the hunk audit: the verb's stamp
+             * lacked the offset). */
+            hm_now(stamp, sizeof stamp);
+            if (jc_snprintf(extra, sizeof extra,
+                            "decision=approved policy=%s sha8=%s batch=%s "
+                            "time=%s operator=%s land-rc=%d\n",
+                            policy_word,
+                            approve_sha8,
+                            (batch[0] != '\0') ? batch : "?",
+                            stamp, operator_word, rc) < 0 ||
+                jc_snprintf(extra, sizeof extra,
+                            "decision=approved policy=%s sha8=%s batch=%s "
+                            "time=%s operator=%s land-rc=%d\n",
+                            policy_word,
+                            approve_sha8,
+                            (batch[0] != '\0') ? batch : "?",
+                            stamp, operator_word, rc) >= (int)sizeof extra) {
+                fprintf(stderr,
+                        "jichi-harness: approve: the approved decision line "
+                        "was truncated\n");
+            } else {
+                f = fopen(dec_path, "ab");
+                if (f == NULL || fputs(extra, f) == EOF || fclose(f) != 0) {
+                    fprintf(stderr,
+                            "jichi-harness: approve: could not append the "
+                            "approved decision to %s\n", dec_path);
+                }
+            }
+        } else {
+            fprintf(stderr,
+                    "jichi-harness: approve: the land step could not be "
+                    "spawned (the land step's rc is 1)\n");
+        }
+        jc_arena_free(a);
+        /* (vi) return the land step's rc: 0 on success, else 1. */
+        return (rc == 0) ? 0 : 1;
     }
 
     /* The other two are not built yet. */

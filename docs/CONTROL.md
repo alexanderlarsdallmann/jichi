@@ -46,8 +46,9 @@ socket is unlinked at teardown.
 
 A program can read the same six, with their fields, from `jichi describe --output json`
 under `control` (M752). That list is generated from the codec's own verb table, so it cannot
-fall behind this one. The two per-worker verbs (M1149) join the same table: eight verbs
-total, and they are refused by value when no `spawn_parallel` batch is live.
+fall behind this one. The two per-worker verbs (M1149) join the same table, and the
+`cancel-cmd` verb (M1192) joins it too: nine verbs total, and the two per-worker verbs
+are refused by value when no `spawn_parallel` batch is live.
 
 | Verb | Effect | Answered |
 |---|---|---|
@@ -59,7 +60,14 @@ total, and they are refused by value when no `spawn_parallel` batch is live.
 | `abort` | graceful stop — identical to Ctrl-C/SIGTERM (M80 keep-or-rollback semantics, exit 130) | at the boundary |
 | `mode <chat\|plan>` | **narrows** the operating posture (M304) and persists past the turn | at the boundary |
 | `stop-task <n> [reason]` | SIGTERMs worker `n` of a live batch (argument order); the reason is journaled and the report names it; the work is kept (M854) (M1149) | at the pool's 200 ms wake |
-| `inject-task <n> <text>` | queues text that lands as **one `[operator]` user message** in worker `n`'s next model request (M1149) | at the worker's next tool boundary |
+| `inject-task <n> <text>` | queues text that lands as **one `[operator]` user message** in worker `n`'s next model request (M1149) | at the worker's next tool boundary, if it reaches one (below) |
+| `cancel-cmd [task] [reason...]` | cancels the lead's command in flight (no task), or that worker's; the refusal is by value, like stop-task (M1192) | at the command boundary, or the pool's wake |
+
+**A queued note is not a delivered note.** `inject-task` answers `queued; it is delivered at the
+task's next tool boundary, if it reaches one`. A worker reads its notes only between tool calls, so
+a worker whose next reply is its last never reads a note that arrives after its last tool call.
+Nothing reports that loss yet; until it does, a supervisor should treat a note sent late in a
+worker's run as possibly unread.
 
 ```mermaid
 sequenceDiagram
@@ -99,7 +107,11 @@ sequenceDiagram
   `spawn_parallel` batch is live, also carries a **`batch` object** (M1149):
   `total`/`done` and per task its index, live flag, `pid`, current tool, token
   and tool-call counts, worktree, and `idle_s` (seconds since the task's last
-  progress line) — the wedge detector a supervisor polls. When no batch is
+  progress line), the M1194 progress signals (`edits`, `since_edit_s`,
+  `placeholders`, `compactions`, `dup24`, `flag`), and `in_cmd` (M1195, always
+  emitted, `0` when the task is between commands — the state `cancel-cmd`'s
+  "not in a command" refusal names) — the wedge detector a supervisor polls.
+  When no batch is
   live the reply is byte-identical to before: the object is simply absent, so
   an existing consumer sees nothing new.
 - **The per-worker verbs are refusals by value.** `stop-task` and

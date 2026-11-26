@@ -68,6 +68,43 @@ static void test_red_violation_shell(void)
     cJSON_Delete(o);
 }
 
+/* TW24.F4: the completion check gave no verdict (a relay leg that handed
+ * over), but a periodic verify ran. `verify` stays "unknown"; the periodic
+ * result stands beside it, in the JSON and in the footer. With none run,
+ * nothing is added. */
+static void test_no_verdict_names_the_periodic_verify(void)
+{
+    struct jc_reach r;
+    char buf[700];
+    cJSON *o;
+    memset(&r, 0, sizeof r);
+    r.envelope = 1; r.verifier_armed = 1; r.scope_armed = 1;
+    r.periodic_ran = 1; r.periodic_red = 1;
+    jc_reach_line(&r, buf, sizeof buf);
+    JC_CHECK(strstr(buf, "the verifier never reached a verdict") != NULL);
+    JC_CHECK(strstr(buf, "(the last periodic verify was RED)") != NULL);
+    o = jc_reach_json(&r);
+    if (JC_REQUIRE(o != NULL)) {
+        JC_CHECK(strcmp(cJSON_GetObjectItem(o, "verify")->valuestring, "unknown") == 0);
+        if (JC_REQUIRE(cJSON_GetObjectItem(o, "last_periodic_verify") != NULL)) {
+            JC_CHECK(strcmp(cJSON_GetObjectItem(o, "last_periodic_verify")->valuestring,
+                            "red") == 0);
+        }
+    }
+    cJSON_Delete(o);
+    r.periodic_red = 0;
+    jc_reach_line(&r, buf, sizeof buf);
+    JC_CHECK(strstr(buf, "(the last periodic verify was green)") != NULL);
+    r.periodic_ran = 0;
+    jc_reach_line(&r, buf, sizeof buf);
+    JC_CHECK(strstr(buf, "the last periodic verify") == NULL);
+    o = jc_reach_json(&r);
+    if (JC_REQUIRE(o != NULL)) {
+        JC_CHECK(cJSON_GetObjectItem(o, "last_periodic_verify") == NULL);
+    }
+    cJSON_Delete(o);
+}
+
 static void test_envelope_without_verifier(void)
 {
     struct jc_reach r;
@@ -216,5 +253,6 @@ void test_reach(void)
     test_no_envelope();
     test_verifier_green_and_scope();
     test_red_violation_shell();
+    test_no_verdict_names_the_periodic_verify();
     test_envelope_without_verifier();
 }

@@ -25,9 +25,12 @@ reference is [`BUILD.md`](../BUILD.md).
 
 ## 1. Status
 
-**Verified — the full gate, and Driven** (FreeBSD 15.1-RELEASE, clang 19.1.7). The
-build is clean, the whole test suite runs, and a model has been driven on it. See its
-row in [`PLATFORMS.md`](../PLATFORMS.md#the-matrix).
+**Partly verified since 2026-11-24, and Driven** (FreeBSD 15.1-RELEASE, clang 19.1.7).
+The build is clean and a model has been driven on it. At `6ed996bf` (a 0.15.0 candidate,
+2026-11-25) the unit suite passes and 21 of 582 smoke drivers fail: 13 of them are
+`jichi-harness` drivers (that program is Linux-only for now), and 8 are jichi's: one fails
+in the test, one is fixed in 0.15.0, and six are not yet classified. It was Verified, the full gate, before 2026-11-24. See its row in
+[`PLATFORMS.md`](../PLATFORMS.md#partly-verified).
 
 ## 2. Who this is for, and what "installed" means
 

@@ -24,8 +24,12 @@ void test_gateverdict(void);       /* M1154 T3: defined in test_gateverdict.c */
 void test_gatesweep(void);         /* M1154 T5: defined in test_gatesweep.c */
 void test_gateci(void);            /* M1154 T8: defined in test_gateci.c */
 void test_gateref(void);           /* M1157 T9: defined in test_gateref.c */
+void test_pagestretch(void);       /* M1213 S2: defined in test_pagestretch.c */
 void test_tt_wait(void);           /* M1164: defined in test_tt_wait.c */
 void test_snprintf_fallback(void); /* M1172: defined in test_snprintf_fallback.c */
+void test_pool_clock(void);        /* M1194-d379: defined in test_pool_clock.c */
+void test_pool_sig(void);          /* def-377 W1: defined in test_pool_sig.c */
+void test_config_supervise(void);  /* def-377 W3/W4: defined in test_config_supervise.c */
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>   /* getenv */
@@ -244,6 +248,8 @@ int main(void)
     test_gateci();
     printf("test_gateref\n");
     test_gateref();
+    printf("test_pagestretch\n");
+    test_pagestretch();
     printf("test_str\n");
     test_str();
     printf("test_sb_reserve_bounds\n");
@@ -473,6 +479,12 @@ int main(void)
     test_envelope();
     printf("test_parallel\n");
     test_parallel();
+    printf("test_pool_clock\n");
+    test_pool_clock();
+    printf("test_pool_sig\n");
+    test_pool_sig();
+    printf("test_config_supervise\n");
+    test_config_supervise();
     printf("test_routing\n");
     test_routing();
     printf("test_fallback\n");
@@ -649,6 +661,10 @@ int main(void)
     test_env_panel();
     printf("test_delegreport\n");
     test_delegreport();
+    printf("test_delegreport_kind\n");
+    test_delegreport_kind();   /* def-377 W6.1 (M1194) */
+    printf("test_sup_stop\n");
+    test_sup_stop();           /* def-377 W4 (M1194, A4b): the soft-stop sentinel */
     printf("test_toolloop\n");
     test_toolloop();
     printf("test_toolloop_atbound\n");

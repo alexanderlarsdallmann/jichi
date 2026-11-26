@@ -15,9 +15,11 @@ talk to.
 
 ## 1. Status
 
-**Verified — the full gate, and Driven** (NetBSD 10.1, gcc; it was the cleanest
-non-Linux row in the test tier). See its row in
-[`PLATFORMS.md`](../PLATFORMS.md#the-matrix).
+**Partly verified since 2026-11-24, and Driven** (NetBSD 10.1, gcc; it was the
+cleanest non-Linux row in the test tier, Verified with the full gate). At `6ed996bf`
+(a 0.15.0 candidate, 2026-11-25) the unit suite passes and 14 of 582 smoke drivers fail: 12 of
+them are `jichi-harness` drivers (that program is Linux-only for now), and 2 are
+jichi's. See its row in [`PLATFORMS.md`](../PLATFORMS.md#partly-verified).
 
 ## 2. Who this is for, and what "installed" means
 

@@ -102,6 +102,14 @@ struct jc_telem_tool {
      * was 97%. Zero for every tool that runs no command, and for logs written
      * before M168 -- so old reports are unchanged. */
     long   cmd_fail;
+    /* M1192 B3 (B3.8): how many of this tool's calls carry `stopped:"cancel"`
+     * (a shell command the supervisor's control cancel-cmd terminated, exit
+     * 143). The emitter derives it from the exit status, so this is retroactive
+     * only to the extent the reader looks for the field: pre-M1192 logs carry
+     * no `stopped`, read as 0 here, and render exactly as before. A non-zero
+     * count is one line in the Tools report, printed only when > 0 (the
+     * conditional-line shape beside cmd_fail). */
+    long   cancelled;
     /* Recency (M-band recency-aware insights): the `ts` of this tool's last
      * call overall, its last OK call, and its last FAILED call. Let the insight
      * ranker tell a currently-failing tool from one that failed historically but
@@ -312,6 +320,21 @@ struct jc_telemetry_summary {
     long loop_stop_refused;   /* successful result (M829), the same refused   */
     long loop_stop_placeholder; /* call (N27 (a)), copied placeholders ((b))  */
     long loop_stop_rotation;  /* M870 (N21): a rotation with nothing new      */
+    /* def-377 W2.4 (M1194): the parent's `worker_flag` events (a child's flag
+     * fired, once per task per batch), by reason. A new event type the parent
+     * emits and this reader counts; `jichi telemetry` prints a summary line. */
+    long worker_flag_no_edit;   /* R1: edits unchanged past the threshold     */
+    long worker_flag_placeholder; /* R2: copied placeholders past the threshold */
+    /* def-377 W6.2 (M1194): the parent's `worker_outcome` events -- ONE per
+     * task at the batch's end, carrying the ending and merged-or-kept-with-why.
+     * Counted by OUTCOME (the `kept` value) like the sibling arms, plus the
+     * two flags an offline reader most wants: how many outcomes were of a
+     * FLAGGED task and how many were a W4 SOFT STOP (looped=5, "supervised"). */
+    long worker_outcome_merged;    /* kept == "merged"                        */
+    long worker_outcome_kept;      /* kept == "kept" (preserved, not merged)  */
+    long worker_outcome_readonly;  /* kept == "readonly" (no worktree to merge) */
+    long worker_outcome_flag;      /* of them, the task's flag had fired       */
+    long worker_outcome_supervised;/* of them, a W4 soft stop (looped == 5)    */
     long finish_alias;        /* a delegate ended its turn by a finish-like   */
                               /* call, its message the answer (M853)          */
     long retrieve_calls;      /* auto-context attached passages (M61)         */

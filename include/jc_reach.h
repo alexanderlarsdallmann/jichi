@@ -35,6 +35,12 @@ struct jc_reach {
     int verify_green;     /* outcome OK with a verifier armed              */
     int verify_red;       /* outcome VERIFY_FAILED                         */
     int rolled_back;      /* the verifier's rollback fired                 */
+    /* TW24.F4: the COMPLETION check gave no verdict (neither of the two
+     * flags above), but a PERIODIC verify (--verify-every) ran in this run,
+     * as in a relay leg that hands over. Zero is the benign value: none
+     * ran, nothing is said. */
+    int periodic_ran;     /* a periodic verify ran                         */
+    int periodic_red;     /* ...and its last result was red                */
     int scope_armed;      /* an --edit-scope was set                       */
     int scope_violations; /* writes seen outside it                        */
     int shell_ran;        /* a shell tool ran: its changes are unattributed */

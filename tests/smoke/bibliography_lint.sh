@@ -146,16 +146,17 @@ sec() {
 craft=$(sec 1); cc=$(sec 2); cpp=$(sec 3); zig=$(sec 4); rust=$(sec 5)
 py=$(sec 6); rkt=$(sec 7); guile=$(sec 8); elixir=$(sec 9); haskell=$(sec 10)
 clojure=$(sec 11); iface=$(sec 12); ada=$(sec 13); hci=$(sec 14)
+oop=$(sec 15); logic=$(sec 16)
 # Newlines collapsed first: the sentence wraps in the source, and a line-oriented
 # grep found nothing and reported "<no count sentence found>" for a sentence that
 # was there and correct. \s is not ERE either -- that was the second half of the
 # same mistake.
 claim=$(tr '\n' ' ' < "$DOC" | tr -s ' ' \
-        | "$G" -oE '\*\*[0-9]+ entries\*\* below \([0-9]+ craft, [0-9]+ C, [0-9]+ C\+\+, [0-9]+ Zig, [0-9]+ Rust, [0-9]+ Python, [0-9]+ Racket, [0-9]+ Guile, [0-9]+ Elixir, [0-9]+ Haskell, [0-9]+ Clojure, [0-9]+ interfaces, [0-9]+ Ada/SPARK, [0-9]+ HCI\)')
-want="**$entries entries** below ($craft craft, $cc C, $cpp C++, $zig Zig, $rust Rust, $py Python, $rkt Racket, $guile Guile, $elixir Elixir, $haskell Haskell, $clojure Clojure, $iface interfaces, $ada Ada/SPARK, $hci HCI)"
-sum=$((craft + cc + cpp + zig + rust + py + rkt + guile + elixir + haskell + clojure + iface + ada + hci))
+        | "$G" -oE '\*\*[0-9]+ entries\*\* below \([0-9]+ craft, [0-9]+ C, [0-9]+ C\+\+, [0-9]+ Zig, [0-9]+ Rust, [0-9]+ Python, [0-9]+ Racket, [0-9]+ Guile, [0-9]+ Elixir, [0-9]+ Haskell, [0-9]+ Clojure, [0-9]+ interfaces, [0-9]+ Ada/SPARK, [0-9]+ HCI, [0-9]+ object-oriented, [0-9]+ logic programming\)')
+want="**$entries entries** below ($craft craft, $cc C, $cpp C++, $zig Zig, $rust Rust, $py Python, $rkt Racket, $guile Guile, $elixir Elixir, $haskell Haskell, $clojure Clojure, $iface interfaces, $ada Ada/SPARK, $hci HCI, $oop object-oriented, $logic logic programming)"
+sum=$((craft + cc + cpp + zig + rust + py + rkt + guile + elixir + haskell + clojure + iface + ada + hci + oop + logic))
 if [ "$claim" = "$want" ] && [ "$sum" -eq "$entries" ]; then
-    t_ok "the stated counts match the page: $entries = $craft + $cc + $cpp + $zig + $rust + $py + $rkt + $guile + $elixir + $haskell + $clojure + $iface + $ada + $hci"
+    t_ok "the stated counts match the page: $entries = $craft + $cc + $cpp + $zig + $rust + $py + $rkt + $guile + $elixir + $haskell + $clojure + $iface + $ada + $hci + $oop + $logic"
 else
     t_fail "the counts in the prose are not the counts on the page.
   states:   ${claim:-<no count sentence found>}
@@ -230,7 +231,8 @@ n8=0
 for f in docs/USE_CASE_TUTORIAL.md docs/UML_TUTORIAL.md \
          docs/DOMAIN_MODELLING_TUTORIAL.md docs/ARCHITECTURE_TUTORIAL.md \
          docs/PSEUDOCODE_TUTORIAL.md docs/TESTING_TUTORIAL.md \
-         docs/INTERFACE_TUTORIAL.md; do
+         docs/INTERFACE_TUTORIAL.md docs/OBJECT_ORIENTED_TUTORIAL.md \
+         docs/LOGIC_PROGRAMMING_TUTORIAL.md; do
     if [ ! -f "$f" ]; then
         b8="$b8 $f(missing)"
         continue
@@ -238,8 +240,8 @@ for f in docs/USE_CASE_TUTORIAL.md docs/UML_TUTORIAL.md \
     n8=$((n8 + 1))
     "$G" -q 'BIBLIOGRAPHY.md' "$f" || b8="$b8 $f"
 done
-if [ "$n8" -lt 7 ]; then
-    t_fail "only $n8 of the 7 design tutorials were found ($b8) -- a renamed page \
+if [ "$n8" -lt 9 ]; then
+    t_fail "only $n8 of the 9 design tutorials were found ($b8) -- a renamed page \
 makes this check read nothing. Fix the list, not the floor."
 elif [ -z "$b8" ]; then
     t_ok "all $n8 design tutorials route the reader to BIBLIOGRAPHY.md"

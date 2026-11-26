@@ -10,6 +10,7 @@
 
 #include "jc_test.h"
 #include "jc_priv.h"
+#include "jc_snprintf.h"
 
 #include <string.h>
 
@@ -107,6 +108,47 @@ void test_priv(void)
         /* path-qualified env is not recognised as env */
     hit("/usr/bin/nice -n5 sudo x", JC_PRIV_NONE);
         /* path-qualified nice is not recognised as a wrapper */
+
+    /* M1208 S2: 64-token guard boundary tests (S2 red-first).
+     * The guard in check_segment (jc_priv.c:241) fires at ++guard > 64,
+     * i.e. at the 65th token position. So: 64 assignments + command (at
+     * token 64) IS seen; 65 assignments + command (at token 65) is NOT seen.
+     * Build commands with a small static helper (C89, no VLAs). */
+    {
+        char buf[2048];
+        int i;
+
+        /* (1) 65 assignments + 'sudo true' -> should be JC_PRIV_SUDO, but
+         * the guard fires at token 65, returning NONE (RED before fix). */
+        buf[0] = '\0';
+        for (i = 0; i < 65; i++) {
+            jc_snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf),
+                        "A%02d=%d ", i, i);
+        }
+        jc_snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "sudo true");
+        JC_CHECK(jc_priv_detect(buf, 0) != JC_PRIV_NONE);
+            /* RED pre-fix: returns JC_PRIV_NONE */
+
+        /* (2) 64 assignments + 'sudo true' -> same assertion (64 assignments
+         * puts the command at token 64, which is still within bounds). */
+        buf[0] = '\0';
+        for (i = 0; i < 64; i++) {
+            jc_snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf),
+                        "A%02d=%d ", i, i);
+        }
+        jc_snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "sudo true");
+        JC_CHECK(jc_priv_detect(buf, 0) != JC_PRIV_NONE);
+
+        /* (3) CONTROL: 63 assignments + 'sudo true' -> should detect SUDO.
+         * This is the legal boundary; behaviour is unchanged pre- and post-fix. */
+        buf[0] = '\0';
+        for (i = 0; i < 63; i++) {
+            jc_snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf),
+                        "A%02d=%d ", i, i);
+        }
+        jc_snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "sudo true");
+        JC_CHECK(jc_priv_detect(buf, 0) == JC_PRIV_SUDO);
+    }
 
     /* kind_name round-trips. */
     JC_CHECK(strcmp(jc_priv_kind_name(JC_PRIV_SUDO), "sudo") == 0);

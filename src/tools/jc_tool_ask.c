@@ -41,6 +41,7 @@ static void ask_journal(struct jc_app *app, const char *question,
     cJSON *o;
     char q[ASK_JOURNAL_QMAX + 1];
     jc_size n;
+    jc_size len;
 
     if (app == NULL || app->env == NULL || question == NULL) {
         return;
@@ -49,7 +50,12 @@ static void ask_journal(struct jc_app *app, const char *question,
     if (o == NULL) {
         return;
     }
-    n = jc_utf8_trunc_len(question, (jc_size)ASK_JOURNAL_QMAX);
+    /* Bound n by the actual string length: jc_utf8_trunc_len assumes
+     * n <= strlen(s) because it reads s[n-back] and assumes the string
+     * is at least n bytes long. */
+    len = (jc_size)strlen(question);
+    n = len < (jc_size)ASK_JOURNAL_QMAX ? len : (jc_size)ASK_JOURNAL_QMAX;
+    n = jc_utf8_trunc_len(question, n);
     memcpy(q, question, (size_t)n);
     q[n] = '\0';
     cJSON_AddStringToObject(o, "question", q);

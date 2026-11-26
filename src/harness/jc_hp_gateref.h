@@ -106,6 +106,13 @@ int jc_gateref_summary_line(int n, int nr, int ng, int ns,
 /* The records line (the sweep/ci idiom): `records: <dir>\n`. */
 int jc_gateref_records_line(const char *dir, char *line, size_t cap);
 
+/* The WORKDIR + CMD joined command string (for unit testing).
+ * `out` receives `cd '<workdir>' && <cmd>` when workdir is non-empty,
+ * or `<cmd>` when workdir is NULL/empty. Returns 0 on success, -1 on overflow.
+ * CHANGED in M1221: workdir is single-quoted to prevent word-splitting. */
+int jc_gateref_build_cmd(const char *workdir, const char *cmd,
+                         char *out, size_t cap);
+
 /* --- the stage entry (the dispatch caller is jc_harness_main.c's gate arm) -
  * `base` and `head` are each 7-40 lowercase hex (the stage ECHOES them into
  * its lines; the range is resolved to the commits by real git, the

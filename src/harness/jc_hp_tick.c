@@ -1,10 +1,12 @@
 /* SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2026 Justus-Liebig-Universität Gießen
  * Author: Alexander-Lars Dallmann */
-/* jc_hp_tick.c - the `push tick` subcommand body (B2, M1147, batch H7): ONE
- * host-push tick under a lock, with paging and a consecutive-failure state.
- * The C89 port of the 2026-10-27 hardening-host drive's push-tick.sh (the
- * state machine) plus push.sh's lock (push.sh L41-43).
+/* jc_hp_tick.c - the `push tick` subcommand body (B2, M1147, batch H7;
+ * the push.git refresh is M1211, batch H7 follow-up): ONE host-push tick
+ * under a lock, with paging and a consecutive-failure state. The C89 port
+ * of the 2026-10-27 hardening-host drive's push-tick.sh (the state machine)
+ * plus push.sh's lock (push.sh L41-43) and push.sh's push.git refresh
+ * (push.sh L53-58, L70-72).
  *
  * WHAT A TICK DOES, in order (the reference verbatim where quoted):
  *   1. The lock: <pushHome>/push.lock, ONE call `lockf(fd, F_LOCK, 0)` after
@@ -13,10 +15,50 @@
  *      BLOCKS until the lock is free: a tick that starts while another holds
  *      the lock WAITS (a lock, not a cap -- the reference's `flock -o`, a
  *      WAIT; there is no timeout and no polling loop here).
- *   2. The push: the TEAM push (`jc_harness_mirror_push_run`, the mirror
- *      positional -- exactly what push.sh L65 calls) THEN the RECORDS push
- *      (`jc_harness_push_records_run`, the recs positional). The tick's rc is
- *      the OR of the two, normalised: any non-zero -> 1, both zero -> 0.
+ *   2. The push, with the M1211 push.git refresh (b1-b4). The refresh runs
+ *      the reference's push.sh git operations on push.git, which the tick's
+ *      two in-process pushes do not touch:
+ *        b1 (push.sh L53-55, FATAL): after `push: start`, a credential-
+ *      wired fetch of the remote's `master` and the `<BR>` branch family
+ *      into push.git's TRACKING refs (the `+`: the tracking refs always
+ *      advance). The
+ *      remote URL comes from `git remote get-url --push origin` in the
+ *      mirror (the same command the team push's URL guard runs; CHANGED:
+ *      used directly, no `origin` remote in push.git). On failure the tick
+ *      logs the UNtimestamped line `push: the fetch of the remote's refs
+ *      failed (rc=N): nothing pushed` and NOTHING is pushed: rc is 1, the
+ *      team push, the records push, the b3/b4 lines AND the timestamped
+ *      `push: end rc=` are all skipped (the reference's `exit 1` leaves no
+ *      end line), and the tick falls through to the state machine (TICK
+ *      FAIL, the page can fire) via `goto tick_state`.
+ *        b2 (push.sh L57-58, non-fatal): a fetch of the mirror's
+ *      `<BR>/main` and the `<BR>/work` family into push.git's LOCAL
+ *      branches, NO
+ *      `+` (a non-fast-forward update is REFUSED by git: a rewritten ref is
+ *      not carried over). CHANGED: the mirror is read directly as a local
+ *      path (`git fetch <mirror_path>`), not through a podman upload-pack
+ *      container -- the mirror is at `<dir>/mirror.git`, local to the tick
+ *      in both the rehearsal and the real drive. No credential flags (a
+ *      local read). On failure the tick logs the UNtimestamped line
+ *      `push: the fetch from the drive's mirror failed (rc=N)` and sets
+ *      the tick's rc to 1 (b2_failed), but the team push STILL RUNS
+ *      (the reference's rc=1 is non-fatal).
+ *      THEN the TEAM push (`jc_harness_mirror_push_run`, the mirror
+ *      positional -- exactly what push.sh L65 calls). THEN b3 (push.sh
+ *      L70-71, LOG-ONLY) and b4 (push.sh L72):
+ *        b3: a credential-wired re-fetch of the remote's `<BR>` branch
+ *      family into push.git's tracking refs (the `+`: always advance, so
+ *      push.git's
+ *      tracking refs say what the remote holds NOW). On failure the tick
+ *      logs the UNtimestamped line `push: the fetch of the remote's team
+ *      refs after the push failed (rc=N)` and the tick's rc is UNCHANGED.
+ *        b4: the UNtimestamped line `push: team main is <short> (push.git's
+ *      copy)`, where <short> is `git rev-parse --short refs/heads/<BR>/main`
+ *      in push.git; if the ref is absent the line carries the empty string
+ *      (the reference's `2>/dev/null`).
+ *      THEN the RECORDS push (`jc_harness_push_records_run`, the recs
+ *      positional). The tick's rc is the OR of the three (team, records,
+ *      b2_failed), normalised: any non-zero -> 1, all zero -> 0.
  *   3. The logs: <pushHome>/push.log carries the tick's push lines in the
  *      reference's timestamp shape (`date '+%F %T %z'`): `push: start`, the
  *      team push's outcome line, the records push's outcome line, and
@@ -74,8 +116,11 @@
  *
  * This body does not scan itself: it CALLS the two other subcommand entries
  * (the mirror push and the records push), which carry the key/size scans and
- * the credential machinery. It codes against the shared helpers exported from
- * jc_harness_push.c only where it needs a git child of its own (it has none);
+ * the credential machinery. It codes against the shared helpers exported
+ * from jc_harness_push.c for the M1211 refresh's own git children (b1/b2
+ * before the team push, b3/b4 after): jc_hp_git_run for the spawns,
+ * jc_hp_cred_flags / jc_hp_cred_env for the credential wiring (rebuilt per
+ * child, immediately before the spawn -- jc_hp_records.c's decision 2);
  * the page command is spawned via the platform's jc_proc capture.
  */
 
@@ -388,6 +433,95 @@ tick_run_page(const char *page_command, const char *msg, const char *push_log)
     jc_sb_free(&cap);
 }
 
+/* The harness's own executable path (readlink /proc/self/exe, the M1053
+ * idiom, jc_hp_records.c's self_exe): the credential.helper flag needs the
+ * helper's absolute path. 1 on success, 0 on failure. */
+static int
+tick_self_exe(char *out, size_t cap)
+{
+    char buf[TICK_PATH_CAP];
+    ssize_t n;
+    n = readlink("/proc/self/exe", buf, sizeof buf - 1);
+    if (n <= 0 || n >= (ssize_t)sizeof buf) {
+        return 0;
+    }
+    buf[n] = '\0';
+    if (jc_snprintf(out, cap, "%s", buf) >= (int)cap) {
+        return 0;
+    }
+    return 1;
+}
+
+/* The b1/b3 git children: the fixed credential wiring built ONCE for the
+ * tick (jc_hp_cred_flags' SET flag is arena-stable, the SV:1939 fix; the env
+ * is the same identity for both children, and git -c values are byte-matched
+ * against the stored copy, so the one-build is the port's discipline -- the
+ * reference's push.sh exports $CRED once and reuses it). A too-long URL (>
+ * 4096) or a credential build failure is refused with a name (the caller
+ * returns 2). Runs through jc_hp_git_run (the five M2 -c flags, the
+ * GIT_CONFIG_=/dev/null isolation, the 120 s cap); the child's combined
+ * output goes to `out` (at least TICK_GIT_OUT bytes). Returns jc_hp_git_run's
+ * code: the child's exit status, -1 on a build failure, -2 on timeout. */
+#define TICK_GIT_OUT 4096
+static int
+tick_cred_fetch(struct jc_arena *a, const char *workdir,
+                const char *harness_path, const char *git_token_file,
+                const char *remote_url, const char *const args[],
+                int n_args, char *out)
+{
+    char *cflags[4];
+    char env0[512];
+    char env1[512];
+    char env2[512];
+    char *penv[4];
+    const char *penv_c[4];
+    const char *argv[32];
+    int i;
+    int rc;
+
+    if (remote_url == NULL || strlen(remote_url) > TICK_GIT_OUT) {
+        tick_refuse("the remote's URL is too long to wire the credential "
+                    "identity (>%d bytes)", TICK_GIT_OUT);
+        return -1;
+    }
+    if (git_token_file == NULL) {
+        tick_refuse("the config names no gitTokenFile: the refresh cannot "
+                    "wire the credential identity");
+        return -1;
+    }
+    rc = jc_hp_cred_flags(a, harness_path, cflags);
+    if (rc < 3) {
+        tick_refuse("the credential -c flags could not be built (the "
+                    "harness path is too long)");
+        return -1;
+    }
+    penv[0] = env0;
+    penv[1] = env1;
+    penv[2] = env2;
+    penv[3] = NULL;
+    jc_hp_cred_env(git_token_file, NULL, remote_url, penv);
+    if (env0[0] == '\0' || env1[0] == '\0' || env2[0] == '\0') {
+        tick_refuse("the credential env could not be built (a value is "
+                    "too long for its 512-byte buffer)");
+        return -1;
+    }
+    penv_c[0] = env0;
+    penv_c[1] = env1;
+    penv_c[2] = env2;
+    penv_c[3] = NULL;
+    if (n_args >= 32) {
+        tick_refuse("the fetch child's argument list is too long (>= 32)");
+        return -1;
+    }
+    for (i = 0; i < n_args; i++) {
+        argv[i] = args[i];
+    }
+    argv[n_args] = NULL;
+    out[0] = '\0';
+    return jc_hp_git_run(a, workdir, cflags, 3, penv_c, 3, argv, n_args,
+                         TICK_GIT_OUT, out, NULL);
+}
+
 /* `push tick`: one tick under the lock, with paging (B2). The dispatch
  * requires --config (config_path non-NULL); the mirror and recs dirs default
  * to the config's `<dir>/mirror.git` and `<dir>/recs` (positional / rest are
@@ -413,8 +547,10 @@ jc_harness_push_tick_run(const char *config_path, const char *positional,
     int team_rc;
     int recs_rc;
     int rc;
+    int b2_failed;
 
     (void)rest;
+    b2_failed = 0;
     (void)n_rest;
 
     /* --config is required (the dispatch refuses a bare `push <sub>`); a NULL
@@ -579,6 +715,159 @@ jc_harness_push_tick_run(const char *config_path, const char *positional,
         return 2;
     }
 
+    /* M1211 (b1-b2): the push.git refresh BEFORE the team push. b1 (FATAL):
+     * the credential-wired fetch of the remote's `master` and the `<BR>`
+     * branch family into push.git's TRACKING refs (push.sh L53-55); the
+     * remote URL is the
+     * mirror's `remote get-url --push origin` read DIRECTLY (CHANGED: no
+     * `origin` remote in push.git). On failure: the UNtimestamped line
+     * `push: the fetch of the remote's refs failed (rc=N): nothing pushed`,
+     * NOTHING is pushed -- the team push, the records push, b3/b4 AND the
+     * timestamped `push: end rc=` are all skipped (the reference's `exit 1`
+     * at push.sh L55 leaves no end line), and the state machine still runs
+     * (TICK FAIL, the page can fire) via `goto tick_state` with rc 1. b2
+     * (non-fatal): the fetch of the mirror's `<BR>/main` and the
+     * `<BR>/work` family into push.git's LOCAL branches, NO `+` (a
+     * non-FF update is REFUSED by git: a rewritten ref is not carried over,
+     * push.sh L57-58). CHANGED: the
+     * mirror is read directly as a local path, not through a podman
+     * upload-pack container. No credential flags (a local read). On failure:
+     * the UNtimestamped line `push: the fetch from the drive's mirror failed
+     * (rc=N)`, b2_failed 1 -- the team push STILL RUNS. */
+    {
+        char pg[TICK_PATH_CAP];
+        char self_path[TICK_PATH_CAP];
+        char urlout[4096];
+        char fspec1[TICK_PATH_CAP + 64];
+        char fspec2[TICK_PATH_CAP + 64];
+        char git_out[TICK_GIT_OUT];
+        char *url;
+        char *remote_url;
+        char *e;
+        const char *b1_argv[8];
+        const char *b2_argv[7];
+        int b1_rc;
+        int b2_rc;
+
+        if (jc_snprintf(pg, sizeof pg, "%s/push.git", ph)
+            >= (int)sizeof pg) {
+            (void)dup2(save_out, 1);
+            close(save_out);
+            if (lock_fd >= 0) close(lock_fd);
+            return 2;
+        }
+        if (!tick_self_exe(self_path, sizeof self_path)) {
+            tick_refuse("could not resolve the harness's own path (readlink "
+                        "/proc/self/exe failed); the refresh cannot name the "
+                        "credential helper; the tick is refused");
+            (void)dup2(save_out, 1);
+            close(save_out);
+            if (lock_fd >= 0) close(lock_fd);
+            return 2;
+        }
+        /* b1: the remote's URL, the same command the team push's URL guard
+         * runs (the mirror's origin is the standin in a rehearsal, the
+         * GitLab URL in the real drive). It must succeed: without the URL
+         * the remote fetch cannot be named (a misconfiguration, not a
+         * fetch failure). */
+        b1_argv[0] = (char *)"remote";
+        b1_argv[1] = (char *)"get-url";
+        b1_argv[2] = (char *)"--push";
+        b1_argv[3] = (char *)"origin";
+        url = NULL;
+        if (jc_hp_git_run(a, mirror, NULL, 0, NULL, 0, b1_argv, 4,
+                          (int)sizeof urlout, urlout, NULL) == 0) {
+            urlout[sizeof urlout - 1] = '\0';
+            remote_url = urlout;
+            while (remote_url != NULL && (*remote_url == '\n' ||
+                                          *remote_url == '\r')) {
+                remote_url++;
+            }
+            if (remote_url != NULL && remote_url[0] != '\0') {
+                /* Truncate at the end of line IN PLACE, keeping url on the
+                 * URL's first byte (a get-url line carries a trailing \n). */
+                url = remote_url;
+                e = url;
+                while (*e != '\0' && *e != '\n' && *e != '\r') {
+                    e++;
+                }
+                *e = '\0';
+            }
+        }
+        if (url == NULL) {
+            tick_refuse("could not read the mirror's push URL (`git remote "
+                        "get-url --push origin`); the refresh cannot run");
+            (void)dup2(save_out, 1);
+            close(save_out);
+            if (lock_fd >= 0) close(lock_fd);
+            return 2;
+        }
+        if (jc_snprintf(fspec1, sizeof fspec1,
+                        "+refs/heads/master:refs/remotes/origin/master")
+            >= (int)sizeof fspec1 ||
+            jc_snprintf(fspec2, sizeof fspec2,
+                        "+refs/heads/%s/*:refs/remotes/origin/%s/*",
+                        cfg.drive_branch_prefix, cfg.drive_branch_prefix)
+            >= (int)sizeof fspec2) {
+            (void)dup2(save_out, 1);
+            close(save_out);
+            if (lock_fd >= 0) close(lock_fd);
+            return 2;
+        }
+        b1_argv[0] = (char *)"fetch";
+        b1_argv[1] = (char *)"-q";
+        b1_argv[2] = (char *)"--no-tags";
+        b1_argv[3] = url;
+        b1_argv[4] = fspec1;
+        b1_argv[5] = fspec2;
+        b1_rc = tick_cred_fetch(a, pg, self_path, cfg.git_token_file, url,
+                                b1_argv, 6, git_out);
+        if (b1_rc != 0) {
+            (void)dup2(save_out, 1);
+            close(save_out);
+            jc_snprintf(line, sizeof line,
+                        "push: the fetch of the remote's refs failed "
+                        "(rc=%d): nothing pushed", b1_rc);
+            (void)tick_append(log_path, NULL, line);
+            rc = 1;
+            goto tick_state;
+        }
+        /* b2: the mirror's branches -> push.git's LOCAL branches, NO `+`
+         * (a non-FF update is refused by git), a local path read with no
+         * credential flags (CHANGED: no podman upload-pack). */
+        if (jc_snprintf(fspec1, sizeof fspec1,
+                        "refs/heads/%s/main:refs/heads/%s/main",
+                        cfg.drive_branch_prefix, cfg.drive_branch_prefix)
+            >= (int)sizeof fspec1 ||
+            jc_snprintf(fspec2, sizeof fspec2,
+                        "refs/heads/%s/work/*:refs/heads/%s/work/*",
+                        cfg.drive_branch_prefix, cfg.drive_branch_prefix)
+            >= (int)sizeof fspec2) {
+            (void)dup2(save_out, 1);
+            close(save_out);
+            if (lock_fd >= 0) close(lock_fd);
+            return 2;
+        }
+        b2_argv[0] = (char *)"fetch";
+        b2_argv[1] = (char *)"-q";
+        b2_argv[2] = (char *)"--no-tags";
+        b2_argv[3] = mirror;
+        b2_argv[4] = fspec1;
+        b2_argv[5] = fspec2;
+        b2_rc = jc_hp_git_run(a, pg, NULL, 0, NULL, 0, b2_argv, 6,
+                              (int)sizeof git_out, git_out, NULL);
+        if (b2_rc != 0) {
+            git_out[sizeof git_out - 1] = '\0';
+            fputs(git_out, stdout);
+            fflush(stdout);
+            jc_snprintf(line, sizeof line,
+                        "push: the fetch from the drive's mirror failed "
+                        "(rc=%d)", b2_rc);
+            (void)tick_append(log_path, NULL, line);
+            b2_failed = 1;
+        }
+    }
+
     /* 2. The push: the TEAM push (the mirror positional) THEN the RECORDS
      * push (the recs positional). The tick does not scan itself: it calls the
      * two entries, which carry the key/size scans and credential machinery. */
@@ -596,6 +885,138 @@ jc_harness_push_tick_run(const char *config_path, const char *positional,
                         "service must see the failure and the page fires)");
         }
     }
+    /* M1211 (b3-b4): the push.git refresh between the team push and the
+     * records push (push.sh L70-72). b3 (LOG-ONLY): the credential-wired
+     * re-fetch of the remote's branch family into push.git's tracking refs
+     * (the `+`: always advance, so push.git's tracking refs say what the
+     * remote holds NOW); a failure is logged (the UNtimestamped line `push:
+     * the fetch of the remote's team refs after the push failed (rc=N)`) and
+     * the tick's rc is UNCHANGED.
+     * b4: the UNtimestamped line `push: team main is <short> (push.git's
+     * copy)`, the short from `git rev-parse --short refs/heads/<BR>/main`
+     * in push.git; the ref absent -> the line carries the empty string (the
+     * reference's `2>/dev/null`).
+     */
+    {
+        char pg[TICK_PATH_CAP];
+        char self_path[TICK_PATH_CAP];
+        char urlout[4096];
+        char fspec[TICK_PATH_CAP + 64];
+        char short_sha[128];
+        char git_out[TICK_GIT_OUT];
+        char *url;
+        char *remote_url;
+        char *e;
+        const char *b3_argv[7];
+        const char *b4_argv[5];
+        int b3_rc;
+        int b4_rc;
+
+        if (jc_snprintf(pg, sizeof pg, "%s/push.git", ph)
+            >= (int)sizeof pg) {
+            (void)dup2(save_out, 1);
+            close(save_out);
+            if (lock_fd >= 0) close(lock_fd);
+            return 2;
+        }
+        if (!tick_self_exe(self_path, sizeof self_path)) {
+            tick_refuse("could not resolve the harness's own path (readlink "
+                        "/proc/self/exe failed); the refresh cannot name the "
+                        "credential helper; the tick is refused");
+            (void)dup2(save_out, 1);
+            close(save_out);
+            if (lock_fd >= 0) close(lock_fd);
+            return 2;
+        }
+        b3_argv[0] = (char *)"remote";
+        b3_argv[1] = (char *)"get-url";
+        b3_argv[2] = (char *)"--push";
+        b3_argv[3] = (char *)"origin";
+        url = NULL;
+        if (jc_hp_git_run(a, mirror, NULL, 0, NULL, 0, b3_argv, 4,
+                          (int)sizeof urlout, urlout, NULL) == 0) {
+            urlout[sizeof urlout - 1] = '\0';
+            remote_url = urlout;
+            while (remote_url != NULL && (*remote_url == '\n' ||
+                                          *remote_url == '\r')) {
+                remote_url++;
+            }
+            if (remote_url != NULL && remote_url[0] != '\0') {
+                /* Truncate at the end of line IN PLACE (a get-url line
+                 * carries a trailing \n); url stays on the URL's first
+                 * byte. */
+                url = remote_url;
+                e = url;
+                while (*e != '\0' && *e != '\n' && *e != '\r') {
+                    e++;
+                }
+                *e = '\0';
+            }
+        }
+        if (url == NULL) {
+            tick_refuse("could not read the mirror's push URL (`git remote "
+                        "get-url --push origin`); the refresh cannot run");
+            (void)dup2(save_out, 1);
+            close(save_out);
+            if (lock_fd >= 0) close(lock_fd);
+            return 2;
+        }
+        if (jc_snprintf(fspec, sizeof fspec,
+                        "+refs/heads/%s/*:refs/remotes/origin/%s/*",
+                        cfg.drive_branch_prefix, cfg.drive_branch_prefix)
+            >= (int)sizeof fspec) {
+            (void)dup2(save_out, 1);
+            close(save_out);
+            if (lock_fd >= 0) close(lock_fd);
+            return 2;
+        }
+        b3_argv[0] = (char *)"fetch";
+        b3_argv[1] = (char *)"-q";
+        b3_argv[2] = (char *)"--no-tags";
+        b3_argv[3] = url;
+        b3_argv[4] = fspec;
+        b3_rc = tick_cred_fetch(a, pg, self_path, cfg.git_token_file, url,
+                                b3_argv, 5, git_out);
+        if (b3_rc != 0) {
+            git_out[sizeof git_out - 1] = '\0';
+            fputs(git_out, stdout);
+            fflush(stdout);
+            jc_snprintf(line, sizeof line,
+                        "push: the fetch of the remote's team refs after the "
+                        "push failed (rc=%d)", b3_rc);
+            (void)tick_append(log_path, NULL, line);
+        }
+        short_sha[0] = '\0';
+        b4_argv[0] = (char *)"rev-parse";
+        b4_argv[1] = (char *)"--short";
+        jc_snprintf(short_sha, sizeof short_sha,
+                    "refs/heads/%s/main", cfg.drive_branch_prefix);
+        b4_argv[2] = short_sha;
+        b4_rc = jc_hp_git_run(a, pg, NULL, 0, NULL, 0, b4_argv, 3,
+                              (int)sizeof git_out, git_out, NULL);
+        if (b4_rc == 0) {
+            char *s;
+            git_out[sizeof git_out - 1] = '\0';
+            s = git_out;
+            e = s;
+            while (*e != '\0' && *e != '\n' && *e != '\r') {
+                e++;
+            }
+            *e = '\0';
+            if (jc_snprintf(short_sha, sizeof short_sha, "%s", s)
+                >= (int)sizeof short_sha) {
+                short_sha[sizeof short_sha - 1] = '\0';
+            }
+        } else {
+            /* The ref is absent (or rev-parse failed): the line carries the
+             * empty string (the reference's `2>/dev/null`). */
+            short_sha[0] = '\0';
+        }
+        jc_snprintf(line, sizeof line, "push: team main is %s "
+                    "(push.git's copy)", short_sha);
+        (void)tick_append(log_path, NULL, line);
+    }
+
     recs_rc = jc_harness_push_records_run(config_path, recs, a, NULL, 0);
     tick_ts(ts, sizeof ts);
     if (recs_rc == 0) {
@@ -611,8 +1032,10 @@ jc_harness_push_tick_run(const char *config_path, const char *positional,
         }
     }
 
-    /* rc = the OR of the two, normalised: any non-zero -> 1, both zero -> 0. */
-    rc = (team_rc != 0 || recs_rc != 0) ? 1 : 0;
+
+    /* rc = the OR of the three (team, records, the b2 fetch), normalised:
+     * any non-zero -> 1, all zero -> 0. */
+    rc = (team_rc != 0 || recs_rc != 0 || b2_failed != 0) ? 1 : 0;
 
     /* Restore stdout BEFORE writing the `push: end` line (and reading it
      * back), so the tick's own lines do not interleave the log. */
@@ -622,6 +1045,10 @@ jc_harness_push_tick_run(const char *config_path, const char *positional,
     jc_snprintf(line, sizeof line, "push: end rc=%d", rc);
     tick_append(log_path, ts, line);
 
+    /* The b1-fail path jumps here (the reference's `exit 1` at push.sh L55
+     * leaves no `push: end` line): the state machine still runs (TICK FAIL,
+     * the page can fire) and the tick returns rc 1. */
+tick_state:
     /* 4-6. The state machine, to push-tick.out. */
     fails = tick_read_state(state_path);
     tick_last_log_line(log_path, last, sizeof last, a);

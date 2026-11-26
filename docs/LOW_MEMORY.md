@@ -322,12 +322,12 @@ now have physical evidence:
 
 | Gap | State | Why |
 |---|---|---|
-| **macOS / Darwin** | Never compiled | No Mac on this project |
+| **macOS / Darwin** | **Partly verified, driven** (M817) | Apple Silicon, built and driven by a contributor; see [`PLATFORMS.md`](PLATFORMS.md) |
 | **Windows + WSL2** | **Verified — the full gate** (M475) | 12,418 unit checks under gcc and clang, smoke 209 drivers at multiplier **1**, and `make ci` green in 10m34s. `/mnt/c` is the one subsystem that really differs: the same commit reads 0 modified on ext4 and **1,639 modified** through v9fs, from line-ending translation |
-| **FreeBSD** | **Verified — the full gate** (M465) | 11,643 unit checks + smoke OK (201 drivers, 1068 checks), 0 failures. The one stop was a harness defect: an assignment prefixed to a shell function is not exported to its children on FreeBSD's `/bin/sh` |
-| **OpenBSD** | **Verified — the full gate** | Promoted at M481 and re-run since; **DRIVEN 2026-09-19**, both live turns, twice. The M461 `accessible` stop is long fixed. `PLATFORMS.md` owns this verdict — see [`PLATFORMS.md`](PLATFORMS.md) |
-| **NetBSD 10.1 amd64** | Verified — the full gate (M480) | `scripts/tier-v-netbsd.sh`, from the vendor live image under KVM. Build clean in 7 s, 12,416 unit checks / 0 failures, smoke 209 of 209 drivers / 1,109 checks. **The only non-Linux row that can run `child_fds.sh`** — it has procfs, so M472's descriptor fence is verified rather than assumed |
-| **illumos / Solaris** | **Partly verified, FULLY DRIVEN, GREEN since M703 (2026-09-22)** — OmniOS CE r151058 under KVM, gcc 14.3.0, clean `WERROR=1`, 13,458 unit checks / 0 failures, **317 of 317** smoke drivers, coverage debt 0; reproducible via `scripts/tier-v-illumos.sh`. | Was the cheapest remaining row, and it was: illumos is free and ISO-installable under KVM; its procfs exists but differs (`/proc/self/status` is a binary `pstatus_t`) |
+| **FreeBSD** | **Partly verified** since 2026-11-24 (Verified — the full gate at M465) | At `6ed996bf` (a 0.15.0 candidate): the unit suite passes and 21 of 582 smoke drivers fail, 13 of them `jichi-harness`'s; at `a0a8b4ae`, two unit checks and 36 of 578 ([`PLATFORMS.md`](PLATFORMS.md#partly-verified)). At M465: 11,643 unit checks + smoke OK (201 drivers, 1068 checks), 0 failures. The one stop was a harness defect: an assignment prefixed to a shell function is not exported to its children on FreeBSD's `/bin/sh` |
+| **OpenBSD** | **Partly verified** since 2026-11-24 (Verified — the full gate at M481) | At `6ed996bf` (a 0.15.0 candidate): the unit suite passes and 18 of 582 smoke drivers fail, 13 of them `jichi-harness`'s; at `a0a8b4ae`, 12 unit checks and 33 of 578 ([`PLATFORMS.md`](PLATFORMS.md#partly-verified)). Promoted at M481 and re-run since; **DRIVEN 2026-09-19**, both live turns, twice. The M461 `accessible` stop is long fixed. `PLATFORMS.md` owns this verdict — see [`PLATFORMS.md`](PLATFORMS.md) |
+| **NetBSD 10.1 amd64** | **Partly verified** since 2026-11-24 (Verified — the full gate at M480) | At `6ed996bf` (a 0.15.0 candidate, NetBSD 10.1): the unit suite passes and 14 of 582 smoke drivers fail, 12 of them `jichi-harness`'s; at `a0a8b4ae`, 27 of 578 ([`PLATFORMS.md`](PLATFORMS.md#partly-verified)). At M480: `scripts/tier-v-netbsd.sh`, from the vendor live image under KVM. Build clean in 7 s, 12,416 unit checks / 0 failures, smoke 209 of 209 drivers / 1,109 checks. **The only non-Linux row that can run `child_fds.sh`** — it has procfs, so M472's descriptor fence is verified rather than assumed |
+| **illumos / Solaris** | **Partly verified, FULLY DRIVEN; GREEN from M703 (2026-09-22) until the 0.14.0 retest; at `a0a8b4ae` (2026-11-24) the smoke tier did not build** (three test helpers linked without `-lsocket -lnsl`); **at `6ed996bf` (a 0.15.0 candidate) it builds again, the unit suite passes, and 21 of 582 smoke drivers fail**, 13 of them `jichi-harness`'s — then: OmniOS CE r151058 under KVM, gcc 14.3.0, clean `WERROR=1`, 13,458 unit checks / 0 failures, **317 of 317** smoke drivers, coverage debt 0; reproducible via `scripts/tier-v-illumos.sh`. | Was the cheapest remaining row, and it was: illumos is free and ISO-installable under KVM; its procfs exists but differs (`/proc/self/status` is a binary `pstatus_t`) |
 | **Termux / proot-distro** | **Verified on a tablet** (M459); a phone runs jichi (M461) | Both userland rows are green on a Lenovo TB336FU (Android 16). A **Motorola moto g(30)** (Android 12) then ran the unit suite and the offline surfaces, so "never run on a phone" no longer holds. Still open, and narrower: **Termux on a phone** — no on-device toolchain is installed on that handset, so the build-it-on-the-device claim remains tablet-only. Re-confirmed at **M507** (12,499 checks / 0) and narrowed once more: the **first smoke driver** has now run on a phone, so what is unrun is the rest of the tier |
 | **armv6** | Never run | armv7 and aarch64 are covered; armv6 is named nowhere |
 | **Kinetic / motor rungs** | Deliberately human-gated | A person must be on the physical E-stop; see [`ROBOTICS_BRINGLIST.md`](ROBOTICS_BRINGLIST.md) |
@@ -446,6 +446,48 @@ Measured on the retry soak profile (25 turns, 2 injected failures/call,
 and the in-run curve now *decreases* after compaction instead of staircasing.
 The cost — one syscall + page faults per ≥128 KB allocation — is noise next
 to an HTTPS round-trip.
+
+**A collected response under jemalloc (NetBSD, FreeBSD): about twice its size
+can be resident for a short time.** A tool's HTTP response (a web search, a
+fetched page, a generated image or audio file) is collected into one buffer
+that grows by doubling, under a ceiling: 32 MiB by default
+(`JC_HTTP_DEFAULT_RESP_BYTES`), or the tool's own cap where it has one. What
+jichi *holds* is bounded by that ceiling on every platform. What the kernel
+*counts as resident* also depends on the allocator, because each doubling frees
+the block before it. glibc gives a large freed block back at once, so the
+process's high-water mark follows the live buffer. jemalloc, the libc allocator
+of NetBSD and FreeBSD, keeps freed pages for a decay time (its
+`dirty_decay_ms`; its manual gives ten seconds as the default, which was not
+measured here), so the freed stages (16 + 8 + 4 + … MiB under a 32 MiB buffer)
+are still resident when the last block fills.
+
+Measured on 2026-11-25 with `tests/smoke/http_resp_cap.sh`, a 50 MiB reply cut
+at the 32 MiB ceiling, as the growth of the high-water mark (`ru_maxrss`) over
+a turn without the transfer:
+
+| System, allocator | Setting | Growth |
+|---|---|---|
+| Linux, glibc (the bench) | default | 32,664 KB |
+| NetBSD 10.1, jemalloc (a guest under KVM) | default | 65,772 KB |
+| NetBSD 10.1, jemalloc (the same guest) | `MALLOC_CONF=dirty_decay_ms:0,muzzy_decay_ms:0` | 32,800 KB |
+
+Nothing leaks: the pages are free for the process to use again and go back to
+the kernel after the decay time. But on a small NetBSD machine, budget
+**twice** the largest response a tool may collect for those seconds, or start
+jichi with that `MALLOC_CONF` in its environment, which makes jemalloc return
+freed pages at once (the cost in system calls was not measured).
+
+**FreeBSD has the same allocator, and no single figure here.** On FreeBSD 15.1
+the same turn was run 22 times in one guest under four allocator settings. In
+8 runs the baseline read 0; in the other 14 the turn read between 19,012 KB
+and 78,536 KB. Two of those readings lie below the 32 MiB the turn wrote, so
+`ru_maxrss` is not an exact high-water mark there. With the decay at 0 alone,
+the four readable runs grew by 59,680 to 64,900 KB: the doubling shows on
+FreeBSD too, and that setting alone does not remove it. With jemalloc's
+`retain:false` (alone, or with the decay at 0) none of seven readable runs
+grew by more than 39,408 KB. Read these as indications, not as measurements.
+OpenBSD's allocator read 32,824 KB in one run of the same test; musl was not
+measured.
 
 **2. History is the real growth point — and it is bounded.** Messages are
 `malloc`'d (not arena-backed), so they can be freed independently. **Auto-compaction**

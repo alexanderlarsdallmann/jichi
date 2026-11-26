@@ -24,6 +24,17 @@ struct jc_app;                 /* jc_app.h      */
 struct jc_telemetry_summary;   /* jc_telemetry.h */
 struct jc_sb;  /* jc_str.h */
 
+/* Does THIS run advertise a named tool -- i.e. is `name` in the array the
+ * request builder sends, after the config's permissions.deny and the active
+ * toolProfile fence? Resolved through the SAME advertised_tools() the context
+ * report uses, so it is one definition of "advertised", not a second
+ * hand-derived deny/profile filter. Used by the system-prompt builder to guard
+ * the skills catalog: the catalog names a skill only if `load_skill` is in
+ * fact sent (a catalog advertising a tool the run cannot call is a dead
+ * reference, the M292 class). `app`/`name` NULL or an empty registry => 0.
+ * Read-only; no model call. */
+int jc_app_advertises(struct jc_app *app, const char *name);
+
 /* Render a context-budget report into `out`. `hist` may be NULL (e.g. the
  * `context` subcommand with no live conversation) — then history reads as 0. */
 void jc_context_report(struct jc_app *app, const struct jc_history *hist,

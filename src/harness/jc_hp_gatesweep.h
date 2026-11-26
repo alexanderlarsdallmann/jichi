@@ -114,6 +114,13 @@ int jc_gatesweep_container_notok(const char *text, char *out, size_t cap);
 /* The records line (sweep.sh:70): `records: <out>\n`. */
 int jc_gatesweep_records_line(const char *out, char *outbuf, size_t cap);
 
+/* The WORKDIR + CMD joined command string (for unit testing).
+ * `out` receives `cd '<workdir>' && <cmd>` when workdir is non-empty,
+ * or `<cmd>` when workdir is NULL/empty. Returns 0 on success, -1 on overflow.
+ * CHANGED in M1221: workdir is single-quoted to prevent word-splitting. */
+int jc_gatesweep_build_cmd(const char *workdir, const char *cmd,
+                           char *out, size_t cap);
+
 /* The build-failure INVALID (sweep.sh:16's || branch): `build failed:
  * INVALID\n`. */
 int jc_gatesweep_buildfail_line(char *out, size_t cap);

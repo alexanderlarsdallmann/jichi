@@ -44,6 +44,14 @@ case "$BACKEND" in
   sqlite)
     DB="${JICHI_DB_PATH:-$HOME/.jichi.d/reports/loop.db}"
     mkdir -p "$(dirname "$DB")"
+    # The second wall needs a sqlite3 that HAS it: -safe came with SQLite 3.37.
+    # An older shell answers "unknown option: -safe" and stores nothing, which
+    # is safe and says nothing useful. Ask first, and say what is missing; the
+    # report is NOT written without the wall.
+    if ! sqlite3 -safe -batch :memory: 'SELECT 1;' > /dev/null 2>&1; then
+      echo "db-report: this sqlite3 has no -safe option (it came with SQLite 3.37); the report is not stored without it" >&2
+      exit 3
+    fi
     # -batch: no interactive prompts. -safe: no file or shell access from SQL,
     # the second wall behind the whitelist above.
     sqlite3 -safe -batch "$DB" \

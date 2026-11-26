@@ -392,7 +392,10 @@ static int resolve_alias(struct jc_app *app, struct jc_sb *sb,
         const char *v = alias_secret_value(app, al, a);
         if (v != NULL) {
             const char *note = "[secret alias resolved -- present, redacted]";
-            jc_redact_register(v); /* scrub from logs; never inline the value */
+            int rr = jc_redact_register(v);
+            if (rr != 0) {
+                jc_logf(JC_LOG_WARN, "redaction: registering the @ref alias %s failed (OOM); the secret will not be scrubbed from the run's logs", al->name);
+            }
             append_block(sb, label, note, (jc_size)strlen(note));
         } else {
             const char *note = "[secret alias -- NOT set]";

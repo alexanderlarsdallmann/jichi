@@ -69,7 +69,7 @@
 # carry -c user.name/-c user.email (M2-neutral).
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 6
+t_plan 8
 smoke_home
 tmp=$(smoke_tmp)
 
@@ -288,6 +288,50 @@ else
     else
         t_fail "6: the absent-pushOnCalendar refusal does not name \`pushOnCalendar\`: $(tr '\n' ' ' < "$tmp/u6b.err" | head_bytes 200)"
     fi
+fi
+
+# --- 7: a relative --config becomes absolute in ExecStart (TW24 F21) ---------
+# THE DEFECT. ExecStart carried the word after --config as it was typed. A
+# systemd user unit starts in the home directory and this unit sets no
+# WorkingDirectory, so `push units --config cfg.json`, typed in the drive's
+# directory, gave a timer whose every tick looked for ~/cfg.json. The command
+# exited 0 and wrote two well-formed files. The cell types the path RELATIVE
+# and asserts the unit names the file's absolute path (pwd -P: the physical
+# directory, which is what getcwd reports).
+_abs7="$(cd "$tmp" && pwd -P)/cfg.json"
+(cd "$tmp" && "$HBIN" push units --config cfg.json < /dev/null > "$tmp/u7" 2> "$tmp/u7.err")
+rc7=$?
+_ex7=$(grep '^ExecStart=' "$tmp/u7" | head -n 1)
+if [ "$rc7" -ne 0 ]; then
+    t_fail "7: \`push units --config cfg.json\` (relative, typed in the config's directory) exited $rc7 (want 0): $(tr '\n' ' ' < "$tmp/u7.err" | head_bytes 200)"
+elif [ "${_ex7##* --config }" = "$_abs7" ]; then
+    t_ok "7: a relative --config is written into ExecStart as the absolute path (a user unit starts in the home directory, not where the command was typed)"
+else
+    t_fail "7: ExecStart does not name the config by its absolute path $_abs7 -- a user unit starts in the home directory, so the tick would read another file or none: ${_ex7:-(no ExecStart line)}"
+fi
+
+# --- 8: a path systemd would read differently is refused (TW24 F21) ----------
+# systemd splits ExecStart at white space, expands %-specifiers and $-variables
+# and reads quotes and backslashes. The unit writer prints its values verbatim
+# (no quoting), so a config path with such a character would start the tick
+# with a DIFFERENT path. The honest answer is a refusal that names the reason,
+# before anything is printed. Two cases, each in a directory of its own: a
+# space, and a percent sign. The control is cell 1 (a plain path, exit 0).
+_d8a="$tmp/with space"; _d8b="$tmp/pct%h"
+mkdir -p "$_d8a" "$_d8b" || fixture_fail "cell 8 dirs"
+cp "$tmp/cfg.json" "$_d8a/cfg.json" && cp "$tmp/cfg.json" "$_d8b/cfg.json" || fixture_fail "cell 8 configs"
+"$HBIN" push units --config "$_d8a/cfg.json" < /dev/null > "$tmp/u8a" 2> "$tmp/u8a.err"
+rc8a=$?
+"$HBIN" push units --config "$_d8b/cfg.json" < /dev/null > "$tmp/u8b" 2> "$tmp/u8b.err"
+rc8b=$?
+if [ "$rc8a" -ne 2 ] || [ "$rc8b" -ne 2 ]; then
+    t_fail "8: a config path with a space exited $rc8a and one with a percent sign exited $rc8b (want 2 and 2) -- the unit would start the tick with a different path: $(grep '^ExecStart=' "$tmp/u8a" "$tmp/u8b" 2>/dev/null | head_bytes 300)"
+elif [ -s "$tmp/u8a" ] || [ -s "$tmp/u8b" ]; then
+    t_fail "8: the refusal still printed unit text to stdout ($(wc -c < "$tmp/u8a" | tr -d ' ') and $(wc -c < "$tmp/u8b" | tr -d ' ') bytes) -- a refused unit must not be half-delivered"
+elif ! grep -qF "ExecStart" "$tmp/u8a.err" || ! grep -qF "ExecStart" "$tmp/u8b.err"; then
+    t_fail "8: the refusal does not say that the path cannot go into ExecStart: $(tr '\n' ' ' < "$tmp/u8a.err" | head_bytes 200)"
+else
+    t_ok "8: a config path with a space or a percent sign is refused exit 2 before any unit text, naming ExecStart (the unit writer prints its values verbatim)"
 fi
 
 t_done

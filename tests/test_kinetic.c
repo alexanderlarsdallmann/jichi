@@ -5,6 +5,7 @@
 
 #include "jc_test.h"
 #include "jc_kinetic.h"
+#include "jc_snprintf.h"
 
 #include <string.h>
 
@@ -54,6 +55,57 @@ static void test_shell_match(void)
     JC_CHECK(!jc_kinetic_shell_match("", prefixes, 3, 0));
 }
 
+/* M1208 S2: 64-token guard boundary tests (S2 red-first).
+ * The guard in resolve_lead (jc_kinetic.c:108) fires at ++guard > 64,
+ * i.e. at the 65th token position. So: 64 assignments + command (at
+ * token 64) IS seen; 65 assignments + command (at token 65) is NOT seen.
+ * Build commands with a small static helper (C89, no VLAs). */
+static void test_shell_match_m1208_s2(void)
+{
+    const char *prefixes[3];
+    const char *hit;
+    char buf[2048];
+    int i;
+
+    prefixes[0] = "./motor.sh";
+    prefixes[1] = "ros2 topic pub";
+    prefixes[2] = "gpioset";
+
+    /* (1) 65 assignments + './motor.sh 1 1 0.5' -> should hit, but
+     * the guard fires at token 65, returning NULL (RED before fix). */
+    buf[0] = '\0';
+    for (i = 0; i < 65; i++) {
+        jc_snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf),
+                    "A%02d=%d ", i, i);
+    }
+    jc_snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf),
+                "./motor.sh 1 1 0.5");
+    JC_CHECK(jc_kinetic_shell_match(buf, prefixes, 3, &hit) != 0);
+        /* RED pre-fix: no hit, 0 */
+
+    /* (2) CONTROL: 64 assignments + './motor.sh 1 1 0.5' -> should hit.
+     * 64 assignments puts command at token 65, which triggers the guard (RED). */
+    buf[0] = '\0';
+    for (i = 0; i < 64; i++) {
+        jc_snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf),
+                    "A%02d=%d ", i, i);
+    }
+    jc_snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf),
+                "./motor.sh 1 1 0.5");
+    JC_CHECK(jc_kinetic_shell_match(buf, prefixes, 3, &hit) != 0);
+
+    /* (3) CONTROL: 63 assignments + './motor.sh 1 1 0.5' -> should hit.
+     * 63 assignments puts command at token 64, which is within bounds (GREEN). */
+    buf[0] = '\0';
+    for (i = 0; i < 63; i++) {
+        jc_snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf),
+                    "A%02d=%d ", i, i);
+    }
+    jc_snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf),
+                "./motor.sh 1 1 0.5");
+    JC_CHECK(jc_kinetic_shell_match(buf, prefixes, 3, &hit) != 0);
+}
+
 static void test_name_allowlist(void)
 {
     const char *allow[2];
@@ -74,4 +126,5 @@ void test_kinetic(void)
 {
     test_shell_match();
     test_name_allowlist();
+    test_shell_match_m1208_s2();
 }

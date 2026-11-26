@@ -1,0 +1,8 @@
+cause_class	hours	rows
+model outage	21.87	12
+worker failure (cut off, stuck, no write access)	13.22	8
+lead mistake (rewrite, dirty tree, wrong dispatch)	3.46	4
+other	3.04	9
+supervisor mistake	1.70	1
+waiting for the operator	1.51	3
+network/VPN	0.66	3

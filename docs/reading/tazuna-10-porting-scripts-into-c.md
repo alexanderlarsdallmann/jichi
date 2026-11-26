@@ -122,10 +122,11 @@ beside the script's, the host would run two gates on one commit. So the tick has
 
 ```c src/harness/jc_hp_watchgate.c:jc_hp_watchgate_run
     if (dry) {
-        if (jc_snprintf(say, sizeof say,
-                        "DRY: would start jhp-gate-%s (gate-run.sh %s) for "
-                        "BATCH %s (%s:%d)",
-                        s8, s8, ready.batch, log_base, ready.line_no) < 0) {
+        n_wg = jc_snprintf(say, sizeof say,
+                           "DRY: would start jhp-gate-%s (gate-run.sh %s) for "
+                           "BATCH %s (%s:%d)",
+                           s8, s8, ready.batch, log_base, ready.line_no);
+        if (n_wg < 0 || n_wg >= (int)sizeof say) {
             return 1;
         }
         wgate_say(out, say);

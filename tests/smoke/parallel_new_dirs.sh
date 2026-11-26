@@ -29,7 +29,7 @@
 
 command -v git >/dev/null 2>&1 || t_skip "needs git -- a write child runs in a worktree"
 
-t_plan 7
+t_plan 8
 smoke_home
 tmp=$(smoke_tmp)
 WS=$(smoke_tmp)
@@ -106,6 +106,69 @@ if [ "$nh" = "1" ] &&
     t_ok "telemetry records the hold, and jichi telemetry sums it"
 else
     t_fail "new_dir_hold events: $nh: $(grep '"event":"new_dir_hold"' "$TEL" 2>/dev/null | head_bytes 300)"
+fi
+
+# Check 8: 17 new directories, all 120 files each -> every one must be HELD
+# Pre-fix: scan caps at 16, so >=1 of the 17 merges unchecked
+# Post-fix: all 17 are held out of the merge
+WS2=$(smoke_tmp)
+printf 'seed\n' > "$WS2/seed.txt"
+CAP2=$(smoke_tmp)
+
+cat > "$CAP2/r.mm" <<'EOF'
+wire openai
+rule
+  match "LEADN2"
+  match "## Parallel agents"
+  text LEAD-DONE2
+rule
+  match "LEADN2"
+  tool spawn_parallel {"tasks":[{"task":"CHILDN2 probe the demos","write":true}]}
+rule
+  match "CHILDN2"
+  match "\"role\":\"tool\""
+  text CHILD-DONE2
+rule
+  match "CHILDN2"
+  tool run_terminal_command {"command":"i=1; while [ $i -le 17 ]; do d=d0$i; [ $i -lt 10 ] || d=d$i; mkdir -p $d; j=1; while [ $j -le 120 ]; do echo x > $d/f$j.txt; j=$((j+1)); done; i=$((i+1)); done; echo changed >> seed.txt"}
+EOF
+mm_start_unbounded "$CAP2/r.mm" "$CAP2/cap"
+cat > "$CAP2/cfg2.json" <<EOF
+{"toolProfile":"full","lowResource":false,"models":[{"name":"m","provider":"openai",
+ "model":"mock","apiBase":"http://127.0.0.1:$MM_PORT/v1","apiKey":"x","roles":["chat"]}],
+ "snapshots":true,"repoMap":false,"references":false,"maxRetries":0}
+EOF
+TEL2="$CAP2/tel2.jsonl"
+( cd "$WS2" && with_deadline 120 "$BIN" --config "$CAP2/cfg2.json" -q --auto \
+    --log "$TEL2" --log-level full \
+    -p "LEADN2 run the batch" < /dev/null > "$CAP2/out2" 2>&1 )
+mm_stop
+LR2=$(grep -l '## Parallel agents' "$CAP2"/cap/req.* 2>/dev/null | tail -1)
+
+# Floor: the second lead request was captured (LR2 non-empty) so the absence is not vacuous
+if [ -n "$LR2" ]; then
+    # Check that NONE of d01..d17 exists in ws2 (all held) AND batch result names parallel-new-dir
+    all_held=1
+    for i in $(seq 1 17); do
+        d="d0$i"
+        [ $i -lt 10 ] || d="d$i"
+        if [ -e "$WS2/$d" ]; then
+            all_held=0
+            break
+        fi
+    done
+    kept_status=$(grep -o 'parallel-new-dir' "$LR2" 2>/dev/null)
+    if [ "$all_held" = "1" ] && [ -n "$kept_status" ]; then
+        t_ok "check 8: 17 new directories, 120 files each, all HELD (none reached the live tree)"
+    elif [ "$all_held" = "0" ]; then
+        t_fail "check 8: at least one of d01..d17 reached the live tree: $(ls "$WS2" 2>/dev/null | head_bytes 200)"
+    elif [ -z "$kept_status" ]; then
+        t_fail "check 8: batch result does not name 'parallel-new-dir' kept status"
+    else
+        t_fail "check 8: both conditions failed"
+    fi
+else
+    t_fail "check 8: second lead request was not captured (vacuous test)"
 fi
 
 t_done

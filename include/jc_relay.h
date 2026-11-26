@@ -186,8 +186,12 @@ struct relay_baton_facts {
     const char **changed; int changed_n;
     /* the uncommitted list (paths, top-N)                                  */
     const char **uncommitted; int uncommitted_n;
-    /* this leg's commits ("<sha> \"<subject>\"", top-N)                    */
-    const char **commits; int commits_n;
+    /* the leg's RANGE (TW24.F3, the operator's choice C): the commit the leg
+     * started from (NULL: unknown or not a git workspace) and how many commits
+     * stand between it and `commit` (-1: could not be counted). The list of
+     * subjects this replaces was rendered but never filled; subjects are the
+     * model's words, and this part of the note is what jichi knew. */
+    const char *leg_start; long leg_commits;
     const char *todo;       /* the todo list as last written (or NULL)      */
     const char *last_verify;/* "green" / "red, N failures" / NULL           */
     const char **verify_fail; int verify_fail_n; /* the red's failing files  */

@@ -35,6 +35,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#include <stddef.h>   /* size_t (jc_capture_cmd) */
 #include "jc_mem.h"  /* struct jc_arena */
 
 /* Run the full `gate run <SHA8> [BATCH]` (the orchestrator's CORE PATH,
@@ -105,6 +106,18 @@ int jc_hp_gate_full_run(const char *config_path, const char *sha8,
                         const char *ci_smoke_keep_going,
                         const char *land_run, const char *repin_run,
                         struct jc_arena *a);
+
+/* The gate's land/repin step capture, exported (M1202 D3, the approve verb):
+ * run `line` as `sh -c '<line>'` (stdin /dev/null), capturing the child's
+ * COMBINED stdout+stderr (up to cap bytes, trailing newline trimmed) and its
+ * rc -- the exact spawn the orchestrator's land step uses. The approve verb
+ * runs the land step it resolves through this, so the capture is byte-for-
+ * byte the gate's (the env scrub, the combined output, the trim). `line` is
+ * the FULL command (the caller has already appended the sha8 and substituted
+ * `<s>`); it is NOT substituted again here. 1 on success (*out_text the
+ * combined output, *out_rc the child's rc), 0 on a spawn fault (out_rc stays
+ * 0; the caller names it). */
+int jc_capture_cmd(const char *line, char *out_text, size_t cap, int *out_rc);
 
 #ifdef __cplusplus
 }

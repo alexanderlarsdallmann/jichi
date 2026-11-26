@@ -23,11 +23,22 @@
 #            --ledger-address <ADDR> [--ledger-accept <FILE>]
 #   verdict: gate run --config <cfg> --stage verdict <FILE> <SHA8> [--push-repo <R>]
 #
-# WHAT IS CHECKED -- 104 cells (M1187-b: +V13 +V14, so 1..99; M1191-a: the
-# D1-D5 dead-clone collision group, 100-104; see the briefs' cell tables for
+# WHAT IS CHECKED -- 107 cells (M1187-b: +V13 +V14, so 1..99; M1191-a: the
+# D1-D5 dead-clone collision group, 100-104; M1197-b: 105 the B3 teeth, the
+# sweep build must build all three programs so the install driver is swept;
+# see the briefs' cell tables for
 # U1-U5, L1-L13, V1-V14, S1-S13, C1-C11, R1-R9, and G1-G26 + G14b + G30a +
 # G30b (67-95, the orchestrator's end-to-end cells) + G15r + G15v (96-97) +
-# the two M1178 cells (98-99)). The fixture is REAL git under
+# the two M1178 cells (98-99); M1202 wave 2b: 106 the D2 default-hold arm
+# + the D3 landing.decision record, 107 the approve verb skeleton;
+# M1202 wave 2b follow-up (hunk-audit F2/F3/F4 + F5-F8/F11 teeth):
+# extensions of 76/77 + 106 pin the D3 record's field bytes
+# (policy=/batch=/time %z/land-rc=/no-land-step), 108 the land step's
+# <s>-idiom substitution, 109 the landed record's field bytes, 110 the
+# approve usage arms, 111 the land-step
+# config fallback + the absent-record refusal, 112 D2's AUTO
+# case-sensitivity, 113 the non-fatal approved-record append). The
+# fixture is REAL git under
 # the driver's TMPDIR: a bare push.git holding the p-chain
 # P0<P1<P2<P3<P4<P5<P6 (P2 adds a smoke driver that never invokes "$BIN",
 # P4 one that does, P5 is an empty commit, P6 rewrites both to invoke it) +
@@ -47,7 +58,7 @@
 
 command -v git >/dev/null 2>&1 || t_skip "git not available"
 
-t_plan 104
+t_plan 115
 smoke_home
 tmp=$(smoke_tmp)
 
@@ -1397,6 +1408,20 @@ cat > "$tmp/gcfg.json" <<EOF
 EOF
 sed 's/,"gateRun":"[^"]*"//' "$tmp/gcfg.json" > "$tmp/gcfg2.json"
 sed 's/"ledgerAddress":"[^"]*",//' "$tmp/gcfg.json" > "$tmp/gcfg3.json"
+# M1202 wave 2b: gcfga = gcfg with a TOP-LEVEL "drive":{"landingPolicy":
+# "auto"} block (inserted after the top-level "dir" key). D2's product
+# DEFAULT is hold (absent landingPolicy = hold): a green run that would
+# otherwise reach the land step now ends green-held via the HOLD the gate
+# creates from the config. Every cell that pins a GREEN terminal (the
+# land-step cells 77-81 and the no-land cells 76/85/88/89/90/91/92) names
+# gcfga so the policy word "auto" carries it to the land step; the cell
+# headers below document this. The D2 cells (106-107) use the BASE gcfg
+# (no landingPolicy key = the default hold).
+cat > "$tmp/gcfga.json" <<EOF
+{"dir":"$tmp/gdir","modelKeyFile":"$tmp/gdir/k","gitTokenFile":"$tmp/gdir/t",
+"drive":{"landingPolicy":"auto"},
+"host":{"pushHome":"$tmp","pushRepo":"$tmp/gpush.git","ledgerAddress":"$ADDR","gateHome":"$tmp/gh","gateRun":"$tmp/gh/standin.sh"}}
+EOF
 touch "$tmp/gdir/k" "$tmp/gdir/t"
 # G15's ci-fail stub (M1159 D12): the failing lines, rc 0, NO `ci: OK`.
 { printf '#!/bin/sh\n'
@@ -1660,7 +1685,7 @@ fi
 # argv file ABSENT (no land call); the green-held note; sweep.verdict = green.
 _gg9l="$tmp/gland9.txt"; rm -f "$_gg9l"
 mkdir -p "$tmp/gh/HOLD"
-_grun "$tmp/gcfg.json" "$G2c_8" B --state "$tmp/gstate9" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --land-run "$tmp/gstublandok $_gg9l" --repin-run "$tmp/gstubrepinclean /tmp/grepin9.txt"
+_grun "$tmp/gcfga.json" "$G2c_8" B --state "$tmp/gstate9" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --land-run "$tmp/gstublandok $_gg9l" --repin-run "$tmp/gstubrepinclean /tmp/grepin9.txt"
 _gg9note=$(_gnote "$G2c_8")
 _gg9sv="$tmp/gh/$G2c_8/sweep.verdict"
 _gg9sweepline=$(grep -F "sweep: ran 1 drivers on $G2c_8" "$tmp/gh/$G2c_8/sweep.txt" 2>/dev/null | tail -1)
@@ -1682,41 +1707,58 @@ fi
 
 # --- 74 (G10): no HOLD, no --land-run, no host.landRun -> rc 1; state
 # {gated, green-land-refused}; M1154's named-refusal note.
-_grun "$tmp/gcfg.json" "$G2c_8" B --state "$tmp/gstate10" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci"
+_grun "$tmp/gcfga.json" "$G2c_8" B --state "$tmp/gstate10" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci"
 _gg10note=$(_gnote "$G2c_8")
-_gg10want="GREEN on BATCH B READY at $G2c_8, but no land step is named (host.landRun absent: H10 is not built; the reference's land.sh stands for the switch-over). master is not moved."
+# M1202 wave 2b: D2's default would hold this cell (the gate creates the
+# HOLD from the config); the cell names auto to reach the land step (here:
+# the green-land-refused terminal). H10 IS built (wave 1), so the note
+# drops the "H10 is not built" words (the switch-over message stays).
+_gg10want="GREEN on BATCH B READY at $G2c_8, but no land step is named (host.landRun absent; the reference's land.sh stands for the switch-over). master is not moved."
+# F5d (M1202 wave 2b follow-up): the D3 record's FIELD bytes for the
+# no-land-step terminal -- the LAST landing.decision line carries
+# 'no-land-step' AND 'decision=refused'.
+_gg10last=$(tail -1 "$tmp/gh/$G2c_8/landing.decision" 2>/dev/null)
 if [ "$_grc" -eq 1 ] \
     && _gstateok "$tmp/gstate10" "${G2c_8}:gated" "${G2c_8}:green-land-refused" \
-    && printf '%s\n' "$_gg10note" | grep -qF "$_gg10want"; then
-    t_ok "76: G10 no HOLD / no land step -> rc 1; state {gated, green-land-refused}; M1154's named-refusal note"
+    && printf '%s\n' "$_gg10note" | grep -qF "$_gg10want" \
+    && printf '%s' "$_gg10last" | grep -q "no-land-step" \
+    && printf '%s' "$_gg10last" | grep -q "decision=refused"; then
+    t_ok "76: G10 no HOLD / no land step -> rc 1; state {gated, green-land-refused}; M1154's named-refusal note; the last landing.decision line carries 'no-land-step' AND 'decision=refused' (F5d)"
 else
-    t_fail "76: G10 expected rc 1 + green-land-refused state + the named-refusal note (got rc=$_grc; note: $(printf '%s' "$_gg10note" | tr '\n' '|' | head_bytes 200))"
+    t_fail "76: G10 expected rc 1 + green-land-refused state + the named-refusal note + the no-land-step/decision=refused record fields (got rc=$_grc; note: $(printf '%s' "$_gg10note" | tr '\n' '|' | head_bytes 200); last-decision: $(printf '%s' "$_gg10last" | head_bytes 160))"
 fi
 
 # --- 75 (G11): --land-run the land-fail stub -> rc 1; state
 # {gated, green-land-failed}; the land-failed note (last line cut 160); the
-# stub's output appended to run.log.
+# stub's output appended to run.log. M1202 wave 2b: D2's default would hold
+# this cell; the cell names auto to reach the land step.
 _gg11l="$tmp/gland11.txt"; rm -f "$_gg11l"
-_grun "$tmp/gcfg.json" "$G2c_8" B --state "$tmp/gstate11" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --land-run "$tmp/gstublandfail $_gg11l"
+_grun "$tmp/gcfga.json" "$G2c_8" B --state "$tmp/gstate11" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --land-run "$tmp/gstublandfail $_gg11l"
 _gg11note=$(_gnote "$G2c_8")
 _gg11want="GREEN on BATCH B READY at $G2c_8, but the landing failed (land-stub: boom). The operator is told; master may be unchanged. Go on with the next batch."
+# F5c (M1202 wave 2b follow-up): the D3 record's FIELD bytes for the
+# land-failed terminal -- the LAST landing.decision line carries
+# 'decision=refused' AND 'land-rc=<n>' (the stub's rc, any number).
+_gg11last=$(tail -1 "$tmp/gh/$G2c_8/landing.decision" 2>/dev/null)
 if [ "$_grc" -eq 1 ] \
     && _gstateok "$tmp/gstate11" "${G2c_8}:gated" "${G2c_8}:green-land-failed" \
     && [ -s "$_gg11l" ] \
     && grep -qF "land-stub: boom" "$tmp/gh/$G2c_8/run.log" \
     && printf '%s\n' "$_gg11note" | grep -qF "$_gg11want" \
-    && printf '%s\n' "$_gout" | grep -qF "VERDICT green, the landing FAILED rc=1"; then
-    t_ok "77: G11 the land-fail stub -> rc 1; state {gated, green-land-failed}; the land-failed note (the stub's last line, cut 160); the stub's output appended to run.log"
+    && printf '%s\n' "$_gout" | grep -qF "VERDICT green, the landing FAILED rc=1" \
+    && printf '%s' "$_gg11last" | grep -qE 'decision=refused.*land-rc=[0-9]+'; then
+    t_ok "77: G11 the land-fail stub -> rc 1; state {gated, green-land-failed}; the land-failed note (the stub's last line, cut 160); the stub's output appended to run.log; the last landing.decision line carries 'decision=refused' AND 'land-rc=<n>' (F5c)"
 else
-    t_fail "77: G11 expected rc 1 + green-land-failed + the land-failed note + the land output in run.log (got rc=$_grc; note: $(printf '%s' "$_gg11note" | tr '\n' '|' | head_bytes 200))"
+    t_fail "77: G11 expected rc 1 + green-land-failed + the land-failed note + the land output in run.log + the decision=refused/land-rc= record fields (got rc=$_grc; note: $(printf '%s' "$_gg11note" | tr '\n' '|' | head_bytes 200); last-decision: $(printf '%s' "$_gg11last" | head_bytes 160))"
 fi
 
 # --- 76 (G12): land-ok + repin-clean -> rc 0; state {gated, landed, repin-rc0};
 # the say "VERDICT green, LANDED: master is <G2c-8>"; the D4.9 GREEN-and-
 # LANDED note with "bin/ re-pinned at <G2c-8> (done <G2c-8>, doctors clean)"
-# (the sed strip of the repin's last line).
+# (the sed strip of the repin's last line). M1202 wave 2b: D2's default
+# would hold this cell; the cell names auto to reach the land step.
 _gg12l="$tmp/gland12.txt"; rm -f "$_gg12l"
-_grun "$tmp/gcfg.json" "$G2c_8" B --state "$tmp/gstate12" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --land-run "$tmp/gstublandok $_gg12l" --repin-run "$tmp/gstubrepinclean /tmp/grepin12.txt"
+_grun "$tmp/gcfga.json" "$G2c_8" B --state "$tmp/gstate12" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --land-run "$tmp/gstublandok $_gg12l" --repin-run "$tmp/gstubrepinclean /tmp/grepin12.txt"
 cp "$tmp/g.out" "$tmp/g12.out"
 _gg12note=$(_gnote "$G2c_8")
 _gl="$_gg12l"; _cl="$tmp/gh/ci"; _rl="$tmp/gh/$G2c_8"; _repin="re-pinned at $G2c_8 (done $G2c_8, doctors clean)"
@@ -1732,9 +1774,10 @@ else
 fi
 
 # --- 77 (G13): the repin hcn stub -> the note TAIL names 2 changed
-# src/harness file(s) (the D4.9 <hcn> half).
+# src/harness file(s) (the D4.9 <hcn> half). M1202 wave 2b: D2's default
+# would hold this cell; the cell names auto to reach the land step.
 _gg13l="$tmp/gland13.txt"; rm -f "$_gg13l"
-_grun "$tmp/gcfg.json" "$G2c_8" B --state "$tmp/gstate13" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --land-run "$tmp/gstublandok $_gg13l" --repin-run "$tmp/gstubrepinhcn /tmp/grepin13.txt"
+_grun "$tmp/gcfga.json" "$G2c_8" B --state "$tmp/gstate13" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --land-run "$tmp/gstublandok $_gg13l" --repin-run "$tmp/gstubrepinhcn /tmp/grepin13.txt"
 _gg13note=$(_gnote "$G2c_8")
 if [ "$_grc" -eq 0 ] \
     && _gstateok "$tmp/gstate13" "${G2c_8}:gated" "${G2c_8}:landed" "${G2c_8}:repin-rc0" \
@@ -1745,9 +1788,10 @@ else
 fi
 
 # --- 78 (G14): the repin rc-2 stub -> state {gated, landed, repin-rc2}; rc 0
-# (the repin's rc NEVER fails the run, b10).
+# (the repin's rc NEVER fails the run, b10). M1202 wave 2b: D2's default
+# would hold this cell; the cell names auto to reach the land step.
 _gg14l="$tmp/gland14.txt"; rm -f "$_gg14l"
-_grun "$tmp/gcfg.json" "$G2c_8" B --state "$tmp/gstate14" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --land-run "$tmp/gstublandok $_gg14l" --repin-run "$tmp/gstubrepinrc2 /tmp/grepin14.txt"
+_grun "$tmp/gcfga.json" "$G2c_8" B --state "$tmp/gstate14" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --land-run "$tmp/gstublandok $_gg14l" --repin-run "$tmp/gstubrepinrc2 /tmp/grepin14.txt"
 if [ "$_grc" -eq 0 ] \
     && _gstateok "$tmp/gstate14" "${G2c_8}:gated" "${G2c_8}:landed" "${G2c_8}:repin-rc2"; then
     t_ok "80: G14 the repin rc-2 stub -> state {gated, landed, repin-rc2}; rc 0 (the repin's rc never fails the run, b10)"
@@ -1757,8 +1801,10 @@ fi
 
 # --- 79 (G14b): land-ok, NO --repin-run / host.repinRun -> state {gated,
 # landed} (NO repin word); rc 0; the D4.9 note with the "NOT re-pinned" half.
+# M1202 wave 2b: D2's default would hold this cell; the cell names auto to
+# reach the land step.
 _gg14bl="$tmp/gland14b.txt"; rm -f "$_gg14bl"
-_grun "$tmp/gcfg.json" "$G2c_8" B --state "$tmp/gstate14b" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --land-run "$tmp/gstublandok $_gg14bl"
+_grun "$tmp/gcfga.json" "$G2c_8" B --state "$tmp/gstate14b" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --land-run "$tmp/gstublandok $_gg14bl"
 _gg14bnote=$(_gnote "$G2c_8")
 _gl="$_gg14bl"; _cl="$tmp/gh/ci"; _rl="$tmp/gh/$G2c_8"; _repin="NOT re-pinned (host.repinRun absent: H11 is not built; the reference's repin.sh stands for the switch-over)"
 _gg14bwant=$(_ggreenexp)
@@ -1825,10 +1871,12 @@ fi
 
 # --- 83 (G18): the state file APPENDS: two consecutive refused runs (a fresh
 # state file via --state) -> 4 lines; the first run's gated +
-# green-land-refused still at lines 1-2 (b13 NEVER truncating).
+# green-land-refused still at lines 1-2 (b13 NEVER truncating). M1202 wave
+# 2b: D2's default would hold this cell; the cell names auto to reach the
+# land step (here: the green-land-refused terminal).
 _gg18s="$tmp/gstate18"
-_grun "$tmp/gcfg.json" "$G2c_8" B _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --state "$_gg18s"
-_grun "$tmp/gcfg.json" "$G2c_8" B _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --state "$_gg18s"
+_grun "$tmp/gcfga.json" "$G2c_8" B _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --state "$_gg18s"
+_grun "$tmp/gcfga.json" "$G2c_8" B _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --state "$_gg18s"
 if [ "$_grc" -eq 1 ] \
     && _gstateok "$_gg18s" "${G2c_8}:gated" "${G2c_8}:green-land-refused" "${G2c_8}:gated" "${G2c_8}:green-land-refused"; then
     t_ok "85: G18 the state file APPENDS: two consecutive refused runs (a fresh --state) -> 4 lines; the first run's gated + green-land-refused still at lines 1-2 (b13 NEVER truncating)"
@@ -1849,9 +1897,11 @@ fi
 # GREEN-and-LANDED text, and $tmp/gh/digest.md gained a line.
 # G18 (the two refused runs) clobbered the $G2c_8 inbox slot and _gnote
 # reads the newest -- so clean and re-run the G12 land-ok + repin-clean
-# command (fresh artifacts) to restore the GREEN-and-LANDED note.
+# command (fresh artifacts) to restore the GREEN-and-LANDED note. M1202 wave
+# 2b: D2's default would hold this cell; the cell names auto to reach the
+# land step.
 _gcleaninbox "$G2c_8"
-_grun "$tmp/gcfg.json" "$G2c_8" B --state "$tmp/gstate20" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --land-run "$tmp/gstublandok $tmp/gland20.txt" --repin-run "$tmp/gstubrepinclean /tmp/grepin20.txt"
+_grun "$tmp/gcfga.json" "$G2c_8" B --state "$tmp/gstate20" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --land-run "$tmp/gstublandok $tmp/gland20.txt" --repin-run "$tmp/gstubrepinclean /tmp/grepin20.txt"
 _gg20note=$(_gnote "$G2c_8")
 if [ -n "$_gg20note" ] && printf '%s\n' "$_gg20note" | grep -qF "GREEN and LANDED: BATCH B READY at $G2c_8 is master now" \
     && [ -f "$tmp/gh/digest.md" ] \
@@ -1862,9 +1912,11 @@ else
 fi
 
 # --- 86 (G21): `gate run <G2c-8>` with NO batch -> the note names "BATCH ?"
-# (the reference's ${2:-?}).
+# (the reference's ${2:-?}). M1202 wave 2b: D2's default would hold this
+# cell; the cell names auto to reach the land step (here: the
+# green-land-refused terminal).
 _gcleaninbox "$G2c_8"
-_grun "$tmp/gcfg.json" "$G2c_8" --state "$tmp/gstate21" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci"
+_grun "$tmp/gcfga.json" "$G2c_8" --state "$tmp/gstate21" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci"
 _gg21note=$(_gnote "$G2c_8")
 if [ "$_grc" -eq 1 ] \
     && printf '%s\n' "$_gg21note" | grep -qF "BATCH ? READY at $G2c_8" \
@@ -1875,10 +1927,11 @@ else
 fi
 
 # --- 87 (G22): --state $tmp/gst -> the state lines in $tmp/gst, NOT in
-# <gh>/state.
+# <gh>/state. M1202 wave 2b: D2's default would hold this cell; the cell
+# names auto to reach the land step (here: the green-land-refused terminal).
 _gg22s="$tmp/gst"
 _gg22before=$( [ -f "$tmp/gh/state" ] && wc -l < "$tmp/gh/state" | tr -d ' ' || echo 0 )
-_grun "$tmp/gcfg.json" "$G2c_8" B _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --state "$_gg22s"
+_grun "$tmp/gcfga.json" "$G2c_8" B _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --state "$_gg22s"
 _gg22after=$( [ -f "$tmp/gh/state" ] && wc -l < "$tmp/gh/state" | tr -d ' ' || echo 0 )
 if [ "$_grc" -eq 1 ] \
     && _gstateok "$_gg22s" "${G2c_8}:gated" "${G2c_8}:green-land-refused" \
@@ -1889,8 +1942,10 @@ else
 fi
 
 # --- 88 (G23): --gate-home $tmp/gh2 -> run.log at $tmp/gh2/<G2c-8>/run.log,
-# state at $tmp/gh2/state (the flag beats the config's gateHome).
-_grun "$tmp/gcfg.json" "$G2c_8" B --state "$tmp/gh2/state" --gate-home "$tmp/gh2" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh2/ci"
+# state at $tmp/gh2/state (the flag beats the config's gateHome). M1202 wave
+# 2b: D2's default would hold this cell; the cell names auto to reach the
+# land step (here: the green-land-refused terminal).
+_grun "$tmp/gcfga.json" "$G2c_8" B --state "$tmp/gh2/state" --gate-home "$tmp/gh2" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh2/ci"
 if [ "$_grc" -eq 1 ] \
     && [ -f "$tmp/gh2/$G2c_8/run.log" ] \
     && _gstateok "$tmp/gh2/state" "${G2c_8}:gated" "${G2c_8}:green-land-refused"; then
@@ -1903,10 +1958,12 @@ fi
 # PROCEEDS past the ledger: the say line "ledger: 1 commit(s), 0 bad" (N=1,
 # the corrected count; accepted commits do not count bad, b2's CHANGED), the
 # ledger.txt "accepted:" line, and (full stub set, no landRun) the run ends
-# in green-land-refused rc 1.
+# in green-land-refused rc 1. M1202 wave 2b: D2's default would hold this
+# cell; the cell names auto to reach the land step (here: the
+# green-land-refused terminal).
 printf '%s\n' "$G3bad" > "$tmp/gaccept"
 _gg24s="$tmp/gstate24"
-_grun "$tmp/gcfg.json" "$G3bad_8" B --state "$_gg24s" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --ledger-accept "$tmp/gaccept"
+_grun "$tmp/gcfga.json" "$G3bad_8" B --state "$_gg24s" _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --ledger-accept "$tmp/gaccept"
 _gg24rl="$tmp/gh/$G3bad_8/run.log"
 _gg24note=$(_gnote "$G3bad_8")
 if [ "$_grc" -eq 1 ] \
@@ -1921,7 +1978,9 @@ fi
 
 # --- 90 (G25): the config's gateHome (NO --gate-home flag; gcfg's gateHome is
 # $tmp/gh) -> run.log at $tmp/gh/<G2c-8>/run.log (D3's flag-else-config).
-_grun "$tmp/gcfg.json" "$G2c_8" B _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --state "$tmp/gstate25"
+# M1202 wave 2b: D2's default would hold this cell; the cell names auto to
+# reach the land step (here: the green-land-refused terminal).
+_grun "$tmp/gcfga.json" "$G2c_8" B _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$tmp/gh/ci" --state "$tmp/gstate25"
 if [ "$_grc" -eq 1 ] && [ -f "$tmp/gh/$G2c_8/run.log" ] \
     && _gstateok "$tmp/gstate25" "${G2c_8}:gated" "${G2c_8}:green-land-refused"; then
     t_ok "92: G25 the config's gateHome (no --gate-home flag) -> run.log at $tmp/gh/$G2c_8/run.log (D3's flag-else-config)"
@@ -2480,6 +2539,490 @@ if [ "$_cD_pre" -eq 1 ]; then
     t_ok "104: D5 the red-first precondition held: at least two of the four moves share a second (or a move landed in the pre-created name's second) (S0=$_cD_S0; move seconds: $_cD_s1 $_cD_s2 $_cD_s3 $_cD_s4)"
 else
     t_fail "104: D5 the red-first precondition did not hold: no same-second collision in four back-to-back moves (a host over 4x slower than expected); S0=$_cD_S0; move seconds: $_cD_s1 $_cD_s2 $_cD_s3 $_cD_s4"
+fi
+
+# --- 105 (M1197-b, B3): the teeth -- the sweep's BUILD must build all three
+# programs so a driver that installs the full set (docs_install's shape) is
+# SWEEPED, not skipped. Proves the EFFECT, not the string: a fixture repo
+# whose ONE driver, d_gd_install.sh, t_skip's the whole driver unless three
+# named program files exist (jichi, jichi-convert, jichi-harness -- the
+# docs_install precondition shape) and then runs `"$BIN" --version`, CHECKING
+# its output (so the hollow binary the mutant installs makes it RED, i.e. it
+# "notices" the hollow bin -- the sweep's whole point).
+#
+# The cell drives the port's sweep stage with the DEFAULT build (NO
+# --build-run) and the REAL `make smoke-mutant` (NO --mutant-run): the
+# fixture's Makefile answers the build's <target>:
+#   all   -> touch jichi + jichi-convert + jichi-harness (all three)
+#   jichi -> touch jichi + jichi-harness ONLY (jichi-convert MISSING)
+# so the B1 default (`make ... all smoke-tools`) builds all three and the
+# driver runs its `"$BIN"` call -> the real scripts/mutant-sweep.sh sweeps it
+# -> the record's mutant line reads "mutant: OK (1 drivers swept, 0 excluded)".
+# WITHOUT B1 (the build reverts to `make ... jichi smoke-tools`) the driver's
+# jichi-convert precondition fails -> it t_skip's -> the real mutant-sweep.sh
+# counts it as "not swept" -> the mutant line reads "mutant: no changed
+# drivers to sweep (1 excluded)" -> the cell goes RED. That is the instrument
+# that fires on the defect: a NEW driver that installs the full program set,
+# left unswept by a build that does not build the full set.
+#
+# The driver is named d_gd_install.sh (NOT *lint*, NOT docs_*, NOT
+# reading_trace.sh), so the sweep's DRIVER LOOP does not collect it (the loop
+# line is "ran 0 drivers") -- the teeth are in the MUTANT stage, exactly where
+# the 2026-11-18 04:20 c54767bf gate went RED (the verdict's re-count expected
+# docs_install swept; the sweep had skipped it). The unit san/o2 + container
+# stages are STUBBED (the fixture has no test / drive-image); only the BUILD
+# and the MUTANT are real.
+_m105src="$tmp/m105src"
+mkdir -p "$_m105src/tests/smoke" "$_m105src/scripts"
+git -C "$_m105src" init -q
+# The fixture's Makefile: the build's <target> is the cell's knob (all -> all
+# three programs; jichi -> two, jichi-convert missing). smoke-mutant runs the
+# REAL scripts/mutant-sweep.sh (copied from $ROOT, byte-for-byte).
+printf 'all:\n\t@touch jichi jichi-convert jichi-harness && chmod +x jichi jichi-convert jichi-harness\njichi:\n\t@touch jichi jichi-harness && chmod +x jichi jichi-harness\nsmoke-tools:\n\t@true\nsmoke-mutant:\n\tsh scripts/mutant-sweep.sh\n' > "$_m105src/Makefile"
+cp "$ROOT/scripts/mutant-sweep.sh" "$_m105src/scripts/mutant-sweep.sh"
+# commit1 (the BASE, origin/master = MUTANT_BASE): Makefile + the real
+# mutant-sweep.sh, NO driver.
+git -C "$_m105src" add Makefile scripts/mutant-sweep.sh
+GIT_AUTHOR_NAME="Ledger Smoke" GIT_AUTHOR_EMAIL="$ADDR" \
+GIT_COMMITTER_NAME="Ledger Smoke" GIT_COMMITTER_EMAIL="$ADDR" \
+GIT_AUTHOR_DATE="2026-11-18T00:00:00Z" GIT_COMMITTER_DATE="2026-11-18T00:00:00Z" \
+git -C "$_m105src" -c user.name="Ledger Smoke" -c user.email="$ADDR" commit -q -m "M105 base (Makefile + real mutant-sweep, no driver)"
+_M105_BASE=$(git -C "$_m105src" rev-parse HEAD)
+# commit2 (the TIP, swept): ADDS the driver.
+printf '#!/bin/sh\nBIN="${JC_SMOKE_BIN:-$PWD/jichi}"\nif [ ! -x jichi-convert ] || [ ! -x jichi-harness ] || [ ! -x jichi ]; then\n    echo "1..0"\n    echo "# skip: the three programs are not built (the sweep must build all three)"\n    exit 0\nfi\nout=$("$BIN" --version)\nif [ -n "$out" ]; then\n    echo "ok 1 - the binary reports a version"\nelse\n    echo "not ok 1 - the binary printed nothing (it is hollow)"\nfi\n' > "$_m105src/tests/smoke/d_gd_install.sh"
+git -C "$_m105src" add tests/smoke/d_gd_install.sh
+GIT_AUTHOR_NAME="Ledger Smoke" GIT_AUTHOR_EMAIL="$ADDR" \
+GIT_COMMITTER_NAME="Ledger Smoke" GIT_COMMITTER_EMAIL="$ADDR" \
+GIT_AUTHOR_DATE="2026-11-18T00:00:01Z" GIT_COMMITTER_DATE="2026-11-18T00:00:01Z" \
+git -C "$_m105src" -c user.name="Ledger Smoke" -c user.email="$ADDR" commit -q -m "M105 add the install driver"
+_M105_TIP=$(git -C "$_m105src" rev-parse HEAD)
+_M105_TIP8=$(printf '%.8s' "$_M105_TIP")
+# The bare push.git (the sweep's clone source): origin/master at the BASE
+# (MUTANT_BASE), master's tip at the TIP (the swept commit).
+git clone -q --bare "$_m105src" "$tmp/m105.git"
+git -C "$tmp/m105.git" update-ref refs/remotes/origin/master "$_M105_BASE"
+# Run the sweep stage with the DEFAULT build + REAL mutant (NO --build-run,
+# NO --mutant-run). --bin is the host's built jichi (the driver loop runs 0
+# drivers, so it is not invoked); the unit/container stages are stubbed.
+_srun "$_M105_TIP8" --work "$tmp/m105sw" --records "$tmp/m105rec" \
+    --bin "$ROOT/jichi" \
+    --unit-run-san "true" --unit-run-o2 "true" \
+    --container-run "echo '  container fetch_ssrf_reuse rc=0 4 ok, 0 not ok'; echo '  container resolve_timeout_connect rc=0 5 ok, 0 not ok'" \
+    --push-repo "$tmp/m105.git"
+if [ "$_src" -eq 0 ] \
+    && grep -qF "  build: $_M105_TIP8" "$tmp/sout" \
+    && grep -qF "mutant: OK (1 drivers swept, 0 excluded)" "$tmp/sout" \
+    && ! grep -qF "no changed drivers to sweep" "$tmp/sout" \
+    && [ -x "$tmp/m105sw/j/jichi" ] \
+    && [ -x "$tmp/m105sw/j/jichi-convert" ] \
+    && [ -x "$tmp/m105sw/j/jichi-harness" ]; then
+    t_ok "105: M1197-b B3 the teeth: the sweep's DEFAULT build (no --build-run) builds ALL THREE programs -- the fixture's d_gd_install.sh (a whole-driver t_skip unless jichi/jichi-convert/jichi-harness exist, then a checked \$BIN --version) is NOT skipped and IS swept by the real make smoke-mutant: the record's mutant line reads \"mutant: OK (1 drivers swept, 0 excluded)\", and the clone's three program files are all present and executable"
+else
+    t_fail "105: M1197-b B3 the teeth: the sweep's default build must build all three programs so the install driver is swept, not skipped (got rc=$_src; the clone's jichi/jichi-convert/jichi-harness must all be present and executable, and the mutant line must read \"mutant: OK (1 drivers swept, 0 excluded)\", NOT \"no changed drivers to sweep\"). sout: $(tr '\n' '|' < "$tmp/sout" | head_bytes 400)"
+fi
+
+# --- 106 (M1202 wave 2b, D2 + D3 + approve): the orchestrator's landing-
+# policy half.
+#   Part A -- the D2 DEFAULT hold arm. The BASE gcfg has NO landingPolicy
+#   key, so D2's product DEFAULT (hold) applies: the gate CREATES
+#   <gate-home>/HOLD from the config and the existing M1159 HOLD arm fires
+#   green-held WITHOUT the land step. A FRESH gate home ($tmp/ghh) so HOLD /
+#   landing.decision / the land argv file measure only this run. land+repin
+#   stubs are NAMED -- so a defect that skips the D2 hold arm (lands instead
+#   of holding) would create the land argv file and end `landed`, not
+#   `green-held`: the cell is toothed on the land argv file's ABSENCE + the
+#   green-held state. Expect: rc 0; state {gated, green-held}; HOLD PRESENT
+#   (the gate created it); the land argv file ABSENT; the LAST
+#   landing.decision line carries 'decision=pending'.
+#   Part B -- the approve verb (D3's scope: the record + refuse-until-
+#   approved + approve; the pending-queue UI is OUT). approve <s8> --gate-
+#   home --land-run <stub> --operator the-operator reads the pending record,
+#   runs the NAMED land step (the stub, the gate's capture idiom: <cmd> <s8>),
+#   appends 'decision=approved ... operator=the-operator', and returns the
+#   land step's rc (0). The stub's argv file is now PRESENT, carrying <s8>.
+_gghh="$tmp/ghh"
+_gghl="$tmp/glandhh.txt"; rm -f "$_gghl" "$tmp/glandap.txt"
+_grun "$tmp/gcfg.json" "$G2c_8" B --state "$tmp/gstateh" --gate-home "$_gghh" \
+    _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$_gghh/ci" \
+    --land-run "$tmp/gstublandok $_gghl" \
+    --repin-run "$tmp/gstubrepinclean /tmp/gghr.txt"
+_gghdec="$_gghh/$G2c_8/landing.decision"
+_ggh_last=$(tail -1 "$_gghdec" 2>/dev/null)
+# F5a (M1202 wave 2b follow-up): the D3 record's FIELD bytes for the pending
+# terminal -- 'policy=hold' (D2's effective default, the word pinned),
+# 'batch=B', and the time= field carrying the host's UTC offset, gf_now's %z.
+# The time= field pin is ONE grep: the full 'time=<ts> <offset>' bytes (a
+# `grep -qF time= | grep <offset>` pipeline would always fail -- -q prints
+# nothing for the second grep to read).
+# THE OFFSET IS THE HOST'S, read here with `date +%z` (2026-11-25). These four
+# cells (106, 109, 111, 112) pinned ' +0100', Europe/Berlin in winter, so they
+# went red on a hosted runner in UTC (GitHub run 45676610638: +0000, correct)
+# and would go red on this host in summer (+0200). Compared with the host's
+# own offset, a harness that wrote UTC where it should write local time is
+# still caught wherever local time is not UTC. An offset `date` cannot give
+# becomes a string no record holds, so a check can never pass on an empty one.
+_gtz=$(date +%z)
+case "$_gtz" in
+    [+-][0-9][0-9][0-9][0-9]) _gtz_re="[${_gtz%????}]${_gtz#?}" ;;
+    *) _gtz="date-gave-no-offset"; _gtz_re="date-gave-no-offset" ;;
+esac
+if [ "$_grc" -eq 0 ] \
+    && _gstateok "$tmp/gstateh" "${G2c_8}:gated" "${G2c_8}:green-held" \
+    && [ -e "$_gghh/HOLD" ] \
+    && [ ! -e "$_gghl" ] \
+    && printf '%s' "$_ggh_last" | grep -q "decision=pending" \
+    && printf '%s' "$_ggh_last" | grep -q "policy=hold" \
+    && printf '%s' "$_ggh_last" | grep -q "batch=B" \
+    && printf '%s' "$_ggh_last" | grep -qE "time=[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} $_gtz_re"; then
+    # Part B: approve.
+    "$HBIN" approve "$G2c_8" --gate-home "$_gghh" \
+        --land-run "$tmp/gstublandok $tmp/glandap.txt" \
+        --operator the-operator < /dev/null > "$tmp/gapprove106.out" 2>&1
+    _ggaprc=$?
+    _ggap_last=$(tail -1 "$_gghdec" 2>/dev/null)
+    if [ "$_ggaprc" -eq 0 ] \
+        && [ -e "$tmp/glandap.txt" ] \
+        && grep -qF "$G2c_8" "$tmp/glandap.txt" \
+        && printf '%s' "$_ggap_last" | grep -q "decision=approved" \
+        && printf '%s' "$_ggap_last" | grep -q "operator=the-operator"; then
+        t_ok "106: D2 default hold + the D3 landing.decision record + approve: the BASE config (no landingPolicy) HOLDS -- the gate CREATES \$tmp/ghh/HOLD, rc 0, state {gated, green-held}, NO land call (the land argv file ABSENT), the last landing.decision line 'decision=pending'; approve <s8> --operator the-operator runs the land stub (the argv file PRESENT, carrying <s8>) and the last line becomes 'decision=approved ... operator=the-operator' (rc 0)"
+    else
+        t_fail "106b: D2 default hold + approve: the approve half failed (approve rc=$_ggaprc; landap-argv=$([ -e "$tmp/glandap.txt" ] && echo present || echo absent ); last-decision: $(printf '%s' "$_ggap_last" | head_bytes 160))"
+    fi
+else
+    t_fail "106: D2 default hold + the D3 record: the gate must CREATE the HOLD from the config and end green-held with NO land call + a 'decision=pending' landing.decision line (got rc=$_grc; HOLD: $([ -e "$_gghh/HOLD" ] && echo present || echo absent ); land-argv: $([ -e "$_gghl" ] && echo PRESENT || echo absent ); last-decision: $(printf '%s' "$_ggh_last" | head_bytes 160); state: $( [ -f "$tmp/gstateh" ] && tr '\n' '|' < "$tmp/gstateh" | head_bytes 120 || echo ABSENT ))"
+fi
+
+# --- 107 (M1202 wave 2b, D3): refuse-until-approved. A SECOND gate home
+# ($tmp/ghl) with a FABRICATED green run whose landing.decision LAST line is
+# 'decision=landed ...' (NOT pending): approve must REFUSE (rc 1, 'approve:
+# refused: no pending landing for <s8>'), because only a PENDING landing may
+# be approved -- approving a landed / held / absent one is refused. (No
+# --land-run: the refusal fires at the pending-read, before the land-step
+# resolution.)
+_gglh="$tmp/ghl"
+mkdir -p "$_gglh/$G2c_8"
+printf 'decision=landed policy=auto sha8=%s batch=B time=2026-11-19 03:54:29 +0100 land-rc=0\n' "$G2c_8" > "$_gglh/$G2c_8/landing.decision"
+"$HBIN" approve "$G2c_8" --gate-home "$_gglh" < /dev/null > "$tmp/gapprove107.out" 2>&1
+_gglrc=$?
+if [ "$_gglrc" -eq 1 ] \
+    && grep -qF "approve: refused: no pending landing for $G2c_8" "$tmp/gapprove107.out"; then
+    t_ok "107: refuse-until-approved: a gate home whose landing.decision LAST line is 'decision=landed ...' (not pending) -> approve <s8> REFUSES rc 1, 'approve: refused: no pending landing for <s8>' (only a pending landing may be approved)"
+else
+    t_fail "107: refuse-until-approved: approve must refuse a non-pending landing (rc=$_gglrc; out: $(tr '\n' '|' < "$tmp/gapprove107.out" 2>/dev/null | head_bytes 160))"
+fi
+
+# --- 108 (M1202 wave 2b follow-up, F4): the land step's <s> idiom. The
+# host's land step may be written in the <s> substitution idiom (the
+# gate's gf_subst_s: every literal "<s>" token is replaced with the sha8
+# AFTER the sha8 is appended -- the exported jc_capture_cmd's contract,
+# jc_hp_gate.h: the caller "has already appended the sha8 and substituted
+# <s>"). A fresh gate home, the BASE gcfg (NO landingPolicy key) -> the
+# D2 default holds: green-held, a 'decision=pending' record, NO land call
+# (cell 106's Part A shape; no land stub named at all). Then approve
+# with --config whose host.landRun is the <s> idiom:
+#   "$tmp/gstublandok2 <s> $tmp/glandF4.txt"
+# gsstublandok2 records its argv on $2 (the argv file -- the stub is
+# invoked as <cmd> <s8> <argvfile> <s8-appended>, so the sha8 arrives
+# where the <s> WAS and as the LAST argv element, the appended one).
+# WITHOUT the substitution pass approve runs sh -c
+# 'gstublandok2 <s> <argvfile> <s8>': the shell parses <s> as an INPUT
+# REDIRECTION from a file named "s" (absent) -- the stub is never invoked,
+# the argv file is absent, the land step's rc != 0, approve rc 1.
+{ printf '#!/bin/sh\n'
+  printf '%s\n' 'printf "%s\\n" "$@" > "$2"'
+  printf '%s\n' 'exit 0'
+} > "$tmp/gstublandok2"; chmod +x "$tmp/gstublandok2"
+cat > "$tmp/gcfg4.json" <<EOF
+{"dir":"$tmp/gdir","modelKeyFile":"$tmp/gdir/k","gitTokenFile":"$tmp/gdir/t",
+"host":{"pushHome":"$tmp","pushRepo":"$tmp/gpush.git","ledgerAddress":"$ADDR","gateHome":"$tmp/gh","gateRun":"$tmp/gh/standin.sh","landRun":"$tmp/gstublandok2 <s> $tmp/glandF4.txt"}}
+EOF
+_ggh4="$tmp/gh4"
+_ggh4l="$tmp/glandF4.txt"; rm -f "$_ggh4l"
+_grun "$tmp/gcfg.json" "$G2c_8" B --state "$tmp/gstate108" --gate-home "$_ggh4" \
+    _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$_ggh4/ci"
+_ggh4dec="$_ggh4/$G2c_8/landing.decision"
+_ggh4_last=$(tail -1 "$_ggh4dec" 2>/dev/null)
+if [ "$_grc" -eq 0 ] \
+    && _gstateok "$tmp/gstate108" "${G2c_8}:gated" "${G2c_8}:green-held" \
+    && [ -e "$_ggh4/HOLD" ] \
+    && printf '%s' "$_ggh4_last" | grep -q "decision=pending"; then
+    "$HBIN" approve "$G2c_8" --gate-home "$_ggh4" --config "$tmp/gcfg4.json" \
+        < /dev/null > "$tmp/gapprove108.out" 2>&1
+    _gg4rc=$?
+    if [ "$_gg4rc" -eq 0 ] \
+        && [ -e "$_ggh4l" ] \
+        && grep -qF "$G2c_8" "$_ggh4l" \
+        && printf '%s' "$(tail -1 "$_ggh4l" 2>/dev/null)" | grep -qxF "$G2c_8"; then
+        t_ok "108: the land step's <s> idiom (F4): the BASE config (no landingPolicy) ends green-held with a pending record; approve --config (host.landRun = 'gstublandok2 <s> <argvfile>', the <s> idiom) runs the land step with <s> SUBSTITUTED by the sha8 (the gate's gf_subst_s idiom, after the append) -- the argv file PRESENT, carrying <s8> as its LAST argv element (the appended one), approve rc 0"
+    else
+        t_fail "108: the <s>-idiom land step must run with <s> substituted (the gate's assembly idiom: sha8 appended, THEN every '<s>' replaced) -- the argv file must be PRESENT, carrying <s8> as the LAST argv element, and approve rc 0 (approve rc=$_gg4rc; argv-file: $([ -e "$_ggh4l" ] && printf 'present: %s' "$(tr '\n' '|' < "$_ggh4l" | head_bytes 120)" || echo ABSENT); approve-out: $(tr '\n' '|' < "$tmp/gapprove108.out" 2>/dev/null | head_bytes 160))"
+    fi
+else
+    t_fail "108: the <s>-idiom pending setup failed (got rc=$_grc; HOLD: $([ -e "$_ggh4/HOLD" ] && echo present || echo absent ); last-decision: $(printf '%s' "$_ggh4_last" | head_bytes 160); state: $( [ -f "$tmp/gstate108" ] && tr '\n' '|' < "$tmp/gstate108" | head_bytes 120 || echo ABSENT ))"
+fi
+
+# --- 109 (M1202 wave 2b follow-up, F5b): the D3 record's FIELD bytes for
+# the landed terminal -- an auto-policy (gcfga) land-ok gate run, FRESH
+# gate home: the LAST landing.decision line carries 'decision=landed' AND
+# 'land-rc=0'.
+_ggh9="$tmp/gh9"
+_ggh9l="$tmp/gland109.txt"; rm -f "$_ggh9l"
+_grun "$tmp/gcfga.json" "$G2c_8" B --state "$tmp/gstate109" --gate-home "$_ggh9" \
+    _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$_ggh9/ci" \
+    --land-run "$tmp/gstublandok $_ggh9l"
+_ggh9dec="$_ggh9/$G2c_8/landing.decision"
+_ggh9_last=$(tail -1 "$_ggh9dec" 2>/dev/null)
+if [ "$_grc" -eq 0 ] \
+    && _gstateok "$tmp/gstate109" "${G2c_8}:gated" "${G2c_8}:landed" \
+    && [ -s "$_ggh9l" ] \
+    && printf '%s' "$_ggh9_last" | grep -q "decision=landed" \
+    && printf '%s' "$_ggh9_last" | grep -q "land-rc=0" \
+    && printf '%s' "$_ggh9_last" | grep -qF " $_gtz"; then
+    t_ok "109: the D3 record's landed fields (F5b): the auto-policy land-ok gate run (fresh home) ends rc 0 {gated, landed}, the last landing.decision line carries 'decision=landed' AND 'land-rc=0' + the host's offset in time= ($_gtz)"
+else
+    t_fail "109: the auto land-ok run's last landing.decision line must carry decision=landed + land-rc=0 (got rc=$_grc; state: $( [ -f "$tmp/gstate109" ] && tr '\n' '|' < "$tmp/gstate109" | head_bytes 120 || echo ABSENT ); last-decision: $(printf '%s' "$_ggh9_last" | head_bytes 160))"
+fi
+
+# --- 110 (M1202 wave 2b follow-up, F6): the approve's two usage arms --
+# rc 2, the exact phrases pinned byte-for-byte (the dispatch's words,
+# jc_harness_main.c: the missing-SHA8 arm names what is absent, the
+# missing---gate-home arm names the required flag).
+"$HBIN" approve < /dev/null > "$tmp/gapprove110a.out" 2>&1
+_g110arc=$?
+"$HBIN" approve "$G2c_8" < /dev/null > "$tmp/gapprove110b.out" 2>&1
+_g110brc=$?
+if [ "$_g110arc" -eq 2 ] \
+    && grep -qF "jichi-harness: approve: needs a <SHA8> (the pending landing to approve)" "$tmp/gapprove110a.out" \
+    && [ "$_g110brc" -eq 2 ] \
+    && grep -qF "jichi-harness: approve: --gate-home <dir> is required" "$tmp/gapprove110b.out"; then
+    t_ok "110: approve's usage arms (F6): a bare 'approve' (no SHA8) -> rc 2 naming 'jichi-harness: approve: needs a <SHA8> (the pending landing to approve)'; 'approve <s8>' (no --gate-home) -> rc 2 naming 'jichi-harness: approve: --gate-home <dir> is required'"
+else
+    t_fail "110: approve's usage arms must refuse rc 2 naming what is missing (bare: rc=$_g110arc out: $(tr '\n' '|' < "$tmp/gapprove110a.out" 2>/dev/null | head_bytes 160); with <s8>, no --gate-home: rc=$_g110brc out: $(tr '\n' '|' < "$tmp/gapprove110b.out" 2>/dev/null | head_bytes 160))"
+fi
+
+# --- 111 (M1202 wave 2b follow-up, F7 + F11): the land step's CONFIG
+# fallback + the absent-record refusal.
+#   Part A (F7): a fresh gate home, the BASE gcfg (no landingPolicy) ->
+#   green-held, the pending record (policy=hold, the D2 effective
+#   default). A fixture config naming host.landRun in the PLAIN form
+#   (no <s> token): "gstublandok <argvfile>" -- $1 is the argv file, the
+#   sha8 the appended LAST argv element. approve with --config but NO
+#   --land-run: the land step resolves from the CONFIG, runs (rc 0), the
+#   argv file PRESENT carrying <s8>. The approved record ECHOES the
+#   pending line's policy= word (F2 -- the word is extracted from the
+#   pending line, so a regression that stops echoing it goes red), and
+#   carries the drive offset in time= (F3) + operator + land-rc=0.
+#   Part B (F11): approve on a FRESH EMPTY gate home (no
+#   landing.decision at all) -> the SAME refusal words as the
+#   not-pending arm (cell 107): rc 1, 'approve: refused: no pending
+#   landing for <s8>'.
+_ggh11="$tmp/gh11"
+_ggh11l="$tmp/gland111.txt"; rm -f "$_ggh11l"
+_grun "$tmp/gcfg.json" "$G2c_8" B --state "$tmp/gstate111" --gate-home "$_ggh11" \
+    _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$_ggh11/ci"
+cat > "$tmp/gcfg11.json" <<EOF
+{"dir":"$tmp/gdir","modelKeyFile":"$tmp/gdir/k","gitTokenFile":"$tmp/gdir/t",
+"host":{"pushHome":"$tmp","pushRepo":"$tmp/gpush.git","ledgerAddress":"$ADDR","gateHome":"$tmp/gh","gateRun":"$tmp/gh/standin.sh","landRun":"$tmp/gstublandok $tmp/gland111.txt"}}
+EOF
+_ggh11dec="$_ggh11/$G2c_8/landing.decision"
+_ggh11_pend=$(grep "decision=pending" "$_ggh11dec" 2>/dev/null | tail -1)
+_ggh11_pol=$(printf '%s' "$_ggh11_pend" | sed -n 's/.* policy=\([^ ]*\).*/\1/p')
+if [ "$_grc" -eq 0 ] \
+    && _gstateok "$tmp/gstate111" "${G2c_8}:gated" "${G2c_8}:green-held" \
+    && [ -n "$_ggh11_pend" ]; then
+    "$HBIN" approve "$G2c_8" --gate-home "$_ggh11" --config "$tmp/gcfg11.json" \
+        --operator cfg-fallback < /dev/null > "$tmp/gapprove111.out" 2>&1
+    _g111rc=$?
+    _ggh11_appr=$(grep "decision=approved" "$_ggh11dec" 2>/dev/null | tail -1)
+    # Part B (F11): the absent-record arm (a fresh EMPTY gate home).
+    mkdir -p "$tmp/gh11b/$G2c_8"
+    "$HBIN" approve "$G2c_8" --gate-home "$tmp/gh11b" \
+        < /dev/null > "$tmp/gapprove111b.out" 2>&1
+    _g111brc=$?
+    if [ "$_g111rc" -eq 0 ] \
+        && [ -e "$_ggh11l" ] \
+        && grep -qF "$G2c_8" "$_ggh11l" \
+        && [ -n "$_ggh11_appr" ] \
+        && printf '%s' "$_ggh11_appr" | grep -qF "policy=$_ggh11_pol " \
+        && printf '%s' "$_ggh11_appr" | grep -qF "sha8=$G2c_8" \
+        && printf '%s' "$_ggh11_appr" | grep -qF "batch=B" \
+        && printf '%s' "$_ggh11_appr" | grep -qF "operator=cfg-fallback" \
+        && printf '%s' "$_ggh11_appr" | grep -qF "land-rc=0" \
+        && printf '%s' "$_ggh11_appr" | grep -qF " $_gtz" \
+        && [ "$_g111brc" -eq 1 ] \
+        && grep -qF "approve: refused: no pending landing for $G2c_8" "$tmp/gapprove111b.out"; then
+        t_ok "111: the land step's config fallback (F7) + the absent-record refusal (F11): a pending gate home (the BASE config, no landingPolicy) + a config naming host.landRun (the plain 'gstublandok <argvfile>' form, no <s>) -> approve --config with NO --land-run runs the land step (rc 0, the argv file PRESENT carrying <s8>); the approved line ECHOES the pending line's policy= word (policy=$_ggh11_pol, F2) + sha8=<s8> + batch=B + operator=cfg-fallback + land-rc=0 + the drive offset in time= (F3); AND approve on a FRESH EMPTY gate home (no landing.decision at all) -> rc 1, 'approve: refused: no pending landing for <s8>' (the absent-file path says the SAME words as the not-pending arm)"
+    else
+        t_fail "111: the config-fallback approve must run the land step from the config (the argv file PRESENT, carrying <s8>) and ECHO the pending line's policy= word (pending policy=$_ggh11_pol; approve rc=$_g111rc; argv-file: $([ -e "$_ggh11l" ] && printf 'present: %s' "$(tr '\n' '|' < "$_ggh11l" | head_bytes 120)" || echo ABSENT); approved-line: $(printf '%s' "$_ggh11_appr" | head_bytes 200); approve-out: $(tr '\n' '|' < "$tmp/gapprove111.out" 2>/dev/null | head_bytes 160); F11 arm: rc=$_g111brc out: $(tr '\n' '|' < "$tmp/gapprove111b.out" 2>/dev/null | head_bytes 160))"
+    fi
+else
+    t_fail "111: the config-fallback pending setup failed (got rc=$_grc; pending-line: $(printf '%s' "$_ggh11_pend" | head_bytes 160); state: $( [ -f "$tmp/gstate111" ] && tr '\n' '|' < "$tmp/gstate111" | head_bytes 120 || echo ABSENT ))"
+fi
+
+# --- 112 (M1202 wave 2b follow-up, F8): D2's case-sensitivity -- the
+# word "AUTO" (uppercase) is NOT byte-exact "auto": the gate FAILS
+# CLOSED -- it CREATES the HOLD and ends green-held WITHOUT the land
+# step (the land stub named; its argv file must stay ABSENT), and the
+# pending record carries the word ECHOED as-is: 'policy=AUTO' (a
+# non-default word in the policy= field: the field pins the config's
+# word, not a re-normalised one).
+sed 's/"landingPolicy":"auto"/"landingPolicy":"AUTO"/' \
+    "$tmp/gcfga.json" > "$tmp/gcfg12.json"
+_ggh12="$tmp/gh12"
+_ggh12l="$tmp/gland112.txt"; rm -f "$_ggh12l"
+_grun "$tmp/gcfg12.json" "$G2c_8" B --state "$tmp/gstate112" --gate-home "$_ggh12" \
+    _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$_ggh12/ci" \
+    --land-run "$tmp/gstublandok $_ggh12l"
+_ggh12dec="$_ggh12/$G2c_8/landing.decision"
+_ggh12_last=$(tail -1 "$_ggh12dec" 2>/dev/null)
+if [ "$_grc" -eq 0 ] \
+    && _gstateok "$tmp/gstate112" "${G2c_8}:gated" "${G2c_8}:green-held" \
+    && [ -e "$_ggh12/HOLD" ] \
+    && [ ! -e "$_ggh12l" ] \
+    && printf '%s' "$_ggh12_last" | grep -q "decision=pending" \
+    && printf '%s' "$_ggh12_last" | grep -q "policy=AUTO" \
+    && printf '%s' "$_ggh12_last" | grep -qF " $_gtz"; then
+    t_ok "112: D2's case-sensitivity (F8): 'landingPolicy':'AUTO' (uppercase) is NOT byte-exact 'auto' -> the gate CREATES the HOLD, ends green-held WITHOUT the land call (the land argv file ABSENT), and the last landing.decision line carries 'decision=pending' AND 'policy=AUTO' (the word echoed as-is, the non-default policy field) + the host's offset in time= ($_gtz)"
+else
+    t_fail "112: 'AUTO' must FAIL CLOSED to the hold arm, echoing the word as-is in the pending record (got rc=$_grc; HOLD: $([ -e "$_ggh12/HOLD" ] && echo present || echo absent ); land-argv: $([ -e "$_ggh12l" ] && echo PRESENT || echo absent ); last-decision: $(printf '%s' "$_ggh12_last" | head_bytes 160); state: $( [ -f "$tmp/gstate112" ] && tr '\n' '|' < "$tmp/gstate112" | head_bytes 120 || echo ABSENT ))"
+fi
+
+# --- 113 (M1202 wave 2b follow-up, F9): the approved record's append is
+# NON-FATAL (the D3 doctrine; the LOG run 0075 disposition: KEEP -- the
+# record is telemetry beside the decision; the landing itself succeeded;
+# the operator sees the named stderr). landing.decision is made READ-ONLY
+# (chmod 444) AFTER the pending record exists: approve runs the land
+# step (rc 0, the argv file PRESENT carrying <s8>), the append fails, is
+# NAMED on stderr ('could not append the approved decision to'), and the
+# verb STILL returns the land step's rc (0). The chmod is restored after.
+# (This host runs the driver as a non-root operator, so the 444 bit
+# fences the owner; a root host would make the bit ineffective -- the
+# assertion then pins the rc/argv half only, noted in the follow-up
+# report.)
+_ggh13="$tmp/gh13"
+_ggh13l="$tmp/gland113.txt"; rm -f "$_ggh13l"
+_grun "$tmp/gcfg.json" "$G2c_8" B --state "$tmp/gstate113" --gate-home "$_ggh13" \
+    _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$_ggh13/ci"
+_ggh13dec="$_ggh13/$G2c_8/landing.decision"
+if [ "$_grc" -eq 0 ] \
+    && _gstateok "$tmp/gstate113" "${G2c_8}:gated" "${G2c_8}:green-held" \
+    && [ -f "$_ggh13dec" ] \
+    && grep -q "decision=pending" "$_ggh13dec"; then
+    chmod 444 "$_ggh13dec"
+    "$HBIN" approve "$G2c_8" --gate-home "$_ggh13" \
+        --land-run "$tmp/gstublandok $_ggh13l" \
+        < /dev/null > "$tmp/gapprove113.out" 2>&1
+    _g113rc=$?
+    chmod 644 "$_ggh13dec" 2>/dev/null
+    if [ "$_g113rc" -eq 0 ] \
+        && [ -e "$_ggh13l" ] \
+        && grep -qF "$G2c_8" "$_ggh13l" \
+        && { [ "$(id -u)" -eq 0 ] \
+             || { grep -qF "could not append the approved decision to" "$tmp/gapprove113.out" \
+                  && ! grep -q "decision=approved" "$_ggh13dec"; }; }; then
+        t_ok "113: the approved record's append is NON-FATAL (F9, KEEP per run 0075): landing.decision chmod 444 (read-only) AFTER the pending record -> approve runs the land step (rc 0, the argv file PRESENT carrying <s8>); the record's failure is NAMED on stderr ('could not append the approved decision to'), NOT fatal -- the verb returns the land step's rc 0"
+    else
+        t_fail "113: a failed approved-record append must be NAMED on stderr, not fatal: the verb must return the land step's rc (0) with the argv file PRESENT carrying <s8> (approve rc=$_g113rc; argv-file: $([ -e "$_ggh13l" ] && printf 'present: %s' "$(tr '\n' '|' < "$_ggh13l" | head_bytes 120)" || echo ABSENT); approve-out: $(tr '\n' '|' < "$tmp/gapprove113.out" 2>/dev/null | head_bytes 200); approved-lines: $(grep -c "decision=approved" "$_ggh13dec" 2>/dev/null || echo 0); uid=$(id -u))"
+    fi
+else
+    t_fail "113: the non-fatal setup failed (got rc=$_grc; pending: $([ -f "$_ggh13dec" ] && grep -q "decision=pending" "$_ggh13dec" && echo yes || echo no ); state: $( [ -f "$tmp/gstate113" ] && tr '\n' '|' < "$tmp/gstate113" | head_bytes 120 || echo ABSENT ))"
+fi
+
+# --- 114 (M1202 H10, review R-1): the full-40-hex-sha approve must be
+# SUBSTITUTED, matching the gate's gf_subst_s. The gate's own assembly
+# (gf_capture_cmd) appends the sha it is GIVEN (no length guard on the
+# sha -- gf_subst_s substitutes whatever string it is passed), and the
+# gate's <SHA8> door (gf_is_commit_token) accepts 7-40 lowercase hex,
+# so a full 40-hex sha is a legitimate key. approve's inlined
+# substitution pass copied the gate's shape but kept a stray
+# `slen > 8` conjunct in its bounds pre-check -- it REFUSES a longer sha
+# with "the land step command is too long", mis-naming the rejection
+# (the sha is not the "land step command"; the land step command is
+# `cmd + " " + sha`). Cell 114 makes the refusal reachable: reuse
+# cell 108's fixture shape (a fresh BASE-config gate home, no
+# landingPolicy, that ends green-held with a decision=pending record)
+# but derive the sha from the fixture's REAL commit -- the FULL 40-hex
+# value, not the 8-hex prefix -- run the gate keyed on that full sha
+# (so the record lands at <home>/<fullsha>/landing.decision), and
+# approve with the same full sha.
+#   RED (before the fix): approve hits the slen>8 conjunct, returns 1,
+#   names "the land step command is too long", and the land stub is
+#   never invoked (the argv file ABSENT).
+#   GREEN (after the fix): approve assembles `cmd + " " + <fullsha>`
+#   and runs the <s> substitution with the full value (like
+#   gf_subst_s would) -- the argv file PRESENT, its LAST line
+#   byte-exact <fullsha>, approve rc 0.
+# gsstublandok2 + gcfg4 were created by cell 108 (this cell reuses
+# them; the land run's argv file is a fresh name, so no clobber).
+_fullsha=$(git -C "$tmp/gc" rev-parse "$G2c_8" 2>/dev/null)
+_ggh14="$tmp/gh14"
+_ggh14l="$tmp/gland114.txt"; rm -f "$_ggh14l"
+_grun "$tmp/gcfg.json" "$_fullsha" B --state "$tmp/gstate114" --gate-home "$_ggh14" \
+    _gflags --ci-run "$tmp/gstubcigreen" --ci-log-dir "$_ggh14/ci"
+_ggh14dec="$_ggh14/$_fullsha/landing.decision"
+_ggh14_last=$(tail -1 "$_ggh14dec" 2>/dev/null)
+if [ -n "$_fullsha" ] \
+    && [ "$_grc" -eq 0 ] \
+    && _gstateok "$tmp/gstate114" "${_fullsha}:gated" "${_fullsha}:green-held" \
+    && [ -e "$_ggh14/HOLD" ] \
+    && printf '%s' "$_ggh14_last" | grep -q "decision=pending"; then
+    "$HBIN" approve "$_fullsha" --gate-home "$_ggh14" \
+        --land-run "$tmp/gstublandok2 <s> $_ggh14l" --operator fullsha \
+        < /dev/null > "$tmp/gapprove114.out" 2>&1
+    _g114rc=$?
+    if [ "$_g114rc" -eq 0 ] \
+        && [ -e "$_ggh14l" ] \
+        && printf '%s' "$(tail -1 "$_ggh14l" 2>/dev/null)" | grep -qxF "$_fullsha"; then
+        t_ok "114: the full-40-hex-sha approve (R-1): the BASE config ends green-held with a pending record keyed at <home>/<fullsha>; approve --land-run '<s> idiom' with the FULL sha (not the 8-hex prefix) substitutes <s> with the full value, matching the gate's gf_subst_s -- approve rc 0, the argv file PRESENT, its LAST line byte-exact the full sha (NOT the 'too long' refusal)"
+    else
+        t_fail "114: the full-40-hex-sha approve must substitute <s> with the full value like the gate's gf_subst_s (no slen>8 refusal) -- approve rc 0, argv file PRESENT, last line byte-exact the full sha (fullsha=$_fullsha; approve rc=$_g114rc; argv-file: $([ -e "$_ggh14l" ] && printf 'present: %s' "$(tr '\n' '|' < "$_ggh14l" | head_bytes 120)" || echo ABSENT); approve-out: $(tr '\n' '|' < "$tmp/gapprove114.out" 2>/dev/null | head_bytes 160))"
+    fi
+else
+    t_fail "114: the full-sha pending setup failed (fullsha=$_fullsha; gate rc=$_grc; HOLD: $([ -e "$_ggh14/HOLD" ] && echo present || echo absent ); last-decision: $(printf '%s' "$_ggh14_last" | head_bytes 160); state: $( [ -f "$tmp/gstate114" ] && tr '\n' '|' < "$tmp/gstate114" | head_bytes 120 || echo ABSENT ))"
+fi
+
+
+# --- 115 (M1202 H10, SV:1059): the ci stage's clone+checkout command slot
+# must not be CUT. The reference runs it as an uncapped shell command line;
+# the port's 512-byte char slot + the `jc_snprintf < 0`-only check cut it
+# silently for any (pr, home, s) whose expansion exceeds 512 bytes, and the
+# cut command went to sh -c (a truncated quoted string is a SHELL SYNTAX
+# ERROR: git never runs, no clone home is created, and the stage's record
+# reads "clone/checkout failed: INVALID" for the wrong reason). SV:1059's
+# measured case was cell 114 (a 76-char TMPDIR + a full 40-hex sha); this
+# cell reaches the bound on the PATH ALONE (a deep gate WORK dir -- the
+# clone's home is <work>/ci-<sha8>) whose clone+checkout command expands to
+# ~1700 bytes > the old 512 slot, while the WORK dir itself stays ~800
+# characters: under gci_mkdir_p's own 2048-byte buf (so the stage reaches
+# the clone, not a second truncation) and under PATH_MAX 4096 (so git can
+# create the home). 3 components of 250 legal path characters, no space,
+# with an ordinary 8-hex sha and ANY TMPDIR, so it is deterministic. The
+# unfixed slot: the cut command -> sh -c rc 2 -> NO clone home -> the
+# record's "clone/checkout failed" INVALID line (the cut, misnamed). The
+# fixed slot (the stage's unbounded command builder: the command is never
+# cut; a would-not-fit case NAMES the cut instead of running it, the M1178
+# idiom): git runs with the full command, the clone home is created, the ci
+# stage is green, and the record carries no cut message.
+_g115w="$tmp/w115"; _g115c="$tmp/c115"
+# The deep component (250 characters, no space: the path is single-quoted in
+# the command and the cell's own arithmetic must not wrap); 3 levels of it
+# => the WORK dir is ~800 characters (fits gci_mkdir_p's 2048 buf and
+# PATH_MAX), while the clone+checkout command (pr + 2*<work>/ci-<s> + the
+# fixed ~88 bytes) is ~1700 > the old 512 slot.
+_g115comp=$(printf 'a%.0s' $(seq 1 250))
+_g115d="$_g115w"
+_i=0; while [ "$_i" -lt 3 ]; do _g115d="$_g115d/$_g115comp"; _i=$(( _i + 1 )); done
+_g115home="$_g115d"
+_crun "$P6_8" "$_g115home" "$_g115c" "$CSTUB"
+_g115cut=0
+grep -qF "would not fit the slot" "$tmp/cout" && _g115cut=1
+if [ "$_crc" -eq 0 ] \
+    && [ -e "$_g115home/ci-$P6_8" ] \
+    && [ "$_g115cut" -eq 0 ]; then
+    t_ok "115: SV:1059 the ci stage's clone+checkout slot is NOT cut (the deep ~800-char gate WORK dir makes the clone command ~1700 bytes > the old 512 slot; the fixed slot runs the full command: the clone home ci-$P6_8 is CREATED, the ci stage is green, and the record carries no cut message)"
+else
+    t_fail "115: SV:1059 the ci stage's clone+checkout slot cut (home: $([ -e "$_g115home/ci-$P6_8" ] && echo PRESENT || echo absent); cut-record: $([ "$_g115cut" -eq 1 ] && echo yes || echo no); crc=$_crc; record tail: $(tail -2 "$tmp/cout" 2>/dev/null | tr '\n' '|' | head_bytes 200); cerr: $(head -1 "$tmp/cerr" 2>/dev/null | head_bytes 120))"
 fi
 
 t_done

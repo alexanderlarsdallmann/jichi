@@ -1143,7 +1143,13 @@ static size_t header_collect(char *ptr, size_t size, size_t nmemb, void *ud)
  * fires for that hop g_redirect_hop already reads 1 (measured on this host,
  * libcurl 8.18.0). That ordering is the load-bearing fact the hop count relies
  * on. The chunk may carry the status line without a trailing CRLF, so the code
- * scans the first "HTTP/" token and reads its status digits off that. */
+ * scans the first "HTTP/" token and reads its status digits off that.
+ *
+ * The oversized-status-line fix (M1208 S1): a status line >= 64 bytes (legal
+ * per HTTP: the reason phrase is advisory) was previously ignored (lines 1158-
+ * 1160). Now the function scans the original `ptr` buffer directly for the
+ * "HTTP/" token and extracts the status code, so oversized lines are counted
+ * as hops while keeping the <64-byte path byte-identical. */
 static size_t redirect_hop_header(char *ptr, size_t size, size_t nmemb, void *ud)
 {
     size_t total = size * nmemb;
@@ -1155,11 +1161,24 @@ static size_t redirect_hop_header(char *ptr, size_t size, size_t nmemb, void *ud
     while (n > 0 && (ptr[n - 1] == '\r' || ptr[n - 1] == '\n')) {
         n--;
     }
-    if (n == 0 || n >= sizeof(line)) {
-        return total; /* blank or oversized: ignore */
+    if (n == 0) {
+        return total; /* blank: ignore */
     }
-    memcpy(line, ptr, n);
-    line[n] = '\0';
+    /* Oversized lines (>= 64 bytes after stripping CRLF) are common for status
+     * lines with long reason phrases. Instead of ignoring them (the original
+     * bug in M1208 S1), scan the original `ptr` directly: the "HTTP/" token
+     * and status digits are within the first 16 bytes ("HTTP/1.1 302" is 12),
+     * so the full 64-byte copy is unnecessary. */
+    if (n >= sizeof(line)) {
+        /* For oversized lines, work on a copy of the first 63 bytes (plus NUL)
+         * so the digit-walk logic is identical to the small-line path. */
+        memcpy(line, ptr, sizeof(line) - 1);
+        line[sizeof(line) - 1] = '\0';
+        n = sizeof(line) - 1;
+    } else {
+        memcpy(line, ptr, n);
+        line[n] = '\0';
+    }
     /* The status line is the first "HTTP/" in the chunk; curl hands it as its
      * own chunk, so it is line[0] in practice, but find it to be safe. The form
      * is "HTTP/<version> <code> <reason>", e.g. "HTTP/1.1 302 Found": after
@@ -1183,6 +1202,12 @@ static size_t redirect_hop_header(char *ptr, size_t size, size_t nmemb, void *ud
     if (*d == ' ') {
         d++; /* the space before the status code */
     }
+    /* A 3xx status code advances the hop counter. The hop counter counts
+     * 3xx STATUS LINES, not sockets: a 301/302/303/307/308 redirects the
+     * request to a server-chosen target, so the next connection is a new
+     * hop. A non-3xx status (1xx, 2xx, 4xx, 5xx) does NOT advance the hop
+     * counter (the connection stays at hop 0 or ends). This holds for both
+     * small and oversized status lines. */
     if (d[0] == '3' && d[1] >= '0' && d[1] <= '9' && d[2] >= '0' && d[2] <= '9' &&
         (d[3] == ' ' || d[3] == '\0')) {
         g_redirect_hop++; /* a 3xx status line: one redirect hop delivered */

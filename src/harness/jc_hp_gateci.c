@@ -688,7 +688,6 @@ jc_gateci_run_env(struct jc_arena *a, const char *td, const char *mb,
                   const char *n, struct jc_vec *out)
 {
     char slot[GCI_NKEYS][128];
-    char extra[3][512];
     int i;
 
     if (a == NULL || out == NULL || td == NULL || mb == NULL || n == NULL) {
@@ -697,7 +696,8 @@ jc_gateci_run_env(struct jc_arena *a, const char *td, const char *mb,
     for (i = 0; i < GCI_NKEYS; i++) {
         char *s;
         char *cp;
-        if (jc_snprintf(slot[i], sizeof slot[i], "%s=", gci_keys[i]) < 0) {
+        int n_sk = jc_snprintf(slot[i], sizeof slot[i], "%s=", gci_keys[i]);
+        if (n_sk < 0 || n_sk >= (int)sizeof slot[i]) {
             return -1;
         }
         cp = jc_arena_strdup(a, slot[i]);
@@ -709,22 +709,70 @@ jc_gateci_run_env(struct jc_arena *a, const char *td, const char *mb,
             return -1;
         }
     }
-    if (jc_snprintf(extra[0], sizeof extra[0], "TMPDIR=%s", td) < 0 ||
-        jc_snprintf(extra[1], sizeof extra[1], "MUTANT_BASE=%s", mb) < 0 ||
-        jc_snprintf(extra[2], sizeof extra[2],
-                    "JC_SMOKE_KEEP_GOING=%s", n) < 0) {
-        return -1;
-    }
-    for (i = 0; i < 3; i++) {
+    /* The three value-bearing entries (SV:0631, M1206-a cell 115): the
+     * reference passes them in full (ci-gate.sh:28, a shell with no 512
+     * limit), so NO fixed stack slot may hold their expansion -- a deep
+     * gate WORK dir makes <td> ~800 chars and "TMPDIR=<td>" ~811, over the
+     * 512 slot. Unbounded: the heap builder (jc_sb, NUL-terminated after
+     * any append; the arena owns the buffer, so it outlives the run
+     * child), the SV:1059 idiom -- jc_hp_gateci_run already carries ~10
+     * x GCI_LINE_MAX (256KB) stack buffers, so this frame gets none. A
+     * failed allocation is a -1 refusal, never a partial entry. */
+    {
+        struct jc_sb e;
         char *s;
-        char *cp = jc_arena_strdup(a, extra[i]);
+        char *cp;
+
+        jc_sb_init(&e);
+        if (jc_sb_append_fmt(&e, "TMPDIR=%s", td) != JC_OK) {
+            jc_sb_free(&e);
+            return -1;
+        }
+        cp = jc_arena_strdup(a, e.data);
         if (cp == NULL) {
+            jc_sb_free(&e);
             return -1;
         }
         s = cp;
         if (jc_vec_push(out, &s) != JC_OK) {
+            jc_sb_free(&e);
             return -1;
         }
+        jc_sb_free(&e);
+
+        jc_sb_init(&e);
+        if (jc_sb_append_fmt(&e, "MUTANT_BASE=%s", mb) != JC_OK) {
+            jc_sb_free(&e);
+            return -1;
+        }
+        cp = jc_arena_strdup(a, e.data);
+        if (cp == NULL) {
+            jc_sb_free(&e);
+            return -1;
+        }
+        s = cp;
+        if (jc_vec_push(out, &s) != JC_OK) {
+            jc_sb_free(&e);
+            return -1;
+        }
+        jc_sb_free(&e);
+
+        jc_sb_init(&e);
+        if (jc_sb_append_fmt(&e, "JC_SMOKE_KEEP_GOING=%s", n) != JC_OK) {
+            jc_sb_free(&e);
+            return -1;
+        }
+        cp = jc_arena_strdup(a, e.data);
+        if (cp == NULL) {
+            jc_sb_free(&e);
+            return -1;
+        }
+        s = cp;
+        if (jc_vec_push(out, &s) != JC_OK) {
+            jc_sb_free(&e);
+            return -1;
+        }
+        jc_sb_free(&e);
     }
     return 0;
 }
@@ -867,8 +915,10 @@ gci_git_read(const char *repo, const char *args, char *out, int cap)
     struct jc_sb capture;
     int i;
     int rc;
+    int n_gc;
 
-    if (jc_snprintf(cmd, sizeof cmd, "git -C '%s' %s", repo, args) < 0) {
+    n_gc = jc_snprintf(cmd, sizeof cmd, "git -C '%s' %s", repo, args);
+    if (n_gc < 0 || n_gc >= (int)sizeof cmd) {
         return -1;
     }
     if (out != NULL && cap > 0) {
@@ -881,7 +931,8 @@ gci_git_read(const char *repo, const char *args, char *out, int cap)
     jc_vec_init(&envv, sizeof(char *));
     for (i = 0; i < GCI_NKEYS; i++) {
         char *s;
-        if (jc_snprintf(slot[i], sizeof slot[i], "%s=", gci_keys[i]) < 0) {
+        int n_gs2 = jc_snprintf(slot[i], sizeof slot[i], "%s=", gci_keys[i]);
+        if (n_gs2 < 0 || n_gs2 >= (int)sizeof slot[i]) {
             jc_vec_free(&envv);
             return -1;
         }
@@ -982,7 +1033,8 @@ gci_child(const char *cmd, char *out, int cap)
     jc_vec_init(&envv, sizeof(char *));
     for (i = 0; i < GCI_NKEYS; i++) {
         char *s;
-        if (jc_snprintf(slot[i], sizeof slot[i], "%s=", gci_keys[i]) < 0) {
+        int n_gs = jc_snprintf(slot[i], sizeof slot[i], "%s=", gci_keys[i]);
+        if (n_gs < 0 || n_gs >= (int)sizeof slot[i]) {
             jc_vec_free(&envv);
             return -1;
         }
@@ -1072,7 +1124,13 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
     const char *cr;
     const char *kg;
     char line[GCI_LINE_MAX];
-    char slot[512];
+    /* The clone+checkout command (SV:1059): pr, home and s are each up to
+     * GCI_LINE_MAX, so NO fixed slot can hold their expansion (the reference
+     * runs it as a shell command line, uncapped). Unbounded: the heap builder
+     * (jc_sb, NUL-terminated after any append), so the command is never cut
+     * and handed to sh -c -- the would-not-fit case is a refusal (M1178),
+     * not a silent cut. */
+    struct jc_sb slot;
     char b_full[GCI_LINE_MAX];
     char mb_full[GCI_LINE_MAX];
     char b8[16];
@@ -1132,6 +1190,13 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
     {
         char workbuf[GCI_LINE_MAX];
         const char *w = work;
+        int n_h;
+        int n_t;
+        int n_rp;
+        int n_lp;
+        int n_lh;
+        int n_lm;
+        int n_le;
 
         if (w == NULL) {
             memcpy(workbuf, "/tmp/jhp-ci-XXXXXX",
@@ -1144,8 +1209,10 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
             }
             w = workbuf;
         }
-        if (jc_snprintf(home, sizeof home, "%s/ci-%s", w, s) < 0 ||
-            jc_snprintf(tmpdir, sizeof tmpdir, "%s/tmp", w) < 0) {
+        n_h = jc_snprintf(home, sizeof home, "%s/ci-%s", w, s);
+        n_t = jc_snprintf(tmpdir, sizeof tmpdir, "%s/tmp", w);
+        if (n_h < 0 || n_h >= (int)sizeof home ||
+            n_t < 0 || n_t >= (int)sizeof tmpdir) {
             return 1;
         }
         if (gci_mkdir_p(w) != 0 || gci_mkdir_p(tmpdir) != 0) {
@@ -1155,7 +1222,8 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
             return 1;
         }
         if (records == NULL) {
-            if (jc_snprintf(recdir, sizeof recdir, "%s/records", w) < 0) {
+            n_rp = jc_snprintf(recdir, sizeof recdir, "%s/records", w);
+            if (n_rp < 0 || n_rp >= (int)sizeof recdir) {
                 return 1;
             }
             records = recdir;
@@ -1170,7 +1238,8 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
             log_dir = cfg.host_ci_log_dir;
         }
         if (log_dir == NULL) {
-            if (jc_snprintf(logdir, sizeof logdir, "%s/ci", w) < 0) {
+            n_lp = jc_snprintf(logdir, sizeof logdir, "%s/ci", w);
+            if (n_lp < 0 || n_lp >= (int)sizeof logdir) {
                 return 1;
             }
             log_dir = logdir;
@@ -1181,12 +1250,15 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
                     "log dir\n");
             return 1;
         }
-        if (jc_snprintf(logpath, sizeof logpath, "%s/ci-%s.log", log_dir,
-                        s) < 0 ||
-            jc_snprintf(metapath, sizeof metapath, "%s/ci-%s.log.meta",
-                        log_dir, s) < 0 ||
-            jc_snprintf(excpath, sizeof excpath, "%s/ci-%s.excerpt",
-                        log_dir, s) < 0) {
+        n_lh = jc_snprintf(logpath, sizeof logpath, "%s/ci-%s.log", log_dir,
+                           s);
+        n_lm = jc_snprintf(metapath, sizeof metapath, "%s/ci-%s.log.meta",
+                           log_dir, s);
+        n_le = jc_snprintf(excpath, sizeof excpath, "%s/ci-%s.excerpt",
+                           log_dir, s);
+        if (n_lh < 0 || n_lh >= (int)sizeof logpath ||
+            n_lm < 0 || n_lm >= (int)sizeof metapath ||
+            n_le < 0 || n_le >= (int)sizeof excpath) {
             return 1;
         }
     }
@@ -1213,22 +1285,29 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
             time_t t = time(NULL);
             struct tm *u = gmtime(&t);
             int k = 0;
+            int n_nh;
+            int n_nl;
+            int n_nn;
+            int n_nm;
+            int n_nd;
             if (u == NULL ||
                 strftime(ts, sizeof ts, "%Y%m%d-%H%M%S", u) == 0) {
                 ts[0] = '\0';
             }
-            if (jc_snprintf(newhome, sizeof newhome, "%s.dead-%s", home,
-                            ts) < 0) {
+            n_nh = jc_snprintf(newhome, sizeof newhome, "%s.dead-%s", home,
+                               ts);
+            if (n_nh < 0 || n_nh >= (int)sizeof newhome) {
                 jc_sb_free(&record);
                 return 1;
             }
             while (gci_exists(newhome)) {
                 k++;
                 if (k >= 1000) {
-                    if (jc_snprintf(line, sizeof line,
-                                    "  ci: could not find a free "
-                                    "dead-clone name for %s: INVALID\n",
-                                    home) < 0) {
+                    n_nl = jc_snprintf(line, sizeof line,
+                                       "  ci: could not find a free "
+                                       "dead-clone name for %s: INVALID\n",
+                                       home);
+                    if (n_nl < 0 || n_nl >= (int)sizeof line) {
                         jc_sb_free(&record);
                         return 1;
                     }
@@ -1239,18 +1318,20 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
                     rc = 1;
                     goto finish;
                 }
-                if (jc_snprintf(newhome, sizeof newhome, "%s.dead-%s-%d",
-                                home, ts, k) < 0) {
+                n_nn = jc_snprintf(newhome, sizeof newhome, "%s.dead-%s-%d",
+                                   home, ts, k);
+                if (n_nn < 0 || n_nn >= (int)sizeof newhome) {
                     jc_sb_free(&record);
                     return 1;
                 }
             }
             if (rename(home, newhome) != 0) {
                 int e = errno;
-                if (jc_snprintf(line, sizeof line,
-                                "  ci: could not move a dead clone aside: "
-                                "%s -> %s: %s (errno %d): INVALID\n",
-                                home, newhome, strerror(e), e) < 0) {
+                n_nm = jc_snprintf(line, sizeof line,
+                                   "  ci: could not move a dead clone aside: "
+                                   "%s -> %s: %s (errno %d): INVALID\n",
+                                   home, newhome, strerror(e), e);
+                if (n_nm < 0 || n_nm >= (int)sizeof line) {
                     jc_sb_free(&record);
                     return 1;
                 }
@@ -1261,9 +1342,10 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
                 rc = 1;
                 goto finish;
             }
-            if (jc_snprintf(line, sizeof line,
-                            "  ci: moved a dead clone aside: %s -> %s\n",
-                            home, newhome) < 0) {
+            n_nd = jc_snprintf(line, sizeof line,
+                               "  ci: moved a dead clone aside: %s -> %s\n",
+                               home, newhome);
+            if (n_nd < 0 || n_nd >= (int)sizeof line) {
                 jc_sb_free(&record);
                 return 1;
             }
@@ -1275,19 +1357,37 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
         /* Step 3 (:19): the clone + detach checkout as ONE keyless shell
          * child (the sweep's gsw_run shape: an explicit keyless env, not
          * the default environ). Failure: the INVALID line, rc 1 (b11). */
-        if (jc_snprintf(slot, sizeof slot,
-                        "git clone -q --no-local --no-checkout '%s' '%s' "
-                        "&& git -C '%s' checkout -q --detach '%s'",
-                        pr, home, home, s) < 0) {
+        jc_sb_init(&slot);
+        if (jc_sb_append_fmt(&slot,
+                             "git clone -q --no-local --no-checkout '%s' '%s' "
+                             "&& git -C '%s' checkout -q --detach '%s'",
+                             pr, home, home, s) != JC_OK) {
+            jc_sb_free(&slot);
             jc_sb_free(&record);
             return 1;
         }
-        if (gci_child(slot, NULL, 0) != 0) {
-            (void)jc_sb_append(&record, "  ci: clone/checkout failed: "
-                                                 "INVALID\n");
+        if (slot.data == NULL) {
+            /* the would-not-fit case: jc_snprintf < 0 (an encoding fault)
+             * cannot be produced from legal command inputs -- NAME the cut,
+             * do not run a truncated command (M1178). */
+            jc_sb_free(&slot);
+            (void)jc_sb_append(&record,
+                "  ci: the clone/checkout command would not fit the slot: "
+                "INVALID\n");
             rc = 1;
             goto finish;
         }
+        if (gci_child(slot.data, NULL, 0) != 0) {
+            (void)jc_sb_append(&record, "  ci: clone/checkout failed: "
+                                                 "INVALID\n");
+            rc = 1;
+            jc_sb_free(&slot);
+            goto finish;
+        }
+        /* The command is done (gci_child ran it); the builder is released
+         * here so no later arm of the stage (step 4's verify, the records,
+         * finish) has to remember it. */
+        jc_sb_free(&slot);
         /* Step 4 (:20): the checkout verify -- `rev-parse HEAD` in the
          * clone vs `rev-parse '<s>^{commit}'` in the push repo, both
          * keyless READ children. Mismatch: the INVALID line, rc 1. */
@@ -1299,14 +1399,24 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
             struct jc_vec runenv;
             int logfd;
             int cr_rc;
+            int n_wc;
+            int n_l4;
+            int n_l5;
+            int n_l6;
+            int n_mb;
+            int n_mc;
+            int n_m8;
+            int n_l7;
+            int n_l8;
 
             if (gci_git_read(home, "rev-parse HEAD", head,
                              (int)sizeof head) != 0) {
                 head[0] = '\0';
             }
             gci_trim(head, head, sizeof head);
-            if (jc_snprintf(wantcmd, sizeof wantcmd, "rev-parse '%s^{commit}'",
-                            s) < 0) {
+            n_wc = jc_snprintf(wantcmd, sizeof wantcmd,
+                               "rev-parse '%s^{commit}'", s);
+            if (n_wc < 0 || n_wc >= (int)sizeof wantcmd) {
                 jc_sb_free(&record);
                 return 1;
             }
@@ -1315,8 +1425,9 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
             }
             gci_trim(want, want, sizeof want);
             if (strcmp(head, want) != 0) {
-                if (jc_snprintf(line, sizeof line,
-                                "  ci: checkout mismatch: INVALID\n") < 0) {
+                n_l4 = jc_snprintf(line, sizeof line,
+                                   "  ci: checkout mismatch: INVALID\n");
+                if (n_l4 < 0 || n_l4 >= (int)sizeof line) {
                     jc_sb_free(&record);
                     return 1;
                 }
@@ -1342,9 +1453,10 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
             }
             gci_trim(b_full, b_full, sizeof b_full);
             if (b_full[0] == '\0') {
-                if (jc_snprintf(line, sizeof line,
-                                "  ci: no origin/master in push.git: "
-                                "INVALID\n") < 0) {
+                n_l5 = jc_snprintf(line, sizeof line,
+                                   "  ci: no origin/master in push.git: "
+                                   "INVALID\n");
+                if (n_l5 < 0 || n_l5 >= (int)sizeof line) {
                     jc_sb_free(&record);
                     return 1;
                 }
@@ -1360,8 +1472,9 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
             }
             memcpy(b8, b_full, 8);
             b8[8] = '\0';
-            if (jc_snprintf(cmd, sizeof cmd, "merge-base %s '%s^{commit}'",
-                            b_full, s) < 0) {
+            n_mb = jc_snprintf(cmd, sizeof cmd, "merge-base %s '%s^{commit}'",
+                               b_full, s);
+            if (n_mb < 0 || n_mb >= (int)sizeof cmd) {
                 jc_sb_free(&record);
                 return 1;
             }
@@ -1371,9 +1484,11 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
             }
             gci_trim(mb_full, mb_full, sizeof mb_full);
             if (mb_full[0] == '\0') {
-                if (jc_snprintf(line, sizeof line,
-                                "  ci: no merge-base of %s and %s: INVALID\n",
-                                b8, s) < 0) {
+                n_l6 = jc_snprintf(line, sizeof line,
+                                   "  ci: no merge-base of %s and %s: "
+                                   "INVALID\n",
+                                   b8, s);
+                if (n_l6 < 0 || n_l6 >= (int)sizeof line) {
                     jc_sb_free(&record);
                     return 1;
                 }
@@ -1390,8 +1505,9 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
             {
                 char mbcmd[GCI_LINE_MAX];
 
-                if (jc_snprintf(mbcmd, sizeof mbcmd,
-                                "cat-file -e '%s^{commit}'", mb_full) < 0) {
+                n_mc = jc_snprintf(mbcmd, sizeof mbcmd,
+                                   "cat-file -e '%s^{commit}'", mb_full);
+                if (n_mc < 0 || n_mc >= (int)sizeof mbcmd) {
                     jc_sb_free(&record);
                     return 1;
                 }
@@ -1400,10 +1516,11 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
 
                     memcpy(mb8, mb_full, 8);
                     mb8[8] = '\0';
-                    if (jc_snprintf(line, sizeof line,
-                                    "  ci: the merge-base %s is not in the "
-                                    "clone: INVALID\n",
-                                    mb8) < 0) {
+                    n_m8 = jc_snprintf(line, sizeof line,
+                                       "  ci: the merge-base %s is not in the "
+                                       "clone: INVALID\n",
+                                       mb8);
+                    if (n_m8 < 0 || n_m8 >= (int)sizeof line) {
                         jc_sb_free(&record);
                         return 1;
                     }
@@ -1444,7 +1561,8 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
             /* Step 7 (:27): the meta start line (truncate-then-write;
              * the stage makes it before the run, like the reference). */
             gci_utc(ts, sizeof ts);
-            if (jc_snprintf(line, sizeof line, "start %s\n", ts) < 0) {
+            n_l7 = jc_snprintf(line, sizeof line, "start %s\n", ts);
+            if (n_l7 < 0 || n_l7 >= (int)sizeof line) {
                 jc_sb_free(&record);
                 return 1;
             }
@@ -1475,8 +1593,9 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
             jc_vec_free(&runenv);
             /* Step 9 (:30): the meta end line (appended). */
             gci_utc(ts, sizeof ts);
-            if (jc_snprintf(line, sizeof line, "end %s rc=%d\n", ts,
-                            cr_rc) < 0) {
+            n_l8 = jc_snprintf(line, sizeof line, "end %s rc=%d\n", ts,
+                               cr_rc);
+            if (n_l8 < 0 || n_l8 >= (int)sizeof line) {
                 jc_sb_free(&record);
                 return 1;
             }

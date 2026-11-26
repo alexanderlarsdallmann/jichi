@@ -22,6 +22,60 @@
 #include <ctype.h>
 #include <sys/stat.h>   /* M1114: the config path's follow-stat guard */
 
+/* def-415: read a FENCE key (the operator's decision of 2026-11-17, "an
+ * unreadable value on a fence key closes the fence, and jichi says so").
+ *
+ *   absent      -> *field is left as it is (the caller's "auto").
+ *   readable    -> 0 or 1, by the lenient reader (true/false, 1/0, yes/no,
+ *                  on/off), as before.
+ *   unreadable  -> 1, the fence ON, in every mode; `bad` keeps the value as
+ *                  written and one warning names the key, the value and the
+ *                  reading.
+ *
+ * Until 2026-11-26 the third case took the lenient reader's fallback, 0, behind
+ * a presence test: `"pathFence": "ture"` turned the fence OFF in every mode,
+ * where leaving the key out means "on under --auto". A typo meant as `true`
+ * opened a boundary. Not built here, and still owed by def-415: the strictness
+ * key (`refuse`), the telemetry event, the lint, and the other fence keys
+ * (`readonly` in spawn_subagent, the agent-profile keys). */
+static void cfg_read_fence_key(const cJSON *root, const char *key, int *field,
+                               char *bad, jc_size badcap)
+{
+    cJSON *item = cJSON_GetObjectItem(root, key);
+    char *txt;
+    jc_size i = 0;
+    int v;
+
+    if (item == NULL) {
+        return;
+    }
+    v = jc_json_get_bool_lenient(root, key, -2);
+    if (v != -2) {
+        *field = v ? 1 : 0;
+        bad[0] = '\0';
+        return;
+    }
+    *field = 1;
+    txt = cJSON_PrintUnformatted(item);
+    if (txt != NULL) {
+        /* ASCII only into the note: a cut can then never split a character. */
+        for (i = 0; txt[i] != '\0' && i + 1 < badcap; i++) {
+            bad[i] = ((unsigned char)txt[i] >= 0x20 && (unsigned char)txt[i] < 0x7f)
+                         ? txt[i] : '?';
+        }
+        free(txt);
+    }
+    if (i == 0) {
+        bad[i++] = '?';
+    }
+    bad[i] = '\0';
+    jc_logf(JC_LOG_WARN,
+            "config: \"%s\" has a value jichi cannot read as true or false "
+            "(%s); it is read as ON, the safe side. Write true or false.",
+            key, bad);
+}
+
+
 /* JICHI CHOOSES NO VENDOR. A provider the user NAMED gets its conventional
  * endpoint, because that is a convenience for a decision already taken. A
  * provider nobody named gets NULL -- there is no house vendor here.
@@ -1139,6 +1193,14 @@ static jc_status config_load_impl(const char *path_or_null,
     out->cost_model = -1;   /* auto: on only when prompt caching is off (M440) */
     out->max_parallel_agents = lite ? 1 : 0;
     out->parallel_task_timeout = 0; /* 0 => built-in watchdog default (M62) */
+    /* def-377 W3.3 (M1194): the `parallelSupervise` defaults, in SECONDS (the
+     * note's unit decision, run 0059): R1 3600 s == the measured 60 min; R2 two
+     * placeholders; action report (observe only); graceSec 60 (the W3.3b fence).
+     * Distinct from parallel_task_timeout above (W3.4). */
+    out->parallel_sup_no_edit_sec = JC_PAR_SUP_NO_EDIT_SEC;
+    out->parallel_sup_placeholders = JC_PAR_SUP_PLACEHOLDERS;
+    out->parallel_sup_action = JC_PAR_SUP_REPORT;
+    out->parallel_sup_grace_sec = JC_PAR_SUP_GRACE_SEC;
     out->daemon_workers = 0;        /* 0 => auto (min(cpu,4)) */
     out->daemon_worker_timeout = 0; /* 0 => built-in 300s watchdog */
     out->low_resource = lite;
@@ -1428,12 +1490,12 @@ static jc_status config_load_impl(const char *path_or_null,
     out->board = jc_json_get_bool_lenient(root, "board", 0);
     out->fuzzy_edit = jc_json_get_bool_lenient(root, "fuzzyEdit", 1);
     out->assignments = jc_json_get_bool_lenient(root, "assignments", 0);
-    if (jc_json_get_obj(root, "selfReview") != NULL) {
-        out->self_review = jc_json_get_bool_lenient(root, "selfReview", 0) ? 1 : 0;
-    }
-    if (jc_json_get_obj(root, "pathFence") != NULL) {
-        out->path_fence = jc_json_get_bool_lenient(root, "pathFence", 0) ? 1 : 0;
-    }
+    cfg_read_fence_key(root, "selfReview", &out->self_review,
+                       out->self_review_unreadable,
+                       sizeof(out->self_review_unreadable));
+    cfg_read_fence_key(root, "pathFence", &out->path_fence,
+                       out->path_fence_unreadable,
+                       sizeof(out->path_fence_unreadable));
     if (jc_json_get_obj(root, "shellFence") != NULL) {
         out->shell_fence = jc_json_get_bool_lenient(root, "shellFence", 1) ? 1 : 0;
     }
@@ -1911,6 +1973,53 @@ static jc_status config_load_impl(const char *path_or_null,
             jc_json_clamp_long(jc_json_get_num(root, "parallelTaskTimeout", 0.0));
         if (out->parallel_task_timeout < 0) {
             out->parallel_task_timeout = 0;
+        }
+        /* def-377 W3.3/W4.4 (M1194): the `parallelSupervise` object, read
+         * LENIENT (config a person writes -- a number as a string is read, prose
+         * falls to the default, per the CLAUDE.md bool/num rule). All members in
+         * SECONDS (the note's unit decision, run 0059). W3.4: its own object,
+         * NOT parallelTaskTimeout's name or path. An unknown `action` is a NAMED
+         * config error (the value, the knob and the fallback) and runs as report
+         * -- not a silent default. */
+        {
+            cJSON *sup = jc_json_get_obj(root, "parallelSupervise");
+            if (cJSON_IsObject(sup)) {
+                out->parallel_sup_no_edit_sec =
+                    jc_json_clamp_long(jc_json_get_num_lenient(sup, "noEditSec",
+                        (double)JC_PAR_SUP_NO_EDIT_SEC));
+                if (out->parallel_sup_no_edit_sec < 0) {
+                    out->parallel_sup_no_edit_sec = JC_PAR_SUP_NO_EDIT_SEC;
+                }
+                out->parallel_sup_placeholders =
+                    jc_json_clamp_int(jc_json_get_num_lenient(sup, "placeholders",
+                        (double)JC_PAR_SUP_PLACEHOLDERS));
+                if (out->parallel_sup_placeholders < 0) {
+                    out->parallel_sup_placeholders = JC_PAR_SUP_PLACEHOLDERS;
+                }
+                out->parallel_sup_grace_sec =
+                    jc_json_clamp_long(jc_json_get_num_lenient(sup, "graceSec",
+                        (double)JC_PAR_SUP_GRACE_SEC));
+                if (out->parallel_sup_grace_sec < 0) {
+                    out->parallel_sup_grace_sec = JC_PAR_SUP_GRACE_SEC;
+                }
+                {
+                    const char *act = jc_json_get_str(sup, "action", "report");
+                    if (strcmp(act, "report") == 0) {
+                        out->parallel_sup_action = JC_PAR_SUP_REPORT;
+                    } else if (strcmp(act, "wrapup") == 0) {
+                        out->parallel_sup_action = JC_PAR_SUP_WRAPUP;
+                    } else if (strcmp(act, "stop") == 0) {
+                        out->parallel_sup_action = JC_PAR_SUP_STOP;
+                    } else {
+                        /* W4.4: name the value, the knob and the fallback -- the
+                         * jichi tone of parallelTestEdits/privilegedCommands. */
+                        jc_logf(JC_LOG_WARN,
+                                "config: parallelSupervise.action \"%s\" "
+                                "unknown; using \"report\"", act);
+                        out->parallel_sup_action = JC_PAR_SUP_REPORT;
+                    }
+                }
+            }
         }
         out->daemon_workers =
             jc_json_clamp_int(jc_json_get_num(root, "daemonWorkers", 0.0));

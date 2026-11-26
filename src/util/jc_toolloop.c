@@ -157,6 +157,18 @@ enum jc_fail_class jc_fail_classify(const char *result, int exit_status,
         has(result, "[stopped:") || has(result, "killed")) {
         return JC_FAIL_KILLED;
     }
+    /* ...and by the STATUS, for the shell tools: 128 + SIGKILL. The words
+     * above come from jichi or from the shell that ran the command, and a
+     * shell need not say anything: Linux's sh prints "Killed" for a child
+     * that SIGKILL took, FreeBSD's and NetBSD's print nothing and report
+     * only the status. The same death was KILLED on one platform and an
+     * ordinary NONZERO_EXIT on the other, and the delegation report then
+     * lost its advice that a limit killed the call (TW24.F19). SIGKILL is
+     * 9 on every POSIX system; it is what a memory limit and the kernel's
+     * out-of-memory kill send. */
+    if (is_shell_tool && exit_status == 128 + 9) {
+        return JC_FAIL_KILLED;
+    }
     /* "could not open/read/extract" is jichi's OWN missing-file wording -- M291's
      * comment in jc_tool_read.c says as much, having split the denial out of it
      * precisely because "could not open" reads like a missing file. Omitting these

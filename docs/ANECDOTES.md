@@ -7600,3 +7600,277 @@ program once for real. When a check says "all agree", write down what it does no
 follow-up that is written only in a commit message will not be followed up. The full account, with
 five exercises, is
 [`analysis/2026-11-11-reviewing-our-own-decisions.md`](analysis/2026-11-11-reviewing-our-own-decisions.md).
+
+## 129. Five long checks and no READY (2026-11-17)
+
+**The setting.** A drive's lead agent writes `BATCH ... READY at <commit>` when a batch is done, and
+the host's gate then runs `make ci` on that exact commit before anything reaches `master`. The drive's
+own practice, kept since its first batches, is to run the whole smoke tier first, with
+`JC_SMOKE_KEEP_GOING=1` so that one run lists every red driver instead of stopping at the first. It
+takes about an hour, it spares the gate a red run, and the supervisor (Claude) held the lead to it.
+
+On 2026-11-17 batch G needed one clean run of that kind. By midnight there had been eight. Three were
+real results: four reds in the morning, two before noon, four more in the evening, each fixed. Five
+told nothing about the code:
+
+1. **The run that was killed but kept running.** The lead stopped an attempt with its own
+   "kill background job" tool. The tool ended the wrapper shell that had started `make`, and `make`
+   lived on. The restart and the survivor wrote into the same log; both were void.
+2. **The run that died with its owner.** The restart was a background job of the lead's own run. That
+   run then reached its context budget and ended, and its background jobs ended with it: the log's
+   last line is `make: *** [...] Error 143`, written 21 seconds after the run stopped. The run's
+   handoff told the next run to "read background process 3", which no longer existed. Before it died,
+   it had found two real reds.
+3. **The run with a cap.** The next attempt was wrapped in `timeout 2300`. The project forbids a cap
+   on a measurement, and the lead knew it: its own log calls the cap "a CAP ON A MEASUREMENT, which
+   the house rules forbid". The cap fired at 563 of 567 drivers, and the lead rightly threw the
+   result away.
+4. **The run that never started.** `nohup JC_SMOKE_KEEP_GOING=1 make smoke` reads the variable
+   assignment as the name of a program. The form that works is `nohup env JC_SMOKE_KEEP_GOING=1 make
+   smoke`.
+5. **The run whose tools were deleted under it.** The last attempt was detached properly, with no
+   cap. It ran in the lead's working tree, and the lead's run then ended, which runs that run's
+   verifier: `make clean && make WERROR=1 test`, on the same tree. `make clean` deletes every built
+   program, and `make test` relinks only the unit-test runner. The smoke run went on without
+   `jichi`, `mockmodel` and the other test tools: `mockmodel: not found` appears 318 times across
+   most of its log, and `jichi` was not rebuilt until after the run had ended. It ended with 363 of
+   567 drivers red: one missing set of files, reported 363 times. The lead found the cause in the
+   run's own journal, which records the verifier.
+
+**The dead ends.** Each failure was answered at its own cause. After the second, the supervisor's
+note said "start it so it outlives the run". After the fifth, "run it in a tree nobody builds in".
+Each note was right, and each next attempt failed through a hole the note had not named. The
+supervisor named one hole at a time, when the five had one shape. And a lead that writes "the house
+rules forbid" in the same paragraph that admits the cap shows that knowing a rule did not stop the
+action.
+
+**The root cause.** An hour-long check had no home of its own. It ran inside a lead run that lives
+shorter than an hour under context pressure, in the working tree that the same lead, and the lead's
+own end-of-run verifier, keep changing,
+and it was started each time by hand, from a recipe of five parts. Every part was a chance to fail,
+and the record shows a different part failing each time.
+
+**What was done that night.** Notes to the lead with the measured cause each time; the lead's own log
+corrections, made the same evening. Then the next attempt ran in its own worktree of the exact
+commit, where nothing else builds or commits: 567 of 567 drivers green, and the READY went to the
+gate shortly before one in the morning. The structural fixes are proposals, not yet decided: give the
+check a home that outlives the run and is isolated from the tree (a separate worktree of the exact
+commit, or the host itself, which already runs the gate in its own clone); make the failure modes
+loud in the tools (the smoke runner can notice that its binaries changed and say so in one line
+instead of 363; the background-job tool can stop the whole process group and name the jobs it ends
+with a run); and give the lead one command instead of a recipe.
+
+**The lesson.** An agent does not learn from a note the way a person does. What carries into its next
+run is what it reads at the start and what its tools do, so a lesson about an action has to live in
+the tool that performs the action: a guard, a default, one command. A reminder taught one hole per
+evening; a tool closes the class. The project learned this once already, with the dirty-tree guard of
+October, after a rule in the prompt broke three times in one day. And when the same long check fails
+twice for different reasons, stop fixing the reason and give the check a home.
+
+**Decided (2026-11-21).** This adds to the paragraph above that calls the structural fixes "proposals, not yet
+decided", and does not replace it. The operator took the proposals one by one:
+- **One command for the long check.** A `jichi-harness` verb:
+  - it makes its own worktree of the exact commit and creates its temp directory;
+  - it detaches so it outlives the run that starts it;
+  - it runs the keep-going smoke with no cap;
+  - it leaves a log and a one-line verdict.
+
+  It goes on the harness-port drive's board, after its H11. The recipe failed once more on 2026-11-20, the way
+  the fourth attempt had: one of its parts was missing, the temp directory it named was never created, and the run
+  died in its first second.
+- **Loud failures, one card.** Two changes:
+  - the smoke runner notes its binaries' identity at the start and says once if they change, naming which binary
+    and from which driver on;
+  - at a run's end, jichi names each background job it ends.
+
+  The background-job tool already stops a job's whole process group (M832, and M1192 for a job a shell command
+  put in the background); that is read in the code, not measured.
+- **The end-of-run verifier keeps its `make clean`.** The harm came from a shared tree. Since that night the long
+  check runs in its own worktree, and the command above makes that its construction. Revisit if anything else
+  uses the lead's tree while a run ends.
+
+## 130. Zero meant thirty (2026-11-21)
+
+**The setting.** The harness-port drive moves the host's gate scripts into `jichi-harness`, one script at a time. A
+port does not replace its script until both have run side by side on real events and agreed (the drive's PLAN.md,
+section 6). On 2026-11-21 the supervisor (Claude) set this up for the gate RUN: the step that judges a
+`BATCH ... READY at <commit>` line by running the lint sweep, the red-first replay and `make ci` on exactly that
+commit. The first replay took a real batch the script had judged GREEN that morning (BATCH DM at 0e301f54, landed
+09:53) and ran it through the port. The landing was locked off four separate ways, so the replay could judge but
+never push.
+
+**The symptom.** The port called the same commit INVALID: `invalid-sweep`, 31 seconds after it started. The
+script's sweep of that commit had taken about four and a half minutes and was green. The port's sweep record was
+empty, zero bytes, and its work directory held 39 driver results where the script's held 98.
+
+**The dead ends.**
+1. **The driver.** The last result on disk was `docs_placeholder_lint`, so the next driver, `docs_stdin_lint`,
+   looked guilty: a lint about standard input, and a stage that died writing nothing. Reading it showed an `awk`
+   scan of the documentation that starts no process and sends no signal.
+2. **The environment.** The replay ran as a systemd unit, as the real gate does. So the same sweep stage was run
+   alone: first by hand (exit 0, about 4.5 minutes, 103 records), then alone inside a systemd unit (exit 0 again).
+   Neither the stage nor the unit was the cause. Only the gate's way of starting the stage was left.
+3. **Chance.** A second replay of the whole gate died after the same 39 records, this time at 32 seconds.
+
+**The root cause.** Two deaths near 30 seconds, and a record emptied as a killed process's unflushed output is,
+pointed at a clock, not at a driver. `include/jc_proc.h`:
+
+```c
+/* Default kill deadline (seconds) when `timeout` <= 0. */
+#define JC_PROC_DEF_TIMEOUT 30L
+```
+
+The gate started each stage with `jc_proc_capture(cargv, &envv, NULL, &capture, 0, 0L, NULL)`, under its own
+comment: *"NO timeout (D14: the ci's 48 minutes are the point)"*. To the person who wrote the call, `0` meant "no
+deadline". To the function, `0` meant "kill after 30 seconds". Every stage longer than that (the sweep's minutes,
+`make ci`'s hour) would have been killed, and the ported gate would have judged every real batch INVALID.
+
+**Where else.** 59 lines in `src/` and `tests/` name the function.
+- Three passed a literal `0` meaning "none": the gate's stages, the gate's land and re-pin commands, and every
+  command of the ported re-pin step. The real re-pin took 15 seconds that morning. One slow TLS handshake per
+  `doctor --live` call (10 to 12 seconds each, measured on 2026-11-05) would cross 30, and the port would then report
+  a healthy model as failed.
+- Two pass a value from the user's own configuration: hooks and user-defined tools read `"timeout"` with a default of
+  `0`. The hooks page does say "default 30"; it does not say that an explicit `0` also means 30. The configuration
+  tutorial, meanwhile, documents `runTimeout` (shell commands) as "0 = no limit". One word, two meanings, and nothing
+  on the page tells a reader which applies where.
+- Measured, not read: a `SessionStart` hook that sleeps 31 seconds, run once with no `timeout`, once with
+  `"timeout": 0` and once with `"timeout": 60`. The first two print `[jichi warn] hook timed out and was killed`; the
+  third finishes. That warning on stderr is the only trace: the run's telemetry holds three events (`turn_start`,
+  `model_call`, `turn_end`) and none of them is the hook, although the hooks code means to record a timeout. A limit
+  that fires should say so where the reader looks afterwards, not only on a terminal that may be gone.
+
+**Where the 30 came from.** It arrived on 2026-06-25 in a refactor (1370dd9b, "refactor: shared jc_proc_capture").
+Its whole justification is the comment above. No measurement chose it, and no incident did. It was a
+reasonable-looking number, written once, and every caller that passed `0` inherited it without knowing.
+
+**Why no test saw it.** The ported gate's tests ran stages that finish in a second or two. A fixture that finishes
+inside a cap cannot see the cap. The project's rule (CLAUDE.md, "make a fixture behave like the real peer") had a
+concrete meaning here: the real peer is a four-minute sweep and an hour of `make ci`.
+
+**Why the project's own rules did not stop it.** jichi is strict about caps, but about caps on RUNS. CLAUDE.md
+forbids a timeout on any run that measures or reproduces anything, and anecdote 64 explains why: a cap that fires
+does not hide the answer, it manufactures a different one. Every one of those rules is about what a person or an
+agent wraps around a run. None of them is about a default constant written into the code. The 30 was never anyone's
+cap on a run; it was a library's default, and the rules had nothing to say to it.
+
+**The same afternoon, smaller, and the supervisor's own.** Two slips of the same family, both caught:
+- The replay's own "wait while a gate runs" check matched the gate watcher's timer units as well as real gates, so
+  the first replay waited forever. The pattern's universe was wider than the population it meant.
+- Switching the gate's note delivery to its port, the supervisor copied a config written for another command, whose
+  top-level `dir` meant something else there. A real verdict would have gone to the wrong inbox. The live rehearsal
+  could not show it, because a rehearsal names its own scratch inbox and never sends to a live run: it tested
+  everything except the one thing that was wrong. It was found by reading the port's source, and fixed before any
+  real verdict was delivered.
+- One test the supervisor wrote, as first written, would have run a verbatim copy of the old delivery script against
+  the REAL inbox. The session's own safety check refused it. The test ran afterwards against a copy pointed at a
+  scratch drive.
+
+**What was done.**
+- The re-pin port's case went into the milestone in flight, before its READY.
+- The gate's two cases, plus an explicit "no deadline" in the API, went to a card: every call site states its
+  deadline, a deadline that fires names itself and where its value came from, and a lint holds it.
+- The operator approved a rule for default constants: a default limit states where its number came from (a
+  measurement or an incident) or says `unmeasured` and registers the measurement; `0` or "absent" never means a cap;
+  a limit that fires says so. It is CLAUDE.md's "Writing a default limit".
+- A census of every default limit in the tree followed the same afternoon. It counted 507. 335 have nothing written
+  down behind their number, and only 5 distinct time limits have a measurement or an incident. It also found five
+  safety checks that fail open where a limit is reached, which went to the team as the first card after the
+  milestone in flight. Its page is [`LIMITS.md`](LIMITS.md).
+
+**The lesson.** *A default limit is a claim about the world: that nothing legitimate takes longer, or grows larger.*
+Write down where the number came from, or say "unmeasured"; never let `0` or "absent" mean a cap; make a limit that
+fires say which limit it was; and test with a fixture that runs longer than any default it could inherit. A rule
+against caps on runs does not reach the caps a library sets for you.
+
+**Afterwards (added 2026-11-23).**
+- The re-pin port's case (M1203-i: a named 600-second deadline, itself still unmeasured) and the five fail-open
+  checks (M1208, each first shown open by a test that failed, then fixed to fail closed) landed on `master` together
+  on 2026-11-22, in the SECURITY batch.
+- The gate's own two calls still pass `0` on 2026-11-23. They do not judge real batches yet: the host still runs its
+  gate script, which calls the ported land and re-pin steps directly. The explicit "no deadline" is not built yet.
+- This entry nearly did not arrive. The supervisor handed it over on 2026-11-21 with its learner page and the rule's
+  text, asking for it to land with the SECURITY batch. The team's log answered "acknowledged, queued with that
+  batch". The batch landed the next morning without it, and nobody looked for the files in the tree: not the team,
+  and not the supervisor, who followed the batch through its gate and never checked that its documentation had
+  arrived. It was found missing two days later, when the number of a new DEFERRED row collided with one this
+  handover had reserved, and it was re-cut against the tree of that day. An acknowledgement is not an
+  application. The project's rule "report the effect, never the attempt" applies to a handover too: the check is
+  the file in the tree, not the reply.
+
+## 131. Land it with the next batch (2026-11-23)
+
+**The setting.** In the harness-port drive, documentation the operator asks for is written by the supervisor (Claude)
+outside the team's tree and handed to the team's lead (jichi, on a local model). A handover is a patch, a bundle or a
+folder in the drive's inbox, a note, and a short message injected into the lead's running session. The lead applies
+it to the team branch. Everything on the team branch lands on `master` with the next batch the gate passes, because a
+batch is the team branch's head at its READY line.
+
+**The symptom.** Twice, a handover was acknowledged and never applied.
+- **The limits census** (sent 2026-11-21 13:35) was answered "acknowledged, queued with that batch". The SECURITY
+  batch landed on 2026-11-22 without it. It was found on 2026-11-23 only because a new DEFERRED row took a number the
+  handover had reserved (entry 130, "Afterwards").
+- **The object-oriented and logic-programming tutorials** (sent 2026-11-21 16:25; 17 files) were noted as "land with
+  the docs batch after SECURITY". They were found on 2026-11-23, 50 hours later, while the supervisor counted what the
+  curriculum already holds for another question. None of the 17 files was in the tree.
+
+The same day brought a third case of the same shape. A public release had been planned for "as soon as" four items
+landed. Three of them landed between 09:05 on 2026-11-22 and 01:36 on 2026-11-23, the fourth only in part, and nobody
+asked whether the release was due until the operator did.
+
+**The numbers.** The drive had received ten documentation handovers by 2026-11-23. Eight landed: seven within 90
+minutes of being sent (the fastest in 8), the eighth (the JSON reading course) after 7.5 hours. The two that were lost
+are the only two that were not applied when they were read.
+
+**The root cause: the deferral was the sender's.** The supervisor's own messages asked for it. To the limits handover
+it added: "Land it with the next batch (the SECURITY card's)". To the tutorials: "Land it with a docs-friendly batch
+after SECURITY". The lead did what it was asked and queued them. A queued handover then lived in two places only: a
+paragraph in the lead's LOG, and the supervisor's memory. Neither is read again at the moment the condition comes
+true. When the SECURITY batch landed, the lead was busy with the next milestone. The supervisor followed the batch
+through its gate and checked the code it carried, not the documentation that was meant to ride with it.
+
+**The deferral bought nothing.** A documentation commit applied to the team branch at once lands with the next batch
+anyway. "Land it with the next batch" and "apply it now" have the same effect on `master`, except that the second one
+is done.
+
+**Why it was not seen sooner.**
+- **The reply looked like an answer.** "Acknowledged, queued" and "noted" answer the note. They say nothing about the
+  tree.
+- **The supervisor tracked open handovers from memory.** At 14:33 on 2026-11-23, after it had checked that the re-cut
+  limits handover was in the tree, its log said "No handovers are open now". The tutorials had been missing for 46
+  hours. It had remembered one handover and checked that one.
+- **The board never carried them.** The lead plans its work from the board. A deferred handover was a sentence in a
+  note, never a card.
+
+**What was done.**
+- **Both handovers were re-cut** against the tree of 2026-11-23, and their commands were run again. The limits one
+  landed within 31 minutes. The tutorials ride with the next release's documentation. Their re-cut found 20
+  bibliography markers in a form `bibliography_lint` does not recognise (11 ISBNs and 9 URLs counted as unmarked).
+  The handover had asked for that lint to be run on 2026-11-21, so the failure would have shown then.
+- **The supervisor's hourly check-in now checks every handover.** A manifest, written when a handover is sent, names
+  each handover's effects: files, or a text a file must contain. A script checks every row against the team's head.
+  On its first run it listed the tutorials as OPEN (5 of 5 effects missing, 50 hours old) and every other handover
+  as landed.
+- **The release is a card on the lead's board** ([142]), ordered right after the current batch, instead of a
+  sentence.
+
+**How to prevent it, and do better.** Each rule answers one of the findings above.
+1. **Apply a handover in the run that reads it, in its own commit.** A documentation change needs no batch of its
+   own: on the team branch it lands with the next one anyway. Never write "land it with batch X".
+2. **If it truly must wait,** for example because it conflicts with work in progress, make it a card on the board
+   that names its trigger, and answer with the card's number. A sentence in a note is not read again when the
+   trigger fires.
+3. **Answer with what changed:** the commit that applied it, or the card that holds it. "Acknowledged", "queued" and
+   "noted" are not answers.
+4. **The sender checks the effect** from a record written when it sent the handover, never from memory, at every
+   check-in until the effect is in the tree. A manifest and a script do that; a recollection does not.
+5. **A trigger written as "as soon as X lands" is a card too.** Whoever watches X land then checks it.
+
+**For your own work.** The same shape appears wherever one person hands work to another: "I will merge it after the
+release", "let us add the docs with the next sprint", "remind me when the API is stable". Each one is a promise with
+no owner and an event nobody will announce. Do the work now, or write it where the work is planned, with its
+trigger, and check later that it happened by looking at the result, not at the reply.
+
+**The lesson.** *A handover is done when its files are in the tree.* An instruction to do it later is a handover with
+no owner: the sender has let go of it, and the receiver is waiting for an event that nobody will announce. The
+project's rule "report the effect, never the attempt" applies to the person who hands work over, too.

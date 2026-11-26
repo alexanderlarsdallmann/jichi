@@ -152,7 +152,7 @@ hh_fail(struct hh *h, char *err_out, size_t err_cap, const char *reason)
     (void)h;
     if (err_out != NULL && err_cap > 0) {
         int n = jc_snprintf(err_out, err_cap, "handoff: %s\n", reason);
-        if (n < 0) {
+        if (n < 0 || n >= (int)err_cap) {
             n = 0;
         }
         (void)n;

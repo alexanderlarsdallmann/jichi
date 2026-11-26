@@ -147,7 +147,7 @@
 
 command -v git >/dev/null 2>&1 || t_skip "git not available"
 
-t_plan 25
+t_plan 26
 smoke_home
 tmp=$(smoke_tmp)
 
@@ -1149,6 +1149,28 @@ if [ "$_ok25" -eq 1 ]; then
     t_ok "25: a LOG of $_sz25 B (more than 1 MiB) with the READY at its end -> read, and the start arm runs (M1178)"
 else
     t_fail "25: the large LOG misbehaved -- $_25_msg"
+fi
+
+# --- 26: `watch units` writes an absolute config path and refuses a bad one --
+# TW24 F21, the twin of harness_push_units cells 7 and 8. The watcher's unit
+# carried --config as typed; a user unit starts in the home directory. Typed
+# RELATIVE, the unit must name the absolute path; a path with a space is
+# refused exit 2 before any unit text.
+_abs26="$(cd "$tmp" && pwd -P)/cfg.json"
+(cd "$tmp" && "$HBIN" watch units --config cfg.json < /dev/null > "$tmp/c26.out" 2> "$tmp/c26.err")
+rc26=$?
+_ex26=$(grep '^ExecStart=' "$tmp/c26.out" | head -n 1)
+_d26="$tmp/with space"; mkdir -p "$_d26" && cp "$tmp/cfg.json" "$_d26/cfg.json"
+"$HBIN" watch units --config "$_d26/cfg.json" < /dev/null > "$tmp/c26b.out" 2> "$tmp/c26b.err"
+rc26b=$?
+if [ "$rc26" -ne 0 ]; then
+    t_fail "26: \`watch units --config cfg.json\` (relative) exited $rc26 (want 0): $(tr '\n' ' ' < "$tmp/c26.err" | head_bytes 200)"
+elif [ "${_ex26##* --config }" != "$_abs26" ]; then
+    t_fail "26: ExecStart does not name the config by its absolute path $_abs26 -- a user unit starts in the home directory: ${_ex26:-(no ExecStart line)}"
+elif [ "$rc26b" -ne 2 ] || [ -s "$tmp/c26b.out" ] || ! grep -qF "ExecStart" "$tmp/c26b.err"; then
+    t_fail "26: a config path with a space was not refused exit 2 before any unit text, naming ExecStart: rc=$rc26b, $(wc -c < "$tmp/c26b.out" | tr -d ' ') bytes of unit text, $(tr '\n' ' ' < "$tmp/c26b.err" | head_bytes 160)"
+else
+    t_ok "26: watch units writes a relative --config as the absolute path, and refuses a path with a space exit 2 before any unit text"
 fi
 
 t_done

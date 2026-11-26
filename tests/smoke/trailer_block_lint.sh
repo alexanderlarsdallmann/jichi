@@ -56,8 +56,13 @@ BASELINE=253fadd4
 # only Jichi-Model -- checks 3/4 count it; the commit is pushed and must not be rewritten.
 # 6a40f655d0224fbb3ad49025b9285d622ff9cf95 (the M1039-c lint change itself): written with the same three-paragraph
 # trailer shape the lead was fixing -- the lint caught its own fixer; pushed, not rewritten.
+# c2201d9c35460b7305082f9f1c36380e97950abe (run-0061 M1194 records): its three trailers were three separate
+# -m paragraphs (the one-paragraph reword, 2ddc75f9, was dropped -- it never left team/); the 18:15 push tick
+# sent c2201d9c to the remote before the reword, so the pushed form is the three-paragraph one -- checks 3/4
+# count it; pushed, not rewritten (SV:1851; the wording corrected 2026-11-16 per SV:2051).
 GRANDFATHERS='dee1a57720c9e677aedf53a18bcb1e06d801ed0b
-6a40f655d0224fbb3ad49025b9285d622ff9cf95'
+6a40f655d0224fbb3ad49025b9285d622ff9cf95
+c2201d9c35460b7305082f9f1c36380e97950abe'
 # The rig ships a FRESH one-commit repo (`git archive HEAD` + `git init`), with
 # no jichi history: $BASELINE is absent there, and the history checks below have
 # no universe to count. That is the signature of a shipped tree, not a defect -- so
@@ -236,6 +241,9 @@ if [ "$HAVE_HISTORY" -eq 1 ]; then
                         ;;
                     6a40f655d0224fbb3ad49025b9285d622ff9cf95)
                         echo "# note: skipping grandfather $gs (the M1039-c trailer_block_lint change itself); the lead wrote it with the same three-paragraph trailer shape it exists to catch, so checks 3/4 count it; pushed, not rewritten"
+                        ;;
+                    c2201d9c35460b7305082f9f1c36380e97950abe)
+                        echo "# note: skipping grandfather $gs (the run-0061 M1194 records commit); its three trailers were three separate -m paragraphs and the 18:15 push tick sent it to the remote before the reword (2ddc75f9), so the pushed form is the three-paragraph one -- checks 3/4 count it; pushed, not rewritten (SV:1851)"
                         ;;
                     *)
                         echo "# note: skipping grandfather $gs (reason not documented)"

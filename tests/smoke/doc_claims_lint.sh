@@ -129,7 +129,11 @@ bad=""
 while IFS=: read -r f n drv num; do
     [ -n "$drv" ] || continue
     [ -f "tests/smoke/$drv.sh" ] || continue
-    plan=$($G -o 't_plan [0-9]*' "tests/smoke/$drv.sh" | head -1 | cut -d' ' -f2)
+    # The plan is the first t_plan COMMAND with a number, not the first mention
+    # of the word: a header comment saying "same t_plan discipline" matched the
+    # old pattern with no digits, and seven drivers were read as "plan 0" or as
+    # a number from their own prose (TW24, 2026-11-25).
+    plan=$($G -oE '^[[:space:]]*t_plan [0-9]+' "tests/smoke/$drv.sh" | head -1 | sed 's/.*t_plan //')
     [ -n "$plan" ] || plan=0
     [ "$num" -le "$plan" ] || bad="$bad
   $f:$n cites $drv.sh check $num, but its plan is $plan"

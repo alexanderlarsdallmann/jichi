@@ -91,6 +91,7 @@ executable `run.sh` — a start-script that launches jichi with this config, so
 --model local-model` does the same without prompts.)
 
 ## 2. Set your API key (hosted models only)
+<!-- jichi-guide topic="model" name="model-key" -->
 
 **A local server needs no key — skip this step.** For a hosted model, the config
 references an env-var; export the real key into your shell:
@@ -104,7 +105,11 @@ export JICHI_API_KEY=sk-...       # the name you gave the wizard
 > `~/.bashrc` (or `~/.zshrc`) to make it permanent. The key lives in your shell,
 > **never** in the config file (the config stores only the env-var *name*).
 
+From inside a run, `check_model` is the sanctioned live check for this model: it makes one tool-calling probe against the active model and reports the verdict (pass/fail), the observed tool-calling class, and its own timings — never the model's words.
+<!--/jichi-guide -->
+
 ## 3. Check your setup
+<!-- jichi-guide topic="setup" name="setup-doctor" -->
 
 Run this **from your project directory** (jichi auto-loads `./local/config.json`
 there, so you don't pass `--config`):
@@ -128,6 +133,7 @@ A healthy run is all ticks and ends `N ok, 0 warnings, 0 problems`, e.g.:
 
 (A local server needs no key, so a `!` on the API-key line is expected there — not a
 failure. The full reference is [DOCTOR.md](DOCTOR.md).)
+<!--/jichi-guide -->
 
 ## 4. Start chatting
 
@@ -227,6 +233,10 @@ This restores the files to the checkpoint taken before the last turn's edits.
 `/diff` shows what changed since that checkpoint; `/checkpoints` lists them.
 
 ## 6. Handy commands
+<!-- jichi-guide topic="commands" name="commands-slash" -->
+
+Type one on its own line in the TUI (Tab completes it; `/help` lists the
+whole set). The ones a run actually uses:
 
 | Command | What it does |
 |---|---|
@@ -237,6 +247,16 @@ This restores the files to the checkpoint taken before the last turn's edits.
 | `/undo` | Roll back the last turn's edits. |
 | `/cost` | Show token usage and estimated cost. |
 | `/exit` | Quit. |
+| `/board` | Show or edit the kanban board. |
+| `/skills` | List the agent skills. |
+| `/context` | Show where the context budget went. |
+| `/compact` | Compress the conversation so a long run fits. |
+| `/clear` | Drop the conversation and start fresh. |
+| `/learn` | The lesson loop: `analyze` mines the logs, `apply` commits the draft. |
+
+`jichi guide commands` prints this table — the compiled-in guide is the
+agent's ground truth for the same commands.
+<!--/jichi-guide -->
 
 Keys, while typing (the full readline-style set — arrows, Home/End and
 Alt-B/Alt-F word moves work as usual):

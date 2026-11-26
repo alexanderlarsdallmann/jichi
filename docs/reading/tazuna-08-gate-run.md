@@ -83,10 +83,13 @@ turns each `'` inside a word into `'\''`:
 
 Two more rules shape every stage:
 
-- **No timeout.** `src/harness/jc_hp_gate.c:gf_stage_child` calls
-  `jc_proc_capture` with no deadline (D14: "the ci's 48 minutes are the
-  point"). That is `CLAUDE.md`'s caps-versus-fences rule: a cap firing during
-  `make ci` would produce a verdict about the cap, not about the commit.
+- **No timeout is the intent, and not yet the fact.** `src/harness/jc_hp_gate.c:gf_stage_child`
+  calls `jc_proc_capture` with a timeout argument of `0`, meaning "no deadline" (D14: "the
+  ci's 48 minutes are the point"), by `CLAUDE.md`'s caps-versus-fences rule: a cap firing
+  during `make ci` would produce a verdict about the cap, not about the commit. But
+  `jc_proc_capture` reads `0` as its 30-second default, so a stage that runs longer is killed.
+  [`LIMITS.md`](../LIMITS.md), section 6, records this as open, and
+  [`ANECDOTES.md`](../ANECDOTES.md), entry 130, tells how it was found.
 - **The D6 order: state word, then say, then note.** Every verdict helper, such
   as `src/harness/jc_hp_gate.c:gf_red`, appends the state word first, then
   writes the say line to `run.log` and stdout, then calls chapter 7's
@@ -205,8 +208,9 @@ and compares the clone's `HEAD` with `push.git`'s own resolution of the SHA8:
             }
 ...
             if (strcmp(head, want) != 0) {
-                if (jc_snprintf(line, sizeof line,
-                                "  ci: checkout mismatch: INVALID\n") < 0) {
+                n_l4 = jc_snprintf(line, sizeof line,
+                                   "  ci: checkout mismatch: INVALID\n");
+                if (n_l4 < 0 || n_l4 >= (int)sizeof line) {
 ```
 
 Then it runs the `--ci-run` command (default `make ci`) once. The command runs

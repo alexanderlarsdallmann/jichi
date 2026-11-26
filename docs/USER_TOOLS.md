@@ -44,7 +44,7 @@ arguments, and returns its output as the tool result.
 | `command` + `args` | Run this executable argv-style (no shell). |
 | `shell` | Alternatively, run `"/bin/sh -c <shell>"`. |
 | `env` | Extra environment variables for the command. |
-| `timeout` | Seconds before the command is killed (default 30). |
+| `timeout` | Seconds before the command is killed. Absent or `0` both mean 30 seconds (an unmeasured default; `0` is not "no limit" here, unlike `runTimeout`). See [`LIMITS.md`](LIMITS.md). |
 | `readonly` | `true` ⇒ usable in plan/read-only mode and allowed without a prompt; default `false` (mutating). |
 
 ## How arguments reach the command

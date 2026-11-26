@@ -84,6 +84,41 @@ jc_status jc_path_resolve(const char *path, char *out, jc_size cap);
  * must already be canonical (see jc_path_resolve at startup). */
 int jc_path_in_root(const char *root, const char *path);
 
+/* The executable that `argv0` names, found the way a shell found the command,
+ * into `out` (capacity `cap`) as a canonical absolute path (realpath()).
+ *
+ * Why it exists: a program learns its own file from the kernel where the
+ * kernel says -- /proc/self/exe on Linux and NetBSD, /proc/self/path/a.out on
+ * illumos -- but FreeBSD without procfs and OpenBSD have no such path, and
+ * argv[0] is what is left (2026-11-25: `jichi docs` found its installed pages
+ * nowhere else).
+ *
+ * A name with a '/' is a path, read against the CURRENT directory, so resolve
+ * before anything changes it. A bare name is looked up in `path_env` (the
+ * value of PATH) entry by entry; an empty entry is the current directory, as
+ * POSIX defines PATH; NULL searches nothing. A candidate counts only when it is
+ * a regular file with an execute bit that this process may execute (the bits
+ * as well as access(): a privileged process may be told yes without one), and
+ * the first one wins.
+ *
+ * argv[0] is what the caller wrote, not a fact about the file: use the answer
+ * only where a wrong one is harmless and checked (docs_installed_dir in
+ * src/main.c takes a directory only if it exists).
+ *
+ * Returns JC_OK; JC_ERR_INVALID for a NULL or empty argv0, a NULL out or a
+ * zero cap; JC_ERR_NOTFOUND when nothing resolves; JC_ERR_TOOBIG when the
+ * file is found but its canonical path does not fit `cap`. `out` is written
+ * only on JC_OK. */
+jc_status jc_path_from_argv0(const char *argv0, const char *path_env,
+                             char *out, jc_size cap);
+
+/* Is `st_mode` a regular file with at least one execute bit? The rule
+ * jc_path_from_argv0 needs beyond access(X_OK), which POSIX lets say yes to a
+ * privileged process for a file with no execute bit. Pure (a mode value in, no
+ * file system), so it is tested with literal modes: an unprivileged test run
+ * cannot reach the case through access() (the jc_dir_holds_private pattern). */
+int jc_path_mode_runnable(unsigned long st_mode);
+
 #ifdef __cplusplus
 }
 #endif

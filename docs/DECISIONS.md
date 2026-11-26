@@ -3600,6 +3600,13 @@ Scan the one-liners; each links to its full reasoning — the rejected alternati
 | **A chatbot runs in chat mode with `--readonly`, one process per message, never plan mode** (M841) | [M841](#dec-m841) |
 | **jichi-harness protects its keys as jichi does, in every command** (2026-11-12) | [harness protection](#dec-2026-11-12-harness-protection) |
 | **jichi-harness is a Linux-with-systemd program for now** (2026-11-12) | [harness on Linux](#dec-2026-11-12-harness-linux) |
+| **Platform work widens portability first; the Windows layers, macOS and ReactOS wait** (2026-11-17) | [platform scope](#dec-2026-11-17-platform-scope) |
+| **An unreadable value on a fence key closes the fence, and jichi says so** (2026-11-17) | [unreadable fence value](#dec-2026-11-17-unreadable-fence) |
+| **A green gate verdict does not move master by default; the drive's `landingPolicy` opts in** (2026-11-19) | [landing policy](#dec-2026-11-19-landing-policy) |
+| **A default limit states where its number came from, or says `unmeasured`; 0 or absent never means a cap** (2026-11-21) | [default limits](#dec-2026-11-21-default-limits) |
+| **The README points to the roadmap; it does not carry one** (2026-11-23) | [README roadmap](#dec-2026-11-23-readme-roadmap) |
+| **The courses grow next in project management, then security, then concurrency; no learning shelf** (2026-11-23) | [what to teach next](#dec-2026-11-23-what-to-teach-next) |
+| **`jichi-convert` stays until `jichi setup --import` covers it, then goes** (2026-11-23) | [one converter](#dec-2026-11-23-one-converter) |
 
 <a id="dec-m835"></a>
 #### M835 — A build without sockets is decided by the header, and it refuses…
@@ -3692,7 +3699,7 @@ The operator decided on 2026-11-12, about 00:10: "D-F8-1 to D-F8-3 as you recomm
 
 <a id="dec-2026-11-12-harness-linux"></a>
 #### 2026-11-12 — jichi-harness is a Linux-with-systemd program for now
-**The decision** is part of the same answer (D-F8-3). The harness is documented as a program for Linux with systemd, and it keeps needing `/proc/self/exe`. When the first non-Linux harness host is wanted (D-F8-4, still open), three things change together:
+**The decision** is part of the same answer (D-F8-3). The harness is documented as a program for Linux with systemd, and it keeps needing `/proc/self/exe`. When the first non-Linux harness host is wanted (D-F8-4, decided on 2026-11-17: see the amendment below), three things change together:
 - the self-path becomes one configured absolute path, checked against `/proc/self/exe` where that exists;
 - it lives in one function instead of the nine copies on the drive's main;
 - the gate watcher's team-smoke wait stops counting an unreadable process as "no smoke".
@@ -3702,6 +3709,47 @@ The operator decided on 2026-11-12, about 00:10: "D-F8-1 to D-F8-3 as you recomm
 (2) One call per system, behind probes, now. Each needs a probe, a test and a driven platform row, for systems where nobody runs the harness.
 (3) Lifting the nine refusals alone. A clear "cannot start" would become a gate watcher that starts a gate beside a running team smoke.
 **Where:** the review's sections 12.5, 12.6, 12.8 and 12.9.
+
+**Amended 2026-11-17: D-F8-4 is decided.** The operator, to the recommendation: "go with your recommendation". Work on a non-Linux harness host has a trigger, not a date: it starts when someone needs to run a drive on a non-Linux host, and not before the harness-port drive's exit (H13). macOS is the likeliest first case. Until then this decision holds unchanged: the harness is a Linux-with-systemd program, and the nine `/proc/self/exe` refusals stay the clear signal. **Rejected:** a date in the plan, which would build the self-path option for systems where nobody runs a drive; tying it to the macOS onboarding milestone, which was already done (M817, 2026-09-28) and says nothing about a drive host.
+
+<a id="dec-2026-11-17-platform-scope"></a>
+#### 2026-11-17 — Platform work widens jichi's portability first; the Windows layers, macOS and ReactOS wait
+The operator decided on 2026-11-17, about 14:50: "We will postpone Windows, ReactOS, macOS, then, and focus on the other platforms that widen jichi's portability. So, let's go with your recommendation." And a few minutes later: "we have to address FreeDOS, and FreeMint/Aranym, too." The order taken:
+1. After batch G of the harness-port drive has landed, re-run the rows that the drive's changes to running and stopping commands put in doubt (trigger T3 of [`PLATFORM_RETEST.md`](PLATFORM_RETEST.md)): FreeBSD, OpenBSD, NetBSD and illumos in their virtual machines, reading first the failures left unclassified on 2026-11-13; then Debian 12 in 256 MB and Debian 9, whose smoke tier stopped early; then the two emulated rows, FreeMiNT under ARAnyM (42 unit failures unclassified on 2026-11-13; its driven step needs a tap device, which is the operator's sudo action) and FreeDOS under QEMU (154, against 103 in September). FreeDOS's next work after that is def-269, how jichi runs programs on a system that runs one at a time.
+2. The boards: the VisionFive 2 and the Raspberry Pi 400 over the LAN; the LicheeRV Nano and the Raspberry Pi Zero 2 W over USB, because neither has a LAN connection on this bench and the Nano's Wi-Fi does not work on its Debian image.
+3. The GNU/Hurd and Haiku, by hand.
+4. New rows from the [platform-widening plan](plans/2026-11-13-platform-widening.md): DragonFly BSD and Alpine Linux first.
+
+**Rejected alternatives:**
+(1) Re-running the Windows layers (WSL2, Cygwin, MSYS2) and macOS now. They need machines this bench does not have; the macOS row waits for another user's report.
+(2) ReactOS. It is a Windows NT clone, and jichi has no native Windows port ([POSIX only](#dec-2026-11-11-posix)); the only route is Cygwin on ReactOS, which would test Cygwin rather than jichi.
+(3) Re-running while the drive's batches run. The virtual machines load the host that the drive's gates and smoke runs use, and a failure on a moving tree cannot be told from an old one.
+
+**Scope:** FreeDOS and FreeMiNT are part of this work. That answers the "Not recorded" line of [POSIX only](#dec-2026-11-11-posix). FreeDOS had been parked earlier the same day until the platform retest; this order is that retest.
+**Not decided here:** def-269's three design questions (how jichi learns that only one program runs at a time, shipping DJGPP's bash, a shell tool without a timeout), which are decided when that work starts; Android; tiers 2 and 3 of the widening plan, which wait for the first results.
+**Where:** [`plans/2026-11-13-platform-widening.md`](plans/2026-11-13-platform-widening.md) §6; [`PLATFORM_RETEST.md`](PLATFORM_RETEST.md) §2 and §5.
+
+<a id="dec-2026-11-17-unreadable-fence"></a>
+#### 2026-11-17 — An unreadable value on a fence key closes the fence, and jichi says so
+The operator decided on 2026-11-17: "Since this is a security issue, I'd lean to a strict fallback", and, to the recommendation below, "Yes, record it this way." The case was found while writing the Ireko course ([`reading/ireko-06-who-wrote-this-json.md`](reading/ireko-06-who-wrote-this-json.md)): `"pathFence": "ture"` reads as off, where leaving the key out means auto, and `doctor --unattended` reports the typo as "explicitly off".
+
+**The decision.**
+1. **The reading is always strict.** A value jichi cannot read, on a key that sets a fence, resolves to the safe side: the fence is on in every mode (stricter than an absent key, which for `pathFence` means auto), and a key that grants a permission grants nothing. No setting changes this: a typo never opens a boundary.
+2. **The report is always loud, and its level is configurable**, in the shape of M1006's strictness key: `warn` (the default, PROVISIONAL) prints one line at load time naming the key, the value and the reading; `refuse` stops jichi before the run. In every mode a telemetry event records it, with its reader; `doctor` shows it as a problem; and `doctor --unattended` fails it as an unreadable value, not as "explicitly off".
+3. **One rule, in one place.** Every fence key is read through one helper, and a lint asserts it: `pathFence`, `selfReview`, the `readonly` a model passes to `spawn_subagent` (the 2026-10-08 review's finding F9: `"readonly": null` overrides a read-only profile), and the agent-profile and skill keys that M534 already reads conservatively. `shellFence` already reads a typo as on.
+
+**Rejected alternatives:**
+(1) Today's reading, off. It fails open, silently, in the runs M519 was about, and it contradicts `include/jc_str.h` and `src/tools/tool_util.c:tu_arg_bool`, which promise that a typo can never flip a fence.
+(2) The key's absent meaning (auto, for `pathFence`) with a warning. Auto fences only the autonomous runs, so a typo meant as `true` would leave an interactive run unfenced: weaker than what the writer most likely meant.
+(3) Refusing to load, by default. The strict reading already removes the risk; stopping every run on a typo, unattended runs included, adds an outage without adding safety. It stays available as `refuse`.
+
+**The costs accepted:**
+- A typo meant as `false` fences a run its writer wanted open. The fence then refuses edits outside its scope, visibly, and the warning names the cause: one edit to the config removes it. Today's reading has the opposite cost, and it is invisible.
+- A typo is stricter than an absent key, which can surprise an interactive user; the warning says why.
+- A config that carries a value jichi cannot read on a fence key changes behaviour on upgrade; a CHANGELOG line says so.
+
+**The default that is provisional:** `warn`. What revisits it: the telemetry count of unreadable fence values over a long-running drive; a drive can run in `refuse`, as the hardening drive runs M1006's dirty-tree guard.
+**Where:** [`DEFERRED.md`](DEFERRED.md#def-415) def-415 (built on 2026-11-26: the strict reading with its warning for `pathFence`, `selfReview`, `spawn_subagent`'s `readonly` and an agent profile's `readonly:`, and both `doctor` lines; the strictness key, the telemetry event and the lint not yet); [`reading/ireko-06-who-wrote-this-json.md`](reading/ireko-06-who-wrote-this-json.md), "The decision (2026-11-17)"; [`plans/2026-11-17-ireko-the-json-course.md`](plans/2026-11-17-ireko-the-json-course.md), section 4a, item 7.
 
 <a id="dec-2026-11-11-foundations"></a>
 ## Foundations — recorded after the fact on 2026-11-11
@@ -3775,3 +3823,124 @@ The terminal interface writes a small fixed set of ANSI sequences itself.
 **Rejected alternative, as the page argues it:** asking `terminfo` what the terminal can do, or using ncurses ([`INTERFACE_TUTORIAL.md`](INTERFACE_TUTORIAL.md) §5.1, "The advice this project did not take").
 **Where:** [`INTERFACE_TUTORIAL.md`](INTERFACE_TUTORIAL.md).
 
+
+<a id="dec-2026-11-19-landing-policy"></a>
+#### 2026-11-19 (PROVISIONAL) — a green gate verdict does not move master by default; the drive's `landingPolicy` opts in
+The harness's gate run records EVERY landing decision to the gate home's append-only `landing.decision` file, and a green verdict whose drive config is silent about landing (or says anything other than the word `auto`) ends **green-held**: the verdict, the sweep and the CI stay recorded, master does not move, and the landing waits for a hand. The word `auto` — and only the byte-exact word — lets the gate run the land step.
+**Why the default is hold:** the configurable-strictness direction (2026-10-20), and the 2026-11-03 incident in which a gate that would have auto-landed shipped a fix whose false refusals were only found by a review *after* the green. The drive's own config sets `auto` explicitly (its standing rule: a green `make ci` on the exact head, a fast-forward), so the hold default changes nothing for a drive that has chosen the standing rule.
+**Rejected alternatives:** a per-run `gate/HOLD` marker file as the ONLY control (the reference's shape) — kept, but as the per-run override on top of the config word, so one flag still stops one landing without touching the drive's policy; a boolean `autoLand` config — rejected: a boolean a human or a model writes is read leniently in this codebase, and a mis-read landing policy is a master-move, so it is a WORD, not a bool.
+**What decides it is no longer provisional:** one full quarter of hold-drives with the pending/approve latency recorded in the landing decisions.
+**Where:** [`HARNESS.md`](HARNESS.md) (the `gate run` section, the landing policy); `docs/internal/drive/2026-11-05-harness-port/notes/M1202.md` (D1–D3); `src/harness/jc_hp_gate.c` (the HOLD-from-config arm, the record).
+
+<a id="dec-2026-11-21-default-limits"></a>
+#### 2026-11-21 — a default limit is a measurement claim: it names its source or says `unmeasured`, and 0 or absent never means a cap
+**Chose:** every default limit in the code (a timeout, deadline, stall, grace, retry count, size cap, maximum, budget,
+threshold) states at its definition where its number came from:
+- `measured:` what was measured, where, when, the distribution and the headroom chosen;
+- `incident:` the ANECDOTES or DECISIONS entry;
+- `unmeasured:` and the DEFERRED row that will measure it.
+
+The rest of the rule:
+- A measured default comes from the measured distribution of what it bounds, with the headroom stated, never from a
+  distribution censored at the cap itself (M959's reasoning).
+- `0`, a negative value or an absent key never silently means a cap. "No limit" is an explicit value, and a default
+  cap is a named constant passed visibly at every call site.
+- A limit that fires says so where the reader looks afterwards: which limit, its value, and where the value came from.
+- A test of a limit includes a fixture that runs longer than any default it could inherit.
+- `limits_lint` holds it: report-only and floored at first, enforcing once the census's tagging milestone has
+  tagged every limit.
+
+The approved text is CLAUDE.md's "Writing a default limit" and [`LIMITS.md`](LIMITS.md)'s "The rule".
+**Why:** the H9b gate-run shadow (2026-11-21) found that `jc_proc_capture`'s `timeout <= 0` means a 30-second kill
+(`JC_PROC_DEF_TIMEOUT 30L`, added on 2026-06-25 in the refactor 1370dd9b with no measurement). Three callers passed 0
+meaning "none", and the ported gate would have judged every real batch INVALID.
+- The census that followed counted 507 default limits at 0e301f54. 335 (66 %) have nothing written down behind their
+  number, 17 cite a measurement, and 7 an incident.
+- `0` was found to mean at least five different things: 30 s, about 11.6 days, 300 s, "no limit", and 400 lines.
+- The project's existing rules (CLAUDE.md's "Caps versus fences", ANECDOTES 64 and 120) are all about caps on RUNS.
+  None reached a default constant written into the code. ANECDOTES 130 tells the story.
+
+**Rejected alternatives:**
+- **A reviewer's judgment, case by case.** An audit finds what it knew to look for, once; the census found 335
+  unsourced numbers that every review so far had passed.
+- **Remove every default cap.** M810's 11,677-second run on a dead stream is the measured cost of no fence; fences stay.
+- **Measure every limit before the rule lands.** That leaves a learner reading 335 bare numbers for months; an honest
+  `unmeasured` now, with its DEFERRED row, is better than a number invented to fill the gap.
+- **Make 0 mean "no limit" everywhere at once.** It changes behaviour for every hook and user tool that relies on
+  today's 30 s, unmeasured in the other direction. Each such default is decided with its own numbers (the hooks and
+  user-tools default is the first).
+
+**What it costs:** a tag line at every definition (507 limits, tagged mechanically from the census's table), a lint,
+and a red-first cell per changed call site. Reading a limit becomes one line instead of an archaeology of the git log.
+**Where:** CLAUDE.md (item 14); [`LIMITS.md`](LIMITS.md) (the rule) and [`LIMITS_TABLE.md`](LIMITS_TABLE.md) (the census);
+[`ANECDOTES.md`](ANECDOTES.md) 130; `docs/internal/drive/2026-11-05-harness-port/LOG.md` (SV:1241, SV:1249, SV:1322).
+
+<a id="dec-2026-11-23-readme-roadmap"></a>
+#### 2026-11-23 — the README points to the roadmap; it does not carry one
+**Chose:** the README's Roadmap section says where jichi stands (the latest milestone's number), what was released,
+and the release checklist, and points to [`ROADMAP.md`](ROADMAP.md), [`../CHANGELOG.md`](../CHANGELOG.md) and
+[`PROJECT_TIMELINE.md`](PROJECT_TIMELINE.md) for the rest. A milestone's story goes in the ROADMAP's "Where we stand"
+banner and its own entry. The history the README used to carry (the milestone-band table, the release history, the
+selected highlights to M296) moved unchanged to [`MILESTONE_HIGHLIGHTS.md`](MILESTONE_HIGHLIGHTS.md).
+`docs_counts_lint` check 20 holds the section under 2,000 bytes.
+**Why:** the operator said the README's roadmap was distracting readers. Measured at a0a8b4ae: the README was 150,186
+bytes, its Roadmap section 68,649. One line of it, the milestone banner, was 46,504 bytes: 135 milestones, 24
+supervisor labels and 19 board cards. Every milestone it named has its own ROADMAP entry. The README had grown from
+90 KB on 2026-09-16, one banner sentence per milestone, because the ROADMAP banner's prose rule (milestone_currency_lint,
+N13) was copied by habit into a page whose only check was the number.
+**Rejected alternatives:**
+- **Fold the banner into a `<details>` block.** The band table and the highlights were already folded, and still 37 KB
+  of the page. Folding hides text from the eye, not from a search or an agent reading the file.
+- **Delete the history.** The band summaries and the release history are the README's own summaries, and the
+  documentation ships in full on purpose (2026-07-28).
+- **Trim the banner and trust the habit to change.** The habit is what grew it; a ceiling in a lint is what stops it.
+**What it costs:** a README reader who wants the long history follows one link. The team bumps one number per
+milestone instead of writing a sentence twice.
+**Where:** README.md (Roadmap); [`MILESTONE_HIGHLIGHTS.md`](MILESTONE_HIGHLIGHTS.md);
+`tests/smoke/docs_counts_lint.sh` check 20.
+
+<a id="dec-2026-11-23-what-to-teach-next"></a>
+#### 2026-11-23 — the courses grow next in project management, then security, then concurrency; no learning shelf
+**Chose:** extend the reading courses, the bibliography, the exercises and the graded tasks in this order:
+1. project management, as running work with agents: estimating from a drive's measured history, checking that a
+   handover is in the tree, noticing a trigger nobody watched;
+2. security, from jichi's own fixed defects (M1208's five fail-open checks, M1210's three sanitizer findings) and a
+   threat model of one tool;
+3. concurrency through processes, from the races found in this tree, and the "running other programs" reading
+   course when its code settles.
+
+The bibliography sections on how people learn programming, and their short exercises (R4), are left out.
+**Why:** measured at f54735c3. Project management is the thinnest area (9 graded tasks, three books), and jichi's
+drive records are material a learner cannot get elsewhere. Security has 0 graded tasks, while every defect named
+above has a test that was watched fail first. CURRICULUM.md says of concurrency that "a dedicated one should" exist.
+The full reasoning, the inventory and its commands are in
+[`analysis/2026-11-23-what-to-teach-next.md`](analysis/2026-11-23-what-to-teach-next.md).
+**Rejected alternatives:**
+- **A general project-management course.** Taught everywhere; nothing in this tree to ground it.
+- **Wait for the fences reading course before any security task.** A task that carries its own copy of the code it
+  grades does not change with jichi's code; only the reading course must wait.
+- **A threads course.** jichi has no threads and no lock of any kind.
+- **R4, the self-learner shelf** (the operator's decision). The learner study stays the first step for a course on
+  how learners work.
+**What it costs:** per graded task, a spec, a grader, a reference solution and a red-first proof in CI, and the
+counts `docs_counts_lint` holds; per bibliography entry, a checked and dated ISBN or URL.
+**Where:** [`analysis/2026-11-23-what-to-teach-next.md`](analysis/2026-11-23-what-to-teach-next.md);
+[`CURRICULUM.md`](CURRICULUM.md) ("What this course does not teach") when the first security or concurrency task lands.
+
+<a id="dec-2026-11-23-one-converter"></a>
+#### 2026-11-23 — `jichi-convert` stays until `jichi setup --import` covers it, then goes
+**Chose:** keep the separate `jichi-convert` program for now, with its `-o` defect fixed (it ignored `--force` and
+`--dry-run`), and merge it into `jichi` later: `setup --import` gains Claude Code config trees, a preview that writes
+nothing, the search of the usual places and stdin; then `jichi-convert` carries a deprecation notice for one release
+and is removed ([`DEFERRED.md`](DEFERRED.md#def-424)).
+**Why:** the operator asked whether `jichi-convert` is still needed. The conversion code is shared with
+`jichi setup --import`, which already refuses to overwrite without `--force`; the separate program is a 315-line
+front end. But only it can import a Claude Code tree, preview without writing, find a config on its own, or read
+stdin. Removing it now would drop those for its users.
+**Rejected alternatives:**
+- **Remove it now.** Its users lose Claude Code import and the preview, scripts that call it break, and the change
+  reaches the Makefile, `make install`, two tests that count three programs and every page that says so, days before
+  a release.
+- **Keep it unfixed.** It replaced an existing file named by `-o`, the README's own `-o ~/.jichi` among them.
+**What it costs:** one more release with three programs, and the four additions to `setup --import`, each red-first.
+**Where:** [`DEFERRED.md`](DEFERRED.md#def-424); [`CONVERT.md`](CONVERT.md); `tests/smoke/convert_output.sh`.

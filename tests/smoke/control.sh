@@ -246,7 +246,7 @@ fi
 # list is the codec's now (jc_control_verb_list). The match is the list's tail
 # `abort|mode`, not the word "mode", which the reply's advice also contains.
 if grep -q 'unknown command' "$tmp/unk" && grep -q 'abort|mode' "$tmp/unk"; then
-    t_ok "an unknown verb's reply lists all six verbs, mode included"
+    t_ok "an unknown verb's reply lists all nine verbs, mode included"
 else
     t_fail "unknown-verb reply: $(head_bytes 200 "$tmp/unk")"
 fi

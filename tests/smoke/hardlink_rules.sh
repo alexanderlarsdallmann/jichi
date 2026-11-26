@@ -22,7 +22,10 @@
 # integrity.
 #
 # A real `jichi learn apply` (offline, no model, < /dev/null) is the vehicle.
-# Portable inode read: `ls -li <f> | cut -d' ' -f1`. Portable mode read (the
+# Portable inode read: `ls -li <f> | awk '{print $1}'` (awk, not `cut -d' '`:
+# the ls of FreeBSD and illumos right-justifies the inode number, so the line
+# starts with blanks and cut's first field is empty; TW24, 2026-11-25).
+# Portable mode read (the
 # state_dir_private / parallel_symlink_merge idiom; stat -c is banned by
 # posix_utils_lint): `ls -l <f> | cut -c1-10` -> the 10-char mode string
 # (0644 = -rw-r--r-- ; 0640 = -rw-r-----).
@@ -54,11 +57,11 @@ tmp=$(smoke_tmp)
 
 # Portable inode of FILE (the M1104-c red is a DIVERGENT-inode reading).
 inode_of() {
-    ls -li "$1" 2>/dev/null | cut -d' ' -f1
+    ls -li "$1" 2>/dev/null | awk '{print $1; exit}'
 }
 # Portable link count of FILE (field 3 of `ls -li`, the one after the inode).
 links_of() {
-    ls -li "$1" 2>/dev/null | cut -d' ' -f3
+    ls -li "$1" 2>/dev/null | awk '{print $3; exit}'
 }
 # Portable 10-char mode string of FILE (state_dir_private idiom).
 mode_of() {
@@ -151,7 +154,10 @@ i4a=$(inode_of "$ws4/AGENTS.md")
 i4c=$(inode_of "$ws4/CLAUDE.md")
 mm4a=$(mode_of "$ws4/AGENTS.md")
 mm4c=$(mode_of "$ws4/CLAUDE.md")
-if [ "$i4a" = "$i4c" ] \
+# -n first, as check 1 has it: two EMPTY readings are equal too, and on a
+# system whose `ls -li` the helper could not read this check passed with
+# "inode ;" on both sides (OmniOS r151058, 2026-11-25).
+if [ -n "$i4a" ] && [ "$i4a" = "$i4c" ] \
    && [ "$mm4a" = "-rw-r-----" ] \
    && [ "$mm4c" = "-rw-r-----" ]; then
     t_ok "check 4: hard-linked rules file at 0640 stays 0640 on BOTH names (inode $i4a; AG=$mm4a CL=$mm4c) -- the in-place write keeps the existing mode"

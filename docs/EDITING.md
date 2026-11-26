@@ -202,7 +202,7 @@ tool will use, so what you see is what gets written.
 +         normalize?
 +         angle-between?)
 
-  Allow? [y]es  [n]o  [a]lways  [v]iew
+  Allow? [y]es  [n]o  [a]lways  [e]dit  [v]iew
   ›
 ```
 

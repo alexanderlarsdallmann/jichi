@@ -25,6 +25,7 @@ const char *jc_control_type_name(enum jc_control_cmd_type t)
     case JC_CTL_MODE:        return "mode";
     case JC_CTL_STOP_TASK:   return "stop-task";    /* M1149 */
     case JC_CTL_INJECT_TASK: return "inject-task";  /* M1149 */
+    case JC_CTL_CANCEL_CMD:  return "cancel-cmd";   /* M1192 B3 */
     default:                 return "unknown";
     }
 }
@@ -40,6 +41,7 @@ enum jc_control_cmd_type jc_control_type_parse(const char *s)
     if (strcmp(s, "mode") == 0)   return JC_CTL_MODE;   /* M304 */
     if (strcmp(s, "stop-task") == 0)   return JC_CTL_STOP_TASK;   /* M1149 */
     if (strcmp(s, "inject-task") == 0) return JC_CTL_INJECT_TASK; /* M1149 */
+    if (strcmp(s, "cancel-cmd") == 0)  return JC_CTL_CANCEL_CMD;  /* M1192 B3 */
     return JC_CTL_UNKNOWN;
 }
 
@@ -175,6 +177,35 @@ jc_status jc_control_parse_request(const char *line,
             return JC_ERR_OOM;
         }
     }
+    if (out->type == JC_CTL_CANCEL_CMD) {
+        /* M1192 B3: cancel the current command. `task` is OPTIONAL (the LEAD
+         * form omits it => task -1, "lead"); when present it must be a whole
+         * number >= 0 exactly as stop-task/inject-task validate it. `reason`
+         * is optional, like stop-task's (present-but-empty is omitted). */
+        out->task = -1;
+        tk = cJSON_GetObjectItem(o, "task");
+        if (tk != NULL) {
+            if (!cJSON_IsNumber(tk) ||
+                tk->valuedouble < 0.0 ||
+                (double)jc_json_clamp_long(tk->valuedouble) != tk->valuedouble) {
+                cJSON_Delete(o);
+                return JC_ERR_INVALID;
+            }
+            out->task = jc_json_clamp_int(tk->valuedouble);
+        }
+        {
+            const char *r = jc_json_get_str(o, "reason", NULL);
+            if (r != NULL && r[0] != '\0') {
+                out->reason = jc_arena_strdup(a, r);
+                if (out->reason == NULL) {
+                    cJSON_Delete(o);
+                    return JC_ERR_OOM;
+                }
+            } else {
+                out->reason = NULL;
+            }
+        }
+    }
     cJSON_Delete(o);
     return JC_OK;
 }
@@ -256,6 +287,28 @@ char *jc_control_build_task_request(const char *type, int task,
         } else {
             cJSON_AddStringToObject(o, "text", reason_or_text);
         }
+    }
+    return finish_line(o);
+}
+
+/* M1192 B3: build a cancel-cmd request (client side; malloc'd, trailing
+ * newline included). `task` is -1 for the LEAD form (the "task" field is
+ * OMITTED) or a >= 0 pool index for the worker form. `reason` is optional
+ * (NULL/"" omitted). */
+char *jc_control_build_cancel_request(int task, const char *reason)
+{
+    cJSON *o = cJSON_CreateObject();
+
+    if (o == NULL) {
+        return NULL;
+    }
+    cJSON_AddNumberToObject(o, "v", JC_CONTROL_PROTO_V);
+    cJSON_AddStringToObject(o, "type", "cancel-cmd");
+    if (task >= 0) {
+        cJSON_AddNumberToObject(o, "task", (double)task);
+    }
+    if (reason != NULL && reason[0] != '\0') {
+        cJSON_AddStringToObject(o, "reason", reason);
     }
     return finish_line(o);
 }
@@ -365,6 +418,32 @@ char *jc_control_build_status(const struct jc_control_status *s)
                     cJSON_AddNumberToObject(tk, "tools", (double)k->tools);
                     cJSON_AddNumberToObject(tk, "tokens", k->tokens);
                     cJSON_AddNumberToObject(tk, "idle_s", k->idle_s);
+                    /* def-377 W2.2 (M1194): the child's progress signals,
+                     * beside idle_s. Always emitted (numeric, 0 for a task with
+                     * no sig yet). since_edit_s is the PARENT's computation from
+                     * the child's last edits change: it reads 0 until the task
+                     * has made >= 1 edit (the 0/absent branch), then grows in
+                     * seconds -- so a task that never edited never shows a
+                     * nonzero since_edit_s. flag is 0/1 (W2.3). A no-live-batch
+                     * status still has NO batch key at all (unchanged). */
+                    cJSON_AddNumberToObject(tk, "edits", (double)k->edits);
+                    cJSON_AddNumberToObject(tk, "since_edit_s", k->since_edit_s);
+                    cJSON_AddNumberToObject(tk, "placeholders",
+                                            (double)k->placeholders);
+                    cJSON_AddNumberToObject(tk, "compactions",
+                                            (double)k->compactions);
+                    cJSON_AddNumberToObject(tk, "dup24", k->dup24);
+                    cJSON_AddNumberToObject(tk, "flag", (double)k->flag);
+                    /* M1195 (b): in_cmd beside the W2.2 progress group. ALWAYS
+                     * emitted, 0 included (the M1045 zero-emitted convention of
+                     * injected/queued_injects, not the omit-when-zero of the
+                     * optional fields): a supervisor polling between the child's
+                     * commands reads 0, never null -- only then is the
+                     * cancel-cmd worker form's fourth refusal, 'task N is not in
+                     * a command (tool: X)', observable and testable (B-M1195.2;
+                     * the field itself is M1192 B3, filled by the pool at
+                     * pool_refresh_snap). */
+                    cJSON_AddNumberToObject(tk, "in_cmd", (double)k->in_cmd);
                     if (k->wt != NULL) {
                         cJSON_AddStringToObject(tk, "wt", k->wt);
                     }

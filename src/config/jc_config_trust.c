@@ -105,6 +105,7 @@ static const struct key_class CLASSES[] = {
     { "numberFormat",         JC_CFGTRUST_SAFE,   NK_NONE,   "set number formatting" },
     { "outputStyle",          JC_CFGTRUST_SAFE,   NK_NONE,   "set the output style" },
     { "parallelMetric",       JC_CFGTRUST_GATED,  NK_NONE,   "run a metric command in the parallel worktrees" },
+    { "parallelSupervise",    JC_CFGTRUST_GATED,  NK_NONE,   "turn on the parallel-worker supervision (report/wrapup/stop: the parent can stop or kill a flagged worker child)" },
     { "parallelTaskTimeout",  JC_CFGTRUST_GATED,  NK_NONE,   "set the parallel children's watchdog" },
     { "parallelTestEdits",    JC_CFGTRUST_GATED,  NK_NONE,   "merge a moved test assertion in a pin file when the declared metric did not fall" },
     { "parallelVerify",       JC_CFGTRUST_NARROW, NK_OFF,    "run the verifier in every parallel child" },

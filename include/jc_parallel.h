@@ -60,7 +60,8 @@ const char *jc_parallel_verify_cmd(const char *env_cmd,
 
 /* A progress message a child streams over its pipe (newline-framed compact
  * JSON: {"t":"tool","name":..} | {"t":"tok","n":..} | {"t":"done",...}). */
-enum jc_pmsg_kind { JC_PMSG_NONE = 0, JC_PMSG_TOOL, JC_PMSG_TOK, JC_PMSG_DONE };
+enum jc_pmsg_kind { JC_PMSG_NONE = 0, JC_PMSG_TOOL, JC_PMSG_TOK, JC_PMSG_DONE,
+                    JC_PMSG_SIG };
 
 /* M863: the room for a child's kept-before-discard refs in its done line. */
 #define JC_PAR_PINNED_MAX 600
@@ -68,6 +69,17 @@ enum jc_pmsg_kind { JC_PMSG_NONE = 0, JC_PMSG_TOOL, JC_PMSG_TOK, JC_PMSG_DONE };
 struct jc_pmsg {
     int    kind;        /* enum jc_pmsg_kind                              */
     char   tool[64];    /* TOOL: the tool name                           */
+    int    in_cmd;      /* TOOL (M1192 B3): the child is INSIDE a shell
+                         * command ("in_cmd":1), 0 / absent otherwise; the
+                         * parent tracks it so cancel-cmd can tell "the task
+                         * is in a command" from "it is between calls". */
+    /* SIG (def-377 W1.1): the child's progress signal at every tool result.
+     * since_edit_s is NOT on the wire -- the parent computes it from the time
+     * of the last edits change (the parent keeps the clock). */
+    int    sig_edits;       /* SIG: successful edit-tool calls so far (W1.3) */
+    int    sig_placeholders;/* SIG: total copied placeholders (W1.4)          */
+    int    sig_compactions; /* SIG: total compact events (W1.5)               */
+    double sig_dup24;       /* SIG: near-dup share of the last 24 calls (W1.6) */
     double tokens;      /* TOK/DONE: token count                         */
     int    tool_calls;  /* DONE: tool calls the child made (budget merge) */
     char  *answer;      /* DONE: malloc'd answer, or NULL (caller frees)  */

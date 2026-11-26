@@ -161,8 +161,10 @@ run passes it on.
 A child process buys isolation: the counter, the quick-failure count and the
 end time survive anything the run does. The price is the Linux-only
 `/proc/self/exe` lookup; `docs/DEFERRED.md` def-383 records that it stays for
-now (the decision on it, D-F8-4, is left open), and that the harness does not
-yet apply jichi's memory protection to the keys it reads. The loop puts no
+now (the decision on it, D-F8-4, was taken on 2026-11-17: a non-Linux host comes
+when someone needs to run a drive on one). The same row recorded that the harness
+did not yet apply jichi's memory protection to the keys it reads; M1190 closed it,
+and the harness now makes that call first thing in `main`. The loop puts no
 secret on a command line, in `harness.log`, in a snapshot or in a child's
 environment: the model key reaches jichi through the `run` command's own
 environment delivery, the git token reaches git through the push's credential

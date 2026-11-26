@@ -163,6 +163,11 @@ struct jc_app {
      * a child's boundary is reached at agent_depth 1, but the flag is the
      * distinguishing state. Never read by the lead. */
     int                      pool_inject_fd_valid;
+    /* The descriptor that drain reads: JC_CTL_INJECT_FD where the process may
+     * have a descriptor that high, the pipe's own read end where it may not
+     * (an open-file limit of 912 or less: OpenBSD's default is 512). Only
+     * meaningful while pool_inject_fd_valid is set. */
+    int                      pool_inject_fd;
     char                     cwd[1024];
     char                     root[4096];  /* canonical workspace root (M24)    */
     char                    *rules;       /* concatenated AGENTS.md etc., or NULL */
@@ -213,7 +218,7 @@ struct jc_app {
      * guard at emit time with app->agent_depth == 0 to only emit from the top-level. */
     void                     (*on_batch_progress)(void *user, int done, int total, int live);
     void                     *on_batch_progress_user;
-    long                      batch_hb_last_ms; /* M165: last batch progress heartbeat ms */
+    double                    batch_hb_last_ms; /* M1194-d379: last batch progress heartbeat ms (widened) */
     int                      no_session;  /* do not persist this run            */
     int                      session_save_noted; /* M1082 (F-02): the ONCE
                                            * PER PROCESS latch for a failed
@@ -379,6 +384,35 @@ struct jc_app {
      * and this says which stop it was, so a parent does not call a loop an iteration
      * cap. Same read-right-after contract, saved and restored the same way. */
     int                      last_run_looped;
+    /* M1194 W4 (def-377): a SOFT-STOP sentinel was folded into this run's
+     * history at a boundary (the parent's supervise action, wrapup/stop,
+     * wrote it through the child's inject pipe).
+     *
+     * TRI-STATE (A4b; the A4 wave's was a plain 0/1 set at the loop-top
+     * history SCAN -- review finding R:1, since deleted). The value holds the
+     * WHOLE soft-stop state so the M322 nested-run save/restore (A4c) protects
+     * it in one field:
+     *   0 = not armed. Reset at the loop entry (a new run).
+     *   1 = armed at the FOLD (the boundary that drains the parent's
+     *       wrapup+sentinel inject folds the sentinel as the last [operator]
+     *       message; jc_agent.c checks it with jc_sup_stop_line, the
+     *       EXACT-line rule), and the supervised kind (last_run_capped,
+     *       last_run_looped = 5) is STAMPED at the same fold -- deterministically
+     *       (R:3: the fold is the one guaranteed observation moment on every
+     *       trace, so the stamp rides the done line whether the run then ends
+     *       cooperatively at the ncalls == 0 return or breaks at the next loop
+     *       top). 1 also means the ONE grace model call W4.2 allows has NOT
+     *       been served yet, so the loop-top does NOT break: the call whose
+     *       prompt carries the sentinel runs.
+     *   2 = armed AND the grace call has been served (flipped from 1 right
+     *       after stream_once in jc_agent.c). The loop top now BREAKS, ending
+     *       the run with its report.
+     * Per-child-run, read-right-after like last_run_looped: run_child's child
+     * is a forked process, so this is child-local and the lead's copy is
+     * untouched. There is no loop-top history re-scan -- the fold is the only
+     * recognition site, so a task prompt, a tool result, or a mid-prose
+     * mention of the control word never arms it (R:1). */
+    int                      pool_sup_stop_seen;
     /* M861 (N28): a spawn_parallel task's own tool-call budget -- the lead's
      * `max_tool_calls` for that task -- set by run_child in the forked child only
      * (0 in the lead: no budget). task_tool_max is the key, enforced whether or
@@ -424,6 +458,13 @@ struct jc_app {
      * is the parsed failing-test count (-1 = unknown); last_verify_failnames
      * the top few failing paths, comma-joined ("" = none parsed). */
     int                      last_verify_code;
+    /* 1 once a verify ran in this run. last_verify_code alone cannot say it:
+     * 0 is both "none ran" and a green verify's exit status, so the baton
+     * could never report a green verify (TW24.F2). Reset with the code. */
+    int                      last_verify_ran;
+    /* The workspace's short HEAD when the current relay leg began ("" = not
+     * a git workspace, or not asked yet): the baton's range line (TW24.F3). */
+    char                     relay_leg_start_commit[64];
     int                      last_verify_fail;
     char                     last_verify_failnames[200];
     int                      last_fail_repeat; /* M808: the tool-loop repeat count
@@ -465,6 +506,15 @@ struct jc_app {
      * error count so the number meant to worry the reader does not include
      * the fences working (the footer-in-anger note, 2026-09-17). */
     int                      tool_refusals;
+    /* def-377 W1.4: the TOTAL copied placeholders (elided_placeholder events),
+     * raised exactly where the args_repair/elided_placeholder telemetry is
+     * written (jc_tool.c, two sites) -- a forked child reads its own COW copy
+     * when it emits the sig line's `placeholders`. */
+    int                      placeholder_total;
+    /* def-377 W1.5: the total compact events this process has written (the
+     * midturn + prefix emits in jc_agent.c), read the same way by a forked
+     * child's sig line (`compactions`). */
+    int                      compaction_total;
     struct jc_why            why;           /* M762: for /why */
     int                      why_approval;  /* M762: JC_WHY_*, set by confirm */
     /* M322: the TOP-LEVEL turn hit its iteration cap. Distinct from
@@ -647,6 +697,17 @@ struct jc_app {
                                            * because abort_flag was set (the run
                                            * was being stopped); reset as each
                                            * command starts */
+    /* M1192 B3: the cancel-cmd control verb. cmd_in_flight is 1 while the lead
+     * is inside a shell command (set at the tool's start/end in jc_agent.c):
+     * the LEAD-form cancel refuses EXACTLY "no command is running" when it is
+     * 0 (B3.7). cmd_cancel is set by the handler when a cancel is accepted and
+     * consumed by the watched command's select loop at the kill site (D2); the
+     * loop takes the cancel kill-arm FIRST, distinct from the M885/timeout
+     * texts, and reports exit 143. cmd_cancel_reason carries the optional
+     * reason ("" if none) for the stop note's ": <reason>" tail. */
+    int                      cmd_in_flight;
+    volatile int             cmd_cancel;
+    char                     cmd_cancel_reason[160];
     int                      noop_warned; /* M147: the once-per-session "model
                                            * narrated a call but never invoked
                                            * one" warning has fired            */
@@ -987,6 +1048,13 @@ void jc_app_confbench_facts(const struct jc_app *app,
  * emit time with app->agent_depth == 0 so nested batches don't double-report to
  * the supervisor. */
 void jc_app_batch_progress(struct jc_app *app, int done, int total, int live);
+
+/* def-379 (M1194-d379): the pool watchdog's deadline test as a pure helper, so a
+ * unit test can SET the stamps. `launch_ms`/`now_ms` are monotonic readings in the
+ * pool's widened type (double, see below); `timeout_ms` is the bound (stays long).
+ * Returns 1 when the task is past its deadline. Body in src/tools/jc_tool_parallel.c;
+ * this is the ONLY export for the widen -- a static file, so the prototype lives here. */
+int jc_pool_past_deadline(double launch_ms, double now_ms, long timeout_ms);
 
 /* M1082 (F-02): report a FAILED scheduled session save, once per process.
  * The per-turn and exit saves (headless, TUI, ACP) used to ignore

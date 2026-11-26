@@ -63,13 +63,12 @@ int  jc_redact_capture_tail(char *cap, jc_size cap_len, jc_size cap_total,
  * value is COPIED -- the registry keeps process-lifetime storage no matter
  * what arena or buffer the caller's pointer lives in (the @ref alias site
  * passes per-turn scratch; a stored pointer there was a UAF from the second
- * turn on). NULL / too-short / duplicate / registry-full secrets are
- * ignored (a full registry is reported by the caller's own M724 gate on the
- * env-var side). */
-void jc_redact_register(const char *secret);
+ * turn on). NULL / too-short / duplicate secrets are ignored. Grows the
+ * registry as needed (unbounded count). Returns 0 on success, -1 on OOM. */
+int  jc_redact_register(const char *secret);
 
 /* jc_redact_reset() -- test isolation only; production never calls it.
- * Frees every registered secret copy and sets g_nsecrets = 0. */
+ * Frees every registered secret copy and sets registry to empty. */
 void jc_redact_reset(void);
 
 /* Redact registered secrets from `in` into `out` (see jc_redact_apply). */

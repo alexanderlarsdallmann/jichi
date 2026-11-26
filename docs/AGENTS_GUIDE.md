@@ -101,6 +101,7 @@ They stack in the system prompt in that rough order (rules → repo map → memo
   Claude Code parity.
 
 ## A good starting point
+<!-- jichi-guide topic="agents" name="agents-agentsmd" -->
 
 ```markdown
 # Project conventions
@@ -130,6 +131,7 @@ language the docs teach with.)
 
 `jichi init <pack>` (or `setup`) scaffolds a starter `AGENTS.md` for you;
 edit it down to your project's specifics. See [`SCAFFOLDING.md`](SCAFFOLDING.md).
+<!--/jichi-guide -->
 
 ## Verifying it loaded
 
@@ -139,3 +141,21 @@ edit it down to your project's specifics. See [`SCAFFOLDING.md`](SCAFFOLDING.md)
   instruction-file size, so you can tell if AGENTS.md is being capped.
 - `jichi doctor` warns when instruction files are large for the model's
   context.
+
+## What an agent must not do (jichi's limits)
+<!-- jichi-guide topic="limits" name="limits-rules" -->
+
+Three rules for an agent that uses jichi, from jichi's own guide:
+
+- Never search for or read credentials. The key is scrubbed from the shells a
+  model runs; do not look for it. If you cannot confirm a model is reachable,
+  say so and use the live check the run offers (G3) instead of reading
+  `~/.jichi.env` or a process's `/proc/<pid>/environ`.
+- Never read outside the project to learn about jichi. Use `jichi guide`
+  (this text), `jichi describe --output json` (the interface contract), and
+  `jichi <verb> --help` (the flags). The source tree and the disk are not the
+  documentation.
+- Never commit for a person unasked. Propose the change and the message; let
+  the person commit, or be told to.
+
+<!--/jichi-guide -->

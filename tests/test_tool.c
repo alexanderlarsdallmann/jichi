@@ -2579,6 +2579,27 @@ void test_tu_arg_bool_numbers(void)
     if (JC_REQUIRE(o != NULL)) {
         /* The gap this closes: a NUMBER for a boolean argument. */
         JC_CHECK(tu_arg_bool(o, "n1", 0) == 1);
+        /* def-415: `readonly` is a fence. A value that cannot be read as true or
+         * false must give the FENCED side, 1, and not the caller's 0: until this
+         * check {"readonly": null} was present-and-0, an EXPLICIT "writable" that
+         * overrode a read-only agent profile (the 2026-10-08 review's F9). */
+        {
+            cJSON *f = cJSON_Parse("{\"a\":null,\"b\":\"ture\",\"c\":\"maybe\","
+                                   "\"t\":true,\"f\":false,\"z\":0,\"y\":\"yes\"}");
+            int pr = -1;
+            JC_CHECK(f != NULL);
+            if (f != NULL) {
+                JC_CHECK(tu_arg_fence(f, "a", &pr) == 1 && pr == 1);
+                JC_CHECK(tu_arg_fence(f, "b", &pr) == 1 && pr == 1);
+                JC_CHECK(tu_arg_fence(f, "c", &pr) == 1 && pr == 1);
+                JC_CHECK(tu_arg_fence(f, "t", &pr) == 1 && pr == 1);
+                JC_CHECK(tu_arg_fence(f, "y", &pr) == 1 && pr == 1);
+                JC_CHECK(tu_arg_fence(f, "f", &pr) == 0 && pr == 1);
+                JC_CHECK(tu_arg_fence(f, "z", &pr) == 0 && pr == 1);
+                JC_CHECK(tu_arg_fence(f, "absent", &pr) == 0 && pr == 0);
+                cJSON_Delete(f);
+            }
+        }
         JC_CHECK(tu_arg_bool(o, "n2", 0) == 1);
         JC_CHECK(tu_arg_bool(o, "n0", 1) == 0);
 

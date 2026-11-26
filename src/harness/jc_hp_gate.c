@@ -483,19 +483,18 @@ gf_subst_s(char *cmd, size_t cap, const char *s8)
     return (int)o;
 }
 
-/* Run one shimmable command (the reference's land.sh / repin.sh, D4.8/9):
- * `sh -c '<cmd> <s8>'` with stdin /dev/null (the reference's
- * `< /dev/null`), combined stdout+stderr CAPTURED (the reference's
- * `lo=$( ... 2>&1)`) with the trailing newline trimmed (the command
- * substitution does that). The child inherits the process environment
- * (D11: the host's land.sh is a command that manages its own env; the
- * reference runs it with gate-run.sh's env). The `<s>` token is
- * substituted with the READY sha8 (see gf_subst_s). 1 on success (the
- * combined output in *out_text, the child's rc in *out_rc), 0 on a
- * spawn/assembly fault (the caller names it; out_rc stays 0). */
-static int
-gf_capture_cmd(const struct gf_run *r, const char *cmd, char *out_text,
-               size_t cap, int *out_rc)
+/* The exported capture (M1202 D3, jc_capture_cmd): the gate's land/repin
+ * step spawn, factored out so the approve verb (jc_harness_main.c) runs the
+ * SAME command line -- the sh -c + env-scrub + combined-capture + trim --
+ * for the land step it executes on a PENDING landing. `line` is the full
+ * `<cmd> <s8>` command as the gate assembles it (the caller already did the
+ * `<s>` substitution; this helper does NOT touch <s>). 1 on success (the
+ * combined output in *out_text, the child's rc in *out_rc), 0 on a spawn
+ * fault (the caller names it; out_rc stays 0). The child inherits the
+ * process environment (D11): an EMPTY env vec lets jc_spawn apply its
+ * built-in secret-name scrub and otherwise inherit, so a host land.sh
+ * manages its own env as gate-run.sh gave it. */
+int jc_capture_cmd(const char *line, char *out_text, size_t cap, int *out_rc)
 {
     char c[16384];
     char *argv[4];
@@ -504,26 +503,17 @@ gf_capture_cmd(const struct gf_run *r, const char *cmd, char *out_text,
     int rc;
     size_t len;
 
-    if (jc_snprintf(c, sizeof c, "%s", cmd) < 0 ||
-        strlen(cmd) + strlen(r->s8) + 2 >= sizeof c ||
-        jc_snprintf(c + strlen(c), sizeof c - strlen(c), " %s", r->s8) < 0) {
-        return 0;
-    }
-    if (gf_subst_s(c, sizeof c, r->s8) < 0) {
+    if (jc_snprintf(c, sizeof c, "%s", line) < 0 ||
+        strlen(line) + 1 >= sizeof c) {
         return 0;
     }
     argv[0] = (char *)"sh";
     argv[1] = (char *)"-c";
     argv[2] = c;
     argv[3] = NULL;
-    /* An EMPTY env vec: jc_spawn scrubs the secret names and otherwise
-     * inherits (the D11 shape; a NULL vec would inherit without the
-     * built-in scrub, and the stage children above deliberately pass
-     * NULL to keep the reference's env -- these are the reference's
-     * own land.sh/repin.sh, not the stage bodies' children). */
     jc_vec_init(&envv, sizeof(char *));
     jc_sb_init(&capture);
-    /* cap = out_text's size: the child's combined output is APPENDED up to
+    /* cap = out_text's size: the child's combined output is CAPTURED up to
      * the cap (a cap of 0 would capture nothing -- M929's NULL-out is the
      * discard path; a bound of 16KB holds every stub and the host's
      * land.sh / repin.sh summaries). */
@@ -549,6 +539,38 @@ gf_capture_cmd(const struct gf_run *r, const char *cmd, char *out_text,
     jc_sb_free(&capture);
     *out_rc = rc;
     return 1;
+}
+
+/* Run one shimmable command (the reference's land.sh / repin.sh, D4.8/9):
+ * assemble `'<cmd> <s8>'` (the `<s>` token substituted with the READY sha8,
+ * see gf_subst_s) and run it through jc_capture_cmd (the sh -c spawn, the
+ * combined capture, the trailing-newline trim). 1 on success (the combined
+ * output in *out_text, the child's rc in *out_rc), 0 on a spawn/assembly
+ * fault (the caller names it; out_rc stays 0). */
+static int
+gf_capture_cmd(const struct gf_run *r, const char *cmd, char *out_text,
+               size_t cap, int *out_rc)
+{
+    char c[16384];
+    char line[16384];
+    size_t len;
+
+    if (jc_snprintf(c, sizeof c, "%s", cmd) < 0 ||
+        strlen(cmd) + strlen(r->s8) + 2 >= sizeof c ||
+        jc_snprintf(c + strlen(c), sizeof c - strlen(c), " %s", r->s8) < 0) {
+        return 0;
+    }
+    if (gf_subst_s(c, sizeof c, r->s8) < 0) {
+        return 0;
+    }
+    /* Pass the substituted line to the export (it does NOT substitute
+     * <s> again, so the second pass is a no-op). */
+    len = strlen(c);
+    if (len + 1 >= sizeof line) {
+        return 0;
+    }
+    memcpy(line, c, len + 1);
+    return jc_capture_cmd(line, out_text, cap, out_rc);
 }
 
 /* The reference's :104 strip: `tail -1 | sed 's/^[^r]*repin: //' | cut
@@ -685,9 +707,11 @@ gf_git(const struct gf_run *r, char *args[], int n_args, char *out, int cap)
     char *cenv[GF_NKEYS + 4];
     char joined[GF_PATH_MAX + 512];
     int i, k, rc;
+    int n_env;
 
     for (i = 0; i < GF_NKEYS; i++) {
-        if (jc_snprintf(envv[i], sizeof envv[i], "%s=", gf_keys[i]) < 0) {
+        n_env = jc_snprintf(envv[i], sizeof envv[i], "%s=", gf_keys[i]);
+        if (n_env < 0 || n_env >= (int)sizeof envv[i]) {
             return -1;
         }
         cenv[i] = envv[i];
@@ -842,6 +866,10 @@ gf_stage_child(const struct gf_run *r, const char *self,
     int rc;
     int i;
 
+    /* A stage that is never started must not read as passed: every caller
+     * starts from rc 0, and the early returns below (a command line that does
+     * not fit) used to leave it there. 1 is the stage's INVALID/RED (D10). */
+    *out_rc = 1;
     cmd[0] = '\0';
     if (gf_cmd_word(cmd, sizeof cmd, self) != 0 ||
         gf_cmd_word(cmd, sizeof cmd, "gate") != 0 ||
@@ -1188,8 +1216,79 @@ gf_ci_join(const char *text, char *out, size_t cap)
     }
 }
 
+/* The D3 landing-decision record (M1202): one line, APPENDED to
+ * <gate-home>/<s8>/landing.decision (the H9b state-file convention: a file a
+ * cell can grep the LAST line of, which accumulates per re-run). Every green
+ * terminal writes exactly one, naming the decision + the inputs:
+ *   hold arm          -> decision=pending policy=<word|absent>
+ *   land step rc!=0   -> decision=refused ... land-rc=<n> tail=<last line>
+ *   land step rc 0    -> decision=landed ... land-rc=0
+ *   no land step      -> decision=refused ... no-land-step
+ * `policy` is the drive.landingPolicy word (or "absent" when the key is not
+ * in the config). `tail` (the land step's last captured line, cut 160) is
+ * the green-land-failed arm's refusal words. The write is non-fatal: a
+ * failure is NAMED on stderr but never changes the verdict's rc (the landing
+ * decision's rc is the gate's, and the record is telemetry beside it). */
+static void
+gf_landing_decision(const struct gf_run *r, const char *policy,
+                    const char *decision, const char *extra)
+{
+    char path[GF_PATH_MAX];
+    char now[64];
+    char line[GF_NOTE_MAX];
+    FILE *f;
+    int n;
+
+    n = jc_snprintf(path, sizeof path, "%s/landing.decision", r->G);
+    if (n < 0 || (size_t)n >= sizeof path) {
+        return;
+    }
+    gf_now(now, sizeof now);
+    if (extra != NULL && extra[0] != '\0') {
+        n = jc_snprintf(line, sizeof line,
+                        "decision=%s policy=%s sha8=%s batch=%s time=%s %s\n",
+                        decision,
+                        (policy != NULL && policy[0] != '\0') ? policy : "absent",
+                        r->s8, r->batch, now, extra);
+    } else {
+        n = jc_snprintf(line, sizeof line,
+                        "decision=%s policy=%s sha8=%s batch=%s time=%s\n",
+                        decision,
+                        (policy != NULL && policy[0] != '\0') ? policy : "absent",
+                        r->s8, r->batch, now);
+    }
+    if (n < 0 || (size_t)n >= sizeof line) {
+        fprintf(stderr, "jichi-harness: gate run: the landing.decision line "
+                        "was truncated\n");
+        return;
+    }
+    f = fopen(path, "ab");
+    if (f == NULL) {
+        fprintf(stderr, "jichi-harness: gate run: could not append "
+                        "landing.decision to %s\n", path);
+        return;
+    }
+    /* The stream is closed exactly ONCE on every path. As one condition with
+     * `|| fclose(f) != 0` and a second fclose in the branch, a failed close
+     * was followed by a close of the same, already released stream. */
+    if (fputs(line, f) == EOF) {
+        (void)fclose(f);
+        fprintf(stderr, "jichi-harness: gate run: could not write the "
+                        "landing.decision line\n");
+        return;
+    }
+    if (fclose(f) != 0) {
+        fprintf(stderr, "jichi-harness: gate run: could not write the "
+                        "landing.decision line\n");
+        return;
+    }
+}
+
 /* The green-land-refused arm's note (M1154 :261-285's named-refusal bytes,
- * the D4.8 / driver's G10 byte shape). */
+ * the D4.8 / driver's G10 byte shape). M1202 wave 2b: H10 is BUILT (wave 1),
+ * so the note drops the "H10 is not built;" words -- the switch-over message
+ * (the reference's land.sh stands for the switch-over) stays. The D3 record
+ * writes the `refused ... no-land-step` decision. */
 static int
 gf_terminal_refused(const struct gf_run *r)
 {
@@ -1203,10 +1302,15 @@ gf_terminal_refused(const struct gf_run *r)
     }
     (void)jc_snprintf(noteline, sizeof noteline,
                       "GREEN on BATCH %s READY at %s, but no land step is "
-                      "named (host.landRun absent: H10 is not built; the "
-                      "reference's land.sh stands for the switch-over). "
+                      "named (host.landRun absent; the reference's land.sh "
+                      "stands for the switch-over). "
                       "master is not moved.",
                       r->batch, r->s8);
+    /* The D3 record: no land step named -> the landing is REFUSED. This
+     * terminal is only reached when the policy word is exactly "auto" (any
+     * other / absent word created the HOLD and returned green-held above),
+     * so the policy the record names is the effective word, "auto". */
+    gf_landing_decision(r, "auto", "refused", "no-land-step");
     gf_note(r, noteline, NULL, "green-land-refused");
     return 1;
 }
@@ -1286,9 +1390,12 @@ int jc_hp_gate_full_run(const char *config_path, const char *sha8,
             usage_refused_gate_run();
             return 2;
         }
-        if (jc_snprintf(r.ledger_addr, sizeof r.ledger_addr, "%s", addr)
-            < 0) {
-            return gf_die(&r, "the ledger address is too long");
+        {
+            int n_la = jc_snprintf(r.ledger_addr, sizeof r.ledger_addr,
+                                   "%s", addr);
+            if (n_la < 0 || n_la >= (int)sizeof r.ledger_addr) {
+                return gf_die(&r, "the ledger address is too long");
+            }
         }
     }
 
@@ -1323,13 +1430,14 @@ int jc_hp_gate_full_run(const char *config_path, const char *sha8,
      * notify's existing default). */
     {
         const char *gh = gate_home;
+        /* In THIS block, not the inner one: gh points at it below, after the
+         * inner block has ended. */
+        char dflt[GF_PATH_MAX];
 
         if ((gh == NULL || gh[0] == '\0') && cfg.host_gate_home != NULL) {
             gh = cfg.host_gate_home;
         }
         if (gh == NULL || gh[0] == '\0') {
-            char dflt[GF_PATH_MAX];
-
             if (cfg.dir == NULL || cfg.dir[0] == '\0') {
                 return gf_die(&r, "the gate home cannot be resolved "
                                   "(no --gate-home, no host.gateHome, no "
@@ -1669,11 +1777,9 @@ int jc_hp_gate_full_run(const char *config_path, const char *sha8,
                 if (vrc == 0) {
                     /* green: echo green > <G>/<s8>/sweep.verdict;
                      * sweepline for C's GREEN note (the reference's :61). */
-                    FILE *vf = fopen(vrec, "rb");
                     FILE *vout;
                     char vpath[GF_PATH_MAX];
 
-                    (void)vf;
                     jc_snprintf(vpath, sizeof vpath, "%s/sweep.verdict",
                                 r.G);
                     vout = fopen(vpath, "wb");
@@ -2188,6 +2294,40 @@ int jc_hp_gate_full_run(const char *config_path, const char *sha8,
         if (repin == NULL || repin[0] == '\0') {
             repin = NULL;
         }
+        /* M1202 D1 + D2 (the HOLD-from-config arm): the landing policy.
+         * `cfg.drive_landing_policy` is the drive.landingPolicy WORD, read
+         * as-is by the loader (NULL when the key is absent). D2's product
+         * DEFAULT is hold: only the byte-exact word "auto" reaches the land
+         * step below. FAIL-CLOSED: an ABSENT key (NULL) or ANY other word --
+         * "hold", "aUTo", "AUTO", junk -- all hold. We create the marker
+         * BEFORE the existing HOLD arm, which then fires UNCHANGED (the cell
+         * 75 green-held pin stays byte-identical). The marker is a PLAIN
+         * file (the reference's HOLD is a plain file; no content), created
+         * here so the operator's manual HOLD (pre-existing) and the gate's
+         * config-policy HOLD are indistinguishable downstream. The D3 record
+         * (decision=pending) is written by the HOLD arm for BOTH cases -- it
+         * is a landing decision either way; ONE code path in the HOLD arm. */
+        {
+            const char *policy = cfg.drive_landing_policy;
+            int is_auto = (policy != NULL && strcmp(policy, "auto") == 0);
+
+            if (!is_auto) {
+                gn = jc_snprintf(hold, sizeof hold, "%s/HOLD", r.gate_home);
+                if (gn >= 0 && (size_t)gn < sizeof hold &&
+                    stat(hold, &hst) != 0) {
+                    FILE *hf = fopen(hold, "wb");
+                    if (hf != NULL) {
+                        (void)fclose(hf);
+                    } else {
+                        fprintf(stderr, "jichi-harness: gate run: could not "
+                                        "create the HOLD file %s (the "
+                                        "landing-policy hold); the landing "
+                                        "is held anyway (fail-closed)\n",
+                                hold);
+                    }
+                }
+            }
+        }
         /* The HOLD arm (D4.7, the reference's step 4): fires AFTER the ci
          * step, once ci is green -- the full pipeline has run, so the
          * state carries `gated` first (G9) and sweep.verdict is written. */
@@ -2200,6 +2340,17 @@ int jc_hp_gate_full_run(const char *config_path, const char *sha8,
             if (gf_verdict(&r, "green-held") != 0) {
                 return gf_die(&r, "could not write the state file");
             }
+            /* The D3 record: the landing is HELD (pending) -- whether the
+             * operator's manual HOLD pre-existed or the gate created it from
+             * the config policy. One line, ONE code path. The policy word is
+             * the word, or "hold" when the key is ABSENT (D2's default hold:
+             * absent -> hold; the pending record names the effective policy). */
+            gf_landing_decision(&r,
+                                (cfg.drive_landing_policy != NULL
+                                 && cfg.drive_landing_policy[0] != '\0')
+                                    ? cfg.drive_landing_policy
+                                    : "hold",
+                                "pending", NULL);
             jc_snprintf(sayline, sizeof sayline, "VERDICT green, held (%s)",
                         hold);
             if (gf_say(&r, sayline) != 0) {
@@ -2249,9 +2400,21 @@ int jc_hp_gate_full_run(const char *config_path, const char *sha8,
                             "failed (%.*s). The operator is told; master "
                             "may be unchanged. Go on with the next batch.",
                             r.batch, r.s8, 160, last);
+                /* The D3 record: the landing REFUSED (the land step rc != 0);
+                 * the tail carries the land step's last captured line. */
+                {
+                    char extra[GF_NOTE_MAX];
+                    jc_snprintf(extra, sizeof extra,
+                                "land-rc=%d tail=%.*s", lr, 160, last);
+                    gf_landing_decision(&r, cfg.drive_landing_policy,
+                                        "refused", extra);
+                }
                 gf_note(&r, noteline, NULL, "green-land-failed");
                 return 1;
             }
+            /* The D3 record: the landing LANDED (the land step rc 0). */
+            gf_landing_decision(&r, cfg.drive_landing_policy, "landed",
+                                "land-rc=0");
             if (gf_verdict(&r, "landed") != 0) {
                 return gf_die(&r, "could not write the state file");
             }

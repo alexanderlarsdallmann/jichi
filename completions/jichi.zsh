@@ -9,7 +9,7 @@ _jichi() {
     cmds=(agents assign assignments attempt audit benchmark board brief-check
           attempts checkpoints commands complete config constraints context control
           daemon
-          describe docs doctor dream embed export fim glossary grade
+          describe docs doctor dream embed export fim glossary grade guide
           hint improve index init learn ls lsp map mcp memory models
           output-styles packages prune ps rerank recover rewind rules runs serve
           setup skills status sysmsg telemetry test timeouts trust undo

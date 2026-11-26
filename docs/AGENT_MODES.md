@@ -180,7 +180,8 @@ Built-in tools are read-only (`read_file`, `list_files`, `search_code`,
 
 ## Runtime control (interactive TUI)
 
-The prompt shows the current mode, e.g. `[plan] >`.
+The prompt shows the current mode first, then the model and how full the context is, e.g.
+`[plan·<model>·12%] ›` (`[plan:<model>:12%] >` on a terminal without Unicode).
 
 - `/mode` — show the current mode.
 - `/mode chat|plan|auto` — switch mode.

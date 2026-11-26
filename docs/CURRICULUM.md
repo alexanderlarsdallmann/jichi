@@ -36,6 +36,7 @@ The agent is not a shortcut through the craft — it is the instrument you
 practice the craft *on*.
 
 ## The stages
+<!-- jichi-guide topic="learner" name="learner-stages" -->
 
 Twelve modules in four stages; **each stage is severable** — Stage 0+1 alone
 is a complete short course ("safe, productive agentic work").
@@ -73,7 +74,8 @@ from this project's own 2026-08 hardening wave) and the extras and
 migration tracks below: [`docs/assignments/INDEX.md`](assignments/INDEX.md)
 — **90 graded tasks** in all, every grader two-sided (it provably rejects the
 untouched fixtures and accepts a reference solution;
-`tests/e2e/curriculum_graders.py` enforces this on every change, including
+`tests/e2e/curriculum_graders.py` enforces this in `make ci` for every task whose toolchain
+is installed (a missing toolchain is a loud skip), including
 **75 trap cases** — lazy checkers, half-fixes, hollow gates, leaky
 journals, cost-free port tables, disguised mutation, hand-rolled recursion,
 a hidden `sprintf`, answer-only memory checkers, an untraced kanban card, and
@@ -161,9 +163,9 @@ real section, in the wrong file.
 
 **Reading outside this tree.** Everything above teaches from jichi's own source,
 which is the design and also a closed world.
-[BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) is the door out of it: 194 checked entries on
+[BIBLIOGRAPHY.md](BIBLIOGRAPHY.md) is the door out of it: 233 checked entries on
 the craft, C, C++, Zig, Rust, Python, Racket, Guile, Elixir, Haskell, Clojure,
-Ada/SPARK, interfaces and human–computer interaction, each saying which question in *these* pages it answers, and **most of
+Ada/SPARK, interfaces, human–computer interaction, and object-oriented and logic programming, each saying which question in *these* pages it answers, and **most of
 them free to read** — complete books on C, Zig and Rust, SICP, *The Scheme
 Programming Language*, and every language standard that matters here in draft.
 **Every language with a graded course now has literature behind it** (M677
@@ -249,6 +251,7 @@ languages such as Japanese — follows the maintainer's trigger (likely late
 August 2026 or after the first public release); meanwhile, set `language`
 and the *agent* tutors you in your language over the English briefs
 ([LANGUAGE.md](LANGUAGE.md)).
+<!--/jichi-guide -->
 
 ## What this course does not teach
 
@@ -286,7 +289,7 @@ above scored zero on the first pass of the very search that produced this
 table, and both are taught.)*
 
 **Where to go instead.** [`BIBLIOGRAPHY.md`](BIBLIOGRAPHY.md) carries the
-reading for several of these — it is 194 entries across fourteen sections, and it
+reading for several of these — it is 233 entries across sixteen sections, and it
 names what it deliberately omits for the same reason this section exists. For
 concurrency and distributed work specifically, the honest answer is that this
 course does not cover them and a dedicated one should.
@@ -297,6 +300,7 @@ half — the same discipline as the reach footer under a headless answer, and as
 that lists only what it covers has told you half of what you need to choose it.
 
 ## Getting started
+<!-- jichi-guide topic="learner" name="learner-start" -->
 
 Two equivalent benches; pick one:
 
@@ -330,6 +334,7 @@ config names it). Institution members may be handed a gateway key in class —
 the JLU HRZ gateway as the worked instance; if
 you have any OpenAI-compatible provider key, use that; with no key at all, a
 local model is a full teacher — [LOCAL_MODELS.md](LOCAL_MODELS.md).
+<!--/jichi-guide -->
 
 ## How grading works — honestly
 

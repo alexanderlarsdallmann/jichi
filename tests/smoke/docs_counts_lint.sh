@@ -33,6 +33,8 @@
 # green -- milestone_currency_lint asks whether the ROADMAP is behind the pages that
 # CITE a milestone, and this page does not cite, it REPORTS. The operator noticed,
 # not a test. Checks 12-13 below bound that drift.
+# 2026-11-23 EXTENDED IT TO THE README'S SIZE (check 20): its Roadmap section had
+# become a second roadmap, 68,649 bytes of the front page. The operator noticed.
 #
 #   NOT checked -- the suite sizes. Those are written as LOWER BOUNDS ("over
 #               10,000 unit checks"), per the M307 decision that a figure which
@@ -42,7 +44,7 @@
 #               not guaranteed built when the smoke tier runs).
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 19
+t_plan 20
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 graded=$(grep -l '^verify:' "$root"/docs/assignments/*.md | wc -l | tr -d ' ')
@@ -475,6 +477,37 @@ else
     t_fail "SCAFFOLDING.md says ${_doc:-<none found>} packs, PACKS[] has ${_pk:-0}.
 The registry is the fact; the page is a summary of it. (A count under 25 means
 the awk stopped matching the table -- fix that before the prose.)"
+fi
+
+# --- 20: the README's Roadmap section stays a pointer, not a second roadmap ----
+# THE DEFECT, found 2026-11-23 when the operator said the README's roadmap was
+# distracting readers. Check 6 above holds the README banner's milestone NUMBER;
+# milestone_currency_lint holds the ROADMAP banner's PROSE (N13: "update the
+# text, do not just bump the number"). The prose rule was copied into the README
+# by habit, one milestone at a time: the README grew from 90 KB (2026-09-16) to
+# 150 KB, and its Roadmap section to 68,649 bytes, 46,504 of them ONE line -- a
+# banner naming 135 milestones, with 24 supervisor labels and 19 board cards, on
+# the page every reader opens first. Every milestone it named has its own ROADMAP
+# entry. Nothing checked the size, so nothing stopped it.
+#
+# UNIVERSE: README.md from the line "## Roadmap" to the line "## Layout", the
+# same span check 6 reads. The ceiling is bytes, not lines: the banner was one
+# line. 2,000 bytes holds the section as cut on 2026-11-23 (1,035 bytes) plus
+# about one sentence on the latest milestone. Its prose belongs in the ROADMAP's
+# banner; the README says where to find it.
+JC_README_ROADMAP_MAX_BYTES=2000
+_rmb=$(sed -n '/^## Roadmap$/,/^## Layout$/p' "$root/README.md" | wc -c | tr -d ' ')
+_rmh=$(grep -c -E '^## (Roadmap|Layout)$' "$root/README.md")
+if [ "$_rmh" != 2 ]; then
+    t_fail "README.md must carry exactly one '## Roadmap' and one '## Layout' line \
+(found $_rmh) -- the span this check and check 6 read is gone, so this reads nothing"
+elif [ "$_rmb" -le "$JC_README_ROADMAP_MAX_BYTES" ]; then
+    t_ok "the README's Roadmap section is $_rmb bytes (ceiling $JC_README_ROADMAP_MAX_BYTES)"
+else
+    t_fail "the README's Roadmap section is $_rmb bytes, over its ceiling of \
+$JC_README_ROADMAP_MAX_BYTES. The README says where the project stands and where \
+the record is; a milestone's story goes in docs/ROADMAP.md's 'Where we stand' \
+banner and its own entry. Move the prose there; do not raise the ceiling."
 fi
 
 t_done

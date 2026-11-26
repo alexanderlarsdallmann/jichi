@@ -49,12 +49,19 @@
 # lives, on the host, where `make ci` is the gate.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 26  # 1 universe check + one C++17 parse per src/harness/*.c (25 TUs at this head)
 G=/usr/bin/grep
 [ -x "$G" ] || G=grep
 tmp=$(smoke_tmp)
 cd "$SMOKE_ROOT" || exit 1
 _mk=$(smoke_make)
+
+# The plan is the TRUE count of harness TUs + 1 (the universe check), not a
+# hardcoded number: Route B below is one C++17 parse per src/harness/*.c, so a
+# new TU grows the plan with it (M1203: jc_harness_repin.c, 26 -> 27 TUs, 27 ->
+# 28 checks). A hardcoded plan is a file-list the next TU silently breaks.
+_n_harness_tu=$(ls src/harness/*.c 2>/dev/null | "$G" -c . )
+[ -n "$_n_harness_tu" ] || _n_harness_tu=0
+t_plan $((_n_harness_tu + 1))  # 1 universe check + one C++17 parse per src/harness/*.c
 
 FLOOR_A=349   # CPPCHECK_SRC file count at this head, harness included (LIB_SRC + main + tests + 18)
 FLOOR_B=18    # floor for the src/harness/*.c TU count (the live count is 25 at this head: 16 at 6e5468fa; watchgate + watchunits at M1153; +1 gateunits at M1159 wave 4)
@@ -103,7 +110,10 @@ fi
 _ddefs=$($_mk -n -B src/harness/jc_harness_notify.o 2>/dev/null | tr ' ' '\n' \
           | "$G" -E '^-D' | tr '\n' ' ')
 if ! command -v g++ >/dev/null 2>&1 || [ -z "$_ddefs" ]; then
-    for _i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
+    # One skip per file, from the SAME wildcard the plan counts: the loop used
+    # to say 16, the harness has 27 files now, and where g++ is absent (the
+    # BSD rows) the driver ended "plan said 28 checks but 17 ran".
+    for _f in src/harness/*.c; do
         t_skip_one "g++ or its -D define set (make -n -B) is unavailable -- the \
 C++ stage cannot be re-run here as a parse"
     done

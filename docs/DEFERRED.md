@@ -1782,6 +1782,7 @@ under a raised timeout, and its supervisor stops a worker with SIGTERM, which M8
 
 <a id="def-284"></a>
 #### --output jsonl can split a text delta inside a multi-byte character
+**Closed at M1193 (2026-11-16):** the redact-path emit cut in `hl_text_flush` now lands on a character boundary in the redacted buffer's own coordinates (`jc_utf8_trunc_len(red, safe)`; the M1065 raw-buffer `bsafe` clamp was a no-op exactly where a redaction shifts the cut mid-character), so every `--output jsonl` `text` line is valid UTF-8. Red-first driver `tests/smoke/redact_split_delta_utf8.sh` (5 cells: the no-secret M1065 control, the redact-path split, content-not-lost, the registered-but-absent second face); ROADMAP M1193.
 **Why:** **Measured.** When a secret is registered (a gateway key registers one), the redaction hold-back on the streamed model text advances its safe boundary by a byte offset, so a multi-byte character straddling that boundary is emitted split across two `--output jsonl` lines -- invalid UTF-8 on an interface `docs/EMBEDDING.md` marks Stable, the same class as M439 at a second site. A probe gave 0 invalid lines with no key and 3 of 38 with one; a drive's own streams held 702 invalid lines across 18 of 21 runs. The weekend handoff flagged this as day-one finding 5 and no row was opened. The fix is to move the cut to a character boundary (`jc_utf8_resync` exists) and extend `jsonl_utf8.sh` or `redact_split_delta.sh`.
 **Where:** `src/main.c`
 
@@ -4040,6 +4041,222 @@ tail; the on-disk spool remains unbounded (that is def-324, still open).
 
 | L-26: 20 bare-statement `JC_REQUIRE`s discard their guard | fix the 20, then a lint floored at 0 (details: FINDINGS.md L-26; the same shape segfaulted M729 in test_scopededit.c, fixed 7acde6c8) |
 
+## Open — what the prompt-injection analysis found (2026-10-27; its four questions decided 2026-11-17)
+
+The operator asked on 2026-10-27 for an analysis of jichi's defences against prompt injection, with honest
+design decisions, before any code: [analysis/2026-10-27-prompt-injection.md](analysis/2026-10-27-prompt-injection.md).
+It separates **boundaries** (they hold when the model is fully hostile) from **mitigations** (they lower the
+odds), measured one channel by effect, and found the six gaps below. Two gaps it relies on already have a row:
+[def-298](#def-298) (a project's rules, commands, agents and skills load with no trust step) and
+[def-330](#def-330) (a Landlock rule set for the top-level shell). Both are still open at master `81f9d35c`.
+The operator decided the analysis's four questions on 2026-11-17 (its section 10). The order of the work is
+[plans/2026-11-17-prompt-injection.md](plans/2026-11-17-prompt-injection.md): the resumed hardening drive,
+right after its batch B-02. The analysis planned these rows as def-361 to def-366; other rows took those
+numbers first, so they are registered here as def-407 to def-412, in the same order.
+
+| Deferred | Detail |
+|---|---|
+| the model can write its own future instructions: `remember` under `--auto` puts a line into every later session's system message | [details](#def-407) |
+| no untrusted-context flag, and no gate on a sensitive action after untrusted content entered the context | [details](#def-408) |
+| data can leave through a public URL: no outbound scan for known secrets, no host allowlist | [details](#def-409) |
+| HARDENING.md §1 does not separate boundaries from mitigations, and has no rows for the injection channels | [details](#def-410) |
+| no prompt-injection red-team corpus scored by effect | [details](#def-411) |
+| `doctor` does not say when a key file the configuration names is readable by the agent's shell | [details](#def-412) |
+
+<a id="def-407"></a>
+### def-407 -- the model can write its own future instructions
+
+**The finding.** **Measured 2026-10-27** (the analysis, section 3), with the real `jichi` at `caa8a8ec` and the
+mock model answering `remember {"note": "PI42MARK123: …"}`:
+- headless `-p` without `--auto` refused the call (`1 refused by a fence`);
+- headless `-p --auto` ran it (`[tool remember -> ok]`) and wrote `.jichi/memory.md`;
+- a fresh session afterwards, without `--auto`, carried the marker in its system message under
+  `# Remembered notes`.
+
+So one injection that succeeds once under `--auto` is in every later session of that workspace. The same holds,
+**by reading**, for an `--auto` write to `AGENTS.md`/`CLAUDE.md` or under `.jichi/skills|commands|agents`
+(def-298's loading side). Checked again on 2026-11-17 by reading: since `caa8a8ec`, `src/chat/jc_perm.c` and
+`src/chat/jc_sysmsg.c` have no commits, and the remember tool changed only how it writes the file (M1100,
+M1104, M1104-c).
+
+**Why deferred.** It waited for the operator's decision on the default (the analysis, Q1). That decision is
+made; the work is ordered by the plan.
+
+**What it would take.** The operator's decision of 2026-11-17 (Q1):
+- An *instruction write* is `remember`, a write to a rules file, or a write under
+  `.jichi/skills|commands|agents`.
+- Under `--auto` it is refused by default. The strictness is configurable: off, warn or refuse. Telemetry
+  records the write in every mode. The default is provisional, with a [DECISIONS.md](DECISIONS.md) row that
+  names the measurement which would change it.
+- Interactively it gets its own confirm, which an "always" grant cannot satisfy (as a kinetic confirm).
+- A drive that must edit its repository's own rules files declares that in its configuration.
+- Learn-on-stop's propose-only rule for constraints is the precedent.
+- A check, red today: the section 3 run as a smoke driver, scored by the line in `.jichi/memory.md`.
+
+**Where.** `src/tools/jc_tool_remember.c`, `src/chat/jc_memory.c`, `src/chat/jc_sysmsg.c`,
+`src/chat/jc_perm.c`.
+
+*Registered 2026-11-17, at the operator's request, from the 2026-10-27 analysis.*
+
+<a id="def-408"></a>
+### def-408 -- no untrusted-context flag, and no gate on a sensitive action after untrusted content
+
+**The finding.** M300 labels fetched pages, search results and MCP resources as data, which lowers the odds of
+an injection working. Nothing changes what the model may DO once such content is in its context. Under `--auto`,
+a network call, a push, an instruction write or a request to widen a fence runs after a poisoned page like any
+other.
+
+**Why deferred.** Defined broadly, the flag is set in almost every coding session and its gate would fire
+constantly. Its defaults need a measurement first.
+
+**What it would take.** The operator's decision of 2026-11-17 (Q2):
+- A session flag, set when content from an untrusted channel enters the context. Its first scope is narrow:
+  the channels M300 already fences, plus MCP tool results.
+- Telemetry only at first, to measure how often a sensitive action follows an untrusted read. The gate's
+  defaults come from that measurement: approval even under `--auto`, or a refusal, configurable.
+- The flag needs a name other than "tainted", which M410 uses for runs that edited a test.
+
+**Where.** `src/util/jc_untrusted.c` (the M300 wrap), the tool executor, the telemetry events.
+
+*Registered 2026-11-17, at the operator's request, from the 2026-10-27 analysis.*
+
+<a id="def-409"></a>
+### def-409 -- data can leave through a public URL
+
+**The finding.** `fetch_url`'s SSRF guard (M131) blocks private addresses only. A public URL with data in its
+query string is an ordinary fetch, and nothing compares an outbound request with the secrets jichi knows. The
+top-level shell is a second route ([def-330](#def-330)), which jichi cannot filter by host in the normal-user
+mode: Landlock's network rules filter TCP by port, not by host.
+
+**Why deferred.** It comes after the boundaries that are cheaper and protect more (the plan's order).
+
+**What it would take.**
+- An outbound scan of `fetch_url` and `web_search` URLs and bodies for the configured secrets: the idea of the
+  drives' pre-push key scan.
+- An optional host allowlist.
+- The container named as the answer for `--auto` on untrusted input (the operator's decision of 2026-11-17,
+  Q3).
+
+**Where.** `src/tools/jc_tool_fetch.c`, `src/tools/jc_tool_websearch.c`, `docs/HARNESS.md`'s modes.
+
+*Registered 2026-11-17, at the operator's request, from the 2026-10-27 analysis.*
+
+<a id="def-410"></a>
+### def-410 -- HARDENING.md §1 does not separate boundaries from mitigations
+
+**The finding.** §1's table names a mitigation per danger without saying which of them hold when the model is
+hostile. It has no row for a project's instruction files, instruction writes, the top-level shell or egress. A
+reader cannot tell from it what an injection can reach today.
+
+**Why deferred.** Documentation only; it is the plan's first step because it costs least.
+
+**What it would take.**
+- Every row marked boundary or mitigation, and the four rows added with today's status and the row that owns
+  each gap.
+- The operator's decision of 2026-11-17 (Q3): HARDENING.md and `--auto`'s help say plainly that the
+  normal-user mode is not an injection boundary, and recommend the container for every `--auto` run on
+  untrusted input. [HARNESS.md](HARNESS.md) already says the first.
+
+**Where.** [HARDENING.md](HARDENING.md) §1; the `--auto` line of `jichi --help` in `src/main.c`.
+
+*Registered 2026-11-17, at the operator's request, from the 2026-10-27 analysis.*
+
+<a id="def-411"></a>
+### def-411 -- no prompt-injection red-team corpus scored by effect
+
+**The finding.** No test or drive measures whether a real model follows a planted instruction, so every claim
+about the odds is unmeasured. The mock model proves a channel exists ([def-407](#def-407)); it cannot say how
+often a model uses it.
+
+**Why deferred.** It needs a drive's time on the free models. The plan starts it beside its first step, so that
+every later step is measured.
+
+**What it would take.**
+- Ordinary tasks with an instruction planted in a README, a fetched page, an MCP tool result, a commit message,
+  a file name, a test's output and a worker's report.
+- Run on the free `jlu/*` models, in each mode.
+- Scored by effect, never by the transcript: a canary file read, a request reaching a local canary listener, a
+  line written to `memory.md`.
+- The gates' offline half belongs in the smoke tier with the mock model; the live half is a drive.
+
+**Where.** `tests/smoke/`, a drive's task set in `docs/internal/`.
+
+*Registered 2026-11-17, at the operator's request, from the 2026-10-27 analysis.*
+
+<a id="def-412"></a>
+### def-412 -- `doctor` does not say when a key file is readable by the agent's shell
+
+**The finding.** M130 removes the resolved keys from a child's environment. The file a key is kept in stays
+readable by any command the model runs as the same user ([def-31](#def-31)). `doctor` reports the
+process-level protection but says nothing about the file. A model does look: in the clean-container baseline of
+2026-11-10 (G8 of the jichi-as-its-own-guide design note), jlu/qwen3.8-27b, unable to verify its model from
+inside its run, looked for the key five ways, among them `~/.jichi.env`, the shell's startup files and every jichi
+process's `/proc/<pid>/environ`. jichi's own process is not dumpable, so the last was refused; no file in that
+container held the key.
+
+**Why deferred.** The line can only pass once [def-330](#def-330)'s read rules exist on the platform; it is
+ordered with def-330.
+
+**What it would take.** A `doctor` line that names a key file the configuration references and says whether the
+active fences let the agent's shell read it, as a warning when they do. It becomes a pass once def-330's read
+rules exist on the platform.
+
+**Where.** The `doctor` key checks, `src/util/jc_landlock.c`.
+
+*Registered 2026-11-17, at the operator's request, from the 2026-10-27 analysis.*
+
+## Open — the Haiku row's two leftovers (registered 2026-11-17)
+
+The Haiku row was ported and driven by hand on 2026-09-28 (M830). Two pieces of that work were left open in
+[platform-notes/haiku.md](platform-notes/haiku.md) and in no register: the rig script, and the investigation of
+two failing smoke drivers. The operator asked on 2026-11-17 to register both now and to do the work at the
+platform retest that follows the hardening drive.
+
+| Deferred | Detail |
+|---|---|
+| Haiku has no rig script, and has not been run since M830 | [details](#def-413) |
+| on Haiku, `parallel_run_id_base` and `parallel_salvage` found the orphaned batch's base empty | [details](#def-414) |
+
+<a id="def-413"></a>
+### def-413 -- Haiku has no rig script, and has not been run since M830
+
+**The finding.** Haiku (R1~beta6, hrev60160 x86_64, under qemu with KVM) was verified and driven **by hand** on
+2026-09-28 (M830): `make WERROR=1` with 0 warnings, the unit suite 14,119 checks with 0 failures, smoke 364 of
+370 drivers, and both model turns (`TIER-V-HAIKU-82a3a0`). Every other virtual-machine row has a rig under
+`scripts/` (for example `tier-v-illumos.sh`, `tier-v-bsd.sh`, `tier-v-guix.sh`); Haiku has none. The
+2026-11-13 re-measure for 0.14.0 lists Haiku as not run. So the row's numbers are M830's, from a suite that
+has since grown to 38,129 checks.
+
+**Why deferred.** Haiku has no cloud-init, so its image had to be installed once through its desktop; the
+provisioned image with key-only ssh exists. Nobody waits on a Haiku row, and the drives come first.
+
+**What it would take.**
+1. `scripts/tier-v-haiku.sh` on the illumos rig's pattern: an overlay on the provisioned base image, a
+   headless boot under KVM with a forwarded ssh port, the tree shipped with `git archive`, then the build,
+   the unit suite, the smoke tier and the two driven turns, with the verdicts read from positive markers.
+2. Its first run at the platform retest after the hardening drive, and the row's numbers updated from it.
+3. Before it lands, the rig's own refusals red first (no image, no ssh, a build that fails).
+
+<a id="def-414"></a>
+### def-414 -- on Haiku, `parallel_run_id_base` and `parallel_salvage` found the orphaned batch's base empty
+
+**The finding.** **Measured 2026-09-28** (M830), on Haiku only. Both drivers create an orphan: they kill a
+`spawn_parallel` batch mid-run, so no teardown runs. `parallel_run_id_base` (M811) then checks the orphan's
+run-id base (`worktrees/par-<run>`, its lock and its manifest), and `parallel_salvage` (M812) checks that the
+next batch preserves it as `parallel-orphaned`. On Haiku the discovery of that orphan base came back empty,
+and both drivers failed. The other four failures of that run were test tooling, named in the platform notes
+(`reading_trace`'s path normalisation, `portability_lint`'s `grep -oE`, `setup_keyfile`'s pty driver). This
+one is marked there as "a Haiku process/worktree difference to investigate". It has not been investigated
+or re-run since.
+
+**Why deferred.** It needs the Haiku guest, and def-413's rig makes the re-run repeatable.
+
+**What it would take.**
+1. Re-run both drivers on Haiku at the current master (def-413's rig).
+2. If they still fail, find where the empty base comes from: the kill that makes the orphan, the lock, or the
+   discovery itself. A fix comes with a check that is red on Haiku without it.
+3. If the drivers' own assumption is what differs on Haiku, fix the drivers and say so in the platform notes.
+
 ## Open — the self-driving harness (plan 2026-10-21)
 
 The operator asked on 2026-10-21 why D4 (jichi-harness, decided 2026-10-04) was never
@@ -4572,6 +4789,15 @@ the arguments from the ticket itself (the model's copy-back is a no-op) and tele
 model's work entirely.
 **When:** the next time a run hits the refusal and the re-composition costs more than the
 repair; it is not H4 work.
+
+*Added 2026-11-16 (SV:1045), a dated addition to the evidence: the M1194 A5 driver's mock child
+copied the elided-arguments placeholder in 16 places, and the placeholder's `ticket` named a file
+that did not exist yet (the elision's own output had not been written when the model's copy-back
+was refused) -- so option (b), the repair reading the arguments from the ticket, is UNSAFE AS
+WRITTEN: a ticket can point at a file that is absent or still being written. Option (b) needs the
+ticket's existence (and, if the repair reads mid-elision, a stable contents) checked before it can
+be the chosen design; the 16 copies are in the A5 worker's recorded run (the cell's mock,
+run 0060, task_run ...-b3-t1).*
 
 <a id="def-360"></a>
 #### the records-branch push in `jichi-harness drive` (BUILT in M1147/H7 -- the push records command + the in-loop records push, teamPush-gated)
@@ -5486,9 +5712,14 @@ and witnessed (the run 0053 LOG's /tmp reproduction: the canary readable from
 environ, the readlink succeeding; the driver `tests/smoke/harness_proc_hide.sh`
 cells 1/2 red on the unhardened tree, the witness cell 3 green before and
 after). D-F8-4 stays open in `docs/DECISIONS.md` (`dec-2026-11-12-harness-
-linux`): the nine `/proc/self/exe` refusals remain the clear signal, and the
+linux`): the `/proc/self/exe` refusals (nine when this was written, eleven at 0.15.0) remain the clear signal, and the
 self-path option (12.5.1), the team-smoke wait's fail-open and the non-Linux
 row are deferred to the first non-Linux harness host.
+
+*2026-11-17: D-F8-4 is decided (`docs/DECISIONS.md`, `dec-2026-11-12-harness-linux`,
+its amendment): a trigger, not a date. The deferred items above start when someone
+needs to run a drive on a non-Linux host, and not before the harness-port drive's exit
+(H13).*
 
 <a id="def-384"></a>
 ### def-384 -- `mkdtemp` is undeclared where the build adds `-D_XOPEN_SOURCE=600` (design review F4, SV:1939)
@@ -5530,6 +5761,215 @@ on `exec` success, so a failed `exec` reports the errno the parent got (the
 distinguishing bit M1179's 127 report cannot supply), with a red-first cell on
 the fork backend. `docs/analysis/2026-11-13-three-defects-the-review-found.md`
 section 3, "Not done yet", is the reference.
+
+<a id="def-398"></a>
+### def-398 -- the LEAD's own `popen` command path is not cancelable (M1192, B3.2, D8)
+
+**The defect.** B3 (def-376) promises a `control cancel-cmd` that stops the
+current command on BOTH of the lead's shell paths. Only one of them is
+delivered in M1192:
+
+- **The watched path** (`run_command_watched`, src/chat/jc_app.c, reached when
+  `mem_budget_mb > 0 || timeout_sec > 0` -- the default for `--auto`/`--unattended`
+  and the path the frozen driver `harness_cancel_cmd.sh` exercises) IS cancelable:
+  its select loop has a cancel kill-arm (D2) that consumes `app->cmd_cancel`,
+  group-kills the pgroup with SIGTERM, and reports exit 143. `app->cmd_in_flight`
+  is 1 across it, so the lead-form cancel is accepted.
+- **The `popen` path** (`jc_proc_popen`, src/chat/jc_app.c, reached when there is
+  no mem budget and no timeout -- the interactive-TUI default) is NOT cancelable
+  in this milestone, for two reasons that both live in code this batch does not
+  own:
+  1. **No socket flag in its loop.** The popen read loop (a `select` on the
+     pipe's fd, src/chat/jc_app.c:~1150) polls `jc_control_poll_during_call` for
+     `status` but has no `app->cmd_cancel` kill-arm -- a cancel-cmd sets the flag
+     but nothing in this path ever reads it, so the command runs to completion.
+  2. **No kill-arm to consume.** The pid is NOT the gap: D5's `jc_proc_popen_pid`
+     (src/util/jc_proc.c, landed in the same tree as this def) surfaces the
+     child's pid, and the lead's popen path already receives it
+     (jc_app.c:1340) and `waitpid`s it in the loop (B1.1). The operative gap is
+     that the popen read loop consumes no kill-arm: it has no `kill(-pid, ...)`
+     branch that a cancel could take, so even with the pid in hand the command
+     is never signalled. Closing only the read end of the pipe does not stop it
+     either -- it leaves a live shell still holding the pipe (the B1 defect,
+     re-labelled "cancelled"). (M1192 E-F1 reworded this reason: it previously
+     claimed "no pid to kill", which was stale once D5 landed.)
+
+**Why deferred.** Making the lead's popen path cancelable is a change inside
+`src/chat/jc_app.c` / `src/util/jc_proc.c` (the watched-loop kill-arm + a
+pid-returning popen variant), which is wave E-A's file set for B1, not this
+batch's -- and the frozen driver cell 4 does not reach the popen path (the
+`--auto` run arms the mem budget, so it takes the watched path). It is the
+honest record that B3.2's "both paths" is delivered this milestone as
+**watched-path-cancel + pool-child-popen-cancel** (the pool child's popen
+commands ARE cancelled via the child's own SIGUSR1 abort flag -> its watched
+kill-arm), with the lead's own popen path outstanding.
+
+**What it would take.** A cancel kill-arm in the popen read loop (consumes
+`app->cmd_cancel`, group-kills), which needs the child's pid -- the
+pid-returning `popen` variant (D5, alongside wave E-A's B1) or re-pointing the
+path at the watched mechanism -- plus a red-first cell driving a `control
+cancel-cmd` at a lead command running on the no-budget, no-timeout path.
+
+<a id="def-399"></a>
+### def-399 -- the lead's popen-adopted background job is best-effort-killed (M1192, wave E-F1)
+
+**The defect.** When the lead's `popen` shell path (src/chat/jc_app.c, reached
+when there is no mem budget and no timeout) exits while a `cmd &` job still
+holds the pipe's write end, the job is adopted into the background registry via
+`jc_app_b1_adopt` with `adopt_pgid = 0` ("no job group to signal"). The popen
+path keeps the shell in JICHI's own process group (`new_pgroup` is not set, so
+the shell's pid is not a usable group), and the backgrounded job re-parents to
+init but stays in that same group, so a group kill would signal jichi itself.
+`jc_bg_kill` and `jc_bg_mgr_free`'s kill arm therefore signal ONLY the drainer
+by its pid. The job is stopped only best-effort: once the drainer dies, the
+job's next write hits a broken pipe and it gets SIGPIPE -- but a SILENT job
+(never writing again) is not stopped by `kill_background` until it writes or
+exits on its own. The shipped comment at jc_app.c:833-840 previously claimed
+"the re-parented shell was the group leader, so kill(-pid) still stops it"; that
+claim is false and is corrected (M1192 E-F1), and `adopt_pgid` is now stored as
+0, which matches what the kill code actually does.
+
+**Why deferred.** Giving the popen job its own process group (the rejected
+alternative) would change the popen path's group structure, which the deadline
+and abort kill arms depend on -- a regression risk on a path the frozen drivers
+never reach (they arm `runTimeout:20`, so they take the watched path). The
+WATCHED path is unaffected and IS the real guarantee: its shell runs in its own
+group (`new_pgroup = 1`, jc_app.c:933), so `jc_bg_kill` signals both the group
+(`kill(-adopt_pgid)`) and the drainer and really stops the whole job.
+
+**What it would take.** Either a red-first cell driving a `kill_background` at
+a silent popen-adopted job and asserting the job stops, plus a group fix for
+the popen path that does not disturb its deadline/abort kill arms; or document
+the best-effort limit in the operator-facing notes. The watched path needs
+nothing.
+
+<a id="def-400"></a>
+### def-400 -- the gate watcher's not-ff RED reaches only host.notifyCommand, no gate-note.sh / no inject (H9a switch-over, SV:1127)
+
+**The finding.** When `jichi-harness watch gate` finds that a READY head is not a fast-forward of master (the `mff == 0` arm in
+`src/harness/jc_hp_watchgate.c`), it writes the `not-ff` state word and runs `host.notifyCommand` with the RED
+text, and nothing else: no note in the drive's inbox, no inject into the live run. `gate-watch.sh`, the script
+it replaces, delivered the same RED through `gate-note.sh`: the lead's note, the inject, the digest line and the
+desktop notice. `gate run` delivers its verdicts through the port's own `notify` (`jc_harness_notify`); `watch
+gate` does not. So on a host whose hook does not deliver, the lead never learns that its READY was refused.
+
+**Why deferred.** The harness-port drive's host covers it with its hook: `notify-hook.sh` passes a not-ff RED to `gate-note.sh`,
+which delivers it as the script did. The fix: deliver the RED through `notify`, as `gate run` does, and leave the
+hook to the operator.
+
+**What it would take.** Deliver the not-ff RED through `notify` (`jc_harness_notify`), as `gate run` does; a
+red-first cell asserting the note in the inbox and the inject into the live run.
+
+*Corrected 2026-11-15 (SV:1157), the finding and why-deferred verbatim from the supervisor's note: the first
+form of this row said gate-note.sh was "a note the operator reads beside the script", that the port "does not
+inject a supervisor note", and that the operator reads the RED from watch.out. Each was wrong: gate-note.sh
+delivers to the LEAD; the missing inject is the RED into the lead's live run; the host hook calls gate-note.sh.*
+
+<a id="def-401"></a>
+### def-401 -- host.notifyCommand carries the DIGEST PATH from `notify` but the VERDICT TEXT from `watch gate` (H9a switch-over, SV:1127)
+
+**The finding.** `host.notifyCommand` is one configuration key with two calling conventions. `jichi-harness notify` runs it with
+the DIGEST PATH as its argument (docs/HARNESS.md, the `notify` section). `jichi-harness watch gate` runs it with
+the verdict TEXT (`jc_hp_watchgate.c`, `wgate_notify`). A hook written for one convention misreads the other: it
+shows a path where a verdict was meant, or opens a verdict sentence as a file.
+
+**Why deferred.** On the harness-port drive's host only `watch gate` calls the hook (the gate itself is still `gate-run.sh`, which
+does not read the config), so the host's hook expects text. The fix: one convention, documented in both sections.
+
+**What it would take.** One convention for `host.notifyCommand`, documented in both the `notify` and the `watch
+gate` sections of docs/HARNESS.md; a red-first cell per verb asserting the argument it passes.
+
+*Corrected 2026-11-15 (SV:1157), the finding and why-deferred verbatim from the supervisor's note: the first
+form of this row described a "join" of two sources inside one call and a "notify reply's digest field". There is
+neither: it is one config key that two verbs call with different arguments.*
+
+<a id="def-402"></a>
+### def-402 -- a parallel wave sets aside a same-file change even when the regions do not overlap (per-file three-way merge, design only)
+
+**The finding.** jichi's parallel merge keeps the FIRST WRITER OF EACH FILE, not each region: when
+two tasks of one `spawn_parallel` wave both edit a file, the later task's hunks to that file are
+dropped ("Dropped N change(s) (first writer kept)") and kept only as a `parallel-conflict` attempt
+ref -- even when the two tasks' hunks touch disjoint regions that would merge cleanly. A dropped
+hunk can leave the suite green when its only test is unmerged too (the M1194 A4b/A4c wave,
+run 0060: A4c's R:5 had no test and R:4's was an A5 cell, both dropped with the file).
+
+**Evidence.** The A4b/A4c wave (briefs committed at 6447b20e) both edited
+`src/chat/jc_agent.c` and `src/tools/jc_tool_parallel.c`; the merge dropped A4c's hunks in both
+files (kept at `1794793729-1`, commit `e2d55686` in the kept worktree); the re-application was
+verified byte-for-byte by replaying the worker's edit calls against `git merge-file` (SV:0306,
+which confirmed no change and no conflict).
+
+**Why deferred.** Design only. The per-file three-way merge (or a region-granular merge) would
+remove the drop; it is jichi's own merge machinery and not a drive defect to fix in this wave.
+
+**What it would take.** A per-file three-way merge in the parallel merge (base = the worktree's
+seed, ours = the first writer, theirs = the later writer's hunks), or a pre-flight that refuses a
+wave whose file sets overlap; a red-first cell with two tasks editing disjoint regions of one file.
+
+*Registered 2026-11-16 (SV:1045), the M1194 A4b/A4c wave; the lead's rule is in memory: split
+waves by file sets, and read the merge summary's Dropped/Kept lines before the gate.*
+
+<a id="def-403"></a>
+### def-403 -- the pool's hard stop ends the child, not the command it is running (SV:1357.3, measured 2026-11-16)
+
+**The finding.** `kill_one` (src/tools/jc_tool_parallel.c:1742 at fb533d16) SIGTERM's the
+child's pid and reaps after the grace (SIGKILL); it does not signal the command the
+child is running. Measured on 3934c418 with a cell-12 fixture using `sleep 37`: the
+deferral fence kill_one'd the child at graceSec 2 (the cell passed, no marker), but
+27 s after the start both `sh -c exec 2>&1; unset ...; sleep 37; ...` and its `sleep 37`
+were still running, in their own process group, re-parented. W4.3's own case is a
+worker stuck in a 45-min `make ci`: the hard stop ends the agent and leaves the `make`
+running in a worktree that is then kept or removed. `kill_one` is shared by the
+supervisor's stop-task (sup_stop) and the abort paths, so those verbs likely leave the
+command too (only the deferral-fence path was measured).
+
+**Why deferred.** Killing the command's process group is a behaviour change for EVERY
+kill path (supervisor stop, deferral fence, sent-stop fence, abort, the per-child
+deadline): the worktree's child might legitimately run a long command the operator
+wants to keep (a backgrounded job, a server for the kept work), and a group kill
+would take it. It belongs in its own milestone with its own red.
+
+**What it would take.** A cell whose command writes its own pid to a file in the
+workspace, and which checks `kill -0` on that pid after the batch (the capture-based
+check of cell 12 cannot see it: a killed child's output never reaches the model).
+Then a decision per kill path: group kill, or the command's own fence, or documented
+orphaning.
+
+**When.** When a killed worker's command is observed to outlive the batch on a run
+that depends on it (a kept worktree whose `make` still holds the build directory),
+or when the operator asks for it.
+
+<a id="def-404"></a>
+### def-404 -- the in-flight `tok` of a SENT stop stands the sent-stop fence down (SV:1158.3 / the A4d-2 review R:3, measured 2026-11-16)
+
+**The finding.** The `tok` case (src/tools/jc_tool_parallel.c:1643 at fb533d16)
+stands the sent-stop fence down (`grace_pending -> 0`) on any completed model call
+after `sup_sent` is set. If the child is mid-model-call at the send wake, that
+in-flight call's `tok` arrives AFTER the send and stands the fence down -- and a
+child that then blocks in a long command is soft-stopped at the next boundary, not
+kill_one'd at graceSec. Measured in cell 8 on 3934c418 (SV:1158): the child's
+`sleep 12` ran past graceSec 2 without a kill; the soft stop landed ~26 s after the
+flag (the mock's rule re-fires on every tool result, so at the send wake the child
+was between calls).
+
+**Why deferred.** The M1194 W4.2 contract is ONE model call of grace: the in-flight
+call IS that one, the child reads the sentinel at the boundary, and stands down.
+The deferral fence (A4d-2, 3934c418) covers the no-boundary case -- a child whose
+command outlives the grace is kill_one'd (cell 12's teeth). What is left open is
+the middle: a cooperative child that used its one grace call and then started a
+command longer than the grace.
+
+**What it would take.** Either the stand-down checks whether the grace has already
+elapsed since `sup_stop_ms` (a fence the child out-graced is not stood down by the
+grace call's own `tok`), or a teeth cell for the boundary stop: send at the wake,
+the child's in-flight call completes (tok), the child starts `sleep 8`, and the
+fence must kill_one at graceSec rather than wait for the boundary. The red is the
+second form of cell 8 (the mock's rule bound to the post-grace-call request so the
+child is in_cmd:1 at the grace, not between calls).
+
+**When.** When a soft-stopped worker is observed to run a long command past the
+grace on a run that depends on the boundary, or with a supervisor stop-task that
+expects the kill.
 
 ## Open — the 2026-11-13 platform re-measure, what it left unclassified (2026-11-13)
 
@@ -5697,6 +6137,321 @@ platform-widening page; no fix in this drive (B5).
 per section 2 step 2 (up from 103 in September; confirm the growth by
 measurement). If a defect, the smallest program with no project code.
 
+## Open — what the no-git smoke driver found (2026-11-16)
+
+`tests/smoke/git_absent.sh` runs jichi with git hidden from PATH: a farm of every other tool on PATH,
+each check beside a control run with git. Its eight checks pass. This is what it measured and does not
+fix.
+
+| Deferred | Detail |
+|---|---|
+| doctor says "not a git repository" for a repository when git is missing | [details](#def-405) |
+
+<a id="def-405"></a>
+### def-405 -- doctor says "not a git repository" when the cause is that git is not on PATH
+
+**The finding.** `jichi doctor` decides "git repository" with `jc_tool_git_available`
+(`src/tools/jc_tool_git.c:214`): one `git rev-parse --is-inside-work-tree`. When git is not on PATH,
+that command cannot run, and doctor prints "not a git repository" with "git tools are off;
+snapshots/undo need git" (`src/main.c:15831`). It does so for a directory that has a `.git`.
+
+Measured on 2026-11-16 at e3b18975: in a `git init`ed directory, with PATH set to a farm of every
+tool except git, doctor printed that line, then "snapshots enabled but git is not on PATH"
+(`src/main.c:15839`). The second line is right. The first names the wrong cause, and a user who
+reads it first looks for a missing `.git`.
+
+**Why deferred.** It is a wording fault, with a correct line beside it. Nothing runs wrongly.
+
+**What it would take.**
+- Tell the two causes apart: first ask whether `git` can run, as the snapshot manager already does
+  with `git --version` (`src/snapshot/jc_snapshot.c:533`), and only then whether the directory is a
+  repository.
+- When git cannot run, print "git is not on PATH (git tools are off)".
+- A check in `tests/smoke/git_absent.sh`, whose check 2 already runs doctor without git: the no-git
+  doctor output, in a workspace that is a repository, does not say "not a git repository". It is
+  red today.
+
+*Registered 2026-11-16, at the operator's request, with the no-git driver.*
+
+## Open — what the worker-model A/B found (2026-11-17)
+
+The supervisor compared jlu/qwen3-coder-next with jlu/qwen3.8-27b-fast on three of the harness-port drive's
+worker tasks. The record is on the branch `analysis/2026-11-17-worker-model-ab`: the public page
+`docs/analysis/2026-11-17-two-worker-models-three-small-tasks.md` and the internal record
+`docs/internal/2026-11-17-worker-model-ab/`. The first summary misread a token count (§6 of that page);
+the count's name is the defect below.
+
+| Deferred | Detail |
+|---|---|
+| a worker's `tokens` leaves out cached input, a run's `tokens_used` counts it, and the run's total adds the two | [details](#def-406) |
+
+<a id="def-406"></a>
+### def-406 -- a worker's `tokens` leaves out cached input, a run's `tokens_used` counts it, and the run's total adds the two
+
+**The finding.** jichi reports two token figures under one word, and they count different things.
+- A run's `tokens_used` counts each model call's whole input, cache included, plus its output. The agent
+  loop passes `in_tok + cache_read + cache_write` to the envelope (`src/chat/jc_agent.c:502`), which adds
+  it (`src/chat/jc_envelope.c:1125`). The control `status`, the journal's `end` row, `jichi runs` and
+  `--budget-tokens` read this figure.
+- A `spawn_parallel` worker's `tokens` counts fresh input and output only. The child's usage callback
+  drops both cache fields (`src/tools/jc_tool_parallel.c:732`: "progress board reports total tokens
+  only"). That sum is the child's `done` figure (`src/tools/jc_tool_parallel.c:1292`), the
+  `[delegate] ... · N.Nk tokens` line (`src/util/jc_delegreport.c:227`) and the `worker_outcome` row's
+  `tokens` (`src/tools/jc_tool_parallel.c:4764`).
+- Two mixes follow:
+  - When a child streamed no usage, its `done` figure falls back to its envelope's delta, which counts
+    the cache (`src/tools/jc_tool_parallel.c:1293`). One field then carries two meanings.
+  - The parent adds its workers' figures to its own `tokens_used` (`src/tools/jc_tool_parallel.c:3924`).
+    A run's total then counts the lead's cache reads and not its workers'.
+
+**Measured** on the harness-port drive's run 0061 (2026-11-16, build bbaf6a7b), from its `telemetry.jsonl`:
+- The wave at seq 131 (16:21:05-17:04:29) printed three `[delegate]` lines: 57.6k, 66.3k and 136.0k
+  tokens, 259.9k together.
+- Its 48 worker model calls (depth 1, jlu/qwen3-coder-next) add up to 259,977 tokens of fresh input plus
+  output. With their 1,014,496 cache reads they add up to 1,274,473, 4.9 times as much.
+- The lead's one model call in that window: 4,061 fresh input plus output, 131,069 as `tokens_used`
+  counts it.
+
+The four code paths are the same at bbaf6a7b and 29078736; the line numbers above are 29078736's.
+
+**Why deferred.** Nothing runs wrongly in a drive's setting, which sets no token budget. The cost is a
+misreading: the same calls read 4.9 times apart under the two counts, and the A/B's first summary drew a
+wrong conclusion from `tokens_used`. A run with `--budget-tokens` and workers is bounded on a mixed sum.
+
+**What it would take.**
+- One meaning per name. Keep the parts apart wherever a figure is shown or recorded: fresh input, cache
+  read, cache write, output. A total names what it adds.
+- The child reports all four parts in its `tok` and `done` lines (read in `src/tools/jc_parallel.c`), so
+  the parent adds like to like where it reconciles, and the fallback reports the same unit as the
+  streamed sum.
+- The `[delegate]` line and the `worker_outcome` row say which tokens they count, and so do
+  `docs/TELEMETRY.md` (the `worker_outcome` row) and `docs/CONTROL.md` (`status`).
+- A check, red today: a one-worker `spawn_parallel` against a mock model whose usage reports cached
+  input; the worker's figure and the growth of the run's `tokens_used` agree on the documented unit.
+  First check whether `tests/tools/mockmodel` can send cached-input usage, and extend it if not.
+
+*Registered 2026-11-17, at the operator's request, from the worker-model A/B (SV:0403).*
+
+## Open — an unreadable value on a fence key (decided 2026-11-17)
+
+Found while writing the Ireko reading course, and decided by the operator the same day
+([`DECISIONS.md`](DECISIONS.md#dec-2026-11-17-unreadable-fence)). Not yet built.
+
+| Deferred | Detail |
+|---|---|
+| an unreadable value on `pathFence` or `selfReview` turns the key off; the decision is to fail closed and say so | [details](#def-415) |
+| a write child shell cannot open a pty under the M831 Landlock fence, so a pty-driven cell never runs in a worker own shell | [details](#def-416) |
+
+<a id="def-415"></a>
+### def-415 -- an unreadable value on a fence key turns the fence off
+
+**The finding.** `src/config/jc_config.c:config_load_impl` reads `pathFence` (and `selfReview`)
+behind a presence test, with `jc_json_get_bool_lenient(root, "pathFence", 0) ? 1 : 0`. A value the
+lenient reader cannot read, such as `"ture"`, takes the fallback 0: the fence is off in every mode,
+where an absent key means auto. `doctor` shows `! path fence off`, and `doctor --unattended` fails
+it as `pathFence is explicitly off`. Measured on 2026-11-17 at `81f9d35c`
+([`reading/ireko-06-who-wrote-this-json.md`](reading/ireko-06-who-wrote-this-json.md), Try it,
+step 2). The same shape one layer over: `spawn_subagent` reads `readonly` behind a presence test
+with a fallback of 0, so `"readonly": null` overrides a read-only agent profile (the 2026-10-08
+review's finding F9, still open).
+
+**The decision.** `dec-2026-11-17-unreadable-fence`: the reading fails closed (the fence on in
+every mode; a permission not granted), and the report is loud, its level configurable (`warn`, the
+provisional default; `refuse`).
+
+**What it would take.**
+- One helper that reads a fence key: an absent key gives the caller's absent meaning, a readable
+  value gives the value, and an unreadable value gives "on" and records the key and the value.
+  Every fence key goes through it: `pathFence`, `selfReview`, `spawn_subagent`'s `readonly`, and
+  the YAML fence keys of M534.
+- One strictness key for the report, in the shape of M1006's (for example
+  `strictness.unreadableFence`: `warn`, the PROVISIONAL default, or `refuse`, which stops before the
+  run), and a telemetry event in every mode, with its reader in the same milestone.
+- `doctor` names the key, the value and the reading as a problem; `doctor --unattended` fails it
+  as unreadable, not as explicitly off.
+- Red first: `"pathFence": "ture"` reads as on in a chat run and under `--auto`;
+  `"readonly": null` gives a read-only child; `refuse` stops with the key named; the warning names
+  the key and the value.
+- A lint that every fence key is read through the helper, and `tests/smoke/config_bool_lint.sh`
+  check 23 extended to a key behind a presence test (today it tests prose only on `snapshots`,
+  which has none).
+- The comments that already promise this (`include/jc_str.h`, `src/tools/tool_util.c:tu_arg_bool`)
+  then hold; `include/jc_json.h`'s list of words gains `on`/`off`.
+- A CHANGELOG line for upgraders: a config that carries an unreadable value on a fence key now gets
+  the fence.
+- The Ireko course's chapter 6 quotes the reading code: its quote and its section "What is left"
+  move in the same milestone.
+
+**Partly built on 2026-11-26, for 0.15.0** (the operator's word that day, on a proposal of the
+threadwork review): `pathFence` and `selfReview` go through one helper
+(`src/config/jc_config.c:cfg_read_fence_key`); an unreadable value reads as on, in every mode; one
+warning at load time names the key and the value; `doctor` shows a problem and
+`doctor --unattended` fails it as unreadable. `tests/smoke/pathfence.sh` cells 6 to 10 hold it.
+The same day, the fence keys outside the config file: `spawn_subagent`'s `readonly` goes through
+`src/tools/tool_util.c:tu_arg_fence`, and an agent profile's `readonly:` reads an unreadable word
+as read-only (`src/command/jc_agentdef.c:parse_one`); `tests/smoke/readonly_delegate.sh` scenario C
+and unit checks hold them.
+**Still open from the list above:** the strictness key (`refuse`), the telemetry event, the lint,
+`config_bool_lint.sh` check 23, and `include/jc_json.h`'s word list. "The finding" above describes the tree before this.
+
+*Registered 2026-11-17, with the operator's decision. The number is the next free one on this
+branch (the prompt-injection plan's branch holds def-407 to def-414); check it against the tree at
+landing.*
+
+## Open — a functional style for jichi's C, the JSON layer first (designed 2026-11-19)
+
+Designed on 2026-11-19 at the operator's question, in
+[`analysis/2026-11-19-functional-style-in-c89.md`](analysis/2026-11-19-functional-style-in-c89.md).
+Nothing is built; the operator deferred it the same day.
+
+| Deferred | Detail |
+|---|---|
+| the `jc_json` layer has no path lookup and no getter that returns found / missing / wrong type; S1-S3 beside it | [details](#def-417) |
+
+<a id="def-417"></a>
+### def-417 -- the JSON layer has no path lookup and no outcome-returning getters
+
+**The finding.** Measured at `98bfcbd0` (the commands are in the design note, section 4):
+- About 1,400 call sites in `src/` look into a cJSON tree: 251 `cJSON_GetObjectItem`, 768
+  `jc_json_get_*` and 415 `cJSON_Is*` calls.
+- 251 of the 364 `jc_json_get_str` calls pass `NULL` as the default to tell absent from present.
+  Numbers and booleans have no such channel.
+- 9 files dispatch on a type field with `strcmp`. A value they do not know falls through without a
+  count, for example `delta.type` in `src/provider/jc_provider_anthropic.c`.
+- A dot-path lookup exists only in the tests: `tests/tools/jq_core`, 182 lines, used through
+  `jsonq` by 91 smoke drivers.
+
+**The design** (the note's section 5):
+- **J1.** Promote `jq_core`'s path lookup into the `jc_json` layer:
+  - no `malloc` per key;
+  - an escape or a step-array form for keys that hold `.` or `[`;
+  - `jsonq` then links the product's version.
+- **J2.** Getters that return found, missing or wrong type, with the leniency set per field by who
+  wrote the JSON.
+- **J3.** A field-table matcher, built only if J1 and J2 measurably leave a gap.
+  - The measurement: one provider's event handler rewritten in a scratch branch.
+- **Beside the JSON layer:**
+  - S1, a sticky-error `jc_sb` and a sticky "cut" flag for fixed-buffer formatting;
+  - S2, dispatch tables with an explicit "unknown" arm;
+  - S3, at most five `jc_vec` helpers with a context pointer.
+- **Rejected in the note:** a general functional library, a hidden receiver, macro languages, and
+  `longjmp`.
+
+**Why deferred.** No defect is open against it, and the current handlers read well with the getters
+that accept `NULL`. A new layer has to earn its place by J3's measurement first.
+
+**What it would take.**
+- Each step is its own milestone, red first.
+- J1 moves the path parser and its tests together, so the 91 drivers keep exercising it.
+- J2 changes no existing getter; callers move one by one.
+- An "unknown" count is a new telemetry event, so its reader comes in the same milestone.
+- `cJSON.h` keeps its API exactly; every extension lives in `jc_json.h`.
+
+**Revisit trigger.** The first of:
+- a milestone that adds or rewrites a wire dialect's event handler;
+- a defect traced to a JSON default that hid an absent or mistyped field;
+- the `jc_snprintf` truncation lint's milestone, for S1.
+
+*Registered 2026-11-19. The number is the next free one on the harness-port drive's branch at
+`98bfcbd0`, whose last is def-416; check it against the tree at landing.*
+
+## Open — a commit fence for a learner's project (designed 2026-11-21)
+
+Designed on 2026-11-21 after the G8 acceptance run, in
+[`plans/2026-11-09-jichi-as-its-own-guide.md`](plans/2026-11-09-jichi-as-its-own-guide.md), section "G8: the
+acceptance", item G9. Nothing is built. The operator chose to move the skill's `limits` topic first and to measure
+that before building the fence.
+
+| Deferred | Detail |
+|---|---|
+| nothing writes an authored `commit` constraint for a learner's project, so only the skill's prose stops an unasked commit | [details](#def-418) |
+
+<a id="def-418"></a>
+### def-418 -- a learner's project has no commit fence by default
+
+**The finding.** On 2026-11-19 the G8 acceptance ran `jichi -p ... --auto` on master 34756498. In that run
+jlu/qwen3.8-27b loaded the jichi-guide skill, whose `limits` topic says "Never commit for a person unasked".
+It then committed twice, through `git_commit`. The topic sits fifth in the 24,458-byte skill, after the
+17,373-byte `learner` topic. The request did not mention commits, and the project had no constraint store.
+
+**What exists.**
+- An AUTHORED constraint is binding (M110, M169). It comes from `.jichi/constraints.md` or `/constraints add`.
+  - Its `commit` rule refuses the `git_commit` tool.
+  - It also refuses a shell command matching the `commit` key (`jc_constraint_cmd_hits`), so `git commit` is
+    covered too.
+- An INFERRED constraint, scanned out of a request, only advises (M734).
+
+**The design.**
+- The learner preset and the onboarding pack write the authored `commit` rule into the project's
+  `.jichi/constraints.md`.
+- `setup` and `doctor` say the fence is there and how to lift it.
+- Rejected: a default refusal for every `-p --auto` run. The drives commit by design.
+
+**Why deferred.** The operator chose the cheaper step first: `limits` moves ahead of the `learner` topic, and the
+next G8 run measures it.
+
+**What it would take.**
+- A red-first driver: a learner-preset project, a mock model that calls `git_commit`, and a shell `git commit`.
+  Both must be refused while the rule is in the store, and both must run once it is removed.
+- An answer to whether a rule written into the store during a run binds that same run.
+- A line in the learner guide's `limits` topic and in `doctor`.
+
+**Revisit trigger.** The next G8 run shows an unasked commit with `limits` first, or any learner-preset run commits
+unasked.
+
+*Registered 2026-11-21. The number is the next free one on the harness-port drive's branch at `0ac55740`, whose
+last is def-417. Check it against the tree at landing.*
+
+## Open — one way to start jichi (designed 2026-11-21)
+
+Designed on 2026-11-21 at the operator's question, in
+[`plans/2026-11-21-one-way-to-start.md`](plans/2026-11-21-one-way-to-start.md). The operator chose (A) plus (C) the
+same day. Nothing is built.
+
+| Deferred | Detail |
+|---|---|
+| setup's interactive start scripts load a different configuration than `jichi` does, and only they load the key file | [details](#def-419) |
+
+<a id="def-419"></a>
+### def-419 -- two ways to start, and only the script loads the key
+
+**The finding.** Run on 2026-11-21 against master `34756498` (the commands and output are in the note, section 4):
+- `jichi` in a project combines `~/.jichi` with `local/config.json` and asks for the trust step.
+- `./run.sh` passes `--config local/config.json`, so the global config is not combined and the trust step is
+  skipped.
+- From a subdirectory, `../run.sh` exits 1: `config file not found: local/config.json`.
+- The script reads `JICHI_CONFIG`; jichi reads `JC_CONFIG`.
+
+jichi itself never reads `~/.jichi.env`, so for a learner who let setup store the key, the script is the only
+thing that loads it. `TUTORIAL_BEGINNER.md` checks the key one way (line 155) and starts the session the other way
+(line 156).
+
+**The design** (the note's section 5):
+- **(A)** jichi in the project directory is the one way to start:
+  - jichi loads `~/.jichi.env` itself: the environment first, owner-only files only, `export NAME='VALUE'` lines
+    for the configured `apiKeyEnv` names, the value never in a child's environment;
+  - a plan preset's mode goes into the project config;
+  - setup writes no script for an interactive preset;
+  - the pages teach one way.
+- **(C)** A script stays only for an unattended profile, `test.sh`. It moves to its own directory first, passes no
+  `--config`, and keeps M357's budget flags. `task.sh` is reached by no preset.
+- **Rejected:** fixing the scripts and keeping one for every preset; better documentation alone (M785).
+
+**Why deferred.** It changes setup's output, the key-loading path and four learner pages, so it is a milestone of
+its own. No run is blocked by it today.
+
+**What it would take.** Seven red-first driver checks (the note's section 7), among them: the key from the file
+reaches a local mock, a group-readable file is refused by name, the environment wins, and the key is in no child's
+environment. The pages change in the same milestone as setup.
+
+**Revisit trigger.** The first of:
+- the next milestone that touches setup or the learner pages;
+- the guide skill's `setup` topic being revised;
+- the next G8 acceptance run.
+
+*Registered 2026-11-21. The number is the next free one after def-418 (G9, the same day's other note), on the
+harness-port drive's branch at `0ac55740`. Check it against the tree at landing.*
+
 ## Closed at 2026-11-14 -- the F3 batch of the hardening drive (design review F3/F5/F8, SV:1926/SV:1939/SV:2237)
 
 | `watch gate`'s default unit-start command is not `systemd-run` syntax (three faults, SV:2327; design review F3, SV:1926) | [details](#def-381) |
@@ -5706,6 +6461,17 @@ measurement). If a defect, the smallest program with no project code.
 ## Closed at 2026-11-14 -- def-396, the dead-clone name collision (SV:1701)
 
 | `gate run --stage ci` moves a dead clone to a one-second name: two moves in one second nest and the third is a silent rc 1 (SV:1701; the 0.14.0 hosted trial's red) | [details](#def-396) |
+
+<a id="def-416"></a>
+### def-416 -- a write child shell cannot open a pty, so a pty-driven cell never runs in a worker own shell
+
+**The finding.** M831s Landlock write fence (shellFence, default on) governs a spawn_parallel write child run_terminal_command shell. Its allow-set covers the worktree and /tmp; /dev/ptmx is not in it, so ptydrive (and every pty-driven smoke cell) fails in a worker own shell with EACCES, rc 4. Witnessed on the M1200 wave 2 pty cells (SV:1652, SV:1851, 2026-11-18): the worker red-first evidence for cells 9-10 could not be produced by the worker at all, and the lead had to drive them in its own unfenced shell to witness the functional red and the green. A pty cell a worker authored but never ran is a hollow red until the lead witness, the same class as the smoke-mutant denominator hole the gate sweep check exists for.
+
+**Why deferred.** Granting /dev/pts to a write child is a design question, not a line change: a pty grant reaches the other terminals of the machine, and the M831 fence threat model (a write child must not escape its worktree) does not include pty access at all. Changing the fence allow-set is the operator call, and the M831 row above already names the fence one hot path, not a general sandbox. Nothing about the fence correctness depends on this: the pty cells run fine in the lead and the gate shells, which are unfenced.
+
+**What it would take.** Either (a) an explicit shellFenceAllow entry for /dev/ptmx and /dev/pts scoped to the smoke tier, decided with the M831 threat model; or (b) the standing workflow that already holds: a worker pty cell is edit-only, and the lead witnesses it on the merged tree in its own shell (SV:1851 formalised this: edit only; the lead runs the driver). Option (b) costs nothing and is the current practice; this row records that (a) has not been decided and that the hollow-red consequence is known, so a future gate reading a worker pty-driver evidence sees the provenance.
+
+**Revisit trigger.** A pty cell authored by a worker that is witnessed red by the lead on the merged tree for a reason the worker could have caught (the M1200 listing-menu default: the worker script selected type-an-id instead of the listed model) is the cost of (b), and the moment to weigh (a).
 
 <a id="def-394"></a>
 ### def-394 -- the gate's redfirst replay builds no `jichi-harness`, so a `harness_*` driver's "RED" is hollow (SV:1552)
@@ -5840,3 +6606,222 @@ text is the 601-name form of the D-group.
 tests/smoke/harness_gate_run.sh's D-group (replacing the S0-only `mkdir -p`
 and the D5 wall-clock assertion), re-run the driver green, and close this row.
 No C change (the fix is landed).
+
+## Open -- keeping work in progress, even when it is not green (operator 2026-11-23)
+
+| Deferred | Detail |
+|---|---|
+| a work-in-progress store: jichi saves the live tree as a declared-state entry, and the harness carries uncommitted team work on the work/* refset | [details](#def-420) |
+
+<a id="def-420"></a>
+### def-420 -- a work-in-progress store: jichi saves the live tree as a declared-state entry, and the harness carries uncommitted team work on the work/* refset
+
+**The finding.** The operator, 2026-11-23: "jichi needs to be able to store work-in-progress, even if not
+green, or known to be flawed, for later reference, analysis, correcting, and completion. Self-learners, and
+agents have to learn, and make use of that, so document this honestly, and comprehensively, too." The drive's
+records show the losses (run 0103's nine /tmp stretch fixtures, lost between runs and rebuilt by hand; run
+0097 ending at the context ceiling, safe only because it had committed first; the four hollow M1213 S1
+attempts, kept as refs, which let the lead audit them and salvage the wiring) and the saves (commits, the
+checkpoints, `preserveDiscarded`, the pool's kept states, a drive's `<branch>/work/*` refset, which
+`mirror-fetch` carries to the remote every 20 minutes and is unused today).
+
+**The design** (docs/plans/2026-11-23-work-in-progress.md, status proposed, committed 2026-11-23):
+- **(1) jichi itself.** Save the live tree as a work-in-progress entry OUTSIDE the branch history: on demand
+  (a tool for agents, a command for people), when the context-pressure note fires, at a relay leg's end, at a
+  run's end with a dirty tree, and before every destructive restore (which `preserveDiscarded` already
+  covers, M336/M337b). Each entry carries a state its writer declares (verified / red / known flawed /
+  unknown) and a note; it can be listed, shown, diffed against its base, and recovered into a worktree, never
+  over a live tree. Build on the shadow repository and `refs/jichi/discarded/<cause>/...` with `jichi
+  attempts` / `jichi recover <sha> --into <dir>` (AUTONOMY.md:198) and the pool's kept states (PARALLEL.md:241).
+- **(2) jichi-harness.** The periodic snapshot of the lead's uncommitted work that the first hardening drive's
+  scripts took (every 30 minutes, outside git) was not carried into the port. With each 20-minute fetch the
+  harness saves the team tree's uncommitted changes as an entry and carries it to the remote on the existing
+  `<branch>/work/*` refset (HARNESS.md:165, :207), with the push's key scan and size check. A crashed or
+  context-exhausted run's half-done work then survives the container and the host.
+- **The honesty rules:** a work-in-progress entry never counts as done; no gate, ledger or READY line reads
+  it; its declared state is shown wherever it is listed; nothing is deleted automatically.
+
+**Rejected:** extending `preserveDiscarded` to auto-save on demand (it is keyed to a destructive restore, not
+a snapshot); a branch of its own (it would pollute the history the ledger reads, and the operator's rule is
+that an entry never counts as done -- a done-looking branch counts as something it is not).
+
+**Why deferred.** Design now, build when needed (the operator's card: queue position beside H13, both about
+what survives an interruption; card [137]). No run is blocked by it today: the standing rule that keeps a run
+safe is "anything a later step needs lives in the tree, in the notes folder, never only in /tmp" (SV:0818,
+added to PLAN section 9).
+
+**What it would take.** The note's checklist: the entry record (state + note + base), the five save triggers,
+the list/show/diff/recover verbs, and the harness's fetch-time save onto work/* with the key scan.
+
+**Revisit trigger.** The first of: a run that loses work it cannot rebuild (the /tmp-fixture class, a third
+time); the context-pressure feature's next revision; the H13 (reboot checkin) batch, which is about the same
+survival.
+
+*Registered 2026-11-23. The number is the next free one after def-419 (2026-11-21), on the harness-port
+drive's branch at `1d87a4ef5`. Check it against the tree at landing.*
+
+## Open — the unmeasured time limits (the limits census, 2026-11-21)
+
+The census of every default limit ([`LIMITS.md`](LIMITS.md), at `master` 0e301f54) counted 113 time limits; five
+distinct ones have a measurement or an incident written down (its section 4.2). These rows say what to measure, and
+how. The census page ([`LIMITS_TABLE.md`](LIMITS_TABLE.md)) names every limit.
+
+| Deferred | Detail |
+|---|---|
+| the network side calls' total deadlines are called "measured" but no measurement is recorded | [details](#def-421) |
+| the harness's own deadlines (30 s, 120 s, 600 s) were never measured against the commands they bound | [details](#def-422) |
+| the tools' and workflows' deadlines (verify, synthesize, setup, LSP, PDF) are unmeasured caps | [details](#def-423) |
+
+<a id="def-421"></a>
+### def-421 -- the network side calls' total deadlines are called "measured", but no measurement is recorded
+
+**Why:** eight totals in `src/net/` carry comments or a report (M1093) calling them "measured-working": posts, image and
+audio generation 60 s each, transcription 120 s, the model probes 5, 6 and 6 s. The census (2026-11-21) found no
+measurement behind any of them. A probe of 5 or 6 s is shorter than the TLS handshakes measured on 2026-11-05 (9.9 to
+11.7 s, M1144). When one fires, its message can name the wrong limit (LIMITS.md section 4.3).
+
+**Measure:** for each side call, the duration distribution of SUCCESSFUL calls on the free models and gateways in use
+(telemetry, caps off), split into connect, first byte and total. Set each default from that distribution with the
+headroom stated, or say `unmeasured` at the definition. Fix the misnamed messages in the same change.
+
+**Until then:** the numbers stay, tagged `unmeasured`.
+
+<a id="def-422"></a>
+### def-422 -- the harness's own deadlines were never measured against the commands they bound
+
+**Why:** the gate and push ports bound their helper commands with 120 s (git reads) and 600 s (the gate's helper
+commands). The reference scripts had no deadlines at all; one port comment says its 600 s copies the reference,
+which it does not. Since the census, the re-pin port's children run under a named 600 s (`RR_CHILD_DEADLINE`,
+M1203-i), chosen without a measurement too. The gate orchestrator's two calls in `src/harness/jc_hp_gate.c` still
+pass `0L`, which is the 30-second kill of ANECDOTES 130 (LIMITS.md section 6). No measurement stands behind any of
+these numbers (LIMITS.md section 4.2).
+
+**Measure:** the host gate's and push's own records (gate/<sha>/run.log, push.log) already time every step of every
+real landing since 2026-11-05. Take each helper's distribution from them, and set each deadline from that with the
+headroom stated, or remove it where the reference had none.
+
+**Until then:** tagged `unmeasured`. The gate orchestrator's two `0L` calls get an explicit "no deadline" before that
+orchestrator judges real batches.
+
+<a id="def-423"></a>
+### def-423 -- the tools' and workflows' deadlines are unmeasured caps
+
+**Why:** workflow verify 600 s and synthesize 180 s, improve verify 600 s (a timeout is graded FAIL with no message),
+spec setup 120 s, LSP initialize 30 s (the server is then dead for the session), PDF extraction 30 s (reported as
+"could not extract text"). None has a measurement written down, and several report a kill as something else (census,
+2026-11-21; each has its entry in LIMITS_TABLE.md).
+
+**Measure:** run each on the project's own largest real inputs with caps off, and record the distribution. Then set
+the default from it, or say `unmeasured`. Make each kill say "timed out after N s (<limit name>)".
+
+**Until then:** tagged `unmeasured`.
+
+*Registered 2026-11-23. Written on 2026-11-21 as def-420 to def-422, in a documentation handover that was not
+applied then (ANECDOTES 130, "Afterwards"); def-420 has since gone to the work-in-progress store, so these are the
+next free numbers after it, on the harness-port drive's branch at `5df3335b`. Check them against the tree at
+landing.*
+
+## Open — one converter: `jichi-convert` folds into `jichi setup --import` (operator 2026-11-23)
+
+The operator asked on 2026-11-23 whether `jichi-convert` is still needed. The conversion code is shared: `jichi` links
+it for `jichi setup --import`, so the separate program is a 315-line front end (`src/convert/jc_convert_main.c`). But
+`setup --import` does not yet do four things only `jichi-convert` does. The operator's decision: keep it, fix its
+`-o` defect now, and merge it into `jichi` later ([`DECISIONS.md`](DECISIONS.md#dec-2026-11-23-one-converter)).
+
+| Deferred | Detail |
+|---|---|
+| `jichi setup --import` gains what only `jichi-convert` does; then `jichi-convert` is deprecated for one release and removed | [details](#def-424) |
+
+<a id="def-424"></a>
+### def-424 -- `jichi setup --import` gains what only `jichi-convert` does; then `jichi-convert` goes
+
+**Why:** two front ends over one conversion core is two places for one behaviour to drift. It already did: the
+`-o` path of `jichi-convert` ignored `--force` and `--dry-run` (fixed 2026-11-23, `tests/smoke/convert_output.sh`),
+while `setup --import` refused to overwrite from the start. No test ran `jichi-convert`'s command line until then.
+
+**What `setup --import` lacks today** (read at the drive's team head 61dc01a8, 2026-11-23):
+- a Claude Code config tree: `setup --import` calls `jc_convert_run`, not `jc_convert_run_claude`, and its help names
+  only Continue and opencode;
+- a preview that writes nothing: `jichi-convert` prints to stdout by default and has `--dry-run`;
+- the search of the usual places when no path is given (`~/.continue/`, `./opencode.json`, `./.claude`,
+  `~/.claude/`);
+- stdin (`-`).
+
+**Plan:** add those four to `setup --import`, each red-first. In the next release after that, `jichi-convert` prints a
+one-line deprecation notice naming the `setup --import` form of the same command, and the docs point to that form.
+In the release after, it is removed: the Makefile's `all`, `install` and `uninstall`, the two tests that count three
+programs (`install_no_build.sh`, `harness_third_program.sh`), and every page that says "three programs".
+
+**Until then:** `jichi-convert` stays, fixed, and documented in [`CONVERT.md`](CONVERT.md).
+
+*Registered 2026-11-23, on the operator's word; the next free number after def-423 on the harness-port drive's branch
+at `61dc01a8`. Check it against the tree at landing.*
+
+## Open — jichi-harness on a host without systemd (designed 2026-11-23)
+
+The operator asked on 2026-11-23 what options exist besides systemd. The harness stays a Linux-with-systemd program
+until someone needs a drive on another host ([`DECISIONS.md`](DECISIONS.md#dec-2026-11-12-harness-linux)); the design
+for that day is [`plans/2026-11-23-harness-without-systemd.md`](plans/2026-11-23-harness-without-systemd.md).
+
+| Deferred | Detail |
+|---|---|
+| a portable POSIX backend for the harness's timers, services, detached gate jobs and state queries, beside systemd | [details](#def-425) |
+
+<a id="def-425"></a>
+### def-425 -- a portable POSIX backend for jichi-harness, beside systemd
+
+**Why:** systemd does four jobs for the harness: the timers (`push units`, `watch units`), the long-running loop,
+the detached gate jobs (`systemd-run --user --collect --nice=19`) and the state queries (`systemctl --user
+is-active`, `list-units`). That keeps the harness off the BSDs, macOS and Linux without systemd. Half the seam exists:
+the watcher's and the page watcher's systemd calls are commands named in the config.
+
+**Design:** keep systemd as the default on Linux. Add one POSIX backend rather than one per service manager: cron
+lines for the timers (with a neutral schedule and a catch-up from the tick's own last-tick stamp), the harness
+detaching its gates itself into a process group with a lease file, and the lease files answering the state queries.
+Together with the `/proc/self/exe` fix the 2026-11-12 decision already names. The plan lists what this rebuilds by
+hand (killing a whole tree, catching up, logs, starting without a login) and the open questions.
+
+**Trigger:** the first drive someone needs to run on a host without systemd. Until then, a small Linux VM or
+container on that host runs the harness today.
+
+*Registered 2026-11-23, on the operator's word; the next free number after def-424 on the harness-port drive's branch
+at `4d77216c`. Check it against the tree at landing.*
+
+## Open — a default worker profile: the fence that does not depend on the lead remembering it (SV:0634, operator 2026-11-24)
+
+A delegated write worker is fenced only when the lead names an `agent` profile in the call
+(`jc_tool_parallel.c:3517`, `jc_tool_subagent.c:232`); there is no config default, so the
+drive's `edit-worker` profile (the no-shell fence, `eabdf9e73`) is an instruction the lead
+must keep repeating. The design note carries the shape: a config default profile, a
+strictness dial (off/warn/refuse, the M1006 idiom), a telemetry event on every checked
+dispatch with a reader in the same milestone, the default PROVISIONAL in DECISIONS with its
+deciding measurement, and SV:0243's per-command shell fence weighed as the related gap.
+
+| Deferred | Detail |
+|---|---|
+| a default profile for delegated write workers (off / warn / refuse dial, telemetry first, PROVISIONAL default) | [details](#def-426) |
+
+<a id="def-426"></a>
+### def-426 -- a default worker profile, so the fence does not depend on the lead remembering it
+
+**Why:** a write task that names no `agent` profile gets the full tool set, the shell
+included (`include_mutating = (t->write && !app->readonly)` is the only gate,
+`jc_tool_parallel.c:1273`). The drive's no-shell fence exists (`.jichi/agents/edit-worker.md`,
+`eabdf9e73`) but only when named; run 0109's first dispatch omitted the name (SV:0533) and
+the worker went out with a shell, the same one-level-up failure the "never run park by
+hand" briefs fixed. The product must hold the rule, not the instruction.
+
+**Design:** `docs/plans/2026-11-24-default-worker-profile.md` -- a config default profile
+applied to a write task that names none; a dial in M1006's `strictness` object
+(`dirtyDispatch`'s sibling, the lenient-read + name-at-load idiom) for a write task that
+would run unfenced; a telemetry event on EVERY checked dispatch in every mode with its
+reader in the same milestone; the product default PROVISIONAL in DECISIONS until the
+census (unnamed-write dispatches per drive, one week) decides refuse or off; SV:0243's
+per-command shell fence registered here as the related gap (it bounds a shell worker; this
+card removes the shell from the default -- they compose).
+
+**Trigger:** the next drive whose lead forgets the profile name, or an operator word after
+the telemetry census exists. Not in H12; not a blocker for H12's READY.
+
+*Registered 2026-11-24, on the operator's word (SV:0634); the next free number after def-425
+on the harness-port drive's branch at `b14be77d8`.*

@@ -1,4 +1,4 @@
-.TH JICHI 1 "2026-11-07" "jichi 0.14.1" "User Commands"
+.TH JICHI 1 "2026-11-07" "jichi 0.15.0" "User Commands"
 .SH NAME
 jichi \- terminal AI coding agent, written in C89
 .SH SYNOPSIS
@@ -469,6 +469,11 @@ project analysis + tutorial (W6)
 Scaffold .jichi/ assets (agents, skills, commands, AGENTS.md);
 .TP
 .B \-\-list packs, \-\-global, \-\-force, \-\-dry\-run
+.TP
+.B guide [topic]
+Print the compiled-in jichi guide (setup model learner agents limits commands);
+offline, no provider or network. No argument lists the six topics; a topic
+prints its sections; an unknown topic is a named refusal (exit 2).
 .TP
 .B embed "text"
 Print an embedding (uses the embed model)

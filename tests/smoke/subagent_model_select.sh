@@ -80,8 +80,10 @@ fi
 # one-line greedy pattern (the old bug) cannot collapse two definitions into one
 # match.
 f1="$tmp/miss/req.1"
-n=$(smoke_bgrep "$f1" -o '"name":"spawn_subagent","description"' | wc -l)
-n=$(echo "$n")
+# tr, not `echo "$n"`: a quoted echo keeps the blanks the wc of FreeBSD and
+# illumos puts before its count, and the comparison below is a string
+# comparison (TW24, 2026-11-25).
+n=$(smoke_bgrep "$f1" -o '"name":"spawn_subagent","description"' | wc -l | tr -d ' ')
 if [ "$n" = 1 ]; then
     t_ok "spawn_subagent is defined exactly once (dynamic replaces the static form)"
 else

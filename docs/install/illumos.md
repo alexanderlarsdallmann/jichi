@@ -15,9 +15,13 @@ with the right profile), the jichi **source code** (the folder with `Makefile`, 
 
 ## 1. Status
 
-**Partly verified, fully driven, and green** (OmniOS CE r151058): the first non-Linux,
-non-BSD kernel jichi was built on. It compiles clean and runs the unit suite and most
-of the shell test tier, and a model has been driven on it. See its row in
+**Partly verified and fully driven** (OmniOS CE r151058):
+the first non-Linux, non-BSD kernel jichi was built on. It compiles clean and passes the
+unit suite, and a model has been driven on it, most recently at `6ed996bf` (a 0.15.0 candidate,
+2026-11-25). Its shell test tier was green from M703, did not build at `a0a8b4ae`, and
+builds again at `6ed996bf`, where 21 of 582 drivers fail: 13 of them are
+`jichi-harness` drivers (that program is Linux-only for now), and 8 are jichi's. See
+its row in
 [`PLATFORMS.md`](../PLATFORMS.md#the-matrix).
 
 ## 2. Who this is for, and what "installed" means

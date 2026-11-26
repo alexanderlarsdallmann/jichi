@@ -29,6 +29,7 @@
 /tests/tools/rsshwm
 /tests/tools/keyprobe
 /tests/tools/sockbind
+/tests/tools/longredirect
 
 # Local, untracked working files (e.g. a copy of the real Continue config)
 /local/

@@ -35,10 +35,10 @@ the two ever disagree, PLATFORMS.md is right.
 | Platform | Status | How |
 | --- | --- | --- |
 | **Linux** | **Verified** — compiled and gates run: gcc + clang, ASan/UBSan, valgrind, fuzz, smoke, e2e; x86-64, aarch64, armhf, s390x big-endian, musl static ([the matrix](PLATFORMS.md#the-matrix)) | native |
-| **FreeBSD** | **Verified — the full gate**, and **Driven**: a live model call and a real tool call ran there. `gmake WERROR=1` clean in **7 s**; smoke **OK (305 drivers, 1,742 checks)** at the 0.9.2 release tree. | `pkg install gmake pkgconf curl` · `gmake` |
-| **NetBSD** | **Verified — the full gate**, and **Driven**. Build clean in **8 s**. Ships GNU grep, which is why some text-tool defects hide here and surface on OpenBSD. | `pkg_add gmake pkg-config curl` · `gmake` |
-| **OpenBSD** | **Verified — the full gate**, and **Driven**. Build clean in **9 s** with clang 19.1.7. Its `/bin/sh` is **ksh**, so the smoke tier runs under a shell nothing else in the matrix exercises. | `pkg_add gmake curl` · `gmake` |
-| **illumos / Solaris** | **Partly verified, FULLY DRIVEN and GREEN since M703** (OmniOS CE) — both turns through the rig, re-driven 2026-09-22; `19 ok, 0 failed`, 317 of 317 smoke drivers, coverage debt 0. Clean `WERROR=1` build with gcc; **no source conditional was needed** — two build facts are probed. | [packages below](#illumos--solaris-partly-verified) · `gmake CC=gcc` |
+| **FreeBSD** | **Partly verified** since 2026-11-24: at `6ed996bf` (a 0.15.0 candidate) the unit suite passes and 21 of 582 smoke drivers fail, 13 of them `jichi-harness`'s, a Linux-only program ([the row](PLATFORMS.md#partly-verified)). Was **Verified — the full gate**, and is **Driven**: a live model call and a real tool call ran there. `gmake WERROR=1` clean in **7 s**; smoke **OK (305 drivers, 1,742 checks)** at the 0.9.2 release tree. | `pkg install gmake pkgconf curl` · `gmake` |
+| **NetBSD** | **Partly verified** since 2026-11-24: at `6ed996bf` (a 0.15.0 candidate) the unit suite passes and 14 of 582 smoke drivers fail, 12 of them `jichi-harness`'s, a Linux-only program ([the row](PLATFORMS.md#partly-verified)). Was **Verified — the full gate**, and is **Driven**. Build clean in **8 s**. Ships GNU grep, which is why some text-tool defects hide here and surface on OpenBSD. | `pkg_add gmake pkg-config curl` · `gmake` |
+| **OpenBSD** | **Partly verified** since 2026-11-24: at `6ed996bf` (a 0.15.0 candidate) the unit suite passes and 18 of 582 smoke drivers fail, 13 of them `jichi-harness`'s, a Linux-only program ([the row](PLATFORMS.md#partly-verified)). Was **Verified — the full gate**, and is **Driven**. Build clean in **9 s** with clang 19.1.7. Its `/bin/sh` is **ksh**, so the smoke tier runs under a shell nothing else in the matrix exercises. | `pkg_add gmake curl` · `gmake` |
+| **illumos / Solaris** | **Partly verified and FULLY DRIVEN; GREEN from M703 until the 0.14.0 retest** (OmniOS CE) — both turns through the rig, re-driven 2026-09-22; `19 ok, 0 failed`, 317 of 317 smoke drivers, coverage debt 0. At `a0a8b4ae` (2026-11-24) the smoke tier did not build (three test helpers linked without `-lsocket -lnsl`); **at `6ed996bf` (a 0.15.0 candidate) it builds again, the unit suite passes, and 21 of 582 smoke drivers fail**, 13 of them `jichi-harness`'s, a Linux-only program. Clean `WERROR=1` build with gcc; **no source conditional was needed** — two build facts are probed. | [packages below](#illumos--solaris-partly-verified) · `gmake CC=gcc` |
 | **GNU/Hurd** | **Partly verified, and Driven** (M767, M768): Debian hurd-amd64 under KVM. `make -k` clean on the first try (0 errors, 0 warnings, gcc 15.2.0); `smoke: OK (342 drivers, 1,988 checks)`; one unit check, M461's timing of a process-group kill, fails there. Its make is GNU make: type `make`. | [below](#gnuhurd-partly-verified) · `make` |
 | **Haiku** | **Partly verified, and Driven** (M830) | one Makefile line: sockets are in `libnetwork` ([notes](platform-notes/haiku.md)) |
 | **macOS** | **Partly verified, and Driven** (M817) | `_DARWIN_C_SOURCE`; Apple clang, SDK libcurl ([notes](platform-notes/macos.md)) |
@@ -58,8 +58,8 @@ if you hit a break on one, you may be the first person to see it; the fix loop i
 the same, and [`PLATFORMS.md`](PLATFORMS.md) records what the last run measured.
 
 The bench's physical boards — the **VisionFive 2 (v1.3B)** and **LicheeRV Nano
-(Sipeed)** (both Debian riscv64) and the **Raspberry Pi 500+** (Debian arm64,
-16 KB pages) — are Linux and build by the ordinary path below: `make` (or
+(Sipeed)** (both Debian riscv64), the **Banana Pi BPI-F3** (Armbian riscv64) and the
+**Raspberry Pi 500+** (Debian arm64, 16 KB pages) — are Linux and build by the ordinary path below: `make` (or
 `gmake WERROR=1`) after the distro's build-essential and libcurl. No source
 conditional and no separate toolchain; [`PLATFORMS.md`](PLATFORMS.md) records
 each row's measured build and unit-suite figures.
@@ -154,13 +154,13 @@ often, on a head that is ready.
 | `make smoke-faults` | FAULT=1 build + the six error-path drivers (the lease race, the board, mid-stream faults) | ~1 min |
 | `make clean && make WERROR=1 CC=gcc all` | the shipping binary, clean | ~9 s |
 | `make WERROR=1 examples` | the docs' examples build | ~2 s |
-| `make WERROR=1 smoke` | **the smoke tier: 447 drivers, ~2,600 checks** | ~10 min |
+| `make WERROR=1 smoke` | **the smoke tier: 447 drivers, ~2,600 checks** when this table was timed; 584 drivers and ~3,800 checks at 0.15.0, not re-timed here | ~10 min then |
 | `make smoke-mutant` | the gate's own gate: does a killed driver turn the tier red? — sweeps **changed drivers only** | ~1 s when nothing changed since the last gate |
 | `make e2e` | the end-to-end tier (offline: drives the binary, mockmodel, no gateway) | ~2 min |
 
 The three chunks of the ~29 minutes, in order: the **fuzz stage (~13 min, the
 largest single stage — 23 targets × 2,000 iterations)** and the **smoke tier
-(~10 min — 447 drivers, ~2,600 checks)** together are most of it; the five
+(~10 min — 447 drivers and ~2,600 checks when this was timed)** together are most of it; the five
 clean builds, the ASan/UBSan and valgrind passes, and the leak checks are the
 rest, and they are what make the code *sound* — a soundness verdict in a
 couple of minutes. The behavior the gate proves (the error paths, the
@@ -277,9 +277,11 @@ while work is uncommitted, run the gate, commit, install — and the result is a
 legitimate thing to want while testing a change on the real PATH binary:
 `sudo make install ALLOW_DIRTY=1`.
 
-## FreeBSD, NetBSD, OpenBSD (verified — the full gate)
+## FreeBSD, NetBSD, OpenBSD (partly verified since 2026-11-24)
 
-All three **compile clean at `WERROR=1` and run the whole test tier**, and all
+All three **compile clean at `WERROR=1`**, and each once ran the whole test tier
+green. Their latest runs fail some unit checks or smoke drivers, named in their rows
+in [`PLATFORMS.md`](PLATFORMS.md#partly-verified). All
 three have had a real model driven on them — a live turn in which the model
 chose a tool, the tool ran, and a second turn consumed its result.
 

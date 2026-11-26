@@ -1037,8 +1037,16 @@ JC_LDFLAGS = $(SIZELDFLAGS) $(HARDENLDFLAGS)
 # parse time -- the RELEASE_CFLAGS note above explains why a per-TU recursive
 # probe would race on $(PROBE_OUT).
 ifeq ($(STATIC),1)
+  # ...and by LOOKING AT WHAT CAME OUT. A compiler may accept the word and link
+  # dynamically all the same (measured: the system compilers of FreeBSD 15.1,
+  # OpenBSD 7.9 and NetBSD 10.2), and the mode was then "static-pie (probed)"
+  # for a binary with an interpreter. The probe's product must have NO
+  # program interpreter. readelf must answer for the probe to say yes: where
+  # it is absent, nothing was seen, and the fallback is taken.
   STATIC_PIE := $(shell printf 'int main(void){return 0;}' \
     | $(CC) -static-pie -xc - -o $(PROBE_OUT) >/dev/null 2>&1 \
+    && readelf -hW $(PROBE_OUT) >/dev/null 2>&1 \
+    && ! readelf -lW $(PROBE_OUT) 2>/dev/null | grep -q INTERP \
     && echo yes; rm -f $(PROBE_OUT) $(PROBE_OUT).exe)
   ifeq ($(STATIC_PIE),yes)
     # -static-pie works here. Keep -pie (a static-pie build is pie-executable,
@@ -1173,7 +1181,8 @@ EXTRA_SRC = $(wildcard src/chat/*.c src/provider/*.c src/tools/*.c \
                        src/session/*.c src/tui/*.c src/index/*.c \
                        src/mcp/*.c src/command/*.c src/lsp/*.c \
                        src/snapshot/*.c src/skill/*.c src/acp/*.c \
-                       src/scaffold/*.c src/setup/*.c)
+                       src/scaffold/*.c src/setup/*.c \
+                       src/guide/*.c)
 
 LIB_SRC = $(CORE_SRC) $(NET_SRC) $(EXTRA_SRC)
 LIB_OBJ = $(LIB_SRC:.c=.o)
@@ -1347,6 +1356,41 @@ HARNESS_GATE = src/harness/jc_hp_gate.o
 # LIB_OBJ/LIB_SRC; harness binary only.
 HARNESS_GATE_UNITS = src/harness/jc_hp_gateunits.o
 
+# M1202 (H10, wave 1): the `land` command -- the C89 port of the
+# hardening drive's land.sh (the landing policy: a credential-wired
+# fast-forward push of master to a SHA8, under the standing rule, the
+# re-read verdict). Like HARNESS_GATE_UNITS it is deliberately NOT in
+# LIB_OBJ/LIB_SRC (it must not be linked into `jichi` itself); it is a
+# prerequisite of the harness binary only, where `land` is wired into
+# the dispatch. Its git children run through jc_hp_git_run (M1056);
+# the smoke driver (tests/smoke/harness_land.sh, cells 1-11,13) is the
+# tooth (no run_tests link, the gate orchestrator idiom).
+HARNESS_LAND = src/harness/jc_harness_land.o
+# M1203 (H11, wave 2): the `repin` command, the C89 port of the drive's
+# repin.sh (the re-pin). Like HARNESS_LAND it is deliberately NOT in
+# LIB_OBJ/LIB_SRC; it is a prerequisite of the harness binary only, where
+# `repin` is wired into the dispatch. Its git children run through
+# jc_hp_git_run (M1056's read form, b18); the smoke driver
+# (tests/smoke/harness_repin.sh, 19 cells) is the tooth.
+HARNESS_REPIN = src/harness/jc_harness_repin.o
+
+# M1213 (H12, stretch S1; SV:0433's option (a)): the model-failure stretch
+# line (jc_pagestretch_line, the productized form of the lead's C89 oracle
+# page_stretch_oracle.c). Deliberately NOT in LIB_OBJ/LIB_SRC; harness
+# binary only. S2 adds the unit test (tests/test_pagestretch.c) and the
+# run_tests link; S3 the driver cells.
+HARNESS_PAGESTRETCH = src/harness/jc_hp_pagestretch.o
+
+# M1213 (H12, T2): the page / page-watch / probe verbs (the C89 port of
+# the hardening drive's page-watch.sh, 25 cells). Deliberately NOT in
+# LIB_OBJ/LIB_SRC; harness binary only.
+HARNESS_PAGE = src/harness/jc_harness_page.o
+
+# M1213 (H12, T3): the park / restart verbs (the C89 port of the hardening
+# drive's park-resume.sh and restart-loop.sh, 9 cells). Deliberately NOT in
+# LIB_OBJ/LIB_SRC; harness binary only.
+HARNESS_PARK = src/harness/jc_harness_park.o
+
 TEST_SRC = $(wildcard tests/test_*.c)
 TEST_OBJ = $(TEST_SRC:.c=.o)
 
@@ -1360,7 +1404,7 @@ TT_CFLAGS  = $(STD) $(WARN) -D_XOPEN_SOURCE=600 $(INCLUDE)
 TT_BIN     = tests/tools/mockmodel tests/tools/ptydrive tests/tools/jsonq \
              tests/tools/sockq tests/tools/mocklsp tests/tools/lo_up \
              tests/tools/udpblack tests/tools/rsshwm tests/tools/keyprobe \
-             tests/tools/sockbind
+             tests/tools/sockbind tests/tools/longredirect
 TT_CORE_OBJ = tests/tools/mm_core.o tests/tools/pd_core.o tests/tools/jq_core.o \
               tests/tools/tt_mult.o tests/tools/tt_wait.o
 
@@ -1383,6 +1427,12 @@ PREFIX     ?= /usr/local
 DESTDIR    ?=
 BINDIR      = $(DESTDIR)$(PREFIX)/bin
 MANDIR      = $(DESTDIR)$(PREFIX)/share/man/man1
+# M1197 (D-G2): the six core learner pages install here. One make variable is
+# the single source of the list; the docs_install smoke driver is the second
+# surface that must agree with it.
+G2_PAGES = TUTORIAL_BEGINNER SETUP_WIZARD CONFIG_TUTORIAL \
+          AGENTS_GUIDE VOCABULARY CURRICULUM
+DOCSDIR   = $(DESTDIR)$(PREFIX)/share/doc/jichi
 BASHCOMPDIR = $(DESTDIR)$(PREFIX)/share/bash-completion/completions
 ZSHCOMPDIR  = $(DESTDIR)$(PREFIX)/share/zsh/site-functions
 EMACSDIR    = $(DESTDIR)$(PREFIX)/share/emacs/site-lisp
@@ -1522,7 +1572,7 @@ install:
 #
 # ALLOW_DIRTY=1 installs anyway, for the case that is genuinely intended: trying
 # an uncommitted change on the real PATH binary.
-	@stamped=`sed -n 's/^#define JC_BUILD_REV "\(.*\)"$$/\1/p' $(STAMP) 2>/dev/null`; \
+	@stamped=`sed -n 's/^#define JC_BUILD_REV "\(.*\)"$$/\1/p' "$(STAMP)" 2>/dev/null`; \
 	 case "$$stamped" in \
 	   *-dirty) \
 	     if [ -z "$(ALLOW_DIRTY)" ]; then \
@@ -1546,7 +1596,7 @@ install:
 	   "") : ;; \
 	   *) echo "install: $(BIN) is stamped '$$stamped'." ;; \
 	 esac
-	install -d $(BINDIR)
+	install -d "$(BINDIR)"
 # ONE FILE PER CALL, with an explicit destination path -- the form every other
 # install line here already uses, and the only portable one. `install SRC1 SRC2
 # DIR` is a GNU/BSD extension: illumos ships Sun's /usr/bin/install, which takes
@@ -1554,20 +1604,34 @@ install:
 # exited 0. Measured on OmniOS at M661 -- `make install` reported success and put
 # one of the two binaries in place, which is the failure mode M586 and M593 built
 # this target to avoid: an install that succeeds and is wrong.
-	install -m755 $(BIN) $(BINDIR)/$(BIN)
-	install -m755 $(CONVERT_BIN) $(BINDIR)/$(CONVERT_BIN)
-	install -m755 $(HARNESS_BIN) $(BINDIR)/$(HARNESS_BIN)
-	install -d $(MANDIR)
-	install -m644 man/jichi.1 $(MANDIR)/jichi.1
-	install -d $(BASHCOMPDIR)
-	install -m644 completions/jichi.bash $(BASHCOMPDIR)/jichi
-	install -d $(ZSHCOMPDIR)
-	install -m644 completions/jichi.zsh $(ZSHCOMPDIR)/_jichi
-	install -d $(EMACSDIR)
-	install -m644 editors/emacs/jichi.el $(EMACSDIR)/jichi.el
-	install -d $(VIMDIR)
-	install -m644 editors/vim/jichi.vim $(VIMDIR)/jichi.vim
-	install -m755 editors/nano/jichi-nano $(BINDIR)/jichi-nano
+	install -m755 $(BIN) "$(BINDIR)/$(BIN)"
+	install -m755 $(CONVERT_BIN) "$(BINDIR)/$(CONVERT_BIN)"
+	install -m755 $(HARNESS_BIN) "$(BINDIR)/$(HARNESS_BIN)"
+	install -d "$(MANDIR)"
+	install -m644 man/jichi.1 "$(MANDIR)/jichi.1"
+# M1197 (D-G2): the six core learner pages, copied from the source tree -- not
+# built, so the target keeps its M586 form (no `all` prerequisite) and the
+# M593 stamp check is untouched. ONE FILE PER CALL, explicit destination, as
+# every line above (M661); -m644 like the man page, because they are data.
+	install -d "$(DOCSDIR)"
+# $(G2_PAGES) is the single source of the list (declared in the install-location
+# block above). The shell loop keeps M661's ONE FILE PER CALL, explicit
+# destination -- each iteration installs exactly one file, so the portable
+# single-file `install` is used, not the GNU `SRC1 SRC2 DIR` form. Adding a
+# page means adding it to G2_PAGES; the docs_install driver re-derives the same
+# set from its own copy and must agree with it.
+	@for _p in $(G2_PAGES); do \
+	  install -m644 docs/$$_p.md "$(DOCSDIR)/$$_p.md"; \
+	done
+	install -d "$(BASHCOMPDIR)"
+	install -m644 completions/jichi.bash "$(BASHCOMPDIR)/jichi"
+	install -d "$(ZSHCOMPDIR)"
+	install -m644 completions/jichi.zsh "$(ZSHCOMPDIR)/_jichi"
+	install -d "$(EMACSDIR)"
+	install -m644 editors/emacs/jichi.el "$(EMACSDIR)/jichi.el"
+	install -d "$(VIMDIR)"
+	install -m644 editors/vim/jichi.vim "$(VIMDIR)/jichi.vim"
+	install -m755 editors/nano/jichi-nano "$(BINDIR)/jichi-nano"
 	@echo "installed to $(DESTDIR)$(PREFIX)"
 
 # Post-install smoke check: confirm the binary runs and report health + PATH.
@@ -1586,11 +1650,14 @@ install-check:
 uninstall:
 	@# jlu_* are no longer installed (M487); still removed here so an
 	@# install predating that milestone can be cleaned up by this target.
-	rm -f $(BINDIR)/$(BIN) $(BINDIR)/$(CONVERT_BIN) $(BINDIR)/$(HARNESS_BIN) $(BINDIR)/jichi-nano \
-	      $(BINDIR)/jlu_continue $(BINDIR)/jlu-convert \
-	      $(MANDIR)/jichi.1 \
-	      $(BASHCOMPDIR)/jichi $(ZSHCOMPDIR)/_jichi \
-	      $(EMACSDIR)/jichi.el $(VIMDIR)/jichi.vim
+	rm -f "$(BINDIR)/$(BIN)" "$(BINDIR)/$(CONVERT_BIN)" "$(BINDIR)/$(HARNESS_BIN)" "$(BINDIR)/jichi-nano" \
+	      "$(BINDIR)/jlu_continue" "$(BINDIR)/jlu-convert" \
+	      "$(MANDIR)/jichi.1" \
+	      "$(BASHCOMPDIR)/jichi" "$(ZSHCOMPDIR)/_jichi" \
+	      "$(EMACSDIR)/jichi.el" "$(VIMDIR)/jichi.vim" \
+	      "$(DOCSDIR)/TUTORIAL_BEGINNER.md" "$(DOCSDIR)/SETUP_WIZARD.md" \
+	      "$(DOCSDIR)/CONFIG_TUTORIAL.md" "$(DOCSDIR)/AGENTS_GUIDE.md" \
+	      "$(DOCSDIR)/VOCABULARY.md" "$(DOCSDIR)/CURRICULUM.md"
 
 $(BIN): $(MAIN_OBJ) $(LIB_OBJ) $(CONVERT_CORE)
 	$(CC) $(JC_LDFLAGS) $(LDFLAGS) $(MAIN_OBJ) $(LIB_OBJ) $(CONVERT_CORE) $(LDLIBS) -o $@
@@ -1598,8 +1665,8 @@ $(BIN): $(MAIN_OBJ) $(LIB_OBJ) $(CONVERT_CORE)
 $(CONVERT_BIN): $(CONVERT_MAIN) $(CONVERT_CORE) $(LIB_OBJ)
 	$(CC) $(JC_LDFLAGS) $(LDFLAGS) $(CONVERT_MAIN) $(CONVERT_CORE) $(LIB_OBJ) $(LDLIBS) -o $@
 
-$(HARNESS_BIN): $(HARNESS_MAIN) $(HARNESS_CONFIG) $(HARNESS_DOCTOR) $(HARNESS_INIT) $(HARNESS_MIRROR) $(HARNESS_PUSH) $(HARNESS_PUSH_RECORDS) $(HARNESS_PUSH_TICK) $(HARNESS_PUSH_BACKLOG) $(HARNESS_PUSH_UNITS) $(HARNESS_PUSH_RUNDRIVE) $(HARNESS_CRED) $(HARNESS_RUN) $(HARNESS_HANDOFF) $(HARNESS_DRIVE) $(HARNESS_NOTIFY) $(HARNESS_WATCH) $(HARNESS_GATE_LEDGER) $(HARNESS_GATE_VERDICT) $(HARNESS_GATE_SWEEP) $(HARNESS_GATE_CI) $(HARNESS_GATE_REF) $(HARNESS_GATE) $(HARNESS_GATE_UNITS) $(CONVERT_CORE) $(LIB_OBJ)
-	$(CC) $(JC_LDFLAGS) $(LDFLAGS) $(HARNESS_MAIN) $(HARNESS_CONFIG) $(HARNESS_DOCTOR) $(HARNESS_INIT) $(HARNESS_MIRROR) $(HARNESS_PUSH) $(HARNESS_PUSH_RECORDS) $(HARNESS_PUSH_TICK) $(HARNESS_PUSH_BACKLOG) $(HARNESS_PUSH_UNITS) $(HARNESS_PUSH_RUNDRIVE) $(HARNESS_CRED) $(HARNESS_RUN) $(HARNESS_HANDOFF) $(HARNESS_DRIVE) $(HARNESS_NOTIFY) $(HARNESS_WATCH) $(HARNESS_GATE_LEDGER) $(HARNESS_GATE_VERDICT) $(HARNESS_GATE_SWEEP) $(HARNESS_GATE_CI) $(HARNESS_GATE_REF) $(HARNESS_GATE) $(HARNESS_GATE_UNITS) $(CONVERT_CORE) $(LIB_OBJ) $(LDLIBS) -o $@
+$(HARNESS_BIN): $(HARNESS_MAIN) $(HARNESS_CONFIG) $(HARNESS_DOCTOR) $(HARNESS_INIT) $(HARNESS_MIRROR) $(HARNESS_PUSH) $(HARNESS_PUSH_RECORDS) $(HARNESS_PUSH_TICK) $(HARNESS_PUSH_BACKLOG) $(HARNESS_PUSH_UNITS) $(HARNESS_PUSH_RUNDRIVE) $(HARNESS_CRED) $(HARNESS_RUN) $(HARNESS_HANDOFF) $(HARNESS_DRIVE) $(HARNESS_NOTIFY) $(HARNESS_WATCH) $(HARNESS_GATE_LEDGER) $(HARNESS_GATE_VERDICT) $(HARNESS_GATE_SWEEP) $(HARNESS_GATE_CI) $(HARNESS_GATE_REF) $(HARNESS_GATE) $(HARNESS_GATE_UNITS) $(HARNESS_LAND) $(HARNESS_REPIN) $(HARNESS_PAGE) $(HARNESS_PARK) $(HARNESS_PAGESTRETCH) $(CONVERT_CORE) $(LIB_OBJ)
+	$(CC) $(JC_LDFLAGS) $(LDFLAGS) $(HARNESS_MAIN) $(HARNESS_CONFIG) $(HARNESS_DOCTOR) $(HARNESS_INIT) $(HARNESS_MIRROR) $(HARNESS_PUSH) $(HARNESS_PUSH_RECORDS) $(HARNESS_PUSH_TICK) $(HARNESS_PUSH_BACKLOG) $(HARNESS_PUSH_UNITS) $(HARNESS_PUSH_RUNDRIVE) $(HARNESS_CRED) $(HARNESS_RUN) $(HARNESS_HANDOFF) $(HARNESS_DRIVE) $(HARNESS_NOTIFY) $(HARNESS_WATCH) $(HARNESS_GATE_LEDGER) $(HARNESS_GATE_VERDICT) $(HARNESS_GATE_SWEEP) $(HARNESS_GATE_CI) $(HARNESS_GATE_REF) $(HARNESS_GATE) $(HARNESS_GATE_UNITS) $(HARNESS_LAND) $(HARNESS_REPIN) $(HARNESS_PAGE) $(HARNESS_PARK) $(HARNESS_PAGESTRETCH) $(CONVERT_CORE) $(LIB_OBJ) $(LDLIBS) -o $@
 
 # First-party objects.
 %.o: %.c
@@ -1609,9 +1676,9 @@ $(HARNESS_BIN): $(HARNESS_MAIN) $(HARNESS_CONFIG) $(HARNESS_DOCTOR) $(HARNESS_IN
 test: $(TEST)
 	$(SAN_RUN_ENV) ./$(TEST)
 
-$(TEST): $(TEST_OBJ) $(LIB_OBJ) $(CONVERT_CORE) $(TT_CORE_OBJ) $(HARNESS_CONFIG) $(HARNESS_PUSH) $(HARNESS_WATCH_GATE) $(HARNESS_GATE_LEDGER) $(HARNESS_GATE_VERDICT) $(HARNESS_GATE_SWEEP) $(HARNESS_GATE_CI) $(HARNESS_GATE_REF)
+$(TEST): $(TEST_OBJ) $(LIB_OBJ) $(CONVERT_CORE) $(TT_CORE_OBJ) $(HARNESS_CONFIG) $(HARNESS_PUSH) $(HARNESS_WATCH_GATE) $(HARNESS_GATE_LEDGER) $(HARNESS_GATE_VERDICT) $(HARNESS_GATE_SWEEP) $(HARNESS_GATE_CI) $(HARNESS_GATE_REF) $(HARNESS_PAGESTRETCH)
 	$(CC) $(JC_LDFLAGS) $(LDFLAGS) $(TEST_OBJ) $(LIB_OBJ) $(CONVERT_CORE) $(TT_CORE_OBJ) \
-	      $(HARNESS_CONFIG) $(HARNESS_PUSH) $(HARNESS_WATCH_GATE) $(HARNESS_GATE_LEDGER) $(HARNESS_GATE_VERDICT) $(HARNESS_GATE_SWEEP) $(HARNESS_GATE_CI) $(HARNESS_GATE_REF) $(LDLIBS) -o $@
+	      $(HARNESS_CONFIG) $(HARNESS_PUSH) $(HARNESS_WATCH_GATE) $(HARNESS_GATE_LEDGER) $(HARNESS_GATE_VERDICT) $(HARNESS_GATE_SWEEP) $(HARNESS_GATE_CI) $(HARNESS_GATE_REF) $(HARNESS_PAGESTRETCH) $(LDLIBS) -o $@
 
 # The helper binaries: whole-program compiles (no shared .o with the product
 # link; jc_snprintf.c is recompiled standalone so a SAN/SIZE build of the
@@ -1664,13 +1731,21 @@ tests/tools/lo_up: tests/tools/lo_up.c
 # by the tier's knob, so -- like sockq -- it links tt_mult.c (smoke_lint check
 # 10 requires every --deadline tool to scale).
 tests/tools/sockbind: tests/tools/sockbind.c tests/tools/tt_mult.c
-	$(CC) $(TT_CFLAGS) -D_GNU_SOURCE tests/tools/sockbind.c tests/tools/tt_mult.c -o $@
+	$(CC) $(TT_CFLAGS) -D_GNU_SOURCE tests/tools/sockbind.c tests/tools/tt_mult.c -o $@ $(SOCK_LIBS)
+# longredirect (M1208 S1): a raw TCP listener on 127.0.0.1 with a configurable
+# minimum status-line length. Answers each connection with a 302 whose status
+# line is padded to at least minlen bytes, then a Location header and
+# Content-Length: 0. No --deadline flag (smoke_lint check 10), so no tt_mult.
+# Usage: longredirect <minlen> <target-url> [--count N]
+tests/tools/longredirect: tests/tools/longredirect.c
+	$(CC) $(TT_CFLAGS) tests/tools/longredirect.c -o $@ $(SOCK_LIBS)
+
 
 # udpblack (M1062-c): a UDP black hole (bind 127.0.0.1:PORT, recvfrom-loop,
 # never answer) for the same cell's DNS resolver. select()/recvfrom() are
 # exposed by TT_CFLAGS' _XOPEN_SOURCE=600, so no extra define is needed.
 tests/tools/udpblack: tests/tools/udpblack.c
-	$(CC) $(TT_CFLAGS) tests/tools/udpblack.c -o $@
+	$(CC) $(TT_CFLAGS) tests/tools/udpblack.c -o $@ $(SOCK_LIBS)
 
 # rsshwm (M1092-c): fork+exec the given command, wait4() it and print the
 # child's rusage.ru_maxrss ("maxrss_kb N") -- the kernel's high-water mark
@@ -1885,6 +1960,11 @@ ci:
 # three stranded appends reallocs the history vector and dangles `am`. Skips
 # unless the binary is a sanitizer build, so it runs HERE beside leak_turn.
 	$(MAKE) smoke-tools && sh tests/smoke/stranded_call_uaf.sh
+# M1219: the same-model child's in-process connect-fallback frees the lead's
+# loop-local `prov` after the child's fallback re-routes to a new provider.
+# The SAN-only driver verifies the UAF (b1 RED before fix, b1 GREEN after fix).
+# Skips unless the binary is a sanitizer build, so it runs HERE beside leak_turn.
+	$(MAKE) smoke-tools && sh tests/smoke/same_model_child_fallback_uaf.sh
 # def-350: the committed SAN argv-boundary cell for list_pushed (regression for
 # the +5 sizing fixed at 29df6d33). SAN, not FAULT, because it is a real
 # out-of-bounds write UBSan catches; lowered caps (1/1) because the boundary is
@@ -2223,7 +2303,8 @@ clean:
 	      $(HARNESS_CRED) $(HARNESS_RUN) $(HARNESS_HANDOFF) \
 	     $(HARNESS_DRIVE) $(HARNESS_NOTIFY) $(HARNESS_WATCH) \
 	     $(HARNESS_GATE_LEDGER) $(HARNESS_GATE_VERDICT) $(HARNESS_GATE_SWEEP) $(HARNESS_GATE_CI) $(HARNESS_GATE_REF) $(HARNESS_GATE) \
-	     $(HARNESS_GATE_UNITS) \
+	     $(HARNESS_GATE_UNITS) $(HARNESS_LAND) $(HARNESS_REPIN) \
+	     $(HARNESS_PAGE) $(HARNESS_PARK) $(HARNESS_PAGESTRETCH) \
 	     editors/emacs/jichi.elc \
 	      $(FUZZ_BIN) $(FUZZ_OBJ) $(LF_BIN) $(LF_OBJ) \
 	      $(TT_BIN) $(TT_CORE_OBJ) tests/tools/xdrive \
@@ -2236,7 +2317,18 @@ clean:
 	find . -name '*.d' -delete
 
 # Header-dependency files emitted by -MMD (regenerated on every compile).
+# M1204 (board card 95, SV:0651): this -include must name every harness object
+# the jichi-harness link rule takes; before the fix it read 9 of the 26, so a
+# changed header left the other 17 stale (their .d was written, never read).
+# A `#` may not sit inside the continuation below -- a comment runs to the end
+# of the logical line and would swallow every var after it.
 -include $(LIB_OBJ:.o=.d) $(MAIN_OBJ:.o=.d) $(TEST_OBJ:.o=.d) \
-         $(CONVERT_MAIN:.o=.d) $(CONVERT_CORE:.o=.d) $(TT_CORE_OBJ:.o=.d) \
-         $(HARNESS_MAIN:.o=.d) \
-         $(HARNESS_GATE_LEDGER:.o=.d) $(HARNESS_GATE_VERDICT:.o=.d) $(HARNESS_GATE_SWEEP:.o=.d) $(HARNESS_GATE_CI:.o=.d) $(HARNESS_GATE_REF:.o=.d) $(HARNESS_GATE:.o=.d) $(HARNESS_GATE_UNITS:.o=.d)
+	$(CONVERT_MAIN:.o=.d) $(CONVERT_CORE:.o=.d) $(TT_CORE_OBJ:.o=.d) \
+	$(HARNESS_MAIN:.o=.d) \
+	$(HARNESS_GATE_LEDGER:.o=.d) $(HARNESS_GATE_VERDICT:.o=.d) $(HARNESS_GATE_SWEEP:.o=.d) $(HARNESS_GATE_CI:.o=.d) $(HARNESS_GATE_REF:.o=.d) $(HARNESS_GATE:.o=.d) $(HARNESS_GATE_UNITS:.o=.d) $(HARNESS_LAND:.o=.d) $(HARNESS_REPIN:.o=.d) $(HARNESS_PAGE:.o=.d) $(HARNESS_PARK:.o=.d) $(HARNESS_PAGESTRETCH:.o=.d) \
+	$(HARNESS_CONFIG:.o=.d) $(HARNESS_DOCTOR:.o=.d) $(HARNESS_INIT:.o=.d) \
+	$(HARNESS_MIRROR:.o=.d) $(HARNESS_PUSH:.o=.d) $(HARNESS_PUSH_RECORDS:.o=.d) \
+	$(HARNESS_PUSH_TICK:.o=.d) $(HARNESS_PUSH_BACKLOG:.o=.d) $(HARNESS_PUSH_UNITS:.o=.d) \
+	$(HARNESS_PUSH_RUNDRIVE:.o=.d) $(HARNESS_CRED:.o=.d) $(HARNESS_RUN:.o=.d) \
+	$(HARNESS_HANDOFF:.o=.d) $(HARNESS_DRIVE:.o=.d) $(HARNESS_NOTIFY:.o=.d) \
+	$(HARNESS_WATCH_GATE:.o=.d) $(HARNESS_WATCH_UNITS:.o=.d)

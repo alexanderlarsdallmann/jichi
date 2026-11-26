@@ -154,14 +154,14 @@ else
                && [ "$_bt" = "DYN" ]; then
                 t_ok "claimed static-pie and the binary is pie executable, static-pie linked (Type DYN)"
             else
-                t_fail "claimed static-pie but the binary is not: file='$(_ft)' Type='$(_bt)' -- a static-pie build must be DYN, pie executable, static-pie linked"
+                t_fail "claimed static-pie but the binary is not: file='$_ft' Type='$_bt' -- a static-pie build must be DYN, pie executable, static-pie linked"
             fi
             ;;
         *)
             if [ "$_bt" = "EXEC" ] && printf '%s' "$_ft" | grep -q 'statically linked'; then
                 t_ok "claimed the static fallback and the binary is Type EXEC, statically linked"
             else
-                t_fail "claimed the static fallback but the binary is not: file='$(_ft)' Type='$(_bt)' -- the fallback must be EXEC, statically linked (never a DYN that is not static)"
+                t_fail "claimed the static fallback but the binary is not: file='$_ft' Type='$_bt' -- the fallback must be EXEC, statically linked (never a DYN that is not static)"
             fi
             ;;
     esac
@@ -241,12 +241,28 @@ _dinfo=$( (cd "$s" && "$_mk" -s info 2>/dev/null) || true )
 _dmodeline=$(printf '%s\n' "$_dinfo" | sed -n 's/^STATIC_MODE *= *//p' | head -n 1)
 _dline=$( (cd "$s" && "$_mk" -n -B jichi 2>/dev/null) | grep -F -- '-o jichi' | head -n 1)
 _dpie=$(printf '%s\n' "$_dline" | grep -oE '(^| )-pie( |$)' | grep -c 'pie' || true)
+# Whether the default build carries -pie is the TOOLCHAIN's answer, not a fact
+# of every platform: HARDENLDFLAGS takes -pie through cc_warn_ok, and on
+# OmniOS r151058 that probe says no (2026-11-25), so the default link line has none
+# there and this check failed with STATIC having changed nothing. The copy's
+# own `make info` says what the default build was given; the link line must
+# agree with THAT. A missing HARDENLDFLAGS line is a failure, never "no -pie":
+# an extraction that reads nothing must not pass.
+_dhardn=$(printf '%s\n' "$_dinfo" | grep -c '^HARDENLDFLAGS *=' || true)
+_dhard=$(printf '%s\n' "$_dinfo" | sed -n 's/^HARDENLDFLAGS *= *//p' | head -n 1)
+_dwant=$(printf ' %s \n' "$_dhard" | grep -c -- ' -pie ' || true)
 if [ -n "$_dmodeline" ]; then
     t_fail "make info WITHOUT STATIC carries a STATIC_MODE line: ${_dmodeline} -- the knob is supposed to be off by default (default build must be byte-identical)"
-elif [ "$_dpie" -ge 1 ]; then
+elif [ "$_dhardn" -lt 1 ]; then
+    t_fail "make info WITHOUT STATIC prints no HARDENLDFLAGS line -- cannot tell whether the default build is meant to carry -pie"
+elif [ "$_dpie" -ge 1 ] && [ "$_dwant" -ge 1 ]; then
     t_ok "default build unchanged: no STATIC_MODE line, and the default link line still carries -pie"
-else
+elif [ "$_dpie" -lt 1 ] && [ "$_dwant" -lt 1 ]; then
+    t_ok "default build unchanged: no STATIC_MODE line; this toolchain's hardening has no -pie (HARDENLDFLAGS: ${_dhard:-(empty)}) and the default link line has none"
+elif [ "$_dwant" -ge 1 ]; then
     t_fail "default link line no longer carries -pie -- STATIC=1 must not perturb the default build (line: ${_dline:-(not captured)})"
+else
+    t_fail "default link line carries -pie that make info's HARDENLDFLAGS does not name (HARDENLDFLAGS: ${_dhard:-(empty)}; line: ${_dline:-(not captured)})"
 fi
 
 # --- CHECK 6: the old recipe's defect is gone ----------------------------------

@@ -34,6 +34,29 @@ void test_agentdef(void)
                       strlen(md));
     }
 
+    /* def-415: a profile whose `readonly:` is not a boolean word. The key was
+     * written, so its writer wanted a fence; unreadable must mean READ-ONLY.
+     * Until this check it meant has_readonly=1 with readonly=0, an explicit
+     * "writable". A control profile says `no` and must stay writable. */
+    {
+        const char *md2 =
+            "---\n"
+            "description: Typo profile\n"
+            "readonly: ture\n"
+            "---\n"
+            "You only read.\n";
+        const char *md3 =
+            "---\n"
+            "description: Writable profile\n"
+            "readonly: no\n"
+            "---\n"
+            "You may write.\n";
+        jc_write_file(jc_test_tmp("jichi_agent_test/.jichi/agents/typo.md"), md2,
+                      strlen(md2));
+        jc_write_file(jc_test_tmp("jichi_agent_test/.jichi/agents/writer.md"), md3,
+                      strlen(md3));
+    }
+
     jc_agentdef_set_init(&set);
     jc_agentdef_load(&set, jc_test_tmp("jichi_agent_test"), a);
 
@@ -44,6 +67,18 @@ void test_agentdef(void)
         JC_CHECK_STR(d->model, "fast");
         JC_CHECK(d->has_readonly == 1 && d->readonly == 1);
         JC_CHECK(strstr(d->system_prompt, "code reviewer") != NULL);
+    }
+    {
+        const struct jc_agentdef *d2 = jc_agentdef_find(&set, "typo");
+        JC_CHECK(d2 != NULL);
+        if (d2 != NULL) {
+            JC_CHECK(d2->has_readonly == 1 && d2->readonly == 1);
+        }
+        d2 = jc_agentdef_find(&set, "writer");
+        JC_CHECK(d2 != NULL);
+        if (d2 != NULL) {
+            JC_CHECK(d2->has_readonly == 1 && d2->readonly == 0);
+        }
     }
     JC_CHECK(jc_agentdef_find(&set, "nonexistent") == NULL);
 

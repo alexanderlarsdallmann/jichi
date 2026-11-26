@@ -371,6 +371,15 @@ static void feed_event(struct jc_telemetry_summary *s, cJSON *o)
             jc_json_get_num(o, "exit", 0.0) > 0.0) {
             t->cmd_fail++;
         }
+        /* M1192 B3 (B3.8): a call the supervisor cancelled (control
+         * cancel-cmd; exit 143) is its own category, apart from a red gate
+         * (cmd_fail) -- the command did not fail, it was stopped. The emitter
+         * writes `stopped:"cancel"` on that one; absent on pre-M1192 logs and
+         * on every other call, so this reads 0 there. Counted per TOOL (not
+         * globally) so the report can say WHICH tool's commands were cancelled. */
+        if (strcmp(jc_json_get_str(o, "stopped", ""), "cancel") == 0) {
+            t->cancelled++;
+        }
     } else if (strcmp(ev, "nudge") == 0) {
         /* M167: the M147 prose-tool-call nudge. `phase` is "fired" when a
          * narrated call was detected, "recovered" when the corrective retry
@@ -457,6 +466,25 @@ static void feed_event(struct jc_telemetry_summary *s, cJSON *o)
         else if (strcmp(k, "placeholder") == 0) { s->loop_stop_placeholder++; }
         else if (strcmp(k, "rotation") == 0)    { s->loop_stop_rotation++; }
         else                                    { s->loop_stop_same++; }
+    } else if (strcmp(ev, "worker_flag") == 0) {
+        /* def-377 W2.4 (M1194): the parent's worker supervision flag fired,
+         * once per task per batch. Counted by reason (R1 no_edit / R2
+         * placeholders) so `jichi telemetry` can say which rule was doing the
+         * work -- the same reader arm the M1192 shell_fence events share. */
+        const char *r = jc_json_get_str(o, "reason", "");
+        if (strcmp(r, "no_edit") == 0)          { s->worker_flag_no_edit++; }
+        else if (strcmp(r, "placeholders") == 0) { s->worker_flag_placeholder++; }
+    } else if (strcmp(ev, "worker_outcome") == 0) {
+        /* def-377 W6.2 (M1194): ONE per task at the batch's end. Counted by
+         * OUTCOME (the `kept` value) like the sibling arms, plus the two flags
+         * an offline reader most wants: how many were of a FLAGGED task and how
+         * many were a W4 soft stop (looped=5, "supervised"). */
+        const char *k = jc_json_get_str(o, "kept", "");
+        if (strcmp(k, "merged") == 0)    { s->worker_outcome_merged++; }
+        else if (strcmp(k, "kept") == 0) { s->worker_outcome_kept++; }
+        else if (strcmp(k, "readonly") == 0) { s->worker_outcome_readonly++; }
+        if (jc_json_get_num(o, "flag", 0.0) >= 1.0) { s->worker_outcome_flag++; }
+        if (jc_json_get_num(o, "looped", 0.0) == 5.0) { s->worker_outcome_supervised++; }
     } else if (strcmp(ev, "metric_gate") == 0) {
         /* M875: the metric gate's verdict on a child that moved a pin. */
         const char *vd = jc_json_get_str(o, "verdict", "");
@@ -1055,6 +1083,20 @@ void jc_telemetry_render(const struct jc_telemetry_summary *s, struct jc_sb *out
                 "", t->cmd_fail, tool_ok, t->calls,
                 (t->calls > 0) ? (tool_ok * 100 / t->calls) : 0);
         }
+        /* M1192 B3 (B3.8): a call the supervisor's control cancel-cmd stopped
+         * (exit 143) is NOT a red command -- the command was terminated on
+         * purpose, so it belongs with neither the ok-rate above nor the
+         * cmd_fail line. Printed only when some occurred (the conditional-line
+         * shape): a log with no cancels renders exactly as before. The caveat
+         * lives in the emitter's comment: an EXTERNAL SIGTERM to the command's
+         * process group also reads 143 and lands here. */
+        if (t->cancelled > 0) {
+            jc_sb_append_fmt(out,
+                "  %-24s   of which %ld were cancelled by the supervisor "
+                "(control cancel-cmd, exit 143), neither failures nor red "
+                "commands\n",
+                "", t->cancelled);
+        }
     }
 
     /* M591: which spellings arrived, and how often. Printed only when an alias
@@ -1089,6 +1131,25 @@ void jc_telemetry_render(const struct jc_telemetry_summary *s, struct jc_sb *out
                          "refused call, %ld copied placeholders, %ld rotations\n",
                          s->loop_stop_same, s->loop_stop_refused,
                          s->loop_stop_placeholder, s->loop_stop_rotation);
+    }
+    if (s->worker_flag_no_edit + s->worker_flag_placeholder > 0) {
+        /* def-377 W2.4 (M1194): the parent's worker supervision flag fired,
+         * by rule (R1 no_edit / R2 placeholders), once per task per batch. */
+        jc_sb_append_fmt(out, "Worker flags (parallel children): %ld no-edit, "
+                         "%ld placeholders\n",
+                         s->worker_flag_no_edit, s->worker_flag_placeholder);
+    }
+    if (s->worker_outcome_merged + s->worker_outcome_kept +
+        s->worker_outcome_readonly > 0) {
+        /* def-377 W6.2 (M1194): one outcome per task at the batch's end, by
+         * merged-or-kept; the flagged and supervised counts are the two an
+         * offline reader most wants (a flagged task, and a W4 soft stop). */
+        jc_sb_append_fmt(out,
+            "Worker outcomes (parallel tasks): %ld merged, %ld kept, %ld "
+            "read-only; %ld of a flagged task, %ld a supervised soft stop\n",
+            s->worker_outcome_merged, s->worker_outcome_kept,
+            s->worker_outcome_readonly, s->worker_outcome_flag,
+            s->worker_outcome_supervised);
     }
     if (s->metric_gate_merged + s->metric_gate_held +
         s->metric_gate_unknown > 0) {

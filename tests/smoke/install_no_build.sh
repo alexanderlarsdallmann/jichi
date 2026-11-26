@@ -66,7 +66,7 @@ rather than for anything about install. Run \`make all\` (check-target does, \
 since M661)."
 fi
 
-t_plan 9
+t_plan 11
 tmp=$(smoke_tmp)
 
 # M593 extends this driver. `install` now also refuses a binary stamped from a
@@ -222,6 +222,40 @@ if [ "$crc" -eq 0 ] && [ -x "$tmp/d4/usr/local/bin/jichi" ]; then
 else
     t_fail "install refused a CLEAN stamp (rc=$crc) -- the check refuses everything.
    $(printf '%s' "$cout" | head_bytes 200)"
+fi
+
+# --- 10+11: a DESTDIR with a SPACE in it ----------------------------------------
+# Found by running this tier with TMPDIR="/tmp/jr sweep tmp" (the threadwork review,
+# 2026-11-26): every recipe line wrote $(BINDIR) and its siblings unquoted, so the
+# shell split the path. `install -d /tmp/jr sweep tmp/...` then failed on the first
+# word -- loud, and harmless. `uninstall` is the half that matters: its `rm -f` took
+# the pieces as SEPARATE files, removed whichever of them existed, said nothing and
+# exited 0. A staging directory below a directory named "My Projects" is enough to meet it.
+#
+# The decoy below is the first word the split produces ("<tmp>/has"), as a regular
+# file beside the directory "<tmp>/has space". Unquoted, uninstall removes it.
+sp="$tmp/has space"
+mkdir -p "$sp" && printf 'keep me\n' > "$tmp/has"
+sout=$(cd "$ROOT" && "$_mk" install DESTDIR="$sp/d" STAMP="$tmp/clean_stamp.h" 2>&1); src=$?
+if [ "$src" -eq 0 ] && [ -x "$sp/d/usr/local/bin/jichi" ] &&
+   [ -x "$sp/d/usr/local/bin/jichi-harness" ] &&
+   [ -f "$sp/d/usr/local/share/man/man1/jichi.1" ] &&
+   [ -f "$sp/d/usr/local/share/doc/jichi/VOCABULARY.md" ]; then
+    t_ok "a DESTDIR with a space in it installs (programs, man page, pages)"
+else
+    t_fail "install into a DESTDIR with a space failed (rc=$src): the recipe splits
+   the path. $(printf '%s' "$sout" | head_bytes 200)"
+fi
+# Make the files the uninstall is meant to remove exist either way, so that the
+# check below judges the uninstall and not the install before it.
+mkdir -p "$sp/d/usr/local/bin" && : > "$sp/d/usr/local/bin/jichi"
+uout=$(cd "$ROOT" && "$_mk" uninstall DESTDIR="$sp/d" 2>&1); urc=$?
+if [ "$urc" -eq 0 ] && [ ! -e "$sp/d/usr/local/bin/jichi" ] && [ -f "$tmp/has" ]; then
+    t_ok "uninstall with a space in DESTDIR removes the installed file and no other"
+else
+    t_fail "uninstall with a space in DESTDIR (rc=$urc): installed file still there:
+   $([ -e "$sp/d/usr/local/bin/jichi" ] && echo yes || echo no); the bystander file
+   <tmp>/has survived: $([ -f "$tmp/has" ] && echo yes || echo NO -- rm -f took a piece of the split path)"
 fi
 
 t_done

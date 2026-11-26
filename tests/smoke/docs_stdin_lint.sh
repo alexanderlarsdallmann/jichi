@@ -28,14 +28,16 @@
 #                 or to the quote that closes the string it sits in (`ssh host '...'`,
 #                 `tmux new '...'`), so another program's `-p` is not read as jichi's.
 # THE FLOOR    -- the runs extracted, 179 on 2026-10-04: a parser that stopped
-#                 finding runs would otherwise find none unpinned.
+#                 finding runs would otherwise find none unpinned. 170 since
+#                 2026-11-23: the README's Usage block was cut to two headless
+#                 runs (its reference moved to SCRIPTING.md), 9 runs fewer.
 # NOT CHECKED  -- runs in prose or in other block languages, and whether a run's
 #                 command is otherwise right (that is doc_commands_lint's subject).
 . "$(dirname "$0")/_smoke.sh"
 
 t_plan 2
 root=$(cd "$(dirname "$0")/../.." && pwd)
-JC_STDIN_FLOOR=179
+JC_STDIN_FLOOR=170
 
 files=$( { find "$root/docs" -type f -name '*.md'; ls "$root"/*.md; } 2>/dev/null \
     | sed "s#^$root/##" \

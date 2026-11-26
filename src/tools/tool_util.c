@@ -104,6 +104,30 @@ int tu_arg_bool(const cJSON *args, const char *key, int dflt)
     return jc_json_get_bool_lenient(args, key, dflt);
 }
 
+int tu_arg_fence(const cJSON *args, const char *key, int *present)
+{
+    /* def-415 (the decision of 2026-11-17): a key that sets a fence and
+     * holds a value jichi cannot read closes the fence. For `readonly` that
+     * is READ-ONLY. tu_arg_bool's rule, "prose falls through to the caller's
+     * default", is right for a limit and wrong here, because the caller's
+     * default behind a presence test is not what absence means: until
+     * 2026-11-26 {"readonly": null} was present-and-0, an explicit "writable"
+     * that overrode a read-only agent profile. */
+    int v;
+    *present = (cJSON_GetObjectItem(args, key) != NULL);
+    if (!*present) {
+        return 0;
+    }
+    v = jc_json_get_bool_lenient(args, key, -2);
+    if (v == -2) {
+        jc_logf(JC_LOG_WARN,
+                "tool arguments: \"%s\" has a value jichi cannot read as true or "
+                "false; it is read as true, the fenced side", key);
+        return 1;
+    }
+    return v ? 1 : 0;
+}
+
 int tu_arg_int(const cJSON *args, const char *key, int dflt)
 {
     /* M168: accept a numeric STRING. A model that sends {"limit": "200.0"}

@@ -23,9 +23,247 @@ The version lives in one place — `include/jc_version.h` — and is printed by
 `jichi --version`, `jichi-convert --version`, the top of `jichi doctor`, and
 the `describe` interface contract.
 
+**How a release heading is written (from 0.15.0).** It reads
+`## [X.Y.Z] — <date> — item; item; ...`, and every item is the title, or part of
+the title, of one of that section's `###` sub-headings, so the heading names only
+what the section has an entry for. Write it last, from the entries.
+`tests/smoke/release_text_lint.sh` checks it, and that the newest section is the
+version `include/jc_version.h` prints.
+
 ## [Unreleased]
 
-## [0.14.1] — 2026-11-14 — the first public 0.14 release, on top of the dead-clone fix (def-396)
+## [0.15.0] — 2026-11-26 — the outage verbs; the landing policy; the five fail-open limits; memory-safety defects fixed; the platform rows
+
+### REL-0150D and REL-0150E: the last fixes before the cut (the review of 2026-11-24: P56, P52, P50, P55, P58, P59 and P47)
+
+- **A parallel worker receives its notes and its supervision stop under a low open-file limit**: a worker read them on the fixed descriptor 912, and where a process may not have a descriptor that high (OpenBSD's default limit is 512; any shell after `ulimit -n 512`) the worker closed its end of the pipe and said nothing. `inject-task` was then answered "ok" and never delivered, and `parallelSupervise`'s `wrapup` and `stop` never reached the worker. The worker now falls back to the pipe's own descriptor. Found on the OpenBSD 7.9 row; `tests/smoke/parallel_abnormal_endings.sh` check 16 runs the note under `ulimit -n 512`.
+- **`search_code` finds text behind a symbolic link to a file on FreeBSD**: the tool ran `grep -r` on the path it was given, and FreeBSD's grep does not follow a symbolic link that is named on the command line under `-r`, so a search of such a path answered "(no matches)" for a file that held the text. A path that is a regular file is now searched without `-r`. On Linux the output is unchanged; on FreeBSD the result for one named file loses the `name:` prefix that its `-r` added, and reads as on Linux. Confirmed on FreeBSD 15.1; `tests/smoke/search_option_path.sh` cell 6 shows it on Linux with a stand-in grep.
+- **`make install` and `make uninstall` work with a space in `DESTDIR` or `PREFIX`**: the recipes wrote their destinations unquoted, so the shell split such a path. `install` failed on the first word; `uninstall` removed whichever pieces of the split path existed, printed nothing, exited 0 and left the installed files. Every destination is quoted now. A path that holds a double quote, a `$` or a backquote is still not supported. `tests/smoke/install_no_build.sh` cells 10 and 11.
+- **The reply to `inject-task` no longer promises delivery**: an accepted note was answered with "applied at the task's next tool boundary". A worker reads its notes only between tool calls, so a worker whose next reply is its last never reads the note, and the sender had been told it was applied (measured: a note sent three seconds late was acknowledged and lost). The reply now reads "queued; it is delivered at the task's next tool boundary, if it reaches one". A lost note is still not reported: counting the notes a worker read is a later change. `tests/smoke/parallel_abnormal_endings.sh` check 17.
+- **A mistyped value on `pathFence` or `selfReview` no longer turns the fence off**: a value jichi cannot read as true or false, such as `"pathFence": "ture"`, was read as off, in every mode, where leaving the key out means "on under `--auto`"; a typo meant as `true` opened the fence. Such a value is now read as ON, in every mode, and jichi says so: one warning at load time names the key and the value, `jichi doctor` shows it as a problem, and `jichi doctor --unattended` fails it as an unreadable value where it used to say "explicitly off". **For upgraders:** a config that carries an unreadable value on one of these two keys now gets the fence; `false`, `0`, `"off"` and `"no"` still turn it off. The warning is not printed under `-q`. This is the core of the decision of 2026-11-17 (`docs/DECISIONS.md`); still open from it (`docs/DEFERRED.md`, def-415): a setting that refuses to start instead of warning, a telemetry event, and the lint that holds it. `tests/smoke/pathfence.sh` cells 6 to 10.
+- **An unreadable `readonly` gives a read-only child**: `spawn_subagent` called with `{"readonly": null}` or `{"readonly": "ture"}`, and an agent profile whose front matter says `readonly: ture`, were read as an explicit "writable", so the child could change files (and the argument overrode a read-only profile). Both now mean read-only, with a warning that names the key. `false`, `0` and `no` still mean writable. For upgraders: an agent profile with a misspelled `readonly:` value was writable and is read-only now. The same decision of 2026-11-17. `tests/smoke/readonly_delegate.sh` scenario C shows it by effect; unit checks in `tests/test_tool.c` and `tests/test_agentdef.c`.
+- **Every redaction registration checks the registry's answer** (P47): when an MCP server's credential header carries `Bearer <token>`, the bare token's registration ignored the registry's refusal; a refusal, which happens only when memory runs out, is now logged as at the other six sites, and `tests/smoke/secret_env_lint.sh` checks all seven.
+
+### REL-A: `jichi docs` and `JICHI_BIN` measured off Linux, and the page port's once-per-stretch fix
+
+- **`jichi docs` finds its installed pages on FreeBSD, OpenBSD and illumos** (the operator's decision, SV:0847): the installed directory was found only through `/proc/self/exe`, which FreeBSD (no procfs by default), OpenBSD and illumos (it names `/proc/self/path/a.out`) do not answer, so `jichi docs` said no documentation was configured beside an installed `share/doc/jichi`. jichi now tries `/proc/self/exe`, then `/proc/self/path/a.out`, then the command as the shell found it (`argv[0]`, looked up in `PATH`, resolved before `-C` changes the directory), and takes the first whose `<dir>/../share/doc/jichi` exists. The installed-pages checks fail before and pass after on FreeBSD 15.1, OpenBSD 7.9 and OmniOS r151058.
+- **`JICHI_BIN` names the running program where `/proc/self/exe` does not answer, and under the dynamic loader**: the path jichi exports to scaffolded commands was the raw `argv[0]` where `/proc/self/exe` gave no answer (FreeBSD without procfs, OpenBSD, illumos), read after `-C` had changed the directory, so a relative one pointed at the wrong place; and under `ld.so jichi` it named the loader. jichi now resolves `argv[0]` (through `PATH`, before `-C`), and exports the kernel's answer when `argv[0]` resolved to nothing or when the two paths end in the same file name, the resolved `argv[0]` otherwise, and the raw `argv[0]` only when neither is known. A command found through `PATH` must have an execute bit as well as pass `access(X_OK)`, which POSIX lets say yes to a privileged process for any file.
+- **`jichi-harness page` and `page-watch` page once per outage even when no call ever succeeded** (M1213 b8, found by the gate's independent review): the once-per-stretch check was skipped when the saved state was `0`, which is what a stretch without any successful model call writes, so with `--now` such an outage paged on every run, and once a minute under `page-watch` (without `--now` neither verb paged at all, which the M1213 entry below covers). The state is now compared with the stretch's last success whatever it holds, as the original `page-watch.sh` does.
+
+### REL-A: fixes from the review of 2026-11-24 (proposals P3-P36, without P34), the relay series, and the lead's M1219, M1221 and M1222
+
+- **Memory safety:** a constraint word of exactly 16 letters no longer writes its terminator one byte past its buffer (P4, shown under the sanitizer); a same-model child's in-process connect fallback no longer leaves the lead's loop using a freed provider (M1219, card [143], shown red under the sanitizer); the gate runners' three buffers live in the scope that uses them (P6); the gate's landing-decision stream is closed exactly once, and the verdict record is no longer left open (P11).
+- **`jichi-harness`:** a gate stage that never started reports failure (P3); `push backlog` uses one content buffer per step (P5: 73 to 74 MB for 1 to 200 files, where 200 files took 12.8 GB); the records key scan refuses a cut listing (P7); the ledger reads a batch's commits in pages of 1,000, so a batch of any size is judged, and a capture that filled its buffer is a failure (P8); the push's argument bound follows its declared limits, and a full exclusion set has its own refusal (P9); the key scan searches file names and commit messages as well as contents, in `push`, the records push and `push backlog` (P10, P13); the gate runners quote the work directory they `cd` into (M1221); a unit's config path is made absolute, and a path with white space, `%`, `$`, a quote or a backslash is refused (P27).
+- **Agent:** `search_code` answers a path it cannot examine (a missing path, or a link whose target is gone) with the error a failed grep gets, instead of leaving the verdict to grep's exit status: FreeBSD's `grep -r` prints nothing for a dangling link and exits 1, which read as "no matches" (P12); a relay account reply that is a tool call written as text is not taken as the account (P14); the run's and doctor's "set but not sent" note still sees a secret variable after the in-place environment scrub (P16; OpenBSD, NetBSD, illumos); a shell child killed by SIGKILL is classed as killed from its exit status: Linux's `sh` prints "Killed", and FreeBSD's prints nothing (P17).
+- **The relay handover** (card [149], F1-F4): the baton's uncommitted-file and failure-name fields are real lists (R1); its green-verify arm is reachable (R2); when the completion check did not run but a periodic verify did, the run's last line, the journal's `end` event (`last_periodic_verify`) and the JSON `reach` result say so and give that verify's result (R3, R3b, R5a/R5b); the baton names the leg's commit range (`git log <start>..<head>`) in place of a list of subjects (R4a/R4b).
+- **The build's static probe, and the tests, rigs and examples on the other platforms:** the Makefile's `STATIC=1` probe looks at the product it linked (P15), and `static_mode` check 5 reads `-pie` from `make info` (P25). Tests that relied on one system's tools (GNU-only forms, `dd`'s `1M`, the column layout of `ls` and `wc`) now count, size and strip portably (P18, P28, P30, P35), and `test_bg`'s producers print portably and fast enough for OpenBSD (P19); `hardlink_rules` check 4 refuses an empty inode (P30b), and `http_resp_cap`'s comment says what was measured (P35b); two scripts OpenBSD's `sh` could not parse now parse (P36). Lint defects: `cppcheck_src_lint` counts its skips (P21), `portability_lint`'s checks 34-38 use `$SMOKE_ROOT` where they used an unset `$ROOT` (P24), `doc_claims_lint` takes the first numeric `t_plan` (P26), `snprintf_cut_lint` walks lines, not one joined string (P33, P33b), and docs_placeholder_lint's exemptions are checked on their named lines where the file ships (M1222). `rsshwm` waits for its own child, and a reading of 0 KB is no measurement (P31); the two orphan drivers decline without `setsid` (P32); `db-report.sh` asks whether `sqlite3` has `-safe` (P20). The BSD rigs read doctor's summary and the unit failures, and print the whole list of failing drivers (P22, P29); the illumos and NetBSD rigs fetch their images from permanent addresses (P23).
+
+### REL-A: the platform rows, the resident-memory note, and four new pages
+
+- **FreeBSD, NetBSD and OpenBSD go from Verified to Partly verified**, each with its gap named, and the illumos row says its smoke tier did not build at `a0a8b4ae` (`docs/PLATFORMS.md`, the install pages, doctor's verdict table); the three socket test helpers link `$(SOCK_LIBS)`, so the smoke tier builds on illumos; `verify_way_out` reads the exit status portably (P1, P2).
+- **The four rows re-measured on 2026-11-25** (at `6ed996bf`, REL-A's landing; the commits after it change documentation, the smoke tests and `jichi-harness page`'s clock (M1213 below); FreeBSD 15.1, OpenBSD 7.9, NetBSD 10.1, OmniOS r151058; each driven with a local model through the rig): the build is clean and the unit suite passes on all four, where FreeBSD failed 2 unit checks and OpenBSD 12 at `a0a8b4ae`, and the smoke tier builds on illumos again. Smoke drivers failing: FreeBSD 21, OpenBSD 18, NetBSD 14 and illumos 21 of 582, most of them `jichi-harness` drivers (a Linux-only program for now); each row in `docs/PLATFORMS.md` names its drivers, and the Known issues below list what is open. The verdicts stay Partly verified.
+- **`docs/LOW_MEMORY.md`: what a collected HTTP response costs in resident memory under jemalloc** (P38): on NetBSD about twice its size, measured; the page names the allocator's decay time (ten seconds by its manual), which was not measured. On FreeBSD `ru_maxrss` is not an exact high-water mark, so the page gives no single figure and reads its runs as indications, not measurements.
+- **Two essay pages** (P39): `docs/SELF_GUIDANCE.md`, on guiding yourself as a learner without a teacher (patience, honesty with yourself), and `docs/PATTERN_LANGUAGE.md`, twelve of jichi's recurring forms read as a pattern language; both draw on Japanese philosophy. The bibliography gains five checked entries (233).
+- **Two pages on debugging** (P40): `docs/DEBUGGING.md`, the method in eight steps (write the symptom, reproduce, reduce, look, explain, repair, prove, record), worked through one small C program under the compiler's sanitizers, a debugger, valgrind and `git bisect`, and what each instrument cannot see; and `docs/DEBUGGABLE_DESIGN.md`, designing software so that a failure can be found: ten rules, each with what it costs, and seven with where this tree follows it.
+
+### Milestone M1215: `jichi-convert -o` honours `--force` and `--dry-run`, as `--help` says
+
+- **`jichi-convert <in> -o <out>` no longer overwrites an existing `<out>` without `--force`** (M1215, the measured defect SV:1942): the `-o` path called the unguarded file writer directly while the `--assets` tree already went through the guarded one, so `--help`'s promise -- "Overwrite existing files (default: skip)" -- was not kept for the main output. Run the README migration example twice, or against a `~/.jichi` that already exists, and it silently replaced the global config with no warning. The `-o` branch now writes through the same guarded writer as the asset tree: an existing target without `--force` is left byte-identical with the "exists; use --force" line, `--force` replaces it, `--dry-run` writes nothing. New driver `tests/smoke/convert_output.sh` (5 cells, the converter command line first test; the 580th driver).
+
+### Milestone M1213: the outage verbs -- `page`, `page-watch`, `probe`, `park` and `restart`
+
+- **`jichi-harness` gains five host-side verbs for a model outage** (M1213, BATCH H12): `page`, `page-watch`, `probe`, `park` and `restart`, the C89 port of the drive's four host outage scripts. `page` reads the last two runs' telemetry and, after 1800 s of continuous model failure with the latest failure within 600 s, writes a PAGE line once per stretch of failure and runs the configured page command; `page --park` also creates the drive's STOP file. `page-watch` makes the same check in a loop and writes the PAGE line, but does not run the page command or create the STOP file. `probe` checks that the gateway and the lead's model answer. `park` waits for the loop to end on the STOP file and resumes it only after two consecutive ready probes; `restart` is the same gate plus the unit start, without the ready loop (run after a re-pin). Nothing starts `park` by itself yet, and on the drive's host the old `page-watch.sh` still pages until the port's switch-over is recorded. Until the last code commit of this release, neither `page` nor `page-watch` paged without `--now`: the judging time defaulted to 0, so the 1800 s test never passed. Both now read the clock when `--now` is not given (found by the 0.15.0 release audit; `harness_page` cells 41 and 42).
+
+### Milestone M1211: the drive's push port now keeps its host mirror current
+
+- **A drive running on the `jichi-harness` port now maintains its host `push.git` the way the old host script did** (M1211): the port's `push tick` ran the team and records pushes but never updated the host's `push.git`, the mirror every other part of the drive (the gate, the gate watcher, the ledger, the re-pin) reads from. Under the port, the gate's first clone of that mirror would have been empty or stale; the push switch-over waited on this fix. The tick now performs the reference script's three mirror fetches (the remote's refs before the push, the drive's mirror into the local branches with a non-fast-forward refusal logged, and a re-fetch after the push) plus the one log line the reference printed, so the switch-over from the host script to the port no longer stops the mirror moving.
+
+### Milestone M1210: three memory-safety defects fixed, each proven red under the project's own sanitizer
+
+- **A short `ask_user` question no longer over-reads the heap when it is recorded** (M1210 d1): the journaler that records an `ask_user` question (answered or not) requested a fixed-length truncation of questions that were shorter than that length; the truncator's UTF-8 boundary walk then read past the question's bytes. The length is now bounded by the question itself; short questions are still recorded in full, long ones are still cut at the same boundary.
+- **`jichi doctor` no longer reads a config value it already freed** (M1210 d2): the doctor's dirty-tree-dispatch notice printed the raw config value after the parsed config was freed. The line is now formatted before the free; the printed bytes are identical for every value length, including values longer than 64 bytes.
+- **A relay handover no longer over-reads the stack when sizing the model's account section** (M1210 d3): the relay baton's one-byte test account had no terminating NUL; the renderer's length probe walked past it. The probe uses a two-byte account; the baton's sizing and every other byte of the note are unchanged.
+
+### Milestone M1203-i5: the re-pin's copies keep the executable bit
+
+- **A re-pinned `jichi` and `jichi-harness` stay runnable where the drive next execs them** (M1203-i5, SV:0912): when the harness re-pin rebuilt and swapped the two pinned binaries, each of the three file copies (the fresh pin, the backup snapshot, and the rename into `bin/`) created its destination as a new file without the source's permission bits (0664 under the measured umask), so the swapped pair was not executable: the replay's container doctors failed with `Permission denied`, and the loop's next run, the push timer's `mirror push` and a restore from the backup would have failed the same way. The reference re-pin used `cp`, which keeps the source's mode for a new file; the port now `stat`s the source and applies its permission bits after the copy, and treats a failed close as a failed copy. No line the re-pin prints changes.
+
+### Milestone M1209: a delegated sub-agent keeps its assigned model across its nudge rounds
+
+- **A sub-agent given its own model no longer drifts onto the lead's model when it is asked to continue** (M1209): a `spawn_subagent`/`spawn_parallel` child that was cut off at the output ceiling (and asked once to continue) or that ended a reply with reasoning but no answer text (and asked once for its final answer) made that follow-up request on the LEAD's model, not the one it was assigned -- the loop re-synced its local provider onto the lead's after the round, unconditionally. That re-sync is gone, so the child's continuation stays on its assigned model. A child on the lead's own model, and a mid-stream re-route (the connect-fallback), are unchanged.
+
+### Batch SEC, milestone M1208: the five fail-open limits
+
+- **An oversized redirect status line can no longer skip the private-address guard** (M1208 S1): the guard that refuses a redirect into a private address counts one hop per redirect (3xx) status line, but it copied the status line into a 64-byte buffer and ignored anything longer -- a `302` whose reason phrase made the line 64 bytes or more was never counted, so a redirect to a private address landed as if the user had named it. A longer line is now read from its first 63 bytes, where the status code is, so it counts like a short one. Short status lines behave as before.
+- **A command hidden behind 64 or more leading tokens is caught, not overlooked** (M1208 S2): the privileged-launcher detector and the kinetic-command check both stopped after 64 leading `VAR=x` assignments or wrapper tokens and answered "none", so a launcher after them was invisible to both. Such a segment is now classified `suspicious` and goes through the `privilegedCommands` policy like the launchers (`sudo`, `doas`, `pkexec`, `su`, `run0`), and the kinetic check resolves the hidden command word, so a kinetic script behind the guard is a hit. Commands with fewer than 64 leading tokens get the same verdict as before.
+- **A 33rd registered secret is no longer dropped from log redaction in silence** (M1208 S3): the redaction registry held exactly 32 secrets and quietly ignored every registration after that. The registry now grows; a registration it cannot afford is a named refusal that is logged, and every call site checks it (the last of them since P47, in REL-0150D above).
+- **`jichi-harness` refuses a push whose object listing overflows its capture cap, and says WHICH listing** (M1208 S4): the push's key scan and size check read the objects a push adds from bounded captures, and an overflow used to mark the listing "ok" -- every object past the cut reached neither scan and the push went out partially scanned. A truncation now refuses the push (fail-closed: an object past the cut would go out unscanned), and the two stages name themselves -- the raw object listing vs the batch-check listing (whose lines are longer, so it can overflow when the raw one fits). The 8 MiB capture cap is unchanged; the lowered cap is test-only.
+- **The parallel hold fence checks every new directory, not only the first 16** (M1208 S5): a write child's new directories beyond the 16th were merged without the hold decision (the file-count bound unchecked). The scan now stores every distinct root, decides holds over all of them, and still renders only 16 named (then "and more").
+
+### Batch H11, milestone M1203: `jichi-harness repin`
+
+- **`jichi-harness repin <SHA8>` re-pins the drive's two binaries** (M1203, the port of the host's `repin.sh`): it requires `<SHA8>` to be push.git's `origin/master` with a green `ci` record (`rc=0`), and refuses a commit that is already pinned. It builds both binaries with `make WERROR=1` in a fresh clone, checks each one's `--version` stamp, and swaps the pins by rename, so a running process keeps its file. It reports how many `src/harness` files changed, because the drive loop never re-executes itself: a re-pin reaches the run children and the push, not the loop. It then runs the harness doctor and `doctor --live` for the lead's and the workers' models; the key never reaches argv.
+
+### Batch H10, milestone M1202: the landing policy — `jichi-harness land` + `approve`
+
+- **`jichi-harness land` moves master only on a green gate, a fast-forward, re-read by the remote** (M1202, the port of the host's `land.sh`): it requires a recorded green sweep verdict for the `<SHA8>`, resolves it to a commit with git (`land` itself checks only that the value is not empty; `gate run` checks the 7-40 hex form), checks that the commit is on the drive branch (an ancestor of push.git's tracking ref for `<prefix>/main`, not fetched first) and that master is an ancestor of it, and pushes it to master — master moves only as the fast-forward the check proves, never `--force`. After the push it re-reads the remote and the main checkout's `origin/master` must name the `<SHA8>`; a refresh that did not land is a refusal, not a success.
+- **The drive's `landingPolicy` is a word, not a boolean** (M1202): `auto` (this drive, explicitly — the gate's land step runs on a green) or `hold` (the gate never runs land; the verdict is green-held and the landing waits for a hand). Absent, or any word that is not byte-exact `auto`, fails closed to `hold`; the gate home's `HOLD` file stays the override: a green run that reaches the landing creates it when the policy is not `auto`, and holds when it is present. Each landing decision is appended, best-effort, to `<gate-home>/<SHA8>/landing.decision`, and **`approve`** is the hand that runs the same land step for a pending one, recording the decision with the time and the operator's name.
+
+### Batch G, milestones M1196-M1201 and M1204-M1206: `jichi guide`, `check_model`, per-verb `--help`, the learner pages installed, a fuller `onboarding` pack, and cut-short strings refused at 88 `jichi-harness` sites
+
+- The scaffolded `onboarding` pack (the `jichi init onboarding` checklist, the `/onboard` command and the three agents) is fuller (G6): the checklist now runs, in this order, `jichi describe`, `setup`/`init` with their `--list` forms, `trust`, `doctor` plus the live check `check_model`, the project's tests, and three rules (never read credentials, never read outside the project, never commit unasked); the old analyze/tutorial/docs steps are kept as the final tail.
+- `/onboard` ends by telling the person what it changed, what it verified, and what it could not verify.
+- Every `onboarding` pack agent is told not to commit unless asked.
+- **`setup --from-global` no longer duplicates the `_comment` field** (M1200, batch G): inheriting a global config that carried its own `_comment` used to write TWO `_comment` members into the project config (jichi's own last-wins reader happened to read the right one, but any other consumer's dedup policy got one at a coin flip). The project config now holds exactly one — the one describing THIS file — because the inherited `_comment` is removed before the generated one is added. The interactive wizard gains the matching ask (M1200, wave 2): after the key question it asks for a context length, showing the endpoint's own published figure as a hint and pre-filled default when a key is available and the endpoint's model information names it, and leaving it blank (a skip, not an error) when the figure is unpublished or no key is on hand.
+- **`make install` ships jichi's own learner pages, and `jichi docs` defaults to them** (M1197, batch G): the install copies the six named pages (TUTORIAL_BEGINNER, SETUP_WIZARD, CONFIG_TUTORIAL, AGENTS_GUIDE, VOCABULARY, CURRICULUM) to `$(PREFIX)/share/doc/jichi/` and `uninstall` removes them, so a learner or an agent on a clean install can read jichi's documentation without the source tree; with no documentation source configured, `jichi docs` now uses that installed directory, derived from the executable's own location — a configured source always wins, and a missing directory is never named (D-G2).
+- **`check_model`: the sanctioned live check a run can call** (M1198, batch G): a new read-only tool that sends one live tool-calling probe to the run's active model and reports the verdict (pass only when the model called the probe tool natively), the observed class, how long the probe took and, on an incomplete request, the HTTP status number. It never shows the model's or the server's words, and the model's key stays in-process: the check runs in the parent, on a provider the model never touches. Full profile only; the guide's `model` topic names it as the way to verify the model works from inside a run.
+- **`jichi <verb> --help` and the guide's `commands` topic** (M1199, batch G): per-verb help now answers with the verb's own section (the help is built once, the section extracted from the same bytes) instead of the full 250-line block; the compiled-in guide gains a sixth topic listing the TUI slash commands a run actually uses, each name checked against the TUI's own command table.
+- **`jichi guide [topic]` and the built-in `jichi-guide` skill** (M1196, batch G): jichi now carries a compiled-in guide of its own learner pages, served by a read-only offline verb and by a skill a model can `load_skill` in any container (the text is generated from the marked page sections, one source, linted to the pages).
+- **`jichi sysmsg` now registers the same tool registry as `jichi context`** (M1196 follow-up (h), batch G): the two surfaces size the SAME prompt. A full-profile `sysmsg` shows the Available-skills catalog (as a real turn sends it); a run whose config denies `load_skill` shows it absent in both.
+- **denying `load_skill` now also drops the Available-skills catalog** (M1196 follow-up, batch G): the system message's skills catalog is rendered only when the run advertises `load_skill`. A config that denies `load_skill` — such as the chatbot example — no longer shows a catalog naming a skill the model cannot fetch. A model with `toolCalling: none`, which is sent no tools at all, still sees the catalog. The built-in `jichi-guide` skill has been in every run's skill set since M1196; whether the catalog lists it depends on `load_skill`.
+- **`jichi-harness` treats a formatted string that did not fit as a failure where it checked only for an error** (M1206): 88 call sites checked `jc_snprintf` only for a negative return, so a value too long for its buffer was used cut short. Each now also checks the result against its buffer size and handles a cut the way the site already handled an error. Calls that do not read the return at all are not changed. `snprintf_cut_lint` (M1205) flags a new call whose only check is `< 0`.
+
+### Milestones M1192-M1195: a command that backgrounds a job returns, `cancel-cmd`, worker supervision, and no split characters in `--output jsonl`
+
+- **`--output jsonl` no longer splits a character where it holds text back for redaction** (M1193, def-284): the streaming
+  redaction hold-back cut a multi-byte character mid-sequence when a secret was registered,
+  so a strict JSON reader rejected the whole `text` line. The cut now lands on a character
+  boundary in the redacted buffer's own coordinates; the streamed content is unchanged.
+- **`spawn_parallel` worker supervision** (M1194, def-377): a `parallelSupervise` config object (`noEditSec` and `graceSec` in seconds, `placeholders` a count, and `action` report/wrapup/stop) flags a worker child that stopped editing or over-copies placeholders, and the parent acts on it: `wrapup` first hands the child a stop instruction through its inject pipe (one grace call, a supervised end), and `stop` soft-stops. Under both, a child still inside a command when the grace runs out is hard-stopped (killed; its work is kept as a ref, never merged); the kill ends the child, not the command it was running (def-403). The batch summary keeps `stop=max_iters` first (old readers unchanged) and names the supervised end; one `worker_outcome` telemetry event per launched task records the ending. The key is GATED in the project-config trust step (an untrusted config cannot arm the kill).
+- **the pool's millisecond clock is 64-bit** (M1194, def-379): a task timeout no longer narrows its clock to `long`, so a 32-bit `parallelTaskTimeout` past ~25 days of uptime still fires.
+
+- **`run_terminal_command` returns when the shell exits** (M1192, B1): a command that
+  backgrounds a job and lets the shell exit (e.g. `( sleep 30 ) & echo started`) no longer
+  holds the tool call until the config's `runTimeout` group-kills it. The call returns with
+  the shell's own exit status and a note, and the background job keeps running: it is
+  adopted into the `read_background_output`/`kill_background` registry (its output spooled
+  to `~/.jichi.d/bgspool/bg-<id>-<pid>.out`). `kill_background` stops it when the command ran
+  with a timeout or a memory budget; on the plain path it stops the output drainer, and the
+  job only at its next write (def-399). Where it cannot be adopted (the registry is full,
+  there is none, or the adoption fails), its output is discarded and the note says so. The per-worker stop and `control`'s
+  cancel-cmd do not reach an adopted job. A normal command (`sleep 1 && echo x`) and a command
+  that waits for its job (`sleep 2 & wait`) are unchanged, and the runTimeout deadline still
+  wins when the shell does not exit (the `run_timeout_after_eof` cells). This is measured on Linux and on FreeBSD 15.1.
+  On FreeBSD the driver `harness_cmd_shellexit` still fails, for a reason in the test: it runs jichi under `timeout`,
+  and FreeBSD's `timeout` waits for every descendant of its command, here the background job the cell leaves running
+  on purpose. With `timeout -f` the cell passes in 1 s (measured 2026-11-26; `docs/PLATFORMS.md`, the FreeBSD row).
+- **`control <sock> cancel-cmd`** (M1192, B3): cancels the current command. Lead form
+  (no task index): the watched command's kill-arm fires (exit status
+  143, the model-visible note), the next request reports the cancel, and a second cancel
+  arriving after the command has finished is refused with the exact `no command is running`.
+  Worker form (`{"task": N}`): the pool worker's command is cancelled the same way (the
+  child's SIGUSR1). A cancelled tool call carries `stopped: "cancel"` in the telemetry
+  event, and `jichi telemetry` counts them ("of which N were cancelled by the supervisor"). (The lead's own
+  `popen` command path — no budget, no timeout — is not cancelable this milestone: the
+  `def-398`/`def-399` rows in `docs/DEFERRED.md` name the missing kill-arm and the
+  best-effort adopt-kill limit on that path.)
+- **`control <sock> status` reports `in_cmd` for every task** (M1195): the field was kept but never sent, so a
+  supervisor could not see that a task was between commands, and `cancel-cmd`'s refusal `task N is not in a
+  command` could not be observed from outside. The status reply now carries it for every task, `0` when the task
+  is not in a command.
+### A correction to the v0.14.1 release texts
+
+- **A correction to the v0.14.1 release texts** (2026-11-16): the v0.14.1 tag annotation and
+  the message of its commit say that every platform row was retested. Apart from the
+  development box, whose gate runs on every commit, no row was run for 0.14.1. Its platform
+  rows are 0.14.0's re-measure of 2026-11-12/13, which did not reach
+  every row: Windows, macOS and Android were not re-run, the Hurd and Haiku were not run, and
+  four boards ran only on earlier commits, and several older rows were not re-run. `docs/PLATFORMS.md` says for each row what ran, and
+  the `[0.14.0]` section below states the scope correctly. The tag stays as published. The
+  passages and the facts are in `docs/case-studies/harness-port-2026-11/PLATFORM_RETESTS.md`
+  section 8.
+
+### Known issues
+
+Open when this release was cut. The 0.13.0 list said its items carry into the next release; 0.14.0 and 0.14.1 did
+not restate them, and none of them has been fixed since, so they are restated here. Each was checked against the
+code at this head by reading it (the files named, and their history since 0.13.0), not by a new run.
+
+- **A repository setting planted by a write child can still make jichi's own git calls run a program.** jichi's git
+  tools neutralise four settings (`core.fsmonitor`, `log.showSignature`, `commit.gpgsign`, `core.hooksPath`), which
+  does not close every route from a repository to code execution through those tools. The fix is designed (M995)
+  and not yet built.
+- **The 2026-10-17 hardening review's still-open rows.** At this head the internal findings index lists 25 rows
+  without a fix marker: 1 medium (B-02, the row above), 13 low and 11 note. 0.13.0 also counted four rows with a fix marker
+  as open for a residual clause (A-12, C-10, D-07, D-10); of them, D-10's open part is E-09, which is among the 25. The 0.13.0 list said 23 rows (11 low). By its own
+  rule, the same file held two more low rows then, L-05a and L-05b: a configuration value read before its NULL
+  check (`src/config/jc_config.c`) and a snapshot setting read through a pointer after a branch that allowed it to
+  be NULL (`src/snapshot/jc_snapshot.c`). Both are still open, so the count was two short.
+- **An LSP `rename_symbol` given a `line` renames whatever starts that line.** The position it sends is column 0 of
+  that line, so where the definition line starts with the return type, the server renames the type, and the
+  success message still names the symbol you asked for.
+- **Control bytes can still reach the terminal on the tool-start line and on the parallel-board rows.** Tool output
+  is scrubbed, but a tool's argument summary and a board row's text (a tool name or error text a model chose) are
+  printed raw.
+- **A process run that asks for its exit code only can die mid-run and report failure.** When the caller discards
+  the child's output, the drain loop reads a stale error value after a successful read and stops draining; the
+  child's next write can then kill it.
+- **The ACP prompt ignores the client's `sessionId`** (by design, a desktop-client item): a second `session/new` on
+  one connection drops the first session's unsaved state, and a prompt addressed to a session does not check that
+  it is the one being run. The 0.13.0 entry also named `session/load`, where a client-named id became a file path
+  without validation; that half had been fixed before 0.13.0 was cut (M1139).
+- **`/compact` is not a command in a headless run** (by design): in a `-p` run it is sent to the model as a plain
+  message, with a warning, unless a custom command named `compact` exists. Compaction itself does run headless: the
+  mid-turn pass at any depth, and the model-written summary at the start of a turn once the context passes 80% of
+  the window (with `autoCompact` on, its default), as in a long resumed session. The 0.13.0 entry said the summary
+  cannot run headless and that `/compact` refuses; at this head neither holds.
+- **A guarded feed or docs URL that redirects to another port on the same private host is refused** (a deliberate
+  limit): the redirect guard allows the address you named and refuses a port the server chooses.
+
+Found or re-measured for this release (2026-11-25; the rows at `6ed996bf`):
+
+- **`jichi-harness gate run --stage ci` needs nearly 4 MiB of stack.** The ci stage keeps twelve 256 KiB buffers in
+  one stack frame. Under a stack limit of 3,840 KiB or less it ends in a segmentation fault instead of running or
+  refusing; at 4,096 KiB it gets to its own config check without crashing. Measured on Linux with `ulimit -s`,
+  whose default of 8 MiB leaves room. On the
+  OpenBSD and NetBSD rows every ci-stage cell of `harness_gate_run` crashed.
+- **`jichi-harness` runs on Linux with systemd only, for now** (`dec-2026-11-12-harness-linux`). Where
+  `/proc/self/exe` does not answer (FreeBSD, OpenBSD, illumos), its commands that need their own program refuse
+  ("could not resolve the harness's own path"). Most of the smoke drivers that fail on the BSD and illumos rows
+  are the harness's.
+- **`jichi-harness page-watch` writes the PAGE line but does not run the configured page command or create the
+  STOP file, and nothing starts `park` by itself.** Only the one-shot `page` runs the page command; `page --park` creates the STOP file
+  but does not run `park`, so a parked drive resumes only when someone runs `park`. On the drive's host the old
+  `page-watch.sh` still pages until the port's switch-over is recorded.
+- **`jichi-harness park --wait-interval <s>` is accepted and ignored.** park polls for the loop's end at `--interval`,
+  else at the harness config's `drive.waitInterval`, else every 30 s (`src/harness/jc_harness_park.c`). `restart
+  --wait-interval` works as its help says. With park, use `--interval`.
+- **`jichi-harness page` and `page-watch` read at most 512 model calls from the last two runs**, in file order with
+  the older run first (`src/harness/jc_hp_pagestretch.c`, a deliberate bound). On a pair of runs with more calls
+  the newest are not read, so an outage that begins late in a busy run may not page.
+- **`jichi-harness land <SHA8>` checks only that the value is not empty.** It resolves the value with git, so
+  run by hand it takes anything git resolves to a commit; the gate passes it a SHA that `gate run` has checked for
+  the 7-40 hex form.
+- **The parallel hold fence can crash when memory runs out.** Its list of new directories starts with room for
+  32; if growing it past that fails, the list pointer is lost (set to NULL) while its count stays, and the next
+  lookup dereferences it (`src/tools/jc_tool_parallel.c`). The first allocation failing holds every new directory as
+  intended; a later one does not.
+- **The onboarding checklist says "Follow jichi's `setup` guide, in this order"**, but the guide's `setup` topic
+  holds only the setup flow and `jichi doctor`. The checklist's own steps are the order to follow.
+- **On NetBSD, `JICHI_BIN` can carry a `./` segment.** NetBSD's `/proc/self/exe` answers the path as the program
+  was started, not normalised, and jichi exports the kernel's answer when it names the same program: started as
+  `./usr/local/bin/jichi` inside a directory `D`, it exported `D/./usr/local/bin/jichi`. The path is absolute and
+  names the right program, so a command that uses it works; `docs_install` cell 12 asks for the canonical path and
+  fails there. 0.14.1 exported the same.
+- **jichi's own smoke drivers still failing on the four re-measured rows** (each row in `docs/PLATFORMS.md` names
+  them; the build is clean and the unit suite passes on all four, and each was driven with a local model):
+  - FreeBSD 15.1: 8. `harness_cmd_shellexit` fails for a reason in the test (FreeBSD's `timeout` waits for the
+    background job the cell leaves running); `search_option_path` is fixed in this release (REL-0150D, after the row
+    was measured); six are not yet classified, among them the `bg_spool` overshoot listed for 0.14.0;
+  - OpenBSD 7.9: 5. `parallel_abnormal_endings` is fixed in this release (REL-0150D: a worker's notes under
+    OpenBSD's open-file limit of 512, after the row was measured); two are the test's (OpenBSD has no `base64`
+    command); one was killed at its deadline twice, with no verdict; one fails in a fixture that needs the shipped
+    tree to be a git repository;
+  - NetBSD 10.1: 2, the `JICHI_BIN` case above and the same git fixture;
+  - OmniOS r151058: 8. Two are this row's known environment (no `cc`; `ksh`'s SIGPIPE from `| head`); one is a
+    C++17 clash in the system's `time.h`; one cannot build its sanitizer binary; two read no peak resident size,
+    because `getrusage` reports none here; two are not yet classified.
+- **Rows not re-run for this release** keep what they were last measured at, as `docs/PLATFORMS.md` gives it: a
+  date and a commit, or for some older rows only a milestone. Of 0.14.0's list, the armeb-linux-musleabihf JSON
+  double round-trip, hexagon's stop after `test_harness` and the LicheeRV Nano's three smoke failures were recorded
+  for 0.14.0 and have not been run again.
+
+## [0.14.1] — 2026-11-15 — the first public 0.14 release, on top of the dead-clone fix (def-396)
 
 0.14.0 was tagged privately on `7f5ff7eb` and never published: its hosted CI
 went RED on the dead-clone name collision in `gate run --stage ci` (def-396,

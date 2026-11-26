@@ -1400,7 +1400,7 @@ static int make_as_tool(const char *win)
         if (p >= 0 && is_word_ch((unsigned char)win[p])) {
             end = p;
             while (p >= 0 && is_word_ch((unsigned char)win[p])) p--;
-            if (end - p > 0 && end - p <= (long)sizeof w) {
+            if (end - p > 0 && end - p < (long)sizeof w) {
                 memcpy(w, win + p + 1, (size_t)(end - p));
                 w[end - p] = '\0';
                 if (has_run_verb(w)) {

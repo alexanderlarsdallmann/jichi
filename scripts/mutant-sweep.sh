@@ -45,8 +45,31 @@ cd "$root"
 #   faults, faults_net, faults_net_midstream -- SKIP without a FAULT=1 binary
 #   smoke_lint, project_records_lint, doc_commands_lint -- source/doc lints that
 #       mention "$BIN" in passing but assert over files, not over behaviour
+#   harness_repin_san -- builds its OWN sanitizer jichi-harness from the tree in
+#       its OWN git worktree (its header: 'its OWN git worktree of the tree, its
+#       OWN objects, its OWN build'), so the sweep's do-nothing binary swap
+#       (JC_SMOKE_BIN/JC_SMOKE_HBIN) never reaches the subject it exercises --
+#       it stays green against the hollow binary BY DESIGN. Its evidence that it
+#       can fail: the wave-A red-first at c97691e3 (not ok 2 and not ok 3 on the
+#       unfixed head, ASan stack-use-after-scope in child_apply_env), which the
+#       gate's red-first stage replays.
+#   harness_push_truncation -- builds its OWN lowered-cap jichi-harness from the
+#       tree in its OWN git worktree (its header: 'its OWN git worktree of the
+#       tree, its OWN objects, its OWN build'), so the sweep's do-nothing binary
+#       swap never reaches the subject it exercises -- it stays green against the
+#       hollow binary BY DESIGN. Its evidence that it can fail: the red-first at
+#       the commit carrying this driver (not ok 1 on the unfixed head, the
+#       refusal assertion).
+#   san_memory_safety -- builds its OWN sanitizer jichi from the tree in its
+#       OWN git worktree (the harness_repin_san shape, M1210), so the sweep's
+#       do-nothing binary swap never reaches the subject it exercises -- it
+#       stays green against the hollow binary BY DESIGN. Its evidence that it
+#       can fail: the red-first at the pre-fix head (not ok 2/3/3b/5 on the
+#       unfixed tree, the pinned heap-buffer-overflow / heap-use-after-free /
+#       stack-buffer-overflow frames), re-measured by the lead at the commit
+#       carrying this driver.
 EXCLUDE='faults faults_net faults_net_midstream smoke_lint project_records_lint
-doc_commands_lint'
+doc_commands_lint harness_repin_san harness_push_truncation san_memory_safety'
 
 tmp=${TMPDIR:-/tmp}/jc_mutant.$$
 mkdir -p "$tmp"

@@ -130,6 +130,15 @@ done
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 IMGGZ="$DIR/NetBSD-$REL-amd64-live.img.gz"
 URL="https://cdn.NetBSD.org/pub/NetBSD/images/$REL/NetBSD-$REL-amd64-live.img.gz"
+# WHERE A SUPERSEDED RELEASE LIVES (added 2026-11-25). The default stays 10.1,
+# the release of every NetBSD row on record. NetBSD moves a superseded release
+# from the main server to the archive: on 2026-11-24 the address above answered
+# 301 to the archive's DIRECTORY for 10.1, curl followed it, got a web page, and
+# the rig could not start on a bench without a cached image. The image itself
+# is at the address below (checked 2026-11-25: 458,699,453 bytes). The fetch
+# tries the main server first and the archive second, and accepts only a file
+# that gzip can read, so a page is never taken for an image again.
+URL_ARCHIVE="https://archive.netbsd.org/pub/NetBSD-archive/images/$REL/NetBSD-$REL-amd64-live.img.gz"
 DISK="$DIR/netbsd-$REL.qcow2"
 KEY="$DIR/tierv-netbsd"
 FIFO="$DIR/in.fifo"
@@ -205,8 +214,21 @@ note ""
 if [ "$REUSE" -eq 0 ]; then
     say "fetch the live image (~437 MB)"
     if [ ! -s "$IMGGZ" ]; then
-        curl -fL --retry 3 -C - -o "$IMGGZ" "$URL" || {
-            echo "tier-v-netbsd: download failed: $URL" >&2; exit 2; }
+        _got=""
+        for _u in "$URL" "$URL_ARCHIVE"; do
+            rm -f "$IMGGZ.part"
+            if curl -fL --retry 3 -o "$IMGGZ.part" "$_u" 2>/dev/null \
+               && gzip -t "$IMGGZ.part" 2>/dev/null; then
+                mv "$IMGGZ.part" "$IMGGZ"; _got="$_u"; break
+            fi
+        done
+        rm -f "$IMGGZ.part"
+        [ -n "$_got" ] || {
+            echo "tier-v-netbsd: download failed, from the main server and from the archive:" >&2
+            echo "  $URL" >&2; echo "  $URL_ARCHIVE" >&2
+            echo "tier-v-netbsd: the releases on the main server are listed at https://cdn.NetBSD.org/pub/NetBSD/images/ ; pass another with --release." >&2
+            exit 2; }
+        note "    image fetched from: $_got"
     fi
     ok "live image present ($(( $(wc -c < "$IMGGZ") / 1048576 )) MB)"
 
@@ -470,7 +492,14 @@ if [ "$REUSE" -eq 0 ]; then
     # zero, and the rig printed nothing between `== pkg_add` and never. Bounded
     # here for the same reason; `timeout` is probed rather than assumed, so a
     # system without it runs unbounded and is no worse off than before.
-    if gr "T=''; command -v timeout >/dev/null 2>&1 && T='timeout 900'; \
+    # IPv4 FIRST, for this boot (measured 2026-11-24): the package server has
+    # an IPv6 address, the guest prefers it, and QEMU's user-mode network gives
+    # the guest no IPv6 route. pkg_add then fails with "no pkg found for
+    # 'gmake'", which reads as a missing package and is a missing route (ftp
+    # says it: "Can't connect to `2a04:...': No route to host"). The policy
+    # line makes IPv4-mapped addresses win; it is not kept across a reboot, so
+    # it is set before each pkg_add of this script.
+    if gr "ip6addrctl add ::ffff:0:0/96 100 4 >/dev/null 2>&1; T=''; command -v timeout >/dev/null 2>&1 && T='timeout 900'; \
            PKG_PATH='$PKGURL' \$T pkg_add -I gmake pkg-config curl git-base poppler-utils >/tmp/pkg.log 2>&1 && echo PKG_OK" \
             2>/dev/null | grep -q PKG_OK; then
         ok "toolchain present (gmake, not make: NetBSD's make is BSD make)"
@@ -513,7 +542,8 @@ fi
 # install pdftotext. Guarding on the command rather than on the package makes this
 # idempotent, so it is safe to run every time and it repairs an older disk in place.
 if gr "command -v pdftotext >/dev/null 2>&1 ||
-       { T=''; command -v timeout >/dev/null 2>&1 && T='timeout 600';
+       { ip6addrctl add ::ffff:0:0/96 100 4 >/dev/null 2>&1;
+         T=''; command -v timeout >/dev/null 2>&1 && T='timeout 600';
          PKG_PATH='$PKGURL' \$T pkg_add -I poppler-utils >/dev/null 2>&1; };
        command -v pdftotext >/dev/null" 2>/dev/null; then
     ok "pdftotext present (the pdf/docs_pdf drivers can run)"
@@ -586,7 +616,7 @@ else
 fi
 
 say "unit suite"
-if g 'cd ~/jichi && gmake test 2>&1 | tail -3' 2>/dev/null | tee -a "$RESULTS" \
+if g 'cd ~/jichi && gmake test 2>&1 | grep -E "^ *FAIL |checks, [0-9]+ failures|\\*\\*\\*" | tail -40' 2>/dev/null | tee -a "$RESULTS" \
         | grep -q '0 failures'; then
     ok "unit suite: 0 failures"
 else
@@ -612,7 +642,14 @@ else
         | tee -a "$RESULTS"
     {
         # NOT anchored: run.sh indents a nested driver's checks as "    | not ok 3".
-        echo "--- every failing check, and the driver banners ---"
+        # THE WHOLE LIST FIRST (TW24, 2026-11-25). The excerpt below is cut at 40
+        # lines, and a record that shows 40 lines of a longer list was read as the
+        # list: three rows were reported with 5, 6 and 5 failing drivers where the
+        # runner counted 36, 33 and 27. run.sh prints every failing driver's name
+        # on one line; print that line, and say of the excerpt that it is one.
+        echo "--- every failing driver (the runner's own line) ---"
+        g 'grep "^smoke: FAILED -- " /tmp/smoke.log | tail -1' 2>/dev/null
+        echo "--- the FIRST 40 lines of failing checks and driver banners (an excerpt, not the list) ---"
         g 'grep -nE "not ok|FAILED \(in suite\)|ALSO fails|classify the failure" /tmp/smoke.log | head -40' 2>/dev/null
         echo "--- the standalone re-run, which is the classified diagnosis ---"
         g 'sed -n "/ALSO fails standalone/,\$p" /tmp/smoke.log | head -45' 2>/dev/null
@@ -650,7 +687,7 @@ else
 fi
 
 say "offline surfaces"
-for s in "--version" "doctor" "describe" "context"; do
+for s in "--version" "describe" "context"; do
     if g "cd ~/jichi && ./jichi $s >/dev/null 2>&1 && echo SURFACE_OK" 2>/dev/null \
        | grep -q SURFACE_OK; then
         ok "offline surface: $s"
@@ -658,6 +695,19 @@ for s in "--version" "doctor" "describe" "context"; do
         bad "offline surface failed: $s"
     fi
 done
+# doctor is judged by a POSITIVE MARKER, its summary line, never by its exit
+# status: it exits non-zero when it FINDS something, and a guest with no
+# configuration always gives it something to find ("no model is configured").
+# Read by exit status, this step failed on every platform, Linux included
+# (TW24.F19); scripts/tier-v-illumos.sh has had this form since its first run.
+_doc=$(g 'cd ~/jichi && ./jichi doctor 2>&1' 2>/dev/null)
+_sum=$(printf '%s' "$_doc" | grep -E '[0-9]+ ok, [0-9]+ warning' | tail -1)
+if [ -n "$_sum" ]; then
+    ok "offline: doctor ran and printed its summary -- $_sum"
+    note "    doctor: $_sum"
+else
+    bad "offline: doctor printed no summary line at all"
+fi
 
 # ------------------------------------------------------------- live turns
 # The DRIVEN step. Its definition, and every reason behind it, is in ONE place:

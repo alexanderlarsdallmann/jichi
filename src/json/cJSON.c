@@ -13,10 +13,12 @@
  * looking for cJSON's copyright notice would find none and reasonably conclude the
  * notice had been stripped. jichi vendors no third-party source at all.
  *
- * Only the API is shared, deliberately: the function names, the `cJSON` struct
- * layout and the double-based number model match upstream, so the real library
- * (github.com/DaveGamble/cJSON) can replace this file and cJSON.h as a pair
- * without touching anything else in the tree.
+ * Only the API is shared, deliberately: the function names and the double-based
+ * number model match upstream. The real library (github.com/DaveGamble/cJSON) is
+ * no longer a drop-in replacement, though: the struct has a `tail` member that
+ * upstream's lacks (M1085), three source files call jichi's own extensions, and
+ * some behaviour differs on purpose (docs/reading/ireko-01-everything-passes-
+ * through-here.md, "A promise nobody checks").
  *
  * Compact recursive-descent parser and serialiser. Compiles under the same
  * -std=c89 -pedantic -Wall -Wextra -Werror as every other translation unit; the

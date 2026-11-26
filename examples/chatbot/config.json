@@ -33,7 +33,8 @@
       "run_tests",
       "spawn_subagent",
       "spawn_parallel",
-      "remember"
+      "remember",
+      "load_skill"
     ]
   },
   "snapshots": false,

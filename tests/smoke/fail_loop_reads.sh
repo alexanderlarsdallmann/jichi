@@ -99,7 +99,15 @@ if [ -n "$LR" ] && grep -q 'was stopped for repeating the same refused call' "$L
 else
     t_fail "not stopped as a refused-call loop: $(grep -o '\[jichi\] This task[^"]*' "${LR:-/dev/null}" 2>/dev/null | head_bytes 300)"
 fi
-calls=$(grep -o 'stop=[a-z_]* · [0-9]* tool call' "${LR:-/dev/null}" 2>/dev/null | head -n 1 | grep -o '[0-9][0-9]*')
+# M1194 W6.1 (243363e5): the summary line keeps stop= as its FIRST token, but an
+# optional " · loop_kind=<word>" now follows it (a looped max_iters stop). Read
+# the count from the "<N> tool call" tail so the loop-kind token cannot blind
+# this extraction (it did: the keep-going smoke of run 0061 got 'none').
+# POSIX only: `\?` in a basic regular expression is a GNU extension, and with
+# OpenBSD's and illumos's grep this line matched nothing ("got 'none'") on a
+# run that was stopped at the right count. sed with the interval \{0,1\}
+# says the same thing in the standard's own words.
+calls=$(sed -n 's/.*stop=[a-z_]*\( · loop_kind=[a-z_]*\)\{0,1\} · \([0-9][0-9]*\) tool call.*/\2/p' "${LR:-/dev/null}" 2>/dev/null | head -n 1)
 if [ -n "$calls" ] && [ "$calls" -ge 17 ] && [ "$calls" -le 18 ]; then
     t_ok "it was stopped at the ninth failure ($calls calls), far below its cap"
 else

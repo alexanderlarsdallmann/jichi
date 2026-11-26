@@ -85,6 +85,7 @@ both parties read and mutate.
   was provided" without reading a file.
 
 ## Supervising
+<!-- jichi-guide topic="agents" name="agents-supervising" -->
 
 **Human supervises fleets**: journals + `jichi runs`/`audit`
 ([OBSERVABILITY.md](OBSERVABILITY.md)), the mid-run control socket
@@ -106,6 +107,7 @@ report, and merges. The **`--output jsonl` driving contract**
 `starved`, cache and tool mix) *so that a driving agent can decide* to
 re-scope, split, raise the budget, or switch backends. The warm `daemon`
 ([DAEMON.md](DAEMON.md)) amortizes startup for worker fleets.
+<!--/jichi-guide -->
 
 ## What deliberately does NOT exist
 

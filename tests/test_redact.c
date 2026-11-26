@@ -20,6 +20,7 @@ static void test_redact_null_register_and_reset(void);  /* M1040-c */
 static void test_logf_secret_straddle(void);  /* M1131 (C-13) */
 static void test_log_err_body_cap(void);  /* M1131 (C-13) */
 static void test_redact_scrub(void);  /* M1137 (C-19) */
+static void test_redact_34_secrets(void);  /* M1208 S3 */
 
 void test_redact(void)
 {
@@ -91,6 +92,7 @@ void test_redact(void)
                                    * 4095 cut must not leak its prefix */
     test_log_err_body_cap();  /* M1131 (C-13): the clients' log-body cap helper */
     test_redact_scrub();  /* M1137 (C-19): the shared fail-closed scrub helper */
+    test_redact_34_secrets();  /* M1208 S3: 33rd/34th secret must be redacted */
 }
 
 /* M1137 (C-19): the six malloc-fails-open redaction sinks now share this
@@ -526,4 +528,59 @@ static void test_log_err_body_cap(void)
         JC_CHECK_STR(cp, "short");
         free(cp);
     }
+}
+
+/* M1208 S3: log redaction drops every secret after the 32nd.
+ * Register 34 distinct secrets >= JC_REDACT_MIN, log a line containing
+ * secret #33 (index 32) AND secret #34 (index 33), assert both come out redacted.
+ * The fix grows the registry (M724 idiom); before the fix the 33rd and 34th
+ * are silently dropped (g_secrets is a fixed array of 32). */
+static void test_redact_34_secrets(void)
+{
+    char out[4096];
+    int i;
+    const char *msg;
+    int hits;
+
+    /* Reset before starting */
+    jc_redact_reset();
+    JC_CHECK(jc_redact_active() == 0);
+
+    /* Register 34 distinct secrets, each >= JC_REDACT_MIN (6) bytes.
+     * Pattern: M1208-S3-SECRET-<NN>-aaaaaaaaaaaaaaaaaa with NN 00..33
+     * - Distinct (NN differs)
+     * - Long enough (29 chars, > 6)
+     * - None contains another as a substring (NN is unique in each) */
+    for (i = 0; i < 34; i++) {
+        char sec[40];
+        snprintf(sec, sizeof(sec), "M1208-S3-SECRET-%02d-aaaaaaaaaaaaaaaaaa", i);
+        jc_redact_register(sec);
+    }
+
+    /* Verify 34 are registered */
+    JC_CHECK(jc_redact_active() == 1);
+
+    /* Build a message containing secret #33 (index 32) and secret #34 (index 33) */
+    msg = "start M1208-S3-SECRET-32-aaaaaaaaaaaaaaaaaa middle M1208-S3-SECRET-33-aaaaaaaaaaaaaaaaaa end";
+
+    /* Redact the message */
+    hits = jc_redact_secrets(msg, out, sizeof(out));
+
+    /* Both secrets should be found (2 hits) */
+    JC_CHECK(hits == 2);
+
+    /* The plaintext substrings must be absent */
+    JC_CHECK(strstr(out, "M1208-S3-SECRET-32-aaaaaaaaaaaaaaaaaa") == NULL);
+    JC_CHECK(strstr(out, "M1208-S3-SECRET-33-aaaaaaaaaaaaaaaaaa") == NULL);
+
+    /* The redaction marker must be present (four *** for two secrets) */
+    JC_CHECK(strstr(out, "***") != NULL);
+
+    /* Verify the non-secret parts pass through */
+    JC_CHECK(strstr(out, "start ") != NULL);
+    JC_CHECK(strstr(out, " middle ") != NULL);
+    JC_CHECK(strstr(out, " end") != NULL);
+
+    /* Reset for next test */
+    jc_redact_reset();
 }

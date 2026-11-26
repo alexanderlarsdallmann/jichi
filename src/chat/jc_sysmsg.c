@@ -14,6 +14,7 @@
 #include "jc_skill.h"
 #include "jc_output_style.h"
 #include "jc_compact.h"
+#include "jc_context.h"  /* jc_app_advertises: the shared advertised-set predicate */
 #include "jc_envelope.h"
 #include "jc_assign.h"
 #include "jc_agent.h"    /* jc_subagent_can_spawn: one predicate for prompt + tool array */
@@ -936,8 +937,19 @@ char *jc_sysmsg_build_parts(struct jc_app *app, struct jc_sysmsg_parts *parts)
     mark(parts, JC_SYSPART_ASSIGNMENT, &sb, &at);
 
     /* Model-invoked skills: names + descriptions only (progressive disclosure;
-     * the full body is fetched via the load_skill tool). */
-    jc_skill_render_catalog(&app->skills, &sb);
+     * the full body is fetched via the load_skill tool).
+     *
+     * Rendered ONLY when this run advertises load_skill -- resolved through
+     * jc_app_advertises, the same advertised_tools() predicate the request
+     * builder and the context report use, so the prompt cannot name a skill
+     * whose fetch tool was denied (the M292 dead-reference class: a catalog
+     * line advertising a tool that cannot run). Option A (SV:1154): the
+     * built-in jichi-guide stays in the skill SET in every run; only this
+     * catalog line is conditional on the advertised tool. A full-profile run
+     * advertises it and keeps the catalog. */
+    if (jc_app_advertises(app, "load_skill")) {
+        jc_skill_render_catalog(&app->skills, &sb);
+    }
     mark(parts, JC_SYSPART_SKILLS, &sb, &at);
 
     /* The system message is per-turn-transient: built fresh each turn and used

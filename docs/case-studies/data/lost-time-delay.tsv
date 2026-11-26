@@ -1,0 +1,10 @@
+cause_class	hours	rows
+gate red, re-gate (includes the fix work)	128.88	17
+supervisor absent	22.27	2
+record slip	19.63	5
+waiting for the operator	10.09	4
+lead mistake (rewrite, dirty tree, wrong dispatch)	7.24	4
+other	7.22	1
+gate-script false verdict	5.43	3
+network/VPN	3.45	2
+worker failure (cut off, stuck, no write access)	2.87	1

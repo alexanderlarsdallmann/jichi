@@ -23,7 +23,7 @@
 # (tests/smoke/secret_env_subcommands.sh is the effect; this is the shape).
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 4
+t_plan 5
 PROC="$SMOKE_ROOT/src/util/jc_proc.c"
 MAIN="$SMOKE_ROOT/src/main.c"
 tmp=$(smoke_tmp)
@@ -82,5 +82,28 @@ if [ -n "$arm" ] && [ -n "$disp" ] && [ "$arm" -lt "$disp" ]; then
     t_ok "the secret registry is armed (main.c:$arm) above the brief-check dispatch (main.c:$disp)"
 else
     t_fail "arming at main.c:${arm:-?} is not above the brief-check dispatch at main.c:${disp:-?}"
+fi
+
+# --- 5: no registration of a secret drops its answer ------------------------------
+# jc_redact_register returns -1 when it cannot keep the value (out of memory),
+# and then that secret is NOT scrubbed from the logs. Every caller says so in a
+# warning -- except one did not: the bare token after "Bearer " in an MCP
+# credential header was registered with the answer thrown away, so that one
+# failure would have been silent (found by the 0.15.0 release audit).
+# Universe, stated: every call of jc_redact_register( in src/**/*.c, the
+# definition itself apart. Floored at today's exact count (7); the floor is the
+# check that the scrape still scrapes. A call "drops its answer" when it stands
+# as a statement of its own, with or without a (void) cast.
+find "$SMOKE_ROOT/src" -type f -name '*.c' -exec grep -n 'jc_redact_register(' {} /dev/null \; 2>/dev/null \
+    | grep -v ':int  *jc_redact_register(' | sed "s|^$SMOKE_ROOT/||" | sort > "$tmp/regsites"
+nreg=$(grep -c . "$tmp/regsites")
+grep -E ':[0-9]+:[[:space:]]*(\(void\)[[:space:]]*)?jc_redact_register\(' "$tmp/regsites" > "$tmp/regdropped"
+ndrop=$(grep -c . "$tmp/regdropped")
+if [ "$nreg" -lt 7 ]; then
+    t_fail "only $nreg call(s) of jc_redact_register found in src/ (floor 7) -- fix the extraction, not the floor"
+elif [ "$ndrop" -eq 0 ]; then
+    t_ok "all $nreg registrations of a secret look at the answer (none stands as a bare statement)"
+else
+    t_fail "$ndrop of $nreg registration(s) of a secret throw the answer away -- a failed one would leave that secret unscrubbed without a word: $(cut -d: -f1,2 "$tmp/regdropped" | tr '\n' ' ')"
 fi
 t_done

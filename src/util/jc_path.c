@@ -14,6 +14,7 @@
 #endif
 
 #include "jc_path.h"
+#include "jc_snprintf.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -408,4 +409,81 @@ jc_status jc_state_file_check(const char *root, const char *path)
     }
     /* FIFO, device, socket, etc. - not allowed. */
     return JC_ERR_INVALID;
+}
+
+/* One candidate of jc_path_from_argv0: a regular file with an execute bit
+ * that this process may execute, canonicalized. JC_ERR_NOTFOUND for anything
+ * else, so the PATH walk goes on to the next entry, as a shell's command
+ * search does. The mode bits are asked as well as access(X_OK): POSIX lets
+ * access() say yes to a privileged process for a file with no execute bit at
+ * all, which no shell would run (threadwork's question, 2026-11-25). */
+int jc_path_mode_runnable(unsigned long st_mode)
+{
+    mode_t m = (mode_t)st_mode;
+
+    return S_ISREG(m) && (m & (S_IXUSR | S_IXGRP | S_IXOTH)) != 0;
+}
+
+static jc_status argv0_candidate(const char *cand, char *out, jc_size cap)
+{
+    char resolved[JC_RESOLVE_BUF];
+    struct stat st;
+    size_t len;
+
+    if (stat(cand, &st) != 0 ||
+        !jc_path_mode_runnable((unsigned long)st.st_mode) ||
+        access(cand, X_OK) != 0) {
+        return JC_ERR_NOTFOUND;
+    }
+    if (realpath(cand, resolved) == NULL) {
+        return JC_ERR_NOTFOUND;
+    }
+    len = strlen(resolved);
+    if (len + 1 > cap) {
+        return JC_ERR_TOOBIG;
+    }
+    memcpy(out, resolved, len + 1);
+    return JC_OK;
+}
+
+jc_status jc_path_from_argv0(const char *argv0, const char *path_env,
+                             char *out, jc_size cap)
+{
+    char cand[JC_RESOLVE_BUF];
+    const char *p;
+
+    if (argv0 == NULL || argv0[0] == '\0' || out == NULL || cap == 0) {
+        return JC_ERR_INVALID;
+    }
+    if (strchr(argv0, '/') != NULL) {
+        return argv0_candidate(argv0, out, cap);
+    }
+    if (path_env == NULL) {
+        return JC_ERR_NOTFOUND;
+    }
+    p = path_env;
+    for (;;) {
+        const char *end = strchr(p, ':');
+        size_t dlen = (end != NULL) ? (size_t)(end - p) : strlen(p);
+        int n;
+
+        if (dlen == 0) {
+            /* An empty entry is the current directory (POSIX's PATH). */
+            n = jc_snprintf(cand, sizeof(cand), "./%s", argv0);
+        } else {
+            n = jc_snprintf(cand, sizeof(cand), "%.*s/%s", (int)dlen, p,
+                            argv0);
+        }
+        if (n > 0 && (size_t)n < sizeof(cand)) {
+            jc_status s = argv0_candidate(cand, out, cap);
+            if (s != JC_ERR_NOTFOUND) {
+                return s; /* found: JC_OK, or JC_ERR_TOOBIG for this file */
+            }
+        }
+        if (end == NULL) {
+            break;
+        }
+        p = end + 1;
+    }
+    return JC_ERR_NOTFOUND;
 }

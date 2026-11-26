@@ -180,8 +180,8 @@ static jc_status subagent_run(const cJSON *args, struct jc_tool_result *out,
     const char *arg_model = tu_arg_str(args, "model");
     const char *agent_name = tu_arg_str(args, "agent");
     const char *skill_name = tu_arg_str(args, "skill");
-    int has_arg_ro = (cJSON_GetObjectItem(args, "readonly") != NULL);
-    int arg_ro = tu_arg_bool(args, "readonly", 0);
+    int has_arg_ro = 0;
+    int arg_ro = tu_arg_fence(args, "readonly", &has_arg_ro);
     const struct jc_agentdef *def = NULL;
     const struct jc_skill *sk = NULL;
     const struct jc_vec *allow_fence;

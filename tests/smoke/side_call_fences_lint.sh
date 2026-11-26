@@ -4,12 +4,13 @@
 #
 # The model call (src/chat/jc_agent.c) already resolves its connect, stall,
 # request and dead-stream timeouts from config (jc_config_resolve_timeouts) and
-# sets them inline -- that is the correct shape. The ~21 SIDE calls (embeddings/
+# sets them inline -- that is the correct shape. The ~22 SIDE calls (embeddings/
 # rerank, model listing, image/audio/transcribe, MCP-over-HTTP, compaction,
 # one-shot, web search, feed/doc fetch, the two helper completions, the TUI's
-# inline suggestion) set only a fixed TOTAL cap (timeout_secs) and none of the
-# FENCES, so with no connect bound libcurl waits up to 300 s on a dead endpoint
-# and a silent stream after connecting is never cut.
+# inline suggestion, the check_model live probe M1198) set only a fixed TOTAL cap
+# (timeout_secs) and none of the FENCES, so with no connect bound libcurl waits
+# up to 300 s on a dead endpoint and a silent stream after connecting is never
+# cut.
 #
 # The rule this lint holds (the house principle "a rule about timeouts must
 # hold at every line that sets one, not only the line that was measured"):
@@ -21,9 +22,12 @@
 # EXCLUDING src/chat/jc_agent.c (the model call sets its own fences inline).
 # Every site today is a local `req`; the pattern matches any object member
 # `.timeout_secs =` (the `req.` prefix is not required, so a renamed request
-# variable is still found). The floor is the exact site count today (21): a new
-# side call must get the fence (or the count and this lint change together), and
-# a deleted call must lower the floor on purpose. Both are "read the site".
+# variable is still found). The floor is the exact site count today (22 -- 21
+# plus the check_model live probe's own request, added M1198 with its fence at
+# src/tools/jc_tool_check_model.c:168, which is why the fence check passed while
+# the count check went red): a new side call must get the fence (or the count
+# and this lint change together), and a deleted call must lower the floor on
+# purpose. Both are "read the site".
 #
 # ENCLOSING FUNCTION: a char-level awk pass strips comments and strings and
 # reports each top-level function body as a "start<TAB>end" range. A top-level
@@ -142,10 +146,10 @@ nsites=$(grep -c . "$tmp/sites")
 # Floor at today's exact count (CLAUDE.md "audit the universe" tripwire). A new
 # side call must bump this (or get the fence AND the count); a vanished one must
 # lower it deliberately.
-if [ "$nsites" -eq 21 ]; then
-    t_ok "scanning $nsites side HTTP call sites (universe = every src .timeout_secs; floor 21)"
+if [ "$nsites" -eq 22 ]; then
+    t_ok "scanning $nsites side HTTP call sites (universe = every src .timeout_secs; floor 22)"
 else
-    t_fail "found $nsites side sites, floor is 21 -- a side call was added or deleted; read each and update the floor + this header"
+    t_fail "found $nsites side sites, floor is 22 -- a side call was added or deleted; read each and update the floor + this header"
 fi
 
 # Per site: compute its file's function ranges once, find the range containing

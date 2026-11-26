@@ -17,9 +17,12 @@ talk to.
 
 ## 1. Status
 
-**Verified — the full gate, and Driven** (OpenBSD 7.9, clang 19.1.7). Build clean, the
-whole test tier runs, a model driven on it — twice. See its row in
-[`PLATFORMS.md`](../PLATFORMS.md#the-matrix).
+**Partly verified since 2026-11-24, and Driven** (OpenBSD 7.9, clang 19.1.7). Build
+clean, and a model driven on it, most recently at `6ed996bf` (a 0.15.0 candidate, 2026-11-25).
+There the unit suite passes and 18 of 582 smoke drivers fail: 13 of them are
+`jichi-harness` drivers (that program is Linux-only for now), and 5 are jichi's. It was
+Verified, the full gate, before 2026-11-24. See its row in
+[`PLATFORMS.md`](../PLATFORMS.md#partly-verified).
 
 ## 2. Who this is for, and what "installed" means
 
