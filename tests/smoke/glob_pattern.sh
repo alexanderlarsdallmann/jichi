@@ -16,7 +16,7 @@
 # driven by a model's guess is the part that can go wrong quietly.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 7
+t_plan 8
 smoke_home
 tmp=$(smoke_tmp)
 ws=$(smoke_tmp)
@@ -133,6 +133,35 @@ mm_stop
 case "$fenced" in
     *"path fence"*) t_ok "list_files honours the path fence" ;;
     *) t_fail "listing /etc was not refused with the fence on: $fenced" ;;
+esac
+
+# --- 8: a pattern of many stars answers, and does not hang -------------------
+# The matcher used to recurse once per '*' and per position: against a name of
+# forty letters, fourteen stars took 213 s in an ordinary build (measured on
+# eb55edb29), and the pattern is a model's argument. A workspace of its own, so
+# that the cells above do not pay for the long name.
+ws8=$(smoke_tmp)
+: > "$ws8/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+: > "$ws8/aab"
+cat > "$tmp/s.mm" <<'EOF'
+wire openai
+rule
+  count 1
+  tool glob {"pattern":"*a*a*a*a*a*a*a*a*a*a*a*a*a*ab"}
+rule
+  match "\"role\":\"tool\""
+  text STARS_DONE
+EOF
+mm_start "$tmp/s.mm" "$tmp/cap8" 2
+write_config "$tmp/c8.json" "$MM_PORT"
+stars=$( (cd "$ws8" && with_deadline 60 "$BIN" --config "$tmp/c8.json" --auto \
+    --no-lite --no-session --output jsonl -p "find" < /dev/null) 2>/dev/null | \
+    sed -n 's/.*"type":"tool_result"[^}]*"preview":"\([^"]*\)".*/\1/p' )
+mm_stop
+case "$stars" in
+    *"no files match"*) t_ok "fourteen stars against a forty-letter name: answered, no match" ;;
+    "") t_fail "fourteen stars against a forty-letter name: no tool result within the deadline" ;;
+    *) t_fail "fourteen stars against a forty-letter name: unexpected result: $stars" ;;
 esac
 
 t_done

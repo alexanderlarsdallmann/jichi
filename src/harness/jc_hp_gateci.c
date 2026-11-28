@@ -1104,7 +1104,26 @@ gci_utc(char *out, size_t cap)
     }
 }
 
-/* The stage body. */
+/* The stage body.
+ *
+ * ITS EIGHTEEN GCI_LINE_MAX BUFFERS ARE STATIC, NOT ON THE STACK. As automatic
+ * arrays they made this one frame 3,933,264 bytes (gcc 15.2 -fstack-usage,
+ * no optimisation): the stage died with SIGSEGV under a stack limit of
+ * 3840 KiB and below on Linux, and in every ci-stage cell on OpenBSD and
+ * NetBSD, whose default limits are smaller than Linux's 8 MiB -- before the
+ * first line of the body ran, so with no message at all.
+ *
+ * Why static and not the heap or the arena: the body takes the size of these
+ * buffers with `sizeof name` in 60 places. For an array that is 262144; for
+ * a pointer it is 8, and the compiler says nothing. Keeping them arrays keeps
+ * every one of those right without touching it, and adds no path that can
+ * fail to allocate or forget to free among the function's 48 returns.
+ *
+ * What it costs: the function may run ONCE in a process (it has one caller,
+ * the `gate run --stage ci` dispatch, and that process ends when it
+ * returns). A second entry would read the first one's text, so it is
+ * refused below. And 4.5 MiB of zero-filled storage belong to the program
+ * for its whole life; a page of it is resident only once it is written. */
 int
 jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
                  const char *records, const char *log_dir,
@@ -1113,17 +1132,17 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
 {
     struct jc_harness_config cfg;
     struct jc_sb record;
-    char home[GCI_LINE_MAX];
-    char logdir[GCI_LINE_MAX];
-    char recdir[GCI_LINE_MAX];
-    char logpath[GCI_LINE_MAX];
-    char metapath[GCI_LINE_MAX];
-    char excpath[GCI_LINE_MAX];
-    char tmpdir[GCI_LINE_MAX];
+    static char home[GCI_LINE_MAX];
+    static char logdir[GCI_LINE_MAX];
+    static char recdir[GCI_LINE_MAX];
+    static char logpath[GCI_LINE_MAX];
+    static char metapath[GCI_LINE_MAX];
+    static char excpath[GCI_LINE_MAX];
+    static char tmpdir[GCI_LINE_MAX];
     const char *pr;
     const char *cr;
     const char *kg;
-    char line[GCI_LINE_MAX];
+    static char line[GCI_LINE_MAX];
     /* The clone+checkout command (SV:1059): pr, home and s are each up to
      * GCI_LINE_MAX, so NO fixed slot can hold their expansion (the reference
      * runs it as a shell command line, uncapped). Unbounded: the heap builder
@@ -1131,12 +1150,21 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
      * and handed to sh -c -- the would-not-fit case is a refusal (M1178),
      * not a silent cut. */
     struct jc_sb slot;
-    char b_full[GCI_LINE_MAX];
-    char mb_full[GCI_LINE_MAX];
+    static char b_full[GCI_LINE_MAX];
+    static char mb_full[GCI_LINE_MAX];
     char b8[16];
-    char head[GCI_LINE_MAX];
-    char want[GCI_LINE_MAX];
+    static char head[GCI_LINE_MAX];
+    static char want[GCI_LINE_MAX];
+    static int entered = 0;
     int rc = 0;
+    if (entered) {
+        fprintf(stderr,
+                "jichi-harness: gate run --stage ci: internal: the stage "
+                "body was entered twice in one process (its buffers are "
+                "static)\n");
+        return 2;
+    }
+    entered = 1;
     if (config_path == NULL || a == NULL) {
         return 2;
     }
@@ -1188,7 +1216,7 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
      * host.ciLogDir else <work>/ci. A home that cannot be made is rc 1
      * (the brief: the INVALID class, not a stage RED). */
     {
-        char workbuf[GCI_LINE_MAX];
+        static char workbuf[GCI_LINE_MAX];
         const char *w = work;
         int n_h;
         int n_t;
@@ -1280,7 +1308,7 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
          * and the stage ends rc 1 with the record PRINTED (finish).
          * B4 -- nothing is ever removed. */
         if (gci_exists(home)) {
-            char newhome[GCI_LINE_MAX];
+            static char newhome[GCI_LINE_MAX];
             char ts[32];
             time_t t = time(NULL);
             struct tm *u = gmtime(&t);
@@ -1392,10 +1420,10 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
          * clone vs `rev-parse '<s>^{commit}'` in the push repo, both
          * keyless READ children. Mismatch: the INVALID line, rc 1. */
         {
-            char wantcmd[GCI_LINE_MAX];
+            static char wantcmd[GCI_LINE_MAX];
             char ts[48];
-            char okl[GCI_LINE_MAX];
-            char cmd[GCI_LINE_MAX];
+            static char okl[GCI_LINE_MAX];
+            static char cmd[GCI_LINE_MAX];
             struct jc_vec runenv;
             int logfd;
             int cr_rc;
@@ -1503,7 +1531,7 @@ jc_hp_gateci_run(const char *config_path, const char *s, const char *work,
                 goto finish;
             }
             {
-                char mbcmd[GCI_LINE_MAX];
+                static char mbcmd[GCI_LINE_MAX];
 
                 n_mc = jc_snprintf(mbcmd, sizeof mbcmd,
                                    "cat-file -e '%s^{commit}'", mb_full);

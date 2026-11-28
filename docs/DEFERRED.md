@@ -6825,3 +6825,61 @@ the telemetry census exists. Not in H12; not a blocker for H12's READY.
 
 *Registered 2026-11-24, on the operator's word (SV:0634); the next free number after def-425
 on the harness-port drive's branch at `b14be77d8`.*
+
+## Open — a detector for a registered secret in a request that leaves (F29, operator 2026-11-27)
+
+A tool's output reaches the model unscrubbed: no secret scrub stands before
+`jc_history_add_tool_result` (`jc_agent.c`), and a key file the model's shell or a file tool reads is
+in the next request (F29, measured by the review system on `ad7a0d10f`). `SECURITY.md` says so since
+P76. The design answer is a detector at the point where a request leaves, not a scrub of tool results.
+
+| Deferred | Detail |
+|---|---|
+| detect a registered secret in an outgoing request body: warn for the key's own server, refuse or scrub by setting for any other | [details](#def-427) |
+
+<a id="def-427"></a>
+### def-427 -- a detector for a registered secret in a request that leaves
+
+**Why:** the history, tool results included, goes to the key's own server and, by reading, also to a
+fallback model (`jc_agent.c`, the connect-fallback re-route) and to the summarize role's model at
+compaction (`jc_compact.c`, the transcript includes tool messages). A scrub of tool results was
+rejected: a model that reads a file with the key starred can write the stars back into the key file.
+M802's record shows that hazard exists already (a resumed session replays `***`).
+
+**Design:** where a request body leaves for a server, look for a registered secret. For the key's
+own server: warn, and write a telemetry event with its reader in the same milestone. For any other
+server (a fallback, the summarize role, a child on another model, the embed model): a dial in the
+`strictness` object (off / warn / refuse or scrub), the default PROVISIONAL in DECISIONS until a
+measurement of how often a secret is in flight decides it. A design note comes first, from the
+review system's draft.
+
+**Trigger:** after 0.15.1; the operator decided the direction on 2026-11-27 ("As the other system
+recommended", relayed by the review system).
+
+*Registered 2026-11-27, the next free number after def-426 on master and on the harness-port drive's
+branch at `ea1852f36`.*
+
+## Open — undo removes only what the run made (F31, operator 2026-11-27)
+
+Undo restores a checkpoint with `git reset --hard` and `git clean -fd`, so it also removes a new file
+the user made after the checkpoint (F31, measured by the review system; `SNAPSHOTS.md` says so since
+P78, and the dry run lists it).
+
+| Deferred | Detail |
+|---|---|
+| undo removes only the files the run created, not a new file of the user's | [details](#def-428) |
+
+<a id="def-428"></a>
+### def-428 -- undo removes only what the run made
+
+**Why:** the operator, 2026-11-27: "undo should one day remove only what the run made." The
+documented contract is narrower than the command today. ANECDOTES #66 shows what an undo that
+removes too much costs.
+
+**Design:** open. It needs a record of what a run created. The file tools know their own writes; a
+shell command's new files are known only by comparing the untracked set before and after each
+command. No such record exists today.
+
+**Trigger:** a design note. Not 0.15.1.
+
+*Registered 2026-11-27, after def-427.*

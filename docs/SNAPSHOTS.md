@@ -55,8 +55,12 @@ not after.
   (`write_file`, `edit_file`, `run_terminal_command`, …) actually runs in a
   top-level turn. Read-only turns and chat turns create no checkpoints.
 - **Undo** restores the most recent checkpoint with `git reset --hard <commit>`
-  followed by `git clean -fd` (so files the agent *created* after the checkpoint
-  are removed too), then pops it off the stack. A second `/undo` steps back to
+  followed by `git clean -fd`, then pops it off the stack. The `clean` removes
+  **every untracked file that the checkpoint does not know and git does not
+  ignore**: the files the agent created, and equally a file you created
+  yourself after the checkpoint. `jichi undo --dry-run` lists them under
+  "Untracked files that would be removed"; read that list, and move your own
+  new files out of the workspace, before you undo. A second `/undo` steps back to
   the checkpoint before that, and so on.
   > **M977 D-02 fix:** `git clean` now runs *before* `git reset --hard`. This
   > matters because the current `.gitignore` may ignore files that were tracked
@@ -133,7 +137,8 @@ repopulated from the shadow repo's history (most recent
   it. A workspace with a `.git` or `.gitignore` is trusted and never counted.
 - **`/undo` is destructive to the work tree.** `reset --hard` + `clean -fd`
   discard *all* changes since the checkpoint in the affected files — including
-  any you made by hand in the meantime. Ignored files (per `.gitignore`) are
+  any you made by hand in the meantime — and remove every new untracked file,
+  yours included (see **Undo** above). Ignored files (per `.gitignore`) are
   left alone by `clean`, so build output isn't deleted.
   > **M977 D-02 fix:** `git clean` runs *before* `git reset --hard`, so it uses
   > the same `.gitignore` rules as the dry-run preview. A file ignored now is

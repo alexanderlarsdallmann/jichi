@@ -240,7 +240,19 @@ static int cut_continue_allowed(const struct jc_app *app)
 /* M1209: adopt app->provider into *prov only if the loop's last call (or a
  * route inside it) actually changed it -- same guard as the post-call site
  * (M1207, :2814), so a delegate child keeps its assigned model across its
- * nudge rounds instead of silently switching onto the lead's provider. */
+ * nudge rounds instead of silently switching onto the lead's provider.
+ *
+ * TODAY THIS CANNOT ASSIGN, and that is known. Both callers take their
+ * snapshot (`nud`) at the entry of a branch that lies AFTER the post-call
+ * resync, and nothing between that resync and the branch changes
+ * app->provider. So app->provider == pre_route at every call, and what the
+ * M1209 fix really did was to delete the line that used to overwrite *prov
+ * unconditionally. The comparison is kept as a fail-safe for one case only:
+ * a route that someone later adds between the resync and these branches.
+ * It has no test that sees it fire, because nothing can make it fire; the
+ * tests pin the behaviour (the child keeps its model). Do not copy this
+ * helper to a site reached BEFORE the post-call resync: there a snapshot
+ * at branch entry means something else. */
 static void prov_resync(struct jc_app *app, struct jc_provider **prov,
                         const struct jc_provider *pre_route)
 {

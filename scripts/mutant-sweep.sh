@@ -68,8 +68,17 @@ cd "$root"
 #       unfixed tree, the pinned heap-buffer-overflow / heap-use-after-free /
 #       stack-buffer-overflow frames), re-measured by the lead at the commit
 #       carrying this driver.
-EXCLUDE='faults faults_net faults_net_midstream smoke_lint project_records_lint
-doc_commands_lint harness_repin_san harness_push_truncation san_memory_safety'
+#   harness_checkin_san -- M1228's leak tooth: builds its OWN sanitizer
+#       jichi-harness in its OWN git worktree (line 'git worktree add -q "$WT"
+#       HEAD', 'make -j8 SAN=1 WERROR=1 jichi-harness') and runs $SANBIN, its
+#       own build, so the sweep's do-nothing binary swap
+#       (JC_SMOKE_BIN/JC_SMOKE_HBIN) never reaches the subject it exercises --
+#       it stays green against the hollow binary BY DESIGN. Its evidence that
+#       it can fail: the host gate's leakcheck at 5980ffe2 (2026-11-26, the
+#       22-byte Direct leak the driver was written for) and its red-first in
+#       run 0129 (check 3 red on the unfixed tree, green after the three
+#       keep-all frees).
+EXCLUDE='faults faults_net faults_net_midstream smoke_lint project_records_lint doc_commands_lint harness_repin_san harness_push_truncation san_memory_safety harness_checkin_san'
 
 tmp=${TMPDIR:-/tmp}/jc_mutant.$$
 mkdir -p "$tmp"

@@ -58,7 +58,7 @@
 
 command -v git >/dev/null 2>&1 || t_skip "git not available"
 
-t_plan 115
+t_plan 116
 smoke_home
 tmp=$(smoke_tmp)
 
@@ -3023,6 +3023,28 @@ if [ "$_crc" -eq 0 ] \
     t_ok "115: SV:1059 the ci stage's clone+checkout slot is NOT cut (the deep ~800-char gate WORK dir makes the clone command ~1700 bytes > the old 512 slot; the fixed slot runs the full command: the clone home ci-$P6_8 is CREATED, the ci stage is green, and the record carries no cut message)"
 else
     t_fail "115: SV:1059 the ci stage's clone+checkout slot cut (home: $([ -e "$_g115home/ci-$P6_8" ] && echo PRESENT || echo absent); cut-record: $([ "$_g115cut" -eq 1 ] && echo yes || echo no); crc=$_crc; record tail: $(tail -2 "$tmp/cout" 2>/dev/null | tr '\n' '|' | head_bytes 200); cerr: $(head -1 "$tmp/cerr" 2>/dev/null | head_bytes 120))"
+fi
+
+# 116: the ci stage STARTS under a small stack. jc_hp_gateci_run kept eighteen
+# 256 KiB buffers as automatic arrays: one frame of 3,933,264 bytes. Under a
+# stack limit of 3840 KiB or less the process died with SIGSEGV on entering
+# the function, before any refusal could be printed (rc 139, empty stderr);
+# OpenBSD's and NetBSD's default limits are below that, so every ci-stage
+# cell of this driver segfaulted there. The cell asks for the cheapest thing
+# the function does -- refuse a config that is not there -- under 2048 KiB.
+# `ulimit -s` is not in POSIX; where the shell has no such limit to set, the
+# cell says so and does not pass.
+if ( ulimit -s 2048 ) 2>/dev/null; then
+    ( ulimit -s 2048 && exec "$HBIN" gate run --config "$tmp/c116-absent.json" \
+          --stage ci "$P6_8" < /dev/null > "$tmp/c116.out" 2> "$tmp/c116.err" )
+    _c116=$?
+    if [ "$_c116" -eq 2 ] && grep -qF "could not read" "$tmp/c116.err"; then
+        t_ok "116: the ci stage starts under a 2048 KiB stack: a missing config is refused with exit 2 and its message"
+    else
+        t_fail "116: under a 2048 KiB stack the ci stage must refuse a missing config with exit 2 and say so; got rc=$_c116 (139 is SIGSEGV: the stage's frame does not fit the stack), stderr: $(tr '\n' '|' < "$tmp/c116.err" | head_bytes 120)"
+    fi
+else
+    t_skip_one "116: this shell cannot set a stack limit (ulimit -s): the ci stage's start under a small stack is not measured here"
 fi
 
 t_done

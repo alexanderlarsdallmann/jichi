@@ -35,6 +35,18 @@ if ! command -v git > /dev/null 2>&1; then
     t_skip_all "git is not installed (the example's knowledge folder is a git repository)"
 fi
 tmp=$(smoke_tmp)
+
+# oneline FILE -- FILE as ONE line that ENDS in a newline. The captures are
+# joined to one line so that a match may cross a line break, and they go to
+# `grep -o`. A last line without its newline is not a text file as POSIX
+# defines one, and what grep does with it is not specified: illumos grep -o
+# prints only the FIRST match of such a line (measured in an OmniOS r151058
+# guest: three tool names in the request, one reported). So the newline that
+# tr takes away is put back at the end.
+oneline() {
+    tr -d '\n' < "$1" 2>/dev/null
+    echo
+}
 other=$(smoke_tmp)
 cp -r "$SMOKE_ROOT/examples/chatbot" "$tmp/bot"
 ws="$tmp/bot/knowledge"
@@ -54,7 +66,7 @@ run_bot() {
 }
 # The server always sends "/ask <message>": the knowledge folder's own command,
 # which runs the turn as the helpdesk profile (examples/chatbot/server.py).
-b64() { printf '/ask %s' "$1" | base64 | tr -d '\n'; }
+b64() { printf '/ask %s' "$1" | smoke_b64; }
 
 cat > "$tmp/replies.mm" <<MM
 wire openai
@@ -119,7 +131,7 @@ fi
 if grep -q -e "$denied" -e "read-only" "$tmp/cap/req.4" 2>/dev/null; then
     t_ok "write_plan is refused (by --readonly, and by the deny list behind it)"
 else
-    t_fail "write_plan was not refused: $(tr -d '\n' < "$tmp/cap/req.4" | grep -o '"role":"tool"[^}]*' | tail -n 1 | head_bytes 200)"
+    t_fail "write_plan was not refused: $(oneline "$tmp/cap/req.4" | grep -o '"role":"tool"[^}]*' | tail -n 1 | head_bytes 200)"
 fi
 if grep -q -e "$denied" -e "read-only" "$tmp/cap/req.5" 2>/dev/null && [ ! -e "$ws/pwned.txt" ]; then
     t_ok "a shell command is refused, and it did not run"
@@ -138,7 +150,7 @@ else
     t_fail "git_log was not refused"
 fi
 # the tools the model is offered at all: exactly read, list and search
-offered=$(tr -d '\n' < "$tmp/cap/req.1" 2>/dev/null | grep -o '"name":"[a-z_]*"' | sort -u | tr '\n' ' ')
+offered=$(oneline "$tmp/cap/req.1" | grep -o '"name":"[a-z_]*"' | sort -u | tr '\n' ' ')
 if [ "$offered" = '"name":"list_files" "name":"read_file" "name":"search_code" ' ]; then
     t_ok "the model is offered exactly read_file, list_files and search_code"
 else
@@ -154,7 +166,7 @@ fi
 if ! grep -q 'Available skills' "$tmp/cap/req.1" 2>/dev/null; then
     t_ok "no Available skills catalog in the system message (load_skill is on the deny list)"
 else
-    t_fail "the system message carries the skills catalog although load_skill is denied: $(tr -d '\n' < "$tmp/cap/req.1" | grep -o 'Available skills[^"]*' | head -n 1)"
+    t_fail "the system message carries the skills catalog although load_skill is denied: $(oneline "$tmp/cap/req.1" | grep -o 'Available skills[^"]*' | head -n 1)"
 fi
 # 8: the legitimate read works, so the refusals above are not a broken tool loop
 if grep -q '09:00 to 19:00' "$tmp/cap/req.8" 2>/dev/null; then

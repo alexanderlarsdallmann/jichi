@@ -111,7 +111,7 @@
 
 command -v git >/dev/null 2>&1 || t_skip "git not available"
 
-t_plan 18
+t_plan 19
 smoke_home
 tmp=$(smoke_tmp)
 G=/usr/bin/grep
@@ -615,6 +615,26 @@ if [ "$want_rcs" = "1 1 1 1 1 1 1 1 1 1 2 0 1 1 1 1 1 1" ]; then
     t_ok "12: b16 -- every refusal rc 1 (cells 2-9 and 13-18, the sixteen refusal runs), the usage rc 2 (cell 1), the success rc 0 (cell 11): the exit contract holds"
 else
     t_fail "12: b16 census mismatch (got: $want_rcs)"
+fi
+
+# --- 19: the <SHA8> must be a commit id, not a name that git resolves -----------
+# land hands its argument to `git rev-parse --verify "<arg>^{commit}"`, and
+# until this cell only an EMPTY argument was refused. So `land HEAD`, or a
+# branch name, was taken: it landed whatever that name pointed at when land
+# ran, which need not be the commit the gate had checked. `gate run` already
+# asks for 7 to 40 lowercase hex digits; land asks the same now, before it
+# touches git. HEAD resolves in the fixture's push repository, so on the old
+# program this cell is not a usage refusal.
+"$HBIN" --config "$tmp/cfg.json" land HEAD \
+    --push-repo "$tmp/push" --ci-log-dir "$tmp/ci" \
+    --gate-home "$tmp/gh" --main-checkout "$tmp/main" \
+    --land-log "$tmp/ll19" < /dev/null > "$tmp/o19" 2> "$tmp/e19"
+rc19=$?
+if [ "$rc19" -eq 2 ] && lp_grep "the <SHA8> must be 7-40 lowercase hex (got 'HEAD')" "$tmp/e19" \
+    && [ ! -s "$tmp/ll19" ]; then
+    t_ok "19: a name in place of the <SHA8> (HEAD) is a usage refusal: rc 2, the hex rule named, no land log written"
+else
+    t_fail "19: \`land HEAD\` must be refused as usage (rc 2, 'the <SHA8> must be 7-40 lowercase hex (got 'HEAD')', an empty land log); got rc=$rc19, log bytes $(wc -c < "$tmp/ll19" 2>/dev/null | tr -d ' '), stderr: $(tr '\n' '|' < "$tmp/e19" | head_bytes 200)"
 fi
 
 t_done

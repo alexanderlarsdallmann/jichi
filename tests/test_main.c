@@ -30,6 +30,7 @@ void test_snprintf_fallback(void); /* M1172: defined in test_snprintf_fallback.c
 void test_pool_clock(void);        /* M1194-d379: defined in test_pool_clock.c */
 void test_pool_sig(void);          /* def-377 W1: defined in test_pool_sig.c */
 void test_config_supervise(void);  /* def-377 W3/W4: defined in test_config_supervise.c */
+void test_checkinred(void);        /* M1224 S1: defined in test_checkinred.c */
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>   /* getenv */
@@ -623,6 +624,8 @@ int main(void)
     test_path();
     printf("test_redact\n");
     test_redact();
+    printf("test_checkinred\n");
+    test_checkinred();
     printf("test_hooks\n");
     test_hooks();
     printf("test_bg\n");

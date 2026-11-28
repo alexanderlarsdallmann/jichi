@@ -282,6 +282,25 @@ smoke_cleanup() {
 }
 trap smoke_cleanup EXIT INT TERM
 
+# smoke_b64 -- stdin to unwrapped base64 on stdout, on every row.
+# `base64` is not POSIX and OpenBSD 7.9 has no such command: there
+# chatbot_example (16 checks) and http_resp_cap (3) failed for the tool alone
+# (the threadwork review's row of 2026-11-26). `uuencode -m` is the older
+# spelling of the same encoding; measured in that guest, its body with the
+# first and last line removed equals `base64`'s output on Linux, byte for byte.
+# A row with neither says so (exit 2): a silent empty string would make the
+# caller's request malformed and read as a product failure.
+smoke_b64() {
+    if command -v base64 > /dev/null 2>&1; then
+        base64 | tr -d '\n'
+    elif command -v uuencode > /dev/null 2>&1; then
+        uuencode -m x | sed '1d;$d' | tr -d '\n'
+    else
+        echo "smoke_b64: neither base64 nor uuencode on this system" >&2
+        return 2
+    fi
+}
+
 # Give this driver a private HOME (inside the runner's suite-wide one).
 smoke_home() {
     HOME=$(smoke_tmp)

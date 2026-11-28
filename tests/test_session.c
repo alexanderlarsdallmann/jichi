@@ -51,7 +51,17 @@ void test_session(void)
         jc_snprintf(spath, sizeof(spath),
                     "%s/jichi_home_test/.jichi.d/sessions/%s.json", jc_test_tmpdir(), idp);
         JC_CHECK(jc_read_file(spath, &raw, NULL, a) == JC_OK);
-        JC_CHECK(raw != NULL && strchr(raw, '\n') == NULL);
+        /* The file is ONE line that ENDS in a newline: the only '\n' in it is
+         * its last byte. Without a final newline it is not a text file as POSIX
+         * defines one, and line tools disagree about it: `wc -l` counts 0, a
+         * shell `while read` loop sees no line at all, two files joined with
+         * cat become one glued line, and illumos grep -o reports only the
+         * first match (measured on Linux and in an OmniOS guest). */
+        {
+            const char *nl = (raw != NULL) ? strchr(raw, '\n') : NULL;
+            JC_CHECK(nl != NULL && nl[1] == '\0');
+            JC_CHECK(nl != NULL && nl > raw && nl[-1] == '}');
+        }
         JC_CHECK(raw != NULL && strstr(raw, "\"history\":[") != NULL);
         /* M290: the build that last SAVED it. A session is rewritten every turn
          * and may be resumed or archived across a version change, so "which

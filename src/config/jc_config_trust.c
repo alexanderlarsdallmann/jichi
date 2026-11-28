@@ -670,7 +670,17 @@ void jc_cfgtrust_apply_narrowing(struct jc_config *cfg, const cJSON *narrow,
                 ignore(ignored, a, k->key, it);
                 break;
             }
-            nv = (long)p;
+            /* CLAMPED, never cast (the review of 2026-11-24, finding F28). p is
+             * a number from a file the user has not trusted, and it has no
+             * upper bound here. A cast of a double no long can hold is
+             * undefined, and on x86-64 it gave the SMALLEST long: 1e300 was
+             * then "smaller" than any cap, counted as a narrowing, and was
+             * applied without trust and without the notice. Clamped, it is the
+             * largest value of the field's own type: a raise, listed below as
+             * not applied, like any other raise. The int clamp for an int
+             * field, so that the store below cannot truncate either. */
+            nv = (ifield != NULL) ? (long)jc_json_clamp_int(p)
+                                  : jc_json_clamp_long(p);
             cur = (ifield != NULL) ? (long)*ifield : *lfield;
             if (k->nk == NK_BOUND) {
                 tighter = (nv <= cur);

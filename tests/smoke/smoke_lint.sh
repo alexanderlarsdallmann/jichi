@@ -53,7 +53,7 @@
 # EXEMPT: _smoke.sh (the lib itself), run.sh (the runner), this file.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 22
+t_plan 25
 
 drivers=""
 for f in "$SMOKE_DIR"/*.sh; do
@@ -651,6 +651,62 @@ binary it runs, so its checks stay green against a hollow build:
   $(printf '%s' "$_bin_owners" | tr '\n' ' ')
 BIN must come from _smoke.sh's \${JC_SMOKE_BIN:-...}; delete the driver's
 assignment. (Floor: exactly those two files, proven red on the old line.)"
+fi
+
+# --- 23: a driver named on the command line gets its tier's budget -------------
+# THE DEFECT (the threadwork review, 2026-11-26). run.sh gave EVERY driver named
+# on its command line 120 s, whatever the tier's own list gives it. harness_page
+# is in the 600 s list because it needs 147 s on a warm host, so
+# `sh tests/smoke/run.sh harness_page` was KILLED at 120 s on a tree where the
+# whole tier is green -- and the runner's own KILLED message tells the reader to
+# "re-run this driver alone before believing any of it", which could not pass.
+# The check is on the text, because the behaviour needs two minutes to show:
+# the 600 s loop and the subset branch must read ONE list, by name.
+_slow_def=$(grep -c '^SLOW_600=' "$SMOKE_DIR/run.sh")
+_slow_loop=$(grep -c '^for t in \$SLOW_600; do' "$SMOKE_DIR/run.sh")
+_slow_sub=$(grep -c 'case "\$SLOW_600" in' "$SMOKE_DIR/run.sh")
+if [ "$_slow_def" -eq 1 ] && [ "$_slow_loop" -eq 1 ] && [ "$_slow_sub" -eq 1 ]; then
+    t_ok "a named driver gets its tier budget: the 600 s list is one variable, read by the tier loop and by the subset branch"
+else
+    t_fail "run.sh gives a named driver 120 s whatever its tier budget is (SLOW_600 defined $_slow_def time(s), tier loop over it $_slow_loop, subset branch reads it $_slow_sub; want 1/1/1)"
+fi
+
+
+# --- 24: only the two state-root drivers take HOME away ------------------------
+# THE DEFECT (the threadwork review, 2026-11-26, finding F23). The tier runs every
+# driver with an isolated HOME (run.sh, M198). A driver that UNSETS HOME leaves
+# that sandbox: jichi then asks the password database, which answers with the
+# real home of whoever runs the tier, and `doctor` makes its state directory
+# there and creates and removes a probe file in it. Two drivers must do that,
+# because an unset HOME is what they test (state_root.sh, and on a FAULT=1 build
+# state_root_pid_fallback.sh). A third, transport_posture.sh, did it for no
+# reason its checks needed: all eight pass with HOME left alone, and the real
+# ~/.jichi.d then stays untouched (measured by its modification time).
+# UNIVERSE: tests/smoke/*.sh except this lint; a line counts when `unset HOME`
+# stands in code, not in a comment. Floor: exactly the two names below.
+_unset_home=$(grep -lE '^[^#]*unset HOME' "$SMOKE_DIR"/*.sh 2>/dev/null \
+    | grep -v 'smoke_lint.sh' | sed 's|.*/||' | sort | tr '\n' ' ')
+if [ "$_unset_home" = "state_root.sh state_root_pid_fallback.sh " ]; then
+    t_ok "only the two state-root drivers unset HOME (every other driver stays in the tier's isolated HOME)"
+else
+    t_fail "driver(s) that unset HOME and so write into the real home of whoever runs the tier: $_unset_home(want exactly: state_root.sh state_root_pid_fallback.sh). Leave HOME alone, or add the driver here with the reason it must leave the sandbox."
+fi
+
+
+# --- 25: the runner refuses its own name as a driver ---------------------------
+# THE DEFECT (the threadwork review; it happened twice, on 2026-11-24 and on
+# 2026-11-26). A list of driver names made by a search over tests/smoke/*.sh
+# contains `run`, because run.sh lives there. Named as a driver, the runner ran
+# the WHOLE TIER inside itself until its deadline killed it: twenty minutes of
+# load on a host that was meant to run one job, reported as "1 driver failed".
+# The same holds for `_smoke`, the helper every driver sources. Both are refused
+# before anything runs. The check is on the text: the behaviour, unrefused,
+# costs a tier.
+if grep -q '^[[:space:]]*run|_smoke) *$' "$SMOKE_DIR/run.sh" \
+        && grep -q 'is not a driver' "$SMOKE_DIR/run.sh"; then
+    t_ok "run.sh refuses 'run' and '_smoke' as driver names before it runs anything"
+else
+    t_fail "run.sh takes its own name as a driver: \`sh tests/smoke/run.sh run\` runs the whole tier inside itself. Refuse 'run' and '_smoke' in the subset branch's first loop (exit 2, 'is not a driver')."
 fi
 
 t_done

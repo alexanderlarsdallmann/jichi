@@ -503,6 +503,25 @@ jc_status jc_session_save(struct jc_session *s)
         free(text);
         text = red;
     }
+    /* One newline ends the file. The text above is a single line; with this the
+     * file is a text file as POSIX defines one, and the line tools people and
+     * tests reach for agree about it on every system. The loader has always
+     * accepted the newline (cJSON skips white space after the value), so a
+     * file written by this build is readable by older ones and a file written
+     * by an older one is unchanged until its next save. A failed allocation
+     * writes nothing, like the two arms above. */
+    {
+        size_t tl = strlen(text);
+        char *withnl = (char *)realloc(text, tl + 2);
+
+        if (withnl == NULL) {
+            free(text);
+            return JC_ERR_OOM;
+        }
+        withnl[tl] = '\n';
+        withnl[tl + 1] = '\0';
+        text = withnl;
+    }
     /* M146: atomic replace -- an every-turn write that external readers (a
      * second jichi, a supervisor, a backup job) may race; they now see the old
      * session or the new one, never a torn file. mkstemp's 0600 carries over

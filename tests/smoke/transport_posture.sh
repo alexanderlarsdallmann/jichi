@@ -46,7 +46,10 @@ mk_cfg "$tmp/loopback.json" "http://127.0.0.1:8080/v1"
 mk_cfg "$tmp/plain.json"    "http://api.example.com/v1"
 
 status_of() {  # $1 = config -- the JSON report's status for this one check
-    (unset HOME; "$BIN" doctor $2 --output json --config "$1" 2>/dev/null) \
+    # HOME is left alone (it was unset here until the review of 2026-11-24, for no
+    # reason these checks need): unset, jichi resolves the real home of whoever runs
+    # the tier and doctor writes its probe there. smoke_lint check 24 keeps it so.
+    ("$BIN" doctor $2 --output json --config "$1" 2>/dev/null) \
         | tr ',' '\n' | grep -B1 '"label":"provider transport' \
         | sed -n 's/.*"status":"\([a-z]*\)".*/\1/p' | head -1
 }

@@ -65,7 +65,7 @@
 # (CANARY, never a real key), and shimmable stand-ins under $tmp/shim.
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 42
+t_plan 47
 smoke_home
 export TZ=UTC
 tmp=$(smoke_tmp)
@@ -231,7 +231,7 @@ rm -f "$D/page.state"
 cfg_write "" "" "" "" ""
 run_harness page --state "$D/page.state" --out "$D/page.out" --now 3098 --after-s 1800 --fresh-s 600
 RC=$?
-if [ "$RC" -eq 0 ] && grep -qF 'PAGE: model calls failing for 30 min since 00:21 (run 0100, 2 failed: 503/connect:1,503/stall:1); parking the drive' "$tmp/oh" && [ -e "$D/page.state" ] && [ "$(cat "$D/page.state")" = "1000" ]; then
+if [ "$RC" -eq 0 ] && grep -qF 'PAGE: model calls failing for 30 min since 00:21 (run 0100, 2 failed: 503/connect:1,503/stall:1); nothing is parked by this page' "$tmp/oh" && [ -e "$D/page.state" ] && [ "$(cat "$D/page.state")" = "1000" ]; then
     t_ok "3: b7 AFTER page fires -- rc 0 + PAGE line, state=1000"
 else
     t_fail "3: b7 expected rc 0 + PAGE line + state=1000 (got rc=$RC: $(tr '\n' '|' < "$tmp/oh" | head_bytes 160); state: $([ -e "$D/page.state" ] && cat "$D/page.state" || echo absent))"
@@ -245,12 +245,12 @@ rm -f "$D/page.state"
 cfg_write "" "" "" "" ""
 run_harness page --state "$D/page.state" --out "$D/page.out" --now 3098 --after-s 1800 --fresh-s 600
 first_rc=$?
-first_paged=$(grep -cF 'PAGE: model calls failing for 30 min since 00:21 (run 0100, 2 failed: 503/connect:1,503/stall:1); parking the drive' "$tmp/oh")
+first_paged=$(grep -cF 'PAGE: model calls failing for 30 min since 00:21 (run 0100, 2 failed: 503/connect:1,503/stall:1); nothing is parked by this page' "$tmp/oh")
 state=$(cat "$D/page.state" 2>/dev/null || echo absent)
 cfg_write "" "" "" "" ""
 run_harness page --state "$D/page.state" --out "$D/page.out" --now 3098 --after-s 1800 --fresh-s 600
 second_rc=$?
-second_paged=$(grep -cF 'PAGE: model calls failing for 30 min since 00:21 (run 0100, 2 failed: 503/connect:1,503/stall:1); parking the drive' "$tmp/oh")
+second_paged=$(grep -cF 'PAGE: model calls failing for 30 min since 00:21 (run 0100, 2 failed: 503/connect:1,503/stall:1); nothing is parked by this page' "$tmp/oh")
 # Contract: first run pages (PAGE line, state=1000), second does not (no PAGE line, rc 0)
 if [ "$first_rc" -eq 0 ] && [ "$first_paged" -eq 1 ] && [ "$state" = "1000" ] && [ "$second_rc" -eq 0 ] && [ "$second_paged" -eq 0 ]; then
     t_ok "4: b8 once per stretch -- first run pages (PAGE line, state=1000); second run: no re-page, state holds last_ok"
@@ -275,7 +275,7 @@ rm -f "$D/page.state"
 cfg_write "" "" "" "" ""
 run_harness page --state "$D/page.state" --out "$D/page.out" --now 3098 --after-s 1800 --fresh-s 600
 RC=$?
-if [ "$RC" -eq 0 ] && grep -qF 'PAGE: model calls failing for 30 min since 00:21 (run 0100, 2 failed: 503/connect:1,503/stall:1); parking the drive' "$tmp/oh"; then
+if [ "$RC" -eq 0 ] && grep -qF 'PAGE: model calls failing for 30 min since 00:21 (run 0100, 2 failed: 503/connect:1,503/stall:1); nothing is parked by this page' "$tmp/oh"; then
     t_ok "6: b12 page ignores unit state -- rc 0 + PAGE line (unit inactive)"
 else
     t_fail "6: b12 expected rc 0 + PAGE line with inactive unit (got rc=$RC: $(tr '\n' '|' < "$tmp/oh" | head_bytes 160))"
@@ -1001,6 +1001,164 @@ if [ "$p42" -eq 1 ]; then
 else
     t_fail "42: page-watch without --now expected exactly 1 PAGE line over ~3 s, got $p42: \
 $(tr '\n' '|' < "$tmp/pw42.out" | head_bytes 200)"
+fi
+
+# --- 43, 44: the hook RUNS, once per page, in both verbs -------------------------
+# Cells 8 and 9 show that an absent hook is not called and that a failing one
+# is logged. Until these two cells nothing showed a hook that RUNS: the
+# stand-in of cell 9 leaves no trace when it succeeds. pageMark.sh appends one
+# line to a file each time it is called.
+# 43: the page verb -- one PAGE, one mark.
+# 44: page-watch on the same stretch for ~4 s -- one PAGE, one mark. The loop
+# wrote its PAGE line and never called host.pageCommand (the page verb did), so
+# a drive watched by page-watch paged nobody.
+cat > "$SHIM/pageMark.sh" << 'EOM'
+#!/bin/sh
+printf 'paged\n' >> "$1"
+EOM
+chmod +x "$SHIM/pageMark.sh"
+CFG43="$tmp/harness43.json"
+sed "s|\"pagePidList\":\"$SHIM/pidList.sh\"|\"pagePidList\":\"$SHIM/pidList.sh\",\"pageCommand\":\"$SHIM/pageMark.sh $tmp/mark43\"|" "$CFG0" > "$CFG43"
+if ! $G -qF '"pageCommand"' "$CFG43"; then
+    t_fail "43: instrument: the hook was not written into the config"
+    t_fail "44: instrument: the hook was not written into the config"
+else
+    rm -f "$D0/page.state" "$tmp/mark43"
+    "$HBIN" --config "$CFG43" page --state "$D0/page.state" --out "$D0/page.out" --now 3098 --after-s 1800 --fresh-s 600 \
+        < /dev/null > "$tmp/oh43" 2>&1; rc43=$?
+    p43=$($G -c 'PAGE:' "$tmp/oh43"); m43=$($G -c 'paged' "$tmp/mark43" 2>/dev/null)
+    if [ "$rc43" -eq 0 ] && [ "$p43" -eq 1 ] && [ "${m43:-0}" -eq 1 ]; then
+        t_ok "43: the page verb runs host.pageCommand once for its one PAGE line (the hook left one mark)"
+    else
+        t_fail "43: the page verb must run host.pageCommand once per PAGE (got rc=$rc43 pages=$p43 marks=${m43:-0}: \
+$(tr '\n' '|' < "$tmp/oh43" | head_bytes 160))"
+    fi
+
+    sed "s|$tmp/mark43|$tmp/mark44|" "$CFG43" > "$tmp/harness44.json"
+    rm -f "$D0/page.state" "$tmp/mark44" "$tmp/pw44.out"
+    ( exec "$HBIN" --config "$tmp/harness44.json" page-watch --interval 1 --state "$D0/page.state" --out "$D0/page.out" \
+        --now 3098 --after-s 1800 --fresh-s 600 > "$tmp/pw44.out" 2>&1 ) &
+    pw44=$!
+    _i=0
+    while [ $_i -lt 40 ] && kill -0 "$pw44" 2>/dev/null; do
+        sleep 0.1
+        _i=$((_i + 1))
+    done
+    kill "$pw44" 2>/dev/null
+    wait "$pw44" 2>/dev/null
+    # The loop's PAGE line is a second copy of the text in the code, so its
+    # wording is pinned here as cell 3 pins the page verb's: a line that ends
+    # in the clause counts, any other PAGE line does not.
+    p44=$($G -c 'PAGE: model calls failing for .*; nothing is parked by this page$' "$tmp/pw44.out"); m44=$($G -c 'paged' "$tmp/mark44" 2>/dev/null)
+    if [ "$p44" -eq 1 ] && [ "${m44:-0}" -eq 1 ]; then
+        t_ok "44: page-watch runs host.pageCommand once for its one PAGE line over ~4 s (the hook left one mark)"
+    else
+        t_fail "44: page-watch must run host.pageCommand once per PAGE (got pages=$p44 marks=${m44:-0} over ~4 s: \
+$(tr '\n' '|' < "$tmp/pw44.out" | head_bytes 200))"
+    fi
+fi
+
+# --- 45, 46, 47: each of park's three interval flags governs its own wait ------
+# The host's park-resume.sh has three waits: it polls for the loop's end every
+# 30 s, waits 60 s between two ready probes, and 300 s after a not-ready one.
+# The port has a flag for each: --wait-interval, --ready-interval and
+# --not-ready-interval. Until these cells nothing timed any of them, and
+# --wait-interval was parsed, checked for a number and discarded: the poll was
+# --interval, 30 s when absent. Cells 19, 22, 23 and 24 pass only
+# --wait-interval 1 and each slept 30 s for it, 120 of this driver's 147 s
+# (measured 2026-11-26, the threadwork review).
+#
+# 45: cell 24's fixture with a clock around the verb and --wait-interval 1 as
+#     the only poll flag. The loop ends 0.3 s in; a 1 s poll is back within a
+#     few seconds, the 30 s default is not. RED before the fix.
+# 46, 47: cell 22's fixture (four probes: READY, not ready, READY, READY, so the
+#     verb sleeps ready, not-ready, ready) with the poll at 1 s. With
+#     --not-ready-interval 6 and --ready-interval 1 that is about 9 s; with the
+#     two values swapped about 14 s. Each window excludes the other, so a flag
+#     that governed the wrong wait, or none, is seen. These two were honoured
+#     before the fix as well (the three `(void)` lines in the verb said
+#     otherwise); they are pins, green before and after.
+: > "$D/harness.log"
+printf 'STOP file present: loop ends\nloop end\n' >> "$D/harness.log"
+printf 'active' > "$tmp/ustate"
+printf 'notfailed' > "$tmp/ufailed"
+printf '200' > "$tmp/gwcode"
+printf 'ok --live: tool calling observed' > "$tmp/modelline"
+printf 'gone' > "$tmp/gone"
+touch "$D/STOP"
+cat > "$tmp/unitRun5.sh" << 'EOR'
+echo "unit armed by stand-in" >> "$tmp/unitrun.log"
+exit 1
+EOR
+chmod +x "$tmp/unitRun5.sh"
+printf '{"dir":"'"$D"'","modelKeyFile":"'"$KEY"'","host":{"dir":"'"$H"'","unitState":"'"$SHIM/unitState.sh $tmp/ustate"'","pageUnitState":"'"$SHIM/unitState.sh $tmp/ustate"'","pageUnitFailed":"'"$SHIM/unitFailed.sh $tmp/ufailed"'","pageGatewayProbe":"'"$SHIM/gatewayProbe.sh $tmp/gwcode"'","pageModelProbe":"'"$SHIM/modelProbe.sh $tmp/modelline"'","pageContainerGone":"'"$SHIM/containerGone.sh $tmp/gone"'","pageUnitRun":"'"$tmp/unitRun5.sh"'","pagePidList":"'"$SHIM/pidList.sh"'","pageGateway":"https://api.hrz.uni-giessen.de/v1/models","containerName":"jhd-hardening"},"drive":{"loopUnit":"jdw-test-loop","leadModel":"qwen27b","containerName":"jhd-hardening"}}' > "$CFG"
+( exec "$SHIM/loopExit.sh" ) &
+_appender=$!
+_t45=$(date +%s)
+run_harness park --wait-interval 1 --ready-interval 1 --not-ready-interval 1 --post-start 0
+_rc45=$?
+wait "$_appender" 2>/dev/null
+_d45=$(( $(date +%s) - _t45 ))
+if [ "$_rc45" -eq 1 ] && grep -qF 'the unit start failed (rc=1)' "$tmp/oh" && [ "$_d45" -lt 15 ]; then
+    t_ok "45: --wait-interval 1 governs the poll for the loop's end -- cell 24's fixture ends in ${_d45} s (under 15)"
+else
+    t_fail "45: park --wait-interval 1 took ${_d45} s (rc=$_rc45): the flag is parsed and discarded, and the poll is the 30 s default"
+fi
+
+: > "$D/harness.log"
+: > "$tmp/unitrun.log"
+printf 'STOP file present: loop ends\nloop end\n' >> "$D/harness.log"
+printf 'active' > "$tmp/ustate"
+printf 'notfailed' > "$tmp/ufailed"
+printf '200' > "$tmp/gwcode"
+printf 'ok --live: tool calling observed' > "$tmp/modelline"
+printf 'gone' > "$tmp/gone"
+rm -f "$tmp/mprobe_count"
+printf '0' > "$tmp/mprobe_count"
+TMPMPC="$tmp/mprobe_count"
+printf '#!/bin/sh\nflag="$1"\ncount=$(cat "%s" 2>/dev/null || echo 0)\ncase $count in\n    1) printf '"'"'warn --live: no healthy upstream\\n'"'"' ;;\n    *) printf '"'"'ok --live: tool calling observed\\n'"'"' ;;\nesac\necho $((count + 1)) > "%s"\nexit 0\n' "$TMPMPC" "$TMPMPC" > "$tmp/modelProbe2.sh"
+chmod +x "$tmp/modelProbe2.sh"
+printf '{"dir":"'"$D"'","modelKeyFile":"'"$KEY"'","host":{"dir":"'"$H"'","unitState":"'"$SHIM/unitState.sh $tmp/ustate"'","pageUnitState":"'"$SHIM/unitState.sh $tmp/ustate"'","pageUnitFailed":"'"$SHIM/unitFailed.sh $tmp/ufailed"'","pageGatewayProbe":"'"$SHIM/gatewayProbe.sh $tmp/gwcode"'","pageModelProbe":"'"$tmp/modelProbe2.sh $tmp/modelline"'","pageContainerGone":"'"$SHIM/containerGone.sh $tmp/gone"'","pageUnitRun":"'"$SHIM/unitRun.sh $tmp/unitrun.log"'","pagePidList":"'"$SHIM/pidList.sh"'","pageGateway":"https://api.hrz.uni-giessen.de/v1/models","containerName":"jhd-hardening"},"drive":{"loopUnit":"jdw-test-loop","leadModel":"qwen27b","containerName":"jhd-hardening"}}' > "$CFG"
+( exec "$SHIM/loopExit.sh" ) &
+_appender=$!
+touch "$D/STOP"
+_t46=$(date +%s)
+run_harness park --interval 1 --ready-interval 1 --not-ready-interval 6 --post-start 0
+_rc46=$?
+wait "$_appender" 2>/dev/null
+_d46=$(( $(date +%s) - _t46 ))
+if [ "$_rc46" -eq 0 ] && [ "$(cat "$tmp/mprobe_count" 2>/dev/null)" = "4" ] && [ "$_d46" -ge 8 ] && [ "$_d46" -lt 13 ]; then
+    t_ok "46: --not-ready-interval 6 governs the wait after a not-ready probe -- four probes in ${_d46} s (window 8 to 13)"
+else
+    t_fail "46: four probes with --ready-interval 1 --not-ready-interval 6 took ${_d46} s (rc=$_rc46, probes $(cat "$tmp/mprobe_count" 2>/dev/null)); want 8 to 13"
+fi
+
+: > "$D/harness.log"
+: > "$tmp/unitrun.log"
+printf 'STOP file present: loop ends\nloop end\n' >> "$D/harness.log"
+printf 'active' > "$tmp/ustate"
+printf 'notfailed' > "$tmp/ufailed"
+printf '200' > "$tmp/gwcode"
+printf 'ok --live: tool calling observed' > "$tmp/modelline"
+printf 'gone' > "$tmp/gone"
+rm -f "$tmp/mprobe_count"
+printf '0' > "$tmp/mprobe_count"
+TMPMPC="$tmp/mprobe_count"
+printf '#!/bin/sh\nflag="$1"\ncount=$(cat "%s" 2>/dev/null || echo 0)\ncase $count in\n    1) printf '"'"'warn --live: no healthy upstream\\n'"'"' ;;\n    *) printf '"'"'ok --live: tool calling observed\\n'"'"' ;;\nesac\necho $((count + 1)) > "%s"\nexit 0\n' "$TMPMPC" "$TMPMPC" > "$tmp/modelProbe2.sh"
+chmod +x "$tmp/modelProbe2.sh"
+printf '{"dir":"'"$D"'","modelKeyFile":"'"$KEY"'","host":{"dir":"'"$H"'","unitState":"'"$SHIM/unitState.sh $tmp/ustate"'","pageUnitState":"'"$SHIM/unitState.sh $tmp/ustate"'","pageUnitFailed":"'"$SHIM/unitFailed.sh $tmp/ufailed"'","pageGatewayProbe":"'"$SHIM/gatewayProbe.sh $tmp/gwcode"'","pageModelProbe":"'"$tmp/modelProbe2.sh $tmp/modelline"'","pageContainerGone":"'"$SHIM/containerGone.sh $tmp/gone"'","pageUnitRun":"'"$SHIM/unitRun.sh $tmp/unitrun.log"'","pagePidList":"'"$SHIM/pidList.sh"'","pageGateway":"https://api.hrz.uni-giessen.de/v1/models","containerName":"jhd-hardening"},"drive":{"loopUnit":"jdw-test-loop","leadModel":"qwen27b","containerName":"jhd-hardening"}}' > "$CFG"
+( exec "$SHIM/loopExit.sh" ) &
+_appender=$!
+touch "$D/STOP"
+_t47=$(date +%s)
+run_harness park --interval 1 --ready-interval 6 --not-ready-interval 1 --post-start 0
+_rc47=$?
+wait "$_appender" 2>/dev/null
+_d47=$(( $(date +%s) - _t47 ))
+if [ "$_rc47" -eq 0 ] && [ "$(cat "$tmp/mprobe_count" 2>/dev/null)" = "4" ] && [ "$_d47" -ge 11 ] && [ "$_d47" -lt 30 ]; then
+    t_ok "47: --ready-interval 6 governs the wait between two ready probes -- four probes in ${_d47} s (window 11 to 30)"
+else
+    t_fail "47: four probes with --ready-interval 6 --not-ready-interval 1 took ${_d47} s (rc=$_rc47, probes $(cat "$tmp/mprobe_count" 2>/dev/null)); want 11 to 30"
 fi
 
 t_done

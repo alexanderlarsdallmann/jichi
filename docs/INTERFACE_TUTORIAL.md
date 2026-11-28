@@ -105,7 +105,7 @@ Here is the idea from §1, applied. Three commands, three answers:
 
 ```console
 $ jichi describe
-jichi 0.15.0 -- interface contract
+jichi 0.15.1 -- interface contract
 
 Output formats: text, json, jsonl (one object/line, versioned).
 Exit codes: 0 ok, 1 error, 2 usage/config, 130 interrupted (SIGINT), 143 terminated (SIGTERM, graceful).

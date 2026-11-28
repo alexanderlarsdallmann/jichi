@@ -360,7 +360,7 @@ head_bytes 900 /dev/zero > "$tmp/imgc_img.bin"
 # tree-idiom `base64 | tr -d '\n'` is Linux-identical (900 bytes -> 1200
 # b64 chars, no wrap to drop) and a wrapped b64 inside the JSON string would
 # be invalid JSON anyway.
-IMG900_B64=$(base64 < "$tmp/imgc_img.bin" | tr -d '\n')
+IMG900_B64=$(smoke_b64 < "$tmp/imgc_img.bin")
 printf '{"data":[{"b64_json":"%s"}]}' "$IMG900_B64" > "$tmp/imgc_body.json"
 
 cat > "$tmp/imgc.mm" <<EOF

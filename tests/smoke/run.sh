@@ -40,6 +40,10 @@ if [ -z "${JC_SMOKE_KEEP_HOME:-}" ]; then
     trap 'rm -rf "$SMOKE_HOME"; exit 143' INT TERM
     HOME="$SMOKE_HOME"
     export HOME
+    # Two drivers leave it on purpose: state_root.sh and (FAULT=1 only)
+    # state_root_pid_fallback.sh unset HOME, which is what they test, and `doctor`
+    # then touches the real ~/.jichi.d of whoever runs the tier (one mkdir, one
+    # probe file made and removed). smoke_lint check 24 holds the list at two.
     echo "smoke: isolated HOME=$SMOKE_HOME"
 fi
 
@@ -230,8 +234,24 @@ summarise() {
 # stop was re-measured three times in one afternoon. A wrong name is exit 2 (a usage
 # error, matching the rigs' contract) and NOT a silent skip -- a typo that quietly
 # ran nothing would report OK over zero drivers.
+
+# The measured-slow drivers: 600 s, applied BEFORE JC_SMOKE_TIMEOUT_MULT. The
+# reasons, driver by driver, are in the comment above the loop that runs them
+# near the end of this file. ONE list, read twice: by that loop and by the
+# subset branch below, so that a driver named on the command line gets the
+# same budget as in the tier (smoke_lint holds this). The spaces at both ends
+# are needed by the subset branch's match.
+SLOW_600=" harness_drive harness_repin harness_repin_san harness_push_truncation san_memory_safety harness_page harness_checkin harness_checkin_san harness_park "
 if [ $# -gt 0 ]; then
     for t in "$@"; do
+        # The runner and its helper live beside the drivers, so a list of names
+        # made by a search contains them. Named as a driver, the runner ran the
+        # whole tier inside itself (seen twice in the review of 2026-11-24).
+        case "$t" in
+            run|_smoke)
+                echo "smoke: '$t' is not a driver: $t.sh is the runner or its helper. Nothing was run." >&2
+                exit 2 ;;
+        esac
         if [ ! -f "$here/$t.sh" ]; then
             echo "smoke: no such driver: $t" >&2
             exit 2
@@ -240,10 +260,18 @@ if [ $# -gt 0 ]; then
     echo "smoke: subset -- $# driver(s) named on the command line"
     for t in "$@"; do
         echo "--- smoke: $t"
-        # The wider of the two bounds, deliberately: a subset run cannot know which
-        # list a driver came from, and a too-generous deadline turns a hang into a
-        # slow failure rather than a wrong pass.
-        run_driver "$t" 120 || driver_failed "$t"
+        # A named driver gets the budget its tier list gives it. For the 60 s and
+        # 120 s lists that is 120 s, the wider of the two, deliberately: a
+        # too-generous deadline turns a hang into a slow failure rather than a
+        # wrong pass. For the measured-slow list it is that list's 600 s: until
+        # 2026-11-26 it was 120 s here too, so `run.sh harness_page` (147 s warm)
+        # was KILLED on a tree whose whole tier was green, and the KILLED message's
+        # own advice -- re-run this driver alone -- could not succeed.
+        # (Two literal dispatches, not a variable: smoke_lint check 14 counts them.)
+        case "$SLOW_600" in
+            *" $t "*) run_driver "$t" 600 || driver_failed "$t" ;;
+            *)        run_driver "$t" 120 || driver_failed "$t" ;;
+        esac
     done
     summarise
 fi
@@ -351,7 +379,11 @@ done
 # 5/5 green (M1213 T2, run 0113): cells 3 and 4 run the park verb against the
 # full shim set and poll at 1 s intervals, the harness_page class; MEASURED
 # 10 s wall warm on this host, 600 s for the cold host.
-for t in harness_drive harness_repin harness_repin_san harness_push_truncation san_memory_safety harness_page harness_park; do
+# harness_checkin_san joined here (M1228-b, batch H13 follow-up): the leak's
+# red-first tooth (3 cells), ONE SAN worktree build, the harness_repin_san
+# precedent (5 s warm / 2-3 min cold); the measured wall is dominated by the
+# build, so it sits in this 600 s list, BEFORE JC_SMOKE_TIMEOUT_MULT.
+for t in $SLOW_600; do
     echo "--- smoke: $t"
     run_driver "$t" 600 || driver_failed "$t"
 done

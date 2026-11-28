@@ -128,7 +128,10 @@ static void append_rpc_error(struct jc_sb *sb, const cJSON *err)
 {
     const char *msg = jc_json_get_str(err, "message", "unknown error");
     double code = jc_json_get_num(err, "code", 0.0);
-    jc_sb_append_fmt(sb, "MCP error %ld: %s", (long)code, msg);
+    /* The code is a number a server wrote: clamped, not cast. A cast of a
+     * double no long can hold is undefined (F28); json_cast_lint did not see
+     * this one because the value passes through a local variable first. */
+    jc_sb_append_fmt(sb, "MCP error %ld: %s", jc_json_clamp_long(code), msg);
 }
 
 jc_status jc_mcp_parse_tools(const char *resp_json, struct jc_vec *out)

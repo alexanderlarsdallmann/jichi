@@ -36,9 +36,18 @@ The defences that **do not depend on the model's cooperation** are the real ones
   redirect hop), and it cannot be routed around by a proxy set in the environment:
   such a fetch goes direct, and a reused pooled connection is never trusted for it.
 - **Redaction at the source** — a registered secret is scrubbed before it is
-  written to an on-disk sink, before it is returned to the model as a tool or
-  error result, and before a child agent's report is handed to the provider; and
+  written to an on-disk sink, before a model server's error text is handed back
+  as a result, and before a child agent's report is handed to the provider; and
   it is stripped from the environment of any program jichi starts on your behalf.
+  **The output of a tool is not scrubbed on its way to the model.** If a command
+  the model runs prints the file you keep a key in, or a file tool reads a copy
+  of it inside the workspace, the key is in the next request to the model
+  server, and with it in whatever else is sent the history: a fallback model
+  that takes over a failed request, and the model of the `summarize` role when
+  the conversation is compacted. If either is on another server, the key goes
+  there. The saved session shows it starred. Keep key files outside the
+  workspace and, for an unattended run, out of the reach of the user that runs it
+  ([`docs/CONTAINER_TUTORIAL.md`](docs/CONTAINER_TUTORIAL.md)).
 - **Approval gates** — per-tool, per-mode, composed with config allow/deny lists;
   `plan` mode is read-only. A shell command launched under `sudo`/`doas`/`pkexec`
   is detected and gated *below* the ordinary verdict, so a blanket "always" grant

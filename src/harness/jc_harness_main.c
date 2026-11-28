@@ -54,6 +54,7 @@
 #include "jc_harness_repin.h"  /* M1203 (H11, wave 2): the repin command (the re-pin) */
 #include "jc_harness_page.h"   /* M1213 (H12, T2): the page / page-watch / probe verbs */
 #include "jc_harness_park.h"   /* M1213 (H12, T3): the park / restart verbs */
+#include "jc_harness_checkin.h" /* M1224 (H13): the checkin verb */
 
 /* The five commands the plan names for this program, in the order its
  * section 3 table introduces them: init, doctor, mirror, run, drive. The
@@ -180,11 +181,11 @@ static void usage_stream(const char *argv0, FILE *f)
     fprintf(f, "              park-resume.sh -- run park --config <f> [--state <f>]\n");
     fprintf(f, "              [--out <f>] [--parked] [--interval <s>] [--wait-interval <s>]\n");
     fprintf(f, "              [--ready-interval <s>] [--not-ready-interval <s>]\n");
-    fprintf(f, "              [--post-start <cmd>]; a missing --state/--out is a\n");
+    fprintf(f, "              [--post-start <s>]; a missing --state/--out is a\n");
     fprintf(f, "              usage refusal, exit 2\n");
     fprintf(f, "  restart     The restart verb (BUILT, M1213/H12, T3): the C89 port of\n");
     fprintf(f, "              restart-loop.sh -- run restart --config <f> [--state <f>]\n");
-    fprintf(f, "              [--out <f>] [--wait-interval <s>] [--post-start <cmd>];\n");
+    fprintf(f, "              [--out <f>] [--wait-interval <s>] [--post-start <s>];\n");
     fprintf(f, "              a missing --state/--out is a usage refusal, exit 2\n");
     fprintf(f, "  approve     The landing decision's approve (BUILT as a\n");
     fprintf(f, "              SKELETON, M1202/H10 wave 2b, D3 -- the record +\n");
@@ -654,6 +655,13 @@ int main(int argc, char **argv)
                  * --fresh-s, --interval); a missing --state/--out value is a
                  * usage refusal (exit 2), not not-built. */
                 not_built_cmd = "page-watch";
+                continue;
+            } else if (strcmp(a, "checkin") == 0) {
+                /* The supervisor's check-in (M1224, H13): BUILT as the C89 port
+                 * of the hardening drive's checkin.sh, 37 cells. It takes the
+                 * --config flag and an optional --push; a missing --config is
+                 * a usage refusal (exit 2), not not-built. */
+                not_built_cmd = "checkin";
                 continue;
             } else if (strcmp(a, "probe") == 0) {
                 /* The lead model reachability check (M1213, H12, T2): BUILT.
@@ -1653,6 +1661,43 @@ int main(int argc, char **argv)
                 }
                 i++;
                 page_interval = atoi(argv[i]);
+                continue;
+            }
+        }
+
+        /* checkin's own flags (M1224, H13): --config, --push, --loop-unit, --once-unit */
+        if (strcmp(not_built_cmd, "checkin") == 0) {
+            if (strcmp(a, "--config") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --config needs a value <file>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                config_path = argv[i];
+                continue;
+            }
+            if (strcmp(a, "--push") == 0) {
+                continue;
+            }
+            if (strcmp(a, "--loop-unit") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --loop-unit needs a value <u>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                /* value consumed by body */
+                continue;
+            }
+            if (strcmp(a, "--once-unit") == 0) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "jichi-harness: --once-unit needs a value <o>\n");
+                    usage(argv[0]);
+                    return 2;
+                }
+                i++;
+                /* value consumed by body */
                 continue;
             }
         }
@@ -2909,6 +2954,23 @@ int main(int argc, char **argv)
                                  park_wait_interval, park_ready_interval,
                                  park_not_ready_interval, park_post_start,
                                  a);
+        jc_arena_free(a);
+        return rc;
+    }
+
+    /* The checkin verb (M1224, H13): the C89 port of checkin.sh, 37 cells.
+     * The dispatch gives it a fresh arena (the repin idiom); the verb
+     * returns its rc (0 success, 1 refusal, 2 usage). */
+    if (strcmp(not_built_cmd, "checkin") == 0) {
+        struct jc_arena *a;
+        struct jc_harness_config cfg;
+        int rc;
+        a = jc_arena_new(0);
+        if (a == NULL) {
+            return 1;
+        }
+        memset(&cfg, 0, sizeof(cfg));
+        rc = jc_harness_checkin(argc, argv, &cfg, a);
         jc_arena_free(a);
         return rc;
     }

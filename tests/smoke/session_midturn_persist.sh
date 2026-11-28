@@ -143,7 +143,12 @@ fi
 # 5: THE D-08 FIX -- the in-flight turn's 3 tool rounds are SAVED mid-turn, so a
 # kill on round 4 loses only the in-flight round, not the whole conversation.
 # RED today: 0 of the 3 rounds are in the store.
-rounds=$(grep -o 'round-[123]-of-killed-turn' "$sfile" 2>/dev/null | sort -u | wc -l)
+# The session file is one line of JSON with NO newline at its end (read in an
+# OmniOS guest: 1282 bytes, 0 newlines). `grep -o` on a last line without a
+# newline is not specified by POSIX, and illumos grep prints only the first
+# match there: it reported 1 of 3 rounds for a file that held all three. The
+# newline is added on the way in; the file is not touched.
+rounds=$({ cat "$sfile" 2>/dev/null; echo; } | grep -o 'round-[123]-of-killed-turn' | sort -u | wc -l)
 if [ "$rounds" -ge 3 ]; then
     t_ok "mid-turn persist: all 3 in-flight tool rounds are saved (the killed turn is resumable)"
 else

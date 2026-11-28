@@ -325,7 +325,7 @@ jc_rig_ship_tar "$REPO" "$DIRTY" | g 'cd ~/jichi && tar xf -' 2>/dev/null
 # Same reason as the device rig: a real repository at a known state, so the
 # git-tool checks run and the row compares to a host run.
 g 'cd ~/jichi && git init -q . >/dev/null 2>&1 && \
-   git -c user.email=bench@invalid -c user.name=bench add -A >/dev/null 2>&1 && \
+   git -c user.email=bench@invalid -c user.name=bench add -A -f >/dev/null 2>&1 && \
    git -c user.email=bench@invalid -c user.name=bench commit -qm shipped >/dev/null 2>&1' \
    2>/dev/null && ok "shipped tree made a git repo (so the git-tool checks run)"
 if g 'test -f ~/jichi/Makefile' 2>/dev/null; then

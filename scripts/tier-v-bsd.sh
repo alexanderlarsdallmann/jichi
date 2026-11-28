@@ -370,6 +370,25 @@ g 'rm -rf ~/jichi && mkdir -p ~/jichi' 2>/dev/null
 # quoted later as a reproducible one.
 jc_rig_ship_stamp "$REPO" "$DIRTY" >> "$RESULTS"
 jc_rig_ship_tar "$REPO" "$DIRTY" | g 'cd ~/jichi && tar xf -' 2>/dev/null
+# The shipped tree becomes a real git repository at a known state, as
+# tier-v-illumos.sh makes it. An archive has no .git, and three drivers build
+# their fixture with `git worktree add` in the tree under test
+# (san_memory_safety, harness_repin_san, harness_push_truncation): on this row
+# they failed with "not a git repository", which says nothing about jichi. The
+# commit is the guest's own ("shipped"); the row's revision is the one the
+# stamp above wrote into the results, not this one.
+# `add -A -f`: the tree holds tracked files under ignored paths (five pages
+# below .jichi/). A plain `add -A` in the fresh repository leaves them out, and
+# release_text_lint then counts 571 pages where the tree has 576 (FreeBSD row,
+# 2026-11-26). Nothing is built yet at this point, so -f adds no artifact.
+if g 'cd ~/jichi && test -f Makefile && git init -q . >/dev/null 2>&1 && \
+      git -c user.email=bench@invalid -c user.name=bench add -A -f >/dev/null 2>&1 && \
+      git -c user.email=bench@invalid -c user.name=bench commit -qm shipped >/dev/null 2>&1' \
+      2>/dev/null; then
+    ok "shipped tree made a git repo (so the git-tool checks and the worktree fixtures run)"
+else
+    bad "the shipped tree could not be made a git repository -- drivers that need one will fail for that reason, not for jichi's"
+fi
 if g 'test -f ~/jichi/Makefile && echo SHIPPED' 2>/dev/null | grep -q SHIPPED; then
     # The exact revision is already in RESULTS from the stamp above; this line
     # only has to make a dirty row impossible to miss on the operator's screen.

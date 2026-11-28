@@ -520,6 +520,27 @@ ll_sweep_green(const char *gate_home, const char *s8, struct jc_arena *a)
     return (strcmp(v, "green") == 0);
 }
 
+/* A commit id as the gate hands it over: 7 to 40 lowercase hex digits (the rule
+ * of `gate run`, gci_hex8 in jc_hp_gateci.c; this file carries its own copy,
+ * as the stage files do). */
+static int
+ll_hex8(const char *s)
+{
+    size_t n = strlen(s);
+    size_t i;
+
+    if (n < 7 || n > 40) {
+        return 0;
+    }
+    for (i = 0; i < n; i++) {
+        char c = s[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* jc_harness_land_run: the `land` verb (b1-b16). See jc_harness_land.h for
  * the rc contract. The arena `a` is the caller's (it outlives every child). */
 int
@@ -563,6 +584,17 @@ jc_harness_land_run(const char *config_path,
      * text) -- a tool error is a value, never an abort (CHANGED). */
     if (sha8 == NULL || sha8[0] == '\0') {
         fprintf(stderr, "usage: jichi-harness land <SHA8>\n");
+        return 2;
+    }
+    /* The argument goes to `git rev-parse --verify "<arg>^{commit}"` below,
+     * and git resolves far more than commit ids: HEAD, a branch, master~2.
+     * land would then land whatever that name points at when it runs, which
+     * need not be the commit the gate checked. Only a commit id is taken;
+     * anything else is a usage refusal, before git is touched. */
+    if (!ll_hex8(sha8)) {
+        fprintf(stderr,
+                "jichi-harness: land: the <SHA8> must be 7-40 lowercase hex "
+                "(got '%s')\n", sha8);
         return 2;
     }
     /* Every path from the caller is non-NULL or the verb refuses BEFORE

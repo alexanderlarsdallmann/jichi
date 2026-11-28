@@ -337,8 +337,10 @@ struct jc_envelope {
  * *out; -1 on a malformed or negative value. */
 int jc_env_parse_size(const char *s, double *out);
 
-/* Parse a duration: a number with an optional s/m/h suffix (bare = seconds;
- * "20m" => 1200, "2h" => 7200). Returns 0 / writes *out, -1 on error. */
+/* Parse a duration: a number with an optional s/m/h/d suffix (bare = seconds;
+ * "20m" => 1200, "2h" => 7200). Returns 0 / writes *out, -1 on error. An error
+ * leaves *out alone. A duration above LONG_MAX / 4 seconds is an error, as a
+ * negative one is: it is not converted (the conversion would be undefined). */
 int jc_env_parse_duration(const char *s, long *out);
 
 /* M289: has this out-of-scope path already been reported this run? Pure (reads

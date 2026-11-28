@@ -279,6 +279,7 @@ Reading tracks that teach a paradigm by comparing it with jichi's own C.
 Why jichi is the way it is, including everything that went wrong. This ships on purpose.
 
 - [`ANECDOTES.md`](ANECDOTES.md) — Anecdotes & debugging war stories
+- [`MISTAKES_OF_A_REVIEW.md`](MISTAKES_OF_A_REVIEW.md) — Mistakes of a review: what an agent got wrong in three days, by kind, and what stops each kind
 - [`APPROACH.md`](APPROACH.md) — How jichi approaches building software
 - [`COMPARED.md`](COMPARED.md) — jichi compared: Continue, opencode, Claude Code — for deciding whether it fits
 - [`DECISIONS.md`](DECISIONS.md) — Decision register

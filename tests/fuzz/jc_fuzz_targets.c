@@ -246,6 +246,21 @@ static void t_configedit_prop(const unsigned char *data, size_t len)
     free(k);
 }
 
+/* 1 if any object under (and beside) `n` has a member called `name`. The setup
+ * property asks this of the PARSED config. It used to search the printed text
+ * for "apiKey" with its quotes, and a model id ending in a quote and apiKey
+ * satisfied that: printed, its escaped quote is followed by the closing one
+ * (found by libFuzzer on 2026-11-26; the bytes are in the corpus). The config
+ * was right and the check was wrong. */
+static int json_has_member(const cJSON *n, const char *name)
+{
+    for (; n != NULL; n = n->next) {
+        if (n->string != NULL && strcmp(n->string, name) == 0) return 1;
+        if (json_has_member(n->child, name)) return 1;
+    }
+    return 0;
+}
+
 static void t_setup_config(const unsigned char *data, size_t len)
 {
     char *s = jc_fuzz_dup0(data, len);
@@ -263,11 +278,11 @@ static void t_setup_config(const unsigned char *data, size_t len)
             fprintf(stderr, "FUZZ: setup_build_config produced invalid JSON\n");
             abort();
         }
-        cJSON_Delete(j);
-        if (strstr(sb.data, "\"apiKey\"") != NULL) {
+        if (json_has_member(j, "apiKey")) {
             fprintf(stderr, "FUZZ: setup_build_config emitted a literal apiKey\n");
             abort();
         }
+        cJSON_Delete(j);
     }
     jc_sb_free(&sb);
     free(s);

@@ -19,6 +19,7 @@
 #include "jc_version.h"
 #include "jc_path.h"
 
+#include <limits.h>   /* LONG_MAX: the bound of jc_env_parse_duration */
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -81,63 +82,100 @@ int jc_env_parse_duration(const char *s, long *out)
         v *= 86400.0;
         end++;
     }
-    if (*end != '\0' || v < 0.0) {
+    /* Refuse what no long can hold, and what is not a number at all. The
+     * conversion of such a double to long is UNDEFINED (finding F28 of the
+     * review of 2026-11-24): on x86-64 `--deadline 1e300h` became LONG_MIN,
+     * which every caller reads as "no deadline", and nothing said so; on ARM
+     * it became LONG_MAX, and the four-fifths notice then computed that times
+     * four. The bound is LONG_MAX / 4, so that that multiple stays in range
+     * too: 73 thousand million years on a 64-bit long, seventeen years on a
+     * 32-bit one. The test is written so that NaN fails it: strtod accepts
+     * "nan" and "inf". */
+    if (*end != '\0' || !(v >= 0.0 && v <= (double)(LONG_MAX / 4))) {
         return -1;
     }
     *out = (long)v;
     return 0;
 }
 
+/* One loop and two resume points, in place of one recursion per star and per
+ * position: that took time exponential in the number of stars (fourteen stars
+ * against forty letters: 213 s), and a pattern is a model's argument
+ * (list_files), a hook's matcher, an edit scope or a pin.
+ *
+ * Why the LAST star of each kind is enough. A '*' cannot cross '/', and neither
+ * can '?' or a literal other than '/', so between two "**" the pattern's
+ * slashes meet the text's slashes one for one, and an earlier '*' that takes
+ * more letters only leaves fewer for the stars after it. Once the last '*'
+ * has reached a '/' or the end, no earlier '*' can help, and only the last
+ * "**" can move. By the same argument an earlier "**" never needs to move.
+ * The cost is bounded by pattern length times text length squared.
+ *
+ * The meaning is unchanged, including that "**" followed by '/' may match
+ * nothing at all and that a trailing "**" matches whatever is left.
+ * tests/test_envelope.c keeps the recursive matcher as a reference and
+ * compares the two on every short pattern and text. */
 int jc_glob_match(const char *pat, const char *path)
 {
-    while (*pat != '\0') {
+    const char *s_pat = NULL;  /* the pattern after the last '*' ...      */
+    const char *s_path = NULL; /* ... and the text position it was tried at */
+    const char *d_pat = NULL;  /* the same two for the last "**"          */
+    const char *d_path = NULL;
+
+    for (;;) {
         if (*pat == '*') {
             if (pat[1] == '*') {
                 /* "**" matches a run that may cross '/'. */
-                const char *np = pat + 2;
-                if (*np == '/') {
-                    np++; /* a double-star then slash may match zero dirs */
+                pat += 2;
+                if (*pat == '/') {
+                    pat++; /* a double-star then slash may match zero dirs */
                 }
-                if (*np == '\0') {
+                if (*pat == '\0') {
                     return 1; /* trailing ** matches the rest entirely */
                 }
-                for (;;) {
-                    if (jc_glob_match(np, path)) {
-                        return 1;
-                    }
-                    if (*path == '\0') {
-                        return 0;
-                    }
-                    path++;
-                }
+                d_pat = pat;
+                d_path = path;
+                s_pat = NULL;
             } else {
                 /* "*" matches a run that does not cross '/'. */
-                const char *np = pat + 1;
-                for (;;) {
-                    if (jc_glob_match(np, path)) {
-                        return 1;
-                    }
-                    if (*path == '\0' || *path == '/') {
-                        return 0;
-                    }
-                    path++;
-                }
+                pat++;
+                s_pat = pat;
+                s_path = path;
+            }
+            continue;
+        }
+        if (*pat == '\0') {
+            if (*path == '\0') {
+                return 1;
             }
         } else if (*pat == '?') {
-            if (*path == '\0' || *path == '/') {
-                return 0;
+            if (*path != '\0' && *path != '/') {
+                pat++;
+                path++;
+                continue;
             }
+        } else if (*pat == *path) {
             pat++;
             path++;
-        } else {
-            if (*pat != *path) {
-                return 0;
-            }
-            pat++;
-            path++;
+            continue;
         }
+        /* No match from here: let the last '*' take one more letter, or, when
+         * it cannot, the last "**" one more byte. */
+        if (s_pat != NULL && *s_path != '\0' && *s_path != '/') {
+            s_path++;
+            pat = s_pat;
+            path = s_path;
+            continue;
+        }
+        if (d_pat != NULL && *d_path != '\0') {
+            d_path++;
+            pat = d_pat;
+            path = d_path;
+            s_pat = NULL;
+            continue;
+        }
+        return 0;
     }
-    return *path == '\0';
 }
 
 const char *jc_env_relpath(const char *root, const char *path)

@@ -148,7 +148,7 @@ often, on a head that is ready.
 | `make smoke-tools && sh tests/smoke/leak_turn.sh` | leaks across a kept connection | ~3 s |
 | `make clean && make WERROR=1 CC=gcc run_tests` | the e2e harness build | ~14 s |
 | `valgrind --error-exitcode=1 … ./run_tests` | the unit suite under valgrind (ASan's blind spots) | ~17 s |
-| `make clean && make SAN=1 CC=clang run_fuzz && … run_fuzz` | **23 fuzz targets, 2,000 iterations each** | **~13 min** |
+| `make clean && make SAN=1 CC=clang run_fuzz && … run_fuzz` | **24 fuzz targets, 2,000 iterations each** | **~10 s** (re-measured, see below; this row said ~13 min) |
 | curl-free build + 512 KB stack run | a system without libcurl; a small default stack | ~20 s |
 | `make WERROR=1 fallbacks-compile` | the graceful-degradation paths compile | ~6 s |
 | `make smoke-faults` | FAULT=1 build + the six error-path drivers (the lease race, the board, mid-stream faults) | ~1 min |
@@ -158,14 +158,25 @@ often, on a head that is ready.
 | `make smoke-mutant` | the gate's own gate: does a killed driver turn the tier red? — sweeps **changed drivers only** | ~1 s when nothing changed since the last gate |
 | `make e2e` | the end-to-end tier (offline: drives the binary, mockmodel, no gateway) | ~2 min |
 
-The three chunks of the ~29 minutes, in order: the **fuzz stage (~13 min, the
-largest single stage — 23 targets × 2,000 iterations)** and the **smoke tier
-(~10 min — 447 drivers and ~2,600 checks when this was timed)** together are most of it; the five
-clean builds, the ASan/UBSan and valgrind passes, and the leak checks are the
-rest, and they are what make the code *sound* — a soundness verdict in a
-couple of minutes. The behavior the gate proves (the error paths, the
-documentation, the model-driven runs) is the rest, and its tail is the part
-that varies machine to machine and run to run.
+The largest single stage is the **smoke tier (~10 min — 447 drivers and ~2,600
+checks when this was timed)**. The five clean builds, the ASan/UBSan and
+valgrind passes, and the leak checks are what make the code *sound* — a
+soundness verdict in a couple of minutes. The behavior the gate proves (the
+error paths, the documentation, the model-driven runs) is the rest, and its
+tail is the part that varies machine to machine and run to run.
+
+**The fuzz stage was listed here at ~13 minutes, as the largest stage, and that
+was wrong.** Re-measured on 2026-11-26 on another machine (32 threads), at
+0.15.0: the build of `run_fuzz` takes about 9 s, and the run of 24 targets at
+2,000 iterations each takes 0.36 s (three runs: 0.36, 0.35, 0.36). At the
+commit that wrote this table (`76e423a1b`, 23 targets, the same command) the
+run takes 0.35 s on that machine. What the 13 minutes of 2026-10-11 were is
+not on record. **The "about 29 minutes" above is given as measured end to end
+on that day. With this row corrected, the stages of the table no longer add up
+to it, and neither the total nor the other rows have been re-timed.** Two
+consequences for a reader: the gate's fuzzing is a much smaller share of its
+work than this page said, and the time a full gate takes today is what you
+measure, not what this table adds up to.
 
 ### The cheap tiers, measured (the ones you run while designing and editing)
 

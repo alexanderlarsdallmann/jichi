@@ -745,9 +745,17 @@ jc_harness_park_run(const char *config_path,
     int cmd_rc;
     char container_gone_out[16];
 
-    (void)park_wait_interval;  /* A2.1: park_interval is the armed-poll; this is legacy */
-    (void)park_ready_interval;  /* A2.1: park_interval is the armed-poll; this is legacy */
-    (void)park_not_ready_interval;  /* A2.1: park_interval is the armed-poll; this is legacy */
+    /* THE THREE WAITS, one flag each, as in park-resume.sh:
+     *   --wait-interval       the poll for the loop's end        (30 s)
+     *   --ready-interval      between two ready probes           (60 s)
+     *   --not-ready-interval  after a probe that was not ready   (300 s)
+     * Three `(void)` lines stood here and said all three were legacy. Two of
+     * them were untrue: the ready and not-ready values are used below. The
+     * third was true and was the defect: --wait-interval was parsed, checked
+     * for a number and discarded, and the poll took --interval or 30 s, so
+     * `park --wait-interval 1` polled every 30 s and said nothing. It governs
+     * the poll now. --interval is the older spelling of the same wait and is
+     * read only when --wait-interval is absent. */
     (void)park_post_start;  /* A2.2: validated in body */
     (void)arena_ptr;  /* For A2.4 config parsing */
 
@@ -772,14 +780,14 @@ jc_harness_park_run(const char *config_path,
     /* Flags with defaults and validation (A2.4: flag -> config -> default).
      * A2.1: park_interval is the armed-poll interval. When 0 (absent), use
      * config's drive_wait_interval or the reference's 30. */
-    if (park_interval == 0) {
-        if (cfg.drive_wait_interval != NULL && cfg.drive_wait_interval[0] != '\0') {
-            wait_interval = atoi(cfg.drive_wait_interval);
-        } else {
-            wait_interval = PARK_WAIT_INTERVAL_DEFAULT;
-        }
-    } else {
+    if (park_wait_interval != 0) {
+        wait_interval = park_wait_interval;
+    } else if (park_interval != 0) {
         wait_interval = park_interval;
+    } else if (cfg.drive_wait_interval != NULL && cfg.drive_wait_interval[0] != '\0') {
+        wait_interval = atoi(cfg.drive_wait_interval);
+    } else {
+        wait_interval = PARK_WAIT_INTERVAL_DEFAULT;
     }
     if (park_ready_interval == 0) {
         if (cfg.drive_ready_interval != NULL && cfg.drive_ready_interval[0] != '\0') {

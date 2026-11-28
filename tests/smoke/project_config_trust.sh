@@ -43,7 +43,7 @@
 #      vouch for keys it did not write)
 . "$(dirname "$0")/_smoke.sh"
 
-t_plan 18
+t_plan 20
 smoke_home
 JQ="$SMOKE_TOOLS/jsonq"
 
@@ -382,6 +382,63 @@ if echo "$OUT18" | grep -q 'scopedEditMax:  1' && [ -z "$ERR18" ]; then
     t_ok "scopedEditMax: project config 1 is applied (effective=1), notice does not name the key"
 else
     t_fail "scopedEditMax: effective=$(echo "$OUT18" | tr '\n' ' '), notice=$( [ -z "$ERR18" ] && echo no || echo yes)"
+fi
+
+# --- 19: a number no long can hold is a RAISE, not a narrowing (F28) --------------
+# The review of 2026-11-24, finding F28. The trust code cast the project's number
+# to long before asking "is it smaller than the cap in force?". That cast is
+# undefined for a double no long can hold, and on x86-64 it gave the smallest
+# long: 1e300 was "smaller" than any cap, counted as a narrowing, and was applied
+# from an untrusted file without the notice. (int) of that value is 0, and for
+# maxSubagentIters a 0 falls back to the tool-iteration cap, which is looser than
+# a lower value the user set. The check needs no sanitizer: it asks for the
+# notice, as arm 17 does for a plain raise.
+WS=$(smoke_tmp); mkdir -p "$WS/.jichi"
+UHOME=$(smoke_tmp)
+mkdir -p "$UHOME"
+cat > "$UHOME/.jichi" <<EOF
+{"lowResource":false,"models":[{"name":"mine","provider":"openai","model":"mine",
+"apiBase":"http://127.0.0.1:$MM_PORT/v1","apiKey":"x","roles":["chat"]}],
+"snapshots":false,"repoMap":false,"references":false,"toolProfile":"full",
+"maxRetries":0,"maxSubagentIters":2,"maxToolIters":9,"maxSubagentDepth":1}
+EOF
+printf '%s\n' '{"maxSubagentIters":1e300,"maxToolIters":1e300,"maxSubagentDepth":1e300}' > "$WS/.jichi/config.json"
+CAP=$(smoke_tmp)
+(unset JC_CONFIG; HOME="$UHOME" cd "$WS" && with_deadline 30 "$BIN" --no-session \
+    config show < /dev/null > "$CAP/out" 2> "$CAP/err")
+N19=0
+for k in maxSubagentIters maxToolIters maxSubagentDepth; do
+    grep -q "$k" "$CAP/err" 2>/dev/null && N19=$((N19 + 1))
+done
+if [ "$N19" -eq 3 ]; then
+    t_ok "three caps: a project value of 1e300 is not applied, and the notice names each key"
+else
+    t_fail "three caps set to 1e300 by an untrusted project config: the notice names $N19 of 3 keys -- the others were taken as a narrowing and applied without trust: $(head_bytes 200 "$CAP/err")"
+fi
+
+# --- 20: the same for a cap where 0 means off (a pin) ------------------------------
+# scopedEditMax is the other kind of bound. There the smallest long is "not above
+# zero" and was refused already; with the clamp the value is the largest int and
+# is refused as the raise it is. Either way: effective stays 2, the notice names it.
+WS=$(smoke_tmp); mkdir -p "$WS/.jichi"
+UHOME=$(smoke_tmp)
+mkdir -p "$UHOME"
+cat > "$UHOME/.jichi" <<EOF
+{"lowResource":false,"models":[{"name":"mine","provider":"openai","model":"mine",
+"apiBase":"http://127.0.0.1:$MM_PORT/v1","apiKey":"x","roles":["chat"]}],
+"snapshots":false,"repoMap":false,"references":false,"toolProfile":"full",
+"maxRetries":0,"scopedEditMax":2}
+EOF
+printf '%s\n' '{"scopedEditMax":1e300}' > "$WS/.jichi/config.json"
+CAP=$(smoke_tmp)
+(unset JC_CONFIG; HOME="$UHOME" cd "$WS" && with_deadline 30 "$BIN" --no-session \
+    config show < /dev/null > "$CAP/out" 2> "$CAP/err")
+OUT20=$(grep 'scopedEditMax:' "$CAP/out" 2>/dev/null)
+ERR20=$(grep 'scopedEditMax' "$CAP/err" 2>/dev/null)
+if echo "$OUT20" | grep -q 'scopedEditMax:  2' && [ -n "$ERR20" ]; then
+    t_ok "scopedEditMax: a project value of 1e300 is refused (effective=2), notice names the key"
+else
+    t_fail "scopedEditMax 1e300: effective=$(echo "$OUT20" | tr '\n' ' '), notice=$( [ -n "$ERR20" ] && echo yes || echo no)"
 fi
 
 t_done

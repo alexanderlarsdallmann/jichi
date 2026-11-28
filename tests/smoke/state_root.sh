@@ -16,6 +16,15 @@
 # environments AUTONOMOUS_LOOPS.md recommends.
 #
 # See docs/analysis/2026-08-17-source-hardening-audit.md §M4.
+#
+# THIS DRIVER LEAVES THE TIER'S ISOLATED HOME, ON PURPOSE, AND SAYS SO. To test an
+# unset HOME it must unset HOME, and jichi then resolves the real home of whoever
+# runs the tier, through the password database. `doctor` makes its state
+# directory there if it is missing (~/.jichi.d) and creates and removes one probe
+# file in it. Nothing else is written, and nothing is read from it by a check.
+# state_root_pid_fallback.sh does the same on a FAULT=1 build. smoke_lint check 24
+# holds the list at those two. A way to probe without writing would end this; it
+# is a change to `doctor`, and is not made here.
 . "$(dirname "$0")/_smoke.sh"
 
 t_plan 4

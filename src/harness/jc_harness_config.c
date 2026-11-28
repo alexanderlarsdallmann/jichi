@@ -383,12 +383,51 @@ parse_tenant(const cJSON *j, int idx, struct jc_harness_config *out,
     return JC_OK;
 }
 
+/* The checkin drive block (M1224, H13, wave 1): the shimmable drive settings
+ * the checkin verb consumes. All optional, opt_str as-is, NULL when absent.
+ * NOTE: branchPrefix is NOT read here - it's already read by parse_drive. */
+static jc_status
+parse_drive_checkin(const cJSON *j, struct jc_harness_config *out,
+                    struct jc_arena *a)
+{
+    const char *v;
+
+    v = opt_str(j, "onceUnit");
+    if (v != NULL) {
+        out->drive_once_unit = dup_in_arena(a, v);
+    }
+    v = opt_str(j, "restartLoopUnit");
+    if (v != NULL) {
+        out->drive_restart_loop_unit = dup_in_arena(a, v);
+    }
+    v = opt_str(j, "pageWatchUnit");
+    if (v != NULL) {
+        out->drive_page_watch_unit = dup_in_arena(a, v);
+    }
+    v = opt_str(j, "pushUnit");
+    if (v != NULL) {
+        out->drive_push_unit = dup_in_arena(a, v);
+    }
+    /* branchPrefix already read in parse_drive */
+    v = opt_str(j, "logPath");
+    if (v != NULL) {
+        out->drive_log_path = dup_in_arena(a, v);
+    }
+    v = opt_str(j, "gateway");
+    if (v != NULL) {
+        out->drive_gateway = dup_in_arena(a, v);
+    }
+
+    return JC_OK;
+}
+
 /* behaviour 8 + the drive's identity. */
 static jc_status
 parse_drive(const cJSON *j, struct jc_harness_config *out, struct jc_arena *a)
 {
     const cJSON *limits;
     const char *v;
+    jc_status st;
 
     v = opt_str(j, "branchPrefix");
     if (v != NULL) {
@@ -444,6 +483,13 @@ parse_drive(const cJSON *j, struct jc_harness_config *out, struct jc_arena *a)
     out->drive_wait_interval = dup_in_arena(a, opt_str(j, "waitInterval"));
     out->drive_ready_interval = dup_in_arena(a, opt_str(j, "readyInterval"));
     out->drive_not_ready_interval = dup_in_arena(a, opt_str(j, "notReadyInterval"));
+
+    /* The checkin block (M1224, H13): the shimmable drive settings the checkin
+     * verb consumes. All optional, opt_str as-is, NULL when absent. */
+    st = parse_drive_checkin(j, out, a);
+    if (st != JC_OK) {
+        return st;
+    }
 
     return JC_OK;
 }
@@ -799,6 +845,23 @@ jc_harness_config_load(const char *path, struct jc_harness_config *out,
                 dup_in_arena(a, opt_str(host, "pageContainerGone"));
             out->host_page_pid_list =
                 dup_in_arena(a, opt_str(host, "pagePidList"));
+            /* The checkin block (M1224, H13, wave 1): the shimmable host
+             * commands the checkin verb consumes. All optional, opt_str
+             * as-is, NULL when absent -- the other host fields' idiom. */
+            out->host_checkin_follow =
+                dup_in_arena(a, opt_str(host, "checkinFollow"));
+            out->host_checkin_pid_list =
+                dup_in_arena(a, opt_str(host, "checkinPidList"));
+            out->host_checkin_push =
+                dup_in_arena(a, opt_str(host, "checkinPush"));
+            out->host_checkin_route =
+                dup_in_arena(a, opt_str(host, "checkinRoute"));
+            out->host_checkin_vpn =
+                dup_in_arena(a, opt_str(host, "checkinVpn"));
+            out->host_checkin_vpn0 =
+                dup_in_arena(a, opt_str(host, "checkinVpn0"));
+            out->host_checkin_openconnect =
+                dup_in_arena(a, opt_str(host, "checkinOpenconnect"));
             /* The orchestrator's land / repin steps (M1159 wave 4): the
              * redfirstUnitRun idiom -- opt_str as-is, NULL when absent.
              * host.gateHome REUSES the existing host_gate_home (the

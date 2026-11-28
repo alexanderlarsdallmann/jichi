@@ -473,7 +473,14 @@ jc_harness_page_run(const char *config_path,
         }
     }
 
-    /* PAGE line (b9). */
+    /* PAGE line (b9). Until 2026-11-27 it ended "; parking the drive", as the
+     * reference script's does. Nothing here parks: this verb writes the line
+     * and runs the page command; with --park it creates STOP and says so on a
+     * line of its own below; page-watch creates no STOP at all; and no verb
+     * starts `park`, which is what would resume the drive. The line now says
+     * what is true when it is written. (Design decision D9: park will be armed
+     * in advance by a unit of its own. When that exists, this text changes
+     * with it.) The loop's copy of the format is in jc_harness_page_watch_run. */
     {
         long minutes = (now - (long)first) / 60;
         char hhmm[16];
@@ -488,7 +495,7 @@ jc_harness_page_run(const char *config_path,
             hhmm[sizeof(hhmm) - 1] = '\0';
         }
         if (jc_snprintf(line_buf, sizeof line_buf,
-                        "PAGE: model calls failing for %ld min since %s (run %s, %d failed: %s); parking the drive",
+                        "PAGE: model calls failing for %ld min since %s (run %s, %d failed: %s); nothing is parked by this page",
                         minutes, hhmm, run, n, cls) >= (int)sizeof line_buf) {
             return 2;
         }
@@ -819,13 +826,32 @@ jc_harness_page_watch_run(const char *config_path,
             hhmm[sizeof(hhmm) - 1] = '\0';
                 }
                 if (jc_snprintf(page_line, sizeof page_line,
-                                "PAGE: model calls failing for %ld min since %s (run %s, %d failed: %s); parking the drive",
+                                "PAGE: model calls failing for %ld min since %s (run %s, %d failed: %s); nothing is parked by this page",
                                 minutes, hhmm, run, n, cls) >= (int)sizeof page_line) {
                     goto sleep_loop;
                 }
             }
 
             page_say(out_file, page_line);
+
+            /* The hook (b10), as the page verb runs it above: host.pageCommand,
+             * once for this PAGE line. Until now the loop wrote the line and
+             * called nothing, so a drive watched by page-watch paged nobody,
+             * while the one-shot verb, which nothing runs unattended, did. A
+             * hook that fails is logged and never ends the watch. */
+            if (cfg.host_page_command != NULL && cfg.host_page_command[0] != '\0') {
+                char hook_output[PAGE_CMD_CAP];
+                int hook_rc = 0;
+
+                /* The same length rule as the page verb's copy into a
+                 * PAGE_PATH_CAP buffer, asked without the copy. */
+                if (strlen(cfg.host_page_command) >= PAGE_PATH_CAP ||
+                    page_run_cmd(cfg.host_page_command, NULL, NULL, hook_output,
+                                 sizeof hook_output, &hook_rc) != 1 ||
+                    hook_rc != 0) {
+                    fprintf(stderr, "pageCommand: hook failed\n");
+                }
+            }
 
             /* State write. */
             jc_snprintf(last_ok_str, sizeof last_ok_str, "%lu", last_ok);

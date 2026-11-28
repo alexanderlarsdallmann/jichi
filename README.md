@@ -461,13 +461,13 @@ is a Linux-with-systemd program for now. Start with
 
 ## Roadmap
 
-**Where we stand: latest milestone M1223.** What each milestone did, and why, is in
+**Where we stand: latest milestone M1228.** What each milestone did, and why, is in
 [`docs/ROADMAP.md`](docs/ROADMAP.md); what changed for users, version by version, is in
 [`CHANGELOG.md`](CHANGELOG.md); how the project grew, with its numbers, is in
 [`docs/PROJECT_TIMELINE.md`](docs/PROJECT_TIMELINE.md).
 
 **Releases.** The first public release, **v0.9.0**, shipped on 2026-08-27. The current
-public release is **0.15.0**. What it changed and its known issues, and what every release
+public release is **0.15.1**. What it changed and its known issues, and what every release
 before it changed, are in [`CHANGELOG.md`](CHANGELOG.md). The history of the
 public cuts, as this page told it until 2026-11-23, is in
 [`docs/MILESTONE_HIGHLIGHTS.md`](docs/MILESTONE_HIGHLIGHTS.md#releases).

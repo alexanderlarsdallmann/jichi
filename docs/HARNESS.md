@@ -54,6 +54,7 @@ The standing caveat: jichi's own protections stop at one boundary, and "A comman
 | `watch` | P3 | the gate watcher: `gate` (one tick on a READY line) + `units` (the generated timer/service) (built, M1153 H9a; the section below) |
 | `gate run` | P3 | the gate RUN: five stage bodies (--stage ledger/verdict/sweep/ci/redfirst), the orchestrator (M1159) that runs them in order and says the verdict, gate units (M1159) |
 | outage | P3 | `page` / `page-watch` / `probe` / `park` / `restart` (M1213, H12): a model outage -- the section below |
+| checkin | P3 | the reboot check-in: what survives a reboot by itself and what needs a hand, read-only (built, M1224 H13 -- the section below) |
 | watchers | P3 | `status`, `gate`, `review`, `verify`, `probe` — not yet phased in a batch |
 | landing | P5 | `land`, `approve` (built, M1159+M1202, H10 — the section below) — `pending`, `integrate` not yet phased in a batch |
 
@@ -66,7 +67,8 @@ and `watch` (M1153, H9a: the gate watcher — the section below)
 and `gate run` (M1154+M1159, H9b: the five stage bodies, each addressable on its own with
 `--stage`, and the orchestrator that runs them in sequence and says the verdict)
 and the outage verbs `page` / `page-watch` / `probe` / `park` / `restart` (M1213, H12: a model outage -- the section below)
-are built — every P2 command plus `watch`, `gate run`'s full run, the outage verbs and `land`/`approve` from P5; the
+and `checkin` (M1224, H13: the reboot check-in -- the section below)
+are built — every P2 command plus `watch`, `gate run`'s full run, the outage verbs, `checkin` and `land`/`approve` from P5; the
 port lands them batch by batch, H1 through H10, and this table is what a learner checks when one lands.
 `doctor` takes the global `--config <file>` option; it reports on the harness configuration in the
 same shape as `jichi doctor` (the
@@ -565,9 +567,13 @@ scripts; now the gate run records every landing decision, and the move happens o
 that re-reads the remote before and after.
 
 `jichi-harness land --config <f> --push-repo <d> --ci-log-dir <d> --gate-home <d> --main-checkout <d>
-[--land-log <f>] <SHA8>` is the port of the host's `land.sh`. It requires a green sweep verdict
-recorded for that `<SHA8>`, resolves it to a commit with git (it checks only that the value is not
-empty; `gate run` checks the 7-40 hex form before the gate calls it), checks that the commit is on
+[--land-log <f>] <SHA8>` is the port of the host's `land.sh`. **The `<SHA8>` is a commit id and nothing
+else:** 7 to 40 lowercase hex digits, the form `gate run` asks for. Anything else that git could
+resolve (`HEAD`, a branch, a tag, `abc1234^`) is refused as usage (exit 2, `the <SHA8> must be 7-40
+lowercase hex`) before git is touched and before a line is written to the land log. Until this
+check, `land` took whatever was not empty and let git resolve it, so a name landed whatever it
+pointed at when the verb ran, which need not be the commit the caller meant. It requires a green sweep verdict
+recorded for that `<SHA8>`, resolves it to a commit with git, checks that the commit is on
 the drive branch (an ancestor of push.git's tracking ref `refs/remotes/origin/<prefix>/main`, which
 it does not fetch first) and that master is an ancestor of it,
 and pushes it to master — master moves only as the fast-forward that check proves, never `--force`. After the push it re-reads the
@@ -609,8 +615,12 @@ port's switch-over is recorded, and three gaps remain before the port can do all
   that recovers and fails again pages again, and the same open stretch never does. `page` writes
   the PAGE line and runs the configured page command; a command that is absent is a say-line only,
   and a command that fails is logged, never fatal. `page-watch` writes the PAGE line and its state
-  but does not run the page command or create the STOP file (a known issue in CHANGELOG.md
-  [0.15.0]).
+  and runs the page command by the same rule, once per PAGE line (in 0.15.0 it did not: a known
+  issue in CHANGELOG.md [0.15.0], closed after that release). It does not create the STOP file
+  (still open). **The PAGE line ends "; nothing is parked by this page"**: in 0.15.0 it ended
+  "; parking the drive", as the script it was ported from does, and nothing parked. `page --park`
+  says on a line of its own that it created the STOP file; no verb starts `park`. The line will
+  say otherwise when `park` is armed by a unit of its own (decided on 2026-11-26, not built).
 
 - **`probe`** is the READY check, in two halves: the gateway half is any HTTP code (a 401 means
   reachable), and the model half runs the lead's model's own live check and is READY only when it
@@ -626,9 +636,9 @@ port's switch-over is recorded, and three gaps remain before the port can do all
   start WITHOUT the ready loop: the operator runs it after a re-pin, when the loop must come up on
   the new binary and the outage is assumed over.
 
-Three gaps remain before a drive needs no person awake when the gateway dies: `page-watch` must
-run the page command and create the STOP file, and something must start `park` (`page --park`
-creates the STOP file but does not run `park`). They are known issues in CHANGELOG.md [0.15.0]. The port differs from the reference in named places (the note is the authoritative list):
+Two gaps remain before a drive needs no person awake when the gateway dies: `page-watch` must
+create the STOP file, and something must start `park` (`page --park`
+creates the STOP file but does not run `park`). They are known issues in CHANGELOG.md [0.15.0]; the third one named there, that `page-watch` did not run the page command, is closed. The port differs from the reference in named places (the note is the authoritative list):
 the stretch is pure C, read with jichi's own JSON parser, so the driver runs without python3; the
 page's park half prints the park command and never runs it, and with `--park` it creates the STOP
 file (the host arms its own unit until the switch-over); a config that names no loop unit or, where the container
@@ -638,8 +648,42 @@ stand-ins, and the supervisor runs the real thing on the host beside the referen
 verb switches to its port -- the `restart` verb's unit start is the last to switch, because a wrong
 restart is a dead drive.
 
-Driver: `tests/smoke/harness_page` (red-first, 42 cells); the stretch's unit test is
+Driver: `tests/smoke/harness_page` (red-first, 47 cells); the stretch's unit test is
 `test_pagestretch`.
+
+## `checkin`: the reboot check-in (M1224, H13)
+
+`jichi-harness --config <f> checkin [--push]` is the C89 port of the drive's host-only
+`checkin.sh` (M1224, H13: the supervisor's read-only check-in after a reboot -- the port of
+the drive's 52-line host script). What it protects: what outlives a reboot by itself
+(the persistent, enabled timers) and what needs a hand (the loop, the outage watcher, a
+parked drive), the current run's NAMED records, the push state as the host mirror holds
+it, the drive LOG's READY/WITHDRAWN lines, the supervision log's two copies; it writes
+nothing (the --push arm is the one hand-push).
+
+The port differs from the reference in named places (the note is the authoritative list):
+`drive.loopUnit`/`drive.onceUnit` from the config, not guessed (the M1213 idiom); the
+container prefix `drive.containerName` from the config, not guessed; a missing
+`drive.pushUnit`/`drive.pageWatchUnit` -> the state half is empty (no `systemctl` guess);
+a missing `drive.branchPrefix` -> the whole team-commits section is omitted (no constant
+base from the other drive); a missing `host.gateway` -> the route half is empty (no
+hard-coded 134.176.194.26); the supervision-log side is named as missing, not DIFFERS; the
+model-call count prints as `0` for missing telemetry, not the reference's empty string.
+The host plumbing (`systemctl`, `podman`, `nmcli`, `ip`, `pgrep`, python3's follow, the
+real push) is shimmable: this container tests it with stand-ins, and the supervisor runs
+the real thing on the host beside `checkin.sh` before the verb switches to its port -- the
+switch-over, PLAN section 6.
+
+The C2b refusal (a config that names no loop unit and no `--loop-unit` flag refuses with
+the named line BEFORE anything is printed -- the half-printed check-in is the M1213 SV:0033
+class) names `checkin`'s loop unit refusal, carried to checkin from page's precedent:
+`drive.loopUnit` absent AND the `--loop-unit` flag absent -> exit 1, one named line:
+`checkin: the loop unit's name is not in the config (drive.loopUnit) or on the command
+line (--loop-unit); refused, printed nothing else` -- BEFORE the header, the M1213 SV:0033
+precedent.
+
+Driver: `tests/smoke/harness_checkin.sh` (red-first, 41 cells); the redactor's unit test
+is `test_redact`.
 
 ## The settings (env, `JICHI_HARNESS_`)
 

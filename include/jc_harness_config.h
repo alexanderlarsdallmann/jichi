@@ -291,6 +291,29 @@ struct jc_harness_config {
     char *drive_loop_unit;        /* drive.loopUnit (optional; absent = jhd-hardening-loop) */
     char *drive_container_name;   /* drive.containerName (optional; absent = jhd-hardening) */
 
+    /* The checkin block (M1224, H13): the shimmable host commands the checkin
+     * verb consumes. All optional, opt_str as-is, NULL when absent -- the other
+     * host fields' idiom. The loader does NOT refuse them: the commands decide. */
+    char *host_checkin_follow;    /* host.checkinFollow (optional; absent = none) */
+    char *host_checkin_pid_list;  /* host.checkinPidList (optional; absent = ps -eo pid,args grep) */
+    char *host_checkin_push;      /* host.checkinPush (optional; absent = none) */
+    char *host_checkin_route;     /* host.checkinRoute (optional; absent = ip route get gateway) */
+    char *host_checkin_vpn;       /* host.checkinVpn (optional; absent = nmcli ... active) */
+    char *host_checkin_vpn0;      /* host.checkinVpn0 (optional; absent = ip -br link show vpn0) */
+    char *host_checkin_openconnect; /* host.checkinOpenconnect (optional; absent = pgrep -x openconnect) */
+
+    /* The checkin drive block (M1224, H13): the shimmable drive settings the
+     * checkin verb consumes. All optional, opt_str as-is, NULL when absent --
+     * the other drive fields' idiom. The loader does NOT refuse them: the
+     * commands decide. */
+    char *drive_once_unit;        /* drive.onceUnit (optional; absent = loopUnit + "-once") */
+    char *drive_restart_loop_unit; /* drive.restartLoopUnit (optional; absent = none) */
+    char *drive_page_watch_unit;  /* drive.pageWatchUnit (optional; absent = none) */
+    char *drive_push_unit;        /* drive.pushUnit (optional; absent = none) */
+    /* drive_branch_prefix is already declared at the top (M1051) */
+    char *drive_log_path;         /* drive.logPath (optional; absent = none) */
+    char *drive_gateway;          /* drive.gateway (optional; absent = "134.176.194.26") */
+
     /* The refusal's message, naming the problem (behaviours 3,4,6,7,10).
      * NULL on JC_OK. Carries no secret (a reference path is not a secret). */
     char *message;

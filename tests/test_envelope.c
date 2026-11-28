@@ -18,6 +18,7 @@
 #include "jc_vec.h"
 
 #include <string.h>
+#include <time.h>   /* clock(): the bound on the glob matcher's work */
 #include <signal.h> /* E-01 site test: SIGCHLD/SIG_DFL/SIG_IGN */
 
 /* static, and forward-declared: it is a sub-test called from the envelope
@@ -55,6 +56,139 @@ static void test_parse_duration(void)
     JC_CHECK(jc_env_parse_duration("", &s) == -1);
     JC_CHECK(jc_env_parse_duration("10x", &s) == -1);
     JC_CHECK(jc_env_parse_duration("h", &s) == -1);
+
+    /* A duration no long can hold is REFUSED, not converted (the review of
+     * 2026-11-24, finding F28). The conversion of such a double to long is
+     * undefined: on x86-64 it gave LONG_MIN, which every caller reads as "no
+     * deadline", in silence; on ARM it gave LONG_MAX, and the four-fifths
+     * notice then multiplied that by four. Each rejected input leaves *out
+     * alone, so a caller that ignores the result keeps what it had. */
+    s = 77;
+    JC_CHECK(jc_env_parse_duration("1e300h", &s) == -1 && s == 77);
+    JC_CHECK(jc_env_parse_duration("99999999999999999999", &s) == -1 && s == 77);
+    JC_CHECK(jc_env_parse_duration("9223372036854775808", &s) == -1 && s == 77);
+    JC_CHECK(jc_env_parse_duration("1e999", &s) == -1 && s == 77);
+    JC_CHECK(jc_env_parse_duration("inf", &s) == -1 && s == 77);
+    JC_CHECK(jc_env_parse_duration("nan", &s) == -1 && s == 77);
+    /* ... and a long duration that IS one still parses: ten years. */
+    JC_CHECK(jc_env_parse_duration("3650d", &s) == 0 && s == 315360000L);
+}
+
+/* The matcher as it stood up to eb55edb29: one recursion per star and per
+ * position. It is the definition of what a pattern means, and it is kept here
+ * as the oracle for the one in src/, on inputs short enough for its cost. */
+static int glob_ref(const char *pat, const char *path)
+{
+    while (*pat != '\0') {
+        if (*pat == '*') {
+            if (pat[1] == '*') {
+                const char *np = pat + 2;
+                if (*np == '/') {
+                    np++;
+                }
+                if (*np == '\0') {
+                    return 1;
+                }
+                for (;;) {
+                    if (glob_ref(np, path)) {
+                        return 1;
+                    }
+                    if (*path == '\0') {
+                        return 0;
+                    }
+                    path++;
+                }
+            } else {
+                const char *np = pat + 1;
+                for (;;) {
+                    if (glob_ref(np, path)) {
+                        return 1;
+                    }
+                    if (*path == '\0' || *path == '/') {
+                        return 0;
+                    }
+                    path++;
+                }
+            }
+        } else if (*pat == '?') {
+            if (*path == '\0' || *path == '/') {
+                return 0;
+            }
+            pat++;
+            path++;
+        } else {
+            if (*pat != *path) {
+                return 0;
+            }
+            pat++;
+            path++;
+        }
+    }
+    return *path == '\0';
+}
+
+/* Write number `n` in base `nsym` with the digits `sym`, `len` digits. */
+static void glob_enum(char *out, long n, int len, const char *sym, int nsym)
+{
+    int i;
+    for (i = 0; i < len; i++) {
+        out[i] = sym[n % nsym];
+        n /= nsym;
+    }
+    out[len] = '\0';
+}
+
+/* Every pattern of up to 6 symbols over {a,b,/,*,?} against every text of up
+ * to 6 symbols over {a,b,/}: the matcher in src/ answers as the reference. */
+static void test_glob_reference(void)
+{
+    char pat[8], txt[8];
+    int pl, tl;
+    long pi, ti, pn, tn;
+    long pairs = 0, differ = 0, matched = 0;
+
+    for (pl = 0, pn = 1; pl <= 6; pl++, pn *= 5) {
+        for (pi = 0; pi < pn; pi++) {
+            glob_enum(pat, pi, pl, "ab/*?", 5);
+            for (tl = 0, tn = 1; tl <= 6; tl++, tn *= 3) {
+                for (ti = 0; ti < tn; ti++) {
+                    int want, got;
+                    glob_enum(txt, ti, tl, "ab/", 3);
+                    want = glob_ref(pat, txt);
+                    got = jc_glob_match(pat, txt);
+                    pairs++;
+                    matched += want;
+                    if (want != got) {
+                        if (differ == 0) {
+                            fprintf(stderr, "glob: '%s' against '%s': reference %d, matcher %d\n",
+                                    pat, txt, want, got);
+                        }
+                        differ++;
+                    }
+                }
+            }
+        }
+    }
+    JC_CHECK(differ == 0);
+    /* The instrument can fire only if both answers occur. */
+    JC_CHECK(pairs == 21347383L);
+    JC_CHECK(matched > 100000L && matched < pairs - 100000L);
+}
+
+/* A bound on work. Ten stars against forty letters cost the recursive matcher
+ * 5.3 s of processor time in an ordinary build (measured on eb55edb29); the
+ * bound is one second, and the matcher in src/ needs a few hundred steps. */
+static void test_glob_bounded(void)
+{
+    const char *text = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    clock_t t0 = clock();
+    int r = jc_glob_match("*a*a*a*a*a*a*a*a*a*ab", text);
+    double secs = (double)(clock() - t0) / (double)CLOCKS_PER_SEC;
+
+    JC_CHECK(r == 0);
+    JC_CHECK(secs < 1.0);
+    JC_CHECK(jc_glob_match("*a*a*a*a*a*a*a*a*a*a", text) == 1);
+    JC_CHECK(jc_glob_match("**/*a**a*/**b", text) == 0);
 }
 
 static void test_glob(void)
@@ -1051,6 +1185,8 @@ void test_envelope(void)
     test_parse_size();
     test_parse_duration();
     test_glob();
+    test_glob_reference();
+    test_glob_bounded();
     test_scope();
     test_scope_with_dotdot();
     test_budget();

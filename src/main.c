@@ -19028,6 +19028,22 @@ int main(int argc, char **argv)
         } else {
             selfpath[0] = '\0';
         }
+        /* The kernel's answer, made canonical. NetBSD's procfs answers the path
+         * as it was exec'd: started as ./usr/local/bin/jichi in <dir>, it reads
+         * <dir>/./usr/local/bin/jichi. That names the right file, but a child
+         * that compares or prints "$JICHI_BIN" should meet one spelling for
+         * one file, whichever kernel answered. Only an absolute answer is
+         * resolved (this runs after -C, and a relative one would be read
+         * against the wrong directory); an answer that cannot be resolved
+         * is kept as it came. */
+        if (selfpath[0] == '/') {
+            char canon[JC_PATH_MAX];
+
+            if (jc_path_resolve(selfpath, canon, sizeof(canon)) == JC_OK &&
+                strlen(canon) < sizeof(selfpath)) {
+                memcpy(selfpath, canon, strlen(canon) + 1);
+            }
+        }
         if (selfpath[0] != '\0' &&
             (g_self_from_argv0[0] == '\0' ||
              strcmp(self_leaf(selfpath), self_leaf(g_self_from_argv0)) == 0)) {
